@@ -20,9 +20,9 @@ use super::presentation::TaskPresentationContext;
 use super::spec::{
     ArchiveCompressTask, ArchiveExtractTask, ArchivePreviewGenerateTask, BlobMaintenanceTask,
     ErasedBackgroundTaskSpec, FolderTreeMutationTask, ImagePreviewGenerateTask,
-    MediaMetadataExtractTask, OfflineDownloadTask, StoragePolicyMigrationTask,
-    StoragePolicyTempCleanupTask, SystemRuntimeTask, TaskProcessFuture, ThumbnailGenerateTask,
-    TrashPurgeAllTask,
+    MediaMetadataExtractTask, OfflineDownloadTask, StoragePolicyForcedPurgeTask,
+    StoragePolicyMigrationTask, StoragePolicyTempCleanupTask, SystemRuntimeTask, TaskProcessFuture,
+    ThumbnailGenerateTask, TrashPurgeAllTask,
 };
 use super::types::{TaskPayload, TaskPresentation, TaskResult};
 
@@ -48,6 +48,7 @@ aster_forge_tasks::task_registry! {
             FOLDER_TREE_MUTATION: super::FolderTreeMutationTask => aster_drive_model::types::BackgroundTaskKind::FolderTreeMutation,
             STORAGE_POLICY_TEMP_CLEANUP: super::StoragePolicyTempCleanupTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyTempCleanup,
             STORAGE_POLICY_MIGRATION: super::StoragePolicyMigrationTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyMigration,
+            STORAGE_POLICY_FORCED_PURGE: super::StoragePolicyForcedPurgeTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyForcedPurge,
             BLOB_MAINTENANCE: super::BlobMaintenanceTask => aster_drive_model::types::BackgroundTaskKind::BlobMaintenance,
             OFFLINE_DOWNLOAD: super::OfflineDownloadTask => aster_drive_model::types::BackgroundTaskKind::OfflineDownload,
             SYSTEM_RUNTIME: super::SystemRuntimeTask => aster_drive_model::types::BackgroundTaskKind::SystemRuntime,
@@ -68,6 +69,7 @@ aster_forge_tasks::task_registry! {
             ],
             crate::services::task::dispatch::TaskLane::StorageMigration => [
                 aster_drive_model::types::BackgroundTaskKind::StoragePolicyMigration,
+                aster_drive_model::types::BackgroundTaskKind::StoragePolicyForcedPurge,
             ],
             crate::services::task::dispatch::TaskLane::Fallback => [
                 aster_drive_model::types::BackgroundTaskKind::SystemRuntime,
@@ -154,6 +156,7 @@ mod tests {
             BackgroundTaskKind::FolderTreeMutation,
             BackgroundTaskKind::StoragePolicyTempCleanup,
             BackgroundTaskKind::StoragePolicyMigration,
+            BackgroundTaskKind::StoragePolicyForcedPurge,
             BackgroundTaskKind::BlobMaintenance,
             BackgroundTaskKind::OfflineDownload,
             BackgroundTaskKind::SystemRuntime,
@@ -175,6 +178,7 @@ mod tests {
             BackgroundTaskKind::FolderTreeMutation,
             BackgroundTaskKind::StoragePolicyTempCleanup,
             BackgroundTaskKind::StoragePolicyMigration,
+            BackgroundTaskKind::StoragePolicyForcedPurge,
             BackgroundTaskKind::BlobMaintenance,
             BackgroundTaskKind::OfflineDownload,
             BackgroundTaskKind::SystemRuntime,

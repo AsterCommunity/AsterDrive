@@ -5,7 +5,7 @@ use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::{
     LocalPathStorageDriver, StorageCapacityInfo, StorageCapacityStatus,
 };
-use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
+use aster_drive_storage::{MapStorageErr, StorageError, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::LocalDriver;
@@ -28,7 +28,7 @@ impl StorageDriver for LocalDriver {
     async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         tokio::fs::read(self.full_path(path)?)
             .await
-            .map_storage_err(StorageErrorKind::Transient)
+            .map_err(map_local_object_io_error)
     }
 
     async fn get_stream(
@@ -37,7 +37,7 @@ impl StorageDriver for LocalDriver {
     ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let file = tokio::fs::File::open(self.full_path(path)?)
             .await
-            .map_storage_err(StorageErrorKind::Transient)?;
+            .map_err(map_local_object_io_error)?;
         Ok(Box::new(file))
     }
 
@@ -50,7 +50,7 @@ impl StorageDriver for LocalDriver {
         use tokio::io::AsyncReadExt;
         let mut file = tokio::fs::File::open(self.full_path(path)?)
             .await
-            .map_storage_err(StorageErrorKind::Transient)?;
+            .map_err(map_local_object_io_error)?;
         if offset > 0 {
             file.seek(std::io::SeekFrom::Start(offset))
                 .await
@@ -69,7 +69,7 @@ impl StorageDriver for LocalDriver {
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         tokio::fs::remove_file(self.full_path(path)?)
             .await
-            .map_storage_err(StorageErrorKind::Transient)
+            .map_err(map_local_object_io_error)
     }
 
     async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
@@ -79,7 +79,7 @@ impl StorageDriver for LocalDriver {
     async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let meta = tokio::fs::metadata(self.full_path(path)?)
             .await
-            .map_storage_err(StorageErrorKind::Transient)?;
+            .map_err(map_local_object_io_error)?;
         Ok(BlobMetadata {
             size: meta.len(),
             content_type: None,
@@ -161,6 +161,16 @@ impl StorageDriver for LocalDriver {
         .await
         .map_storage_err_ctx(StorageErrorKind::Transient, "local capacity task")?
     }
+}
+
+/// Maps local object I/O without collapsing conclusive absence into a retryable failure.
+fn map_local_object_io_error(error: std::io::Error) -> StorageError {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => StorageErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => StorageErrorKind::Permission,
+        _ => StorageErrorKind::Transient,
+    };
+    StorageError::new(kind, error.to_string())
 }
 
 impl LocalPathStorageDriver for LocalDriver {

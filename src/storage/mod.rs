@@ -9,6 +9,7 @@ pub mod drivers;
 pub(crate) mod io_limits;
 mod metrics_driver;
 pub mod policy_snapshot;
+pub mod read_probe;
 pub mod registry;
 pub mod remote_protocol;
 pub use connectors::{

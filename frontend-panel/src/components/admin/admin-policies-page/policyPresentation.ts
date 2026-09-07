@@ -1,5 +1,9 @@
 import type { CSSProperties } from "react";
-import type { StorageConnectorBadgeRgb } from "@/types/api";
+import type { IconName } from "@/components/ui/icon";
+import type {
+	StorageConnectorBadgeRgb,
+	StoragePolicyRecoveryProbe,
+} from "@/types/api";
 
 const DEFAULT_BADGE_RGB: StorageConnectorBadgeRgb = {
 	red: 113,
@@ -47,4 +51,77 @@ export function getStorageConnectorBadgePresentation(
 			"border-[var(--storage-connector-badge-border)] bg-[var(--storage-connector-badge-background)] text-[var(--storage-connector-badge-foreground)] dark:text-[var(--storage-connector-badge-foreground-dark)]",
 		style,
 	};
+}
+
+type RecoveryStatus = StoragePolicyRecoveryProbe["status"];
+type RecoveryPresentationKey =
+	| "policy_recovery_probe_pending"
+	| "policy_recovery_probe_running"
+	| "policy_recovery_probe_recoverable_title"
+	| "policy_recovery_probe_partial_title"
+	| "policy_recovery_probe_blocked_title"
+	| "policy_recovery_probe_indeterminate_title"
+	| "policy_recovery_probe_virtual_empty_title";
+
+interface StoragePolicyRecoveryStatusPresentation {
+	icon: IconName;
+	titleKey: RecoveryPresentationKey;
+	toneClass: string;
+}
+
+const RECOVERY_TONE_CLASSES = {
+	neutral: "border-border bg-muted/20 text-foreground",
+	success:
+		"border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-100",
+	warning:
+		"border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-100",
+	danger: "border-destructive/40 bg-destructive/8 text-destructive",
+} as const;
+
+const RECOVERY_STATUS_PRESENTATIONS = {
+	recoverable: {
+		icon: "Check",
+		titleKey: "policy_recovery_probe_recoverable_title",
+		toneClass: RECOVERY_TONE_CLASSES.success,
+	},
+	partially_recoverable: {
+		icon: "Warning",
+		titleKey: "policy_recovery_probe_partial_title",
+		toneClass: RECOVERY_TONE_CLASSES.warning,
+	},
+	blocked: {
+		icon: "CircleAlert",
+		titleKey: "policy_recovery_probe_blocked_title",
+		toneClass: RECOVERY_TONE_CLASSES.danger,
+	},
+	indeterminate: {
+		icon: "Question",
+		titleKey: "policy_recovery_probe_indeterminate_title",
+		toneClass: RECOVERY_TONE_CLASSES.warning,
+	},
+	no_stored_objects: {
+		icon: "Cloud",
+		titleKey: "policy_recovery_probe_virtual_empty_title",
+		toneClass: RECOVERY_TONE_CLASSES.neutral,
+	},
+} as const satisfies Record<
+	RecoveryStatus,
+	StoragePolicyRecoveryStatusPresentation
+>;
+
+/** Maps recovery state to one shared semantic icon, title, and color presentation. */
+export function getStoragePolicyRecoveryStatusPresentation(
+	status: RecoveryStatus | null | undefined,
+	loading: boolean,
+): StoragePolicyRecoveryStatusPresentation {
+	if (loading || !status) {
+		return {
+			icon: loading ? "Spinner" : "Cloud",
+			titleKey: loading
+				? "policy_recovery_probe_running"
+				: "policy_recovery_probe_pending",
+			toneClass: RECOVERY_TONE_CLASSES.neutral,
+		};
+	}
+	return RECOVERY_STATUS_PRESENTATIONS[status];
 }

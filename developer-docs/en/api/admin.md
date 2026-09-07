@@ -304,6 +304,9 @@ Admins can create and resume cross-policy blob migration tasks.
 | `POST` | `/admin/storage-migrations` | Create storage-policy migration task |
 | `POST` | `/admin/storage-migrations/dry-run` | Preflight migration plan without creating a task |
 | `POST` | `/admin/storage-migrations/{task_id}/resume` | Resume existing migration task |
+| `POST` | `/admin/policies/{id}/recovery-probe` | Read-only sample probe for recoverable source content |
+| `POST` | `/admin/policies/{id}/forced-purge-preview` | Build current permanent-purge impact, blockers, and confirmation phrase |
+| `POST` | `/admin/policies/{id}/forced-purge` | Create a digest- and phrase-confirmed permanent-purge task |
 
 Create request:
 
@@ -311,14 +314,17 @@ Create request:
 {
   "source_policy_id": 1,
   "target_policy_id": 2,
-  "delete_source_after_success": false
+  "mode": "normal"
 }
 ```
 
 Rules:
 
 - source and target policy IDs must be positive and different
-- `delete_source_after_success = true` is currently rejected
+- storage migration has no source-deletion option; deleting the source policy remains an explicit administrator action after migration
+- `recover_available` requires the latest recovery probe hash; execution revalidates source and target policy revisions
+- recovery probes perform metadata plus bounded range reads without writing or deleting source objects
+- recovery tasks migrate virtual-empty content first, then preserve every readable stored blob while leaving missing rows protected on the source policy; the source policy itself is never deleted by the task
 - `dry-run` checks target stream-upload support and performs a write/delete probe
 - capacity checks use the bytes still expected to be copied, not the whole source policy size
 - `insufficient` capacity blocks task creation; `unsupported` and `unavailable` become warnings
@@ -327,6 +333,8 @@ Rules:
 - migration tasks have independent checkpoints and resume support
 - content SHA-256 blobs can be merged across policies only when hash is 64-hex and size also matches
 - opaque blobs are never merged across policies
+- forced purge is blocked only by placement targets; active upload sessions are reported and abandoned locally by the confirmed task, while completed sessions are not counted as active
+- forced purge removes complete file histories referencing source-policy blobs, including direct shares, trash entries, and quota, before deleting unreferenced blob metadata and the policy
 
 ## Remote nodes
 

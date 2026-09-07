@@ -55,11 +55,12 @@ pub use folders::set_folder_policy;
 pub use locks::{cleanup_expired_locks, force_unlock, list_locks};
 pub use overview::get_overview;
 pub use policies::{
-    create_policy, create_policy_group, delete_policy, delete_policy_group,
-    execute_draft_storage_policy_action, execute_saved_storage_policy_action,
+    create_policy, create_policy_group, create_storage_policy_forced_purge, delete_policy,
+    delete_policy_group, execute_draft_storage_policy_action, execute_saved_storage_policy_action,
     finish_storage_authorization, get_policy, get_policy_capacity, get_policy_group, list_policies,
     list_policy_groups, list_storage_driver_descriptors, list_storage_driver_localizations,
     list_storage_policy_credentials, migrate_policy_group_assignments,
+    preview_storage_policy_forced_purge, probe_storage_policy_recoverability,
     promote_storage_policy_connector, simulate_policy_group_placement, start_storage_authorization,
     test_policy_connection, test_policy_params, update_policy, update_policy_group,
     validate_storage_policy_credential,
@@ -125,6 +126,18 @@ pub fn routes(
                     )
                     .route("/policies/{id}", web::patch().to(update_policy))
                     .route("/policies/{id}", web::delete().to(delete_policy))
+                    .route(
+                        "/policies/{id}/recovery-probe",
+                        web::post().to(probe_storage_policy_recoverability),
+                    )
+                    .route(
+                        "/policies/{id}/forced-purge-preview",
+                        web::post().to(preview_storage_policy_forced_purge),
+                    )
+                    .route(
+                        "/policies/{id}/forced-purge",
+                        web::post().to(create_storage_policy_forced_purge),
+                    )
                     .route(
                         "/policies/{id}/test",
                         web::post().to(test_policy_connection),

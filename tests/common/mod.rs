@@ -500,6 +500,8 @@ static MYSQL_TEST_CONTAINER: tokio::sync::OnceCell<MysqlTestContainer> =
 const POSTGRES_TEMPLATE_FIXTURE: &str = "postgres-template";
 const MYSQL_TEMPLATE_FIXTURE: &str = "mysql-schema-template";
 const TEST_FIXTURE_PRODUCER_VERSION: &str = env!("CARGO_PKG_VERSION");
+const POSTGRES_TEST_SESSION_OPTIONS: &str =
+    "-c max_parallel_workers_per_gather=0 -c max_parallel_maintenance_workers=0";
 static MYSQL_SCHEMA_TEMPLATE_CACHE: tokio::sync::OnceCell<MySqlSchemaTemplate> =
     tokio::sync::OnceCell::const_new();
 
@@ -696,6 +698,15 @@ async fn start_mysql_test_container() -> MysqlTestContainer {
     container
 }
 
+/// Disables PostgreSQL intra-query workers that can exhaust Docker's small default `/dev/shm`.
+fn postgres_test_session_url(database_url: &str) -> String {
+    let mut url = reqwest::Url::parse(database_url).expect("PostgreSQL test URL should parse");
+    url.query_pairs_mut()
+        .append_pair("options", POSTGRES_TEST_SESSION_OPTIONS);
+    url.to_string()
+}
+
+/// Builds the product database URL with backend-specific test credentials and limits.
 fn product_database_url(database_url: &str, backend: TestDatabaseBackend) -> String {
     let mut url = reqwest::Url::parse(database_url).expect("test database URL should parse");
     url.set_path("/asterdrive");
@@ -705,7 +716,12 @@ fn product_database_url(database_url: &str, backend: TestDatabaseBackend) -> Str
         url.set_password(Some("asterpass"))
             .expect("MySQL test URL should accept a password");
     }
-    url.to_string()
+    let database_url = url.to_string();
+    if backend == TestDatabaseBackend::Postgres {
+        postgres_test_session_url(&database_url)
+    } else {
+        database_url
+    }
 }
 
 async fn shared_test_database_urls(backend: TestDatabaseBackend) -> (String, String) {
@@ -830,7 +846,7 @@ async fn provision_isolated_test_database_url_with_template(
                 }
                 None => container.create_database(&isolated_name).await,
             };
-            database.url().to_string()
+            postgres_test_session_url(database.url())
         }
         sea_orm::DbBackend::MySql => {
             use sea_orm::ConnectionTrait;
@@ -955,7 +971,7 @@ async fn ensure_postgres_template_locked(
     container.drop_shared_database(&template_name).await;
     let template = container.create_shared_database(&template_name).await;
     let db_cfg = aster_drive::config::DatabaseConfig {
-        url: template.url().into(),
+        url: postgres_test_session_url(template.url()).into(),
         pool_size: 1,
         retry_count: 0,
     };

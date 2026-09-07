@@ -939,6 +939,28 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     wait_for_database(database_url).await;
 
     let state = common::setup_with_database_url(database_url).await;
+    if backend == DbBackend::Postgres {
+        for setting in [
+            "max_parallel_workers_per_gather",
+            "max_parallel_maintenance_workers",
+        ] {
+            let value = state
+                .writer_db()
+                .query_one_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    format!("SHOW {setting}"),
+                ))
+                .await
+                .expect("PostgreSQL parallel-worker setting should be queryable")
+                .expect("PostgreSQL SHOW should return one row")
+                .try_get::<String>("", setting)
+                .expect("PostgreSQL SHOW value should decode");
+            assert_eq!(
+                value, "0",
+                "PostgreSQL test session should disable {setting}"
+            );
+        }
+    }
     match backend {
         DbBackend::Postgres => assert_postgres_search_objects(state.writer_db()).await,
         DbBackend::MySql => assert_mysql_search_objects(state.writer_db()).await,
@@ -1299,6 +1321,26 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     assert_revision_property_namespace_case_sensitivity(&state, backend, &app, &token, &test_user)
         .await;
     assert_batched_folder_copy_initial_revisions(&state, backend, &app, &token, test_user.id).await;
+
+    let default_policy = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .expect("default policy query should succeed")
+        .expect("default policy should exist");
+    let purge_impact =
+        aster_drive::db::repository::file_repo::summarize_storage_policy_purge_impact(
+            state.writer_db(),
+            default_policy.id,
+        )
+        .await
+        .expect("policy purge impact SQL should execute on the production backend");
+    assert!(
+        purge_impact.file_count > 0,
+        "default-policy uploads should be included in forced-purge impact"
+    );
+    assert!(
+        purge_impact.affected_revision_count >= purge_impact.file_count,
+        "every affected file should contribute at least one active revision"
+    );
 }
 
 #[actix_web::test]

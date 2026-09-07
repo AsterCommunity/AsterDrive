@@ -6,6 +6,7 @@ import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination"
 import { PoliciesTable } from "@/components/admin/admin-policies-page/PoliciesTable";
 import { PolicyDialogs } from "@/components/admin/admin-policies-page/PolicyDialogs";
 import { StoragePolicyMigrationDialog } from "@/components/admin/admin-policies-page/StoragePolicyMigrationDialog";
+import { StoragePolicyRecoveryDialog } from "@/components/admin/admin-policies-page/StoragePolicyRecoveryDialog";
 import {
 	getEndpointValidationMessage,
 	normalizePolicyForm,
@@ -46,6 +47,7 @@ import { useStoragePolicyEditorController } from "./admin-policies-page/useStora
 import { useStoragePolicyListController } from "./admin-policies-page/useStoragePolicyListController";
 import { useStoragePolicyMigrationController } from "./admin-policies-page/useStoragePolicyMigrationController";
 import { useStoragePolicyPromotionController } from "./admin-policies-page/useStoragePolicyPromotionController";
+import { useStoragePolicyRecoveryController } from "./admin-policies-page/useStoragePolicyRecoveryController";
 
 function getStorageAuthorizationCallbackUrl() {
 	const apiBaseUrl = new URL(config.apiBaseUrl, window.location.origin);
@@ -107,7 +109,10 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	const logout = useAuthStore((state) => state.logout);
 	const refreshSetupState = useSystemSetupStore((state) => state.refresh);
 	const [searchParams, setSearchParams] = useSearchParams();
-	const policyList = useStoragePolicyListController();
+	const recoveryController = useStoragePolicyRecoveryController();
+	const policyList = useStoragePolicyListController({
+		onBlobReferencesBlocked: recoveryController.openForPolicy,
+	});
 	const migrationController = useStoragePolicyMigrationController();
 	const [dialogOpen, setDialogOpen] = useState(setupMode);
 	const [editingId, setEditingId] = useState<number | null>(null);
@@ -673,6 +678,26 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 					onSourcePolicyChange={migrationController.handleSourcePolicyChange}
 					onTargetPolicyChange={migrationController.handleTargetPolicyChange}
 					onSubmit={() => void migrationController.createMigration()}
+				/>
+				<StoragePolicyRecoveryDialog
+					confirmation={recoveryController.confirmation}
+					loading={recoveryController.loading}
+					open={recoveryController.open}
+					policies={recoveryController.policies}
+					policy={recoveryController.policy}
+					probe={recoveryController.probe}
+					purgePreview={recoveryController.purgePreview}
+					reason={recoveryController.reason}
+					submitting={recoveryController.submitting}
+					targetPolicyId={recoveryController.targetPolicyId}
+					onConfirmationChange={recoveryController.setConfirmation}
+					onOpenChange={recoveryController.setOpen}
+					onPreviewForcedPurge={recoveryController.previewForcedPurge}
+					onReasonChange={recoveryController.setReason}
+					onRetryProbe={recoveryController.retryProbe}
+					onStartForcedPurge={recoveryController.startForcedPurge}
+					onStartRecovery={recoveryController.startRecovery}
+					onTargetPolicyChange={recoveryController.setTargetPolicyId}
 				/>
 			</AdminPageShell>
 		</AdminLayout>

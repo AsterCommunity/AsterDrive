@@ -173,6 +173,7 @@ macro_rules! define_audit_action_list {
             RemoteNodeGracefulDisconnect,
             RemoteNodeUnexpectedDisconnect,
             RemoteNodeHeartbeatTimeout,
+            AdminCreateStoragePolicyForcedPurgeTask,
         }
     };
 }
@@ -701,6 +702,9 @@ pub enum AuditAction {
     RemoteNodeUnexpectedDisconnect,
     #[sea_orm(string_value = "remote_node_heartbeat_timeout")]
     RemoteNodeHeartbeatTimeout,
+    /// Administrator confirmed creation of a destructive policy-purge task.
+    #[sea_orm(string_value = "admin_create_storage_policy_forced_purge_task")]
+    AdminCreateStoragePolicyForcedPurgeTask,
 }
 
 impl AuditAction {
@@ -862,6 +866,7 @@ impl AuditAction {
             Self::RemoteNodeGracefulDisconnect => 150,
             Self::RemoteNodeUnexpectedDisconnect => 151,
             Self::RemoteNodeHeartbeatTimeout => 152,
+            Self::AdminCreateStoragePolicyForcedPurgeTask => 153,
         }
     }
 
@@ -1022,6 +1027,9 @@ impl AuditAction {
             Self::RemoteNodeGracefulDisconnect => "remote_node_graceful_disconnect",
             Self::RemoteNodeUnexpectedDisconnect => "remote_node_unexpected_disconnect",
             Self::RemoteNodeHeartbeatTimeout => "remote_node_heartbeat_timeout",
+            Self::AdminCreateStoragePolicyForcedPurgeTask => {
+                "admin_create_storage_policy_forced_purge_task"
+            }
         }
     }
 
@@ -1182,6 +1190,9 @@ impl AuditAction {
             "remote_node_graceful_disconnect" => Some(Self::RemoteNodeGracefulDisconnect),
             "remote_node_unexpected_disconnect" => Some(Self::RemoteNodeUnexpectedDisconnect),
             "remote_node_heartbeat_timeout" => Some(Self::RemoteNodeHeartbeatTimeout),
+            "admin_create_storage_policy_forced_purge_task" => {
+                Some(Self::AdminCreateStoragePolicyForcedPurgeTask)
+            }
             _ => None,
         }
     }
@@ -1213,7 +1224,8 @@ impl AuditAction {
             | Self::AdminCleanupTasks
             | Self::AdminCreateBlobMaintenanceTask
             | Self::AdminCreateInvitation
-            | Self::AdminRevokeInvitation => "admin",
+            | Self::AdminRevokeInvitation
+            | Self::AdminCreateStoragePolicyForcedPurgeTask => "admin",
             Self::AdminCreateRemoteNode
             | Self::AdminUpdateRemoteNode
             | Self::AdminDeleteRemoteNode

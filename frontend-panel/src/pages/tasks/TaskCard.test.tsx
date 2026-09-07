@@ -197,6 +197,39 @@ describe("TaskCard", () => {
 		expect(onToggleDetails).toHaveBeenCalledWith(44);
 	});
 
+	it("renders forced policy purge with its destructive icon and policy name", () => {
+		render(
+			<TaskCard
+				detailsExpanded={false}
+				onOpenTargetFolder={vi.fn()}
+				onRetry={vi.fn()}
+				onToggleDetails={vi.fn()}
+				retrying={false}
+				task={createTask({
+					display_name: "Permanently purge Source policy",
+					kind: "storage_policy_forced_purge",
+					payload: {
+						impact_digest: "impact-hash",
+						kind: "storage_policy_forced_purge",
+						policy_id: 7,
+						policy_name: "Source policy",
+						policy_updated_at: "2026-09-07T00:00:00Z",
+						reason: "",
+					} as never,
+				})}
+			/>,
+		);
+
+		expect(screen.getByText("icon:Trash")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:summary_force_purge_storage_policy"),
+		).toBeInTheDocument();
+		expect(screen.getByText("Source policy")).toBeInTheDocument();
+		expect(
+			screen.getByText("tasks:kind_storage_policy_forced_purge"),
+		).toBeInTheDocument();
+	});
+
 	it("uses active step detail when it only differs by casing from status text", () => {
 		render(
 			<TaskCard

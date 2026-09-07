@@ -240,4 +240,6 @@ pub(crate) use maintenance::{BlobMaintenanceTask, FolderTreeMutationTask, TrashP
 pub(crate) use media::{ImagePreviewGenerateTask, MediaMetadataExtractTask, ThumbnailGenerateTask};
 pub(crate) use offline_download::OfflineDownloadTask;
 pub(crate) use runtime::SystemRuntimeTask;
-pub(crate) use storage::{StoragePolicyMigrationTask, StoragePolicyTempCleanupTask};
+pub(crate) use storage::{
+    StoragePolicyForcedPurgeTask, StoragePolicyMigrationTask, StoragePolicyTempCleanupTask,
+};

@@ -1,10 +1,14 @@
 //! Structured storage errors shared by drivers and product adapters.
 
+use serde::{Deserialize, Serialize};
+
 /// Classifies a storage failure using a stable, transport-independent kind.
 ///
 /// Drivers should assign a kind when they create an error so callers can make
 /// retry, cleanup, and presentation decisions without parsing the message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum StorageErrorKind {
     /// Credentials were missing, rejected, or otherwise failed authentication.
     Auth,

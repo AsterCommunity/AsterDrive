@@ -10,8 +10,78 @@ use aster_drive::services::storage_policy::policy::placement::{
 use aster_forge_file_classification::FileCategory;
 
 use actix_web::test;
+use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::Value;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use tokio::io::AsyncRead;
+
+use aster_drive_storage::{BlobMetadata, StorageDriver};
+
+#[derive(Default)]
+struct DisasterPurgeDataPlaneProbe {
+    calls: AtomicUsize,
+}
+
+impl DisasterPurgeDataPlaneProbe {
+    /// Returns the total number of storage data-plane operations observed by the probe.
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    /// Records one unexpected data-plane operation.
+    fn record_call(&self) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[async_trait]
+impl StorageDriver for DisasterPurgeDataPlaneProbe {
+    /// Records an unexpected object write.
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.record_call();
+        Ok(path.to_string())
+    }
+
+    /// Records an unexpected full-object read.
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.record_call();
+        Ok(Vec::new())
+    }
+
+    /// Records an unexpected streaming read.
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.record_call();
+        Ok(Box::new(tokio::io::empty()))
+    }
+
+    /// Records an unexpected object deletion.
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
+        self.record_call();
+        Ok(())
+    }
+
+    /// Records an unexpected object existence check.
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
+        self.record_call();
+        Ok(false)
+    }
+
+    /// Records an unexpected object metadata request.
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        self.record_call();
+        Ok(BlobMetadata {
+            size: 0,
+            content_type: None,
+        })
+    }
+}
 
 fn resolve_policy_id_from_snapshot(
     state: &aster_drive::runtime::PrimaryAppState,
@@ -2571,6 +2641,145 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
     assert!(
         !temp_dir.exists(),
         "forced delete should remove local upload temp directory"
+    );
+}
+
+#[actix_web::test]
+async fn forced_purge_preview_ignores_completed_sessions_and_does_not_block_active_sessions() {
+    use aster_drive::db::repository::{policy_repo, upload_session_repo, user_repo};
+    use aster_drive::services::task;
+    use aster_drive_model::types::UploadSessionStatus;
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .expect("registered user");
+    let policy_id = create_local_policy_via_admin(&app, &token, "Purge session impact").await;
+    let data_plane_probe = Arc::new(DisasterPurgeDataPlaneProbe::default());
+    state
+        .driver_registry
+        .insert_for_test(policy_id, data_plane_probe.clone());
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "completed-purge-session",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: Some(UploadSessionStatus::Completed),
+            expires_at: None,
+        },
+    )
+    .await;
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "active-purge-session",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: Some("files/unreachable-active-upload.bin"),
+            status: Some(UploadSessionStatus::Uploading),
+            expires_at: None,
+        },
+    )
+    .await;
+
+    let request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/forced-purge-preview"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::OK);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["upload_session_count"], 1);
+    assert_eq!(body["data"]["can_start"], true);
+
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: "late-purge-session",
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: Some(UploadSessionStatus::Uploading),
+            expires_at: None,
+        },
+    )
+    .await;
+
+    let stale_create_request = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}/forced-purge"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "impact_digest": body["data"]["impact_digest"],
+            "confirmation": body["data"]["confirmation_phrase"],
+            "reason": "",
+        }))
+        .to_request();
+    let stale_create_response = test::call_service(&app, stale_create_request).await;
+    assert_eq!(
+        stale_create_response.status(),
+        actix_web::http::StatusCode::BAD_REQUEST,
+        "a session created after preview must invalidate the impact digest"
+    );
+
+    let refreshed_preview_request = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/admin/policies/{policy_id}/forced-purge-preview"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let refreshed_preview_response = test::call_service(&app, refreshed_preview_request).await;
+    assert_eq!(
+        refreshed_preview_response.status(),
+        actix_web::http::StatusCode::OK
+    );
+    let refreshed_body: Value = test::read_body_json(refreshed_preview_response).await;
+    assert_eq!(refreshed_body["data"]["upload_session_count"], 2);
+
+    let create_request = test::TestRequest::post()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}/forced-purge"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "impact_digest": refreshed_body["data"]["impact_digest"],
+            "confirmation": refreshed_body["data"]["confirmation_phrase"],
+            "reason": "",
+        }))
+        .to_request();
+    let create_response = test::call_service(&app, create_request).await;
+    assert_eq!(create_response.status(), actix_web::http::StatusCode::OK);
+    let stats = task::drain(&state)
+        .await
+        .expect("policy purge task should drain");
+    assert_eq!(stats.succeeded, 1);
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "completed-purge-session")
+            .await
+            .is_err()
+    );
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), "active-purge-session")
+            .await
+            .is_err()
+    );
+    assert!(
+        policy_repo::find_by_id(state.writer_db(), policy_id)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        data_plane_probe.calls(),
+        0,
+        "confirmed disaster purge must not access the unavailable storage data plane"
     );
 }
 

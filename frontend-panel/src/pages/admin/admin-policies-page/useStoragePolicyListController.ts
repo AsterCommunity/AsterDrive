@@ -67,7 +67,15 @@ const MANAGED_POLICY_QUERY_SCHEMA = {
 	sortOrder: managedSortOrderQueryField(DEFAULT_POLICY_SORT_ORDER),
 } satisfies ManagedListQuerySchema<ManagedPolicyQuery>;
 
-export function useStoragePolicyListController() {
+interface StoragePolicyListControllerOptions {
+	/** Opens the recovery workflow when normal deletion is blocked by blob references. */
+	onBlobReferencesBlocked?: (policy: StoragePolicy) => Promise<void> | void;
+}
+
+/** Owns policy list lifecycle and routes guarded deletion failures to recovery. */
+export function useStoragePolicyListController(
+	controllerOptions: StoragePolicyListControllerOptions = {},
+) {
 	const { t } = useTranslation("admin");
 	const [searchParams, setSearchParams] = useSearchParams();
 	const { query, setQuery } = useManagedListQueryState({
@@ -141,6 +149,18 @@ export function useStoragePolicyListController() {
 					options?.force ? t("policy_force_deleted") : t("policy_deleted"),
 				);
 			} catch (error) {
+				if (
+					!options?.force &&
+					error instanceof ApiError &&
+					error.code === ApiErrorCode.PolicyBlobReferencesExist
+				) {
+					clearDeletingPolicy();
+					const policy = policies.find((item) => item.id === id);
+					if (policy) {
+						await controllerOptions.onBlobReferencesBlocked?.(policy);
+					}
+					return;
+				}
 				if (
 					!options?.force &&
 					error instanceof ApiError &&

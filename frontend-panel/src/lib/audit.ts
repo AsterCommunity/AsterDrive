@@ -82,6 +82,7 @@ const AUDIT_ACTION_TONES = {
 	admin_delete_remote_node: "danger",
 	admin_delete_share: "danger",
 	admin_force_delete_user: "danger",
+	admin_create_storage_policy_forced_purge_task: "danger",
 	batch_delete: "danger",
 	file_delete: "danger",
 	file_purge: "danger",

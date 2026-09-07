@@ -85,7 +85,6 @@ export function useStoragePolicyMigrationController() {
 			const task = await adminPolicyService.createMigration({
 				source_policy_id: sourceId,
 				target_policy_id: targetId,
-				delete_source_after_success: false,
 			});
 			setOpen(false);
 			toast.success(t("policy_migration_created", { id: task.id }));
@@ -123,7 +122,6 @@ export function useStoragePolicyMigrationController() {
 				await adminPolicyService.dryRunMigration({
 					source_policy_id: sourceId,
 					target_policy_id: targetId,
-					delete_source_after_success: false,
 				}),
 			);
 		} catch (error) {

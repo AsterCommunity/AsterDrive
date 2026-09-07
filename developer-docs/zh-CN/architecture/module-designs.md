@@ -540,7 +540,17 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 - 否则从源驱动读取对象，用 stream upload 写入目标驱动，再更新数据库引用
 - 单个 blob 失败会推进失败计数，并让任务按重试策略处理
 
-第一版实现不支持 `delete_source_after_success = true`；这个字段已经在 API 里保留，但传 true 会被拒绝，避免文档或前端误以为会自动清理旧策略里的对象。
+存储迁移不提供源策略删除参数，避免数据移动静默升级成策略删除。`recover_available` 是独立的管理员灾害模式：创建前必须绑定只读 recovery probe，先迁移 `VirtualEmpty`，再逐个验证并复制仍可读对象；源策略始终保留，后续由管理员明确选择普通删除、再次恢复或永久清除。
+
+### 灾害恢复和永久清除
+
+源策略恢复探测位于 `src/storage/read_probe.rs`，只依赖 `StorageDriver`：先校验 metadata，再对非空对象读取有上限的 range，整个操作有统一超时且不执行 `put`、`delete` 或 copy。策略 service 从 stored blob ID 首尾确定性抽样并聚合为 `recoverable`、`partially_recoverable`、`blocked`、`indeterminate` 或 `no_stored_objects`。抽样成功是启动任务的证据，不替代执行阶段的逐对象校验。
+
+灾害恢复继续使用 `storage_policy_migration` task 和现有 checkpoint；`mode`、source probe、policy revision 与 plan hash 固化在 payload。对象缺失时 recovery mode 推进失败计数并继续迁移其他对象，普通迁移仍按原失败/重试语义处理。最终结果记录 remaining blob 数、源策略是否删除以及删除阻塞原因。
+
+永久清除使用独立 `storage_policy_forced_purge` kind，但仍落在统一 `background_tasks` 表：不可变 impact digest 和选填原因放在 payload，文件游标与累计计数放在 `runtime_json`，lease 和 `processing_token` 防止旧 worker 覆盖新 worker。任务按 file history 找出任意 revision 引用源策略 blob 的文件，再按 user/team scope 复用 canonical purge 事务，统一处理 revision、share、trash、quota 和事件；所有文件与 revision 引用都清零后才删除 blob 元数据和策略。
+
+普通 force delete 继续尝试严格清理远端 upload 副作用。已确认的灾害清除则调用专用 abandon 路径，只删除该策略的本地 upload session 和临时目录，不访问已经判定失效的数据面；completed session 不属于活动上传，placement target 才是永久清除前必须解除的路由阻塞。
 
 ## 6. 管理员文件 / Blob 可观测
 

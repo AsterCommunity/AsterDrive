@@ -28,8 +28,8 @@ use super::steps::{
 };
 use super::types::{
     StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
-    StoragePolicyMigrationDryRunWarning, StoragePolicyMigrationTaskPayload,
-    StoragePolicyMigrationTaskResult, TaskInfo,
+    StoragePolicyMigrationDryRunWarning, StoragePolicyMigrationMode,
+    StoragePolicyMigrationTaskPayload, StoragePolicyMigrationTaskResult, TaskInfo,
 };
 use super::{
     TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope,
@@ -41,14 +41,16 @@ const MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE: i64 = 64 * 1024 * 1024;
 const MIGRATION_MULTIPART_MAX_PARTS: i64 = 10_000;
 const MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS: usize = 3;
 const CHECKPOINT_STAGE_PREPARE_POLICIES: &str = "prepare_policies";
+const CHECKPOINT_STAGE_MIGRATE_VIRTUAL_EMPTY: &str = "migrate_virtual_empty";
 const CHECKPOINT_STAGE_MIGRATE_BLOBS: &str = "migrate_blobs";
 const CHECKPOINT_STAGE_COMPLETE: &str = "complete";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct CreateStoragePolicyMigrationInput {
     pub source_policy_id: i64,
     pub target_policy_id: i64,
-    pub delete_source_after_success: bool,
+    pub mode: StoragePolicyMigrationMode,
+    pub recovery_plan_hash: Option<String>,
     pub creator_user_id: i64,
 }
 
@@ -70,13 +72,15 @@ struct BlobMigrationContext<'a> {
     source_policy_id: i64,
     target_policy_id: i64,
     target_multipart_part_size: i64,
-    source_driver: &'a dyn StorageDriver,
+    source_driver: Option<&'a dyn StorageDriver>,
     target_driver: &'a dyn StorageDriver,
 }
 
 struct StoragePolicyMigrationPreflight {
     source_policy: storage_policy::Model,
     target_policy: storage_policy::Model,
+    source_recovery_probe:
+        Option<crate::services::storage_policy::recoverability::StoragePolicyRecoveryProbe>,
     dry_run: StoragePolicyMigrationDryRun,
 }
 
@@ -84,7 +88,7 @@ pub(crate) async fn create_storage_policy_migration_task(
     state: &PrimaryAppState,
     input: CreateStoragePolicyMigrationInput,
 ) -> Result<TaskInfo> {
-    let preflight = build_storage_policy_migration_preflight(state, input).await?;
+    let preflight = build_storage_policy_migration_preflight(state, input.clone()).await?;
     if !preflight.dry_run.can_start {
         return Err(AsterError::validation_error(
             "target storage capacity is insufficient for this migration",
@@ -95,17 +99,22 @@ pub(crate) async fn create_storage_policy_migration_task(
     let plan_hash = migration_plan_hash(
         input.source_policy_id,
         input.target_policy_id,
-        input.delete_source_after_success,
+        input.mode,
+        preflight
+            .source_recovery_probe
+            .as_ref()
+            .map(|probe| probe.plan_hash.as_str()),
         &source_policy,
         &target_policy,
     )?;
     let payload = StoragePolicyMigrationTaskPayload {
         source_policy_id: input.source_policy_id,
         target_policy_id: input.target_policy_id,
-        delete_source_after_success: input.delete_source_after_success,
+        mode: input.mode,
         plan_hash: plan_hash.clone(),
         source_policy_updated_at: source_policy.updated_at,
         target_policy_updated_at: target_policy.updated_at,
+        source_recovery_probe: preflight.source_recovery_probe,
     };
 
     let task = transaction::with_transaction(state.writer_db(), async |txn| {
@@ -170,10 +179,37 @@ async fn build_storage_policy_migration_preflight(
     state: &PrimaryAppState,
     input: CreateStoragePolicyMigrationInput,
 ) -> Result<StoragePolicyMigrationPreflight> {
-    validate_storage_policy_migration_input(input)?;
-    ensure_no_active_storage_policy_migration(state.writer_db(), input).await?;
+    validate_storage_policy_migration_input(&input)?;
+    ensure_no_active_storage_policy_migration(state.writer_db(), &input).await?;
     let source_policy = policy_repo::find_by_id(state.writer_db(), input.source_policy_id).await?;
     let target_policy = policy_repo::find_by_id(state.writer_db(), input.target_policy_id).await?;
+    let source_recovery_probe = match input.mode {
+        StoragePolicyMigrationMode::Normal => None,
+        StoragePolicyMigrationMode::RecoverAvailable => {
+            let expected_hash = input.recovery_plan_hash.as_deref().ok_or_else(|| {
+                AsterError::validation_error(
+                    "recovery_plan_hash is required for recover_available migration",
+                )
+            })?;
+            let probe =
+                crate::services::storage_policy::recoverability::probe_policy_recoverability(
+                    state,
+                    input.source_policy_id,
+                )
+                .await?;
+            if probe.plan_hash != expected_hash {
+                return Err(AsterError::validation_error(
+                    "storage recovery probe no longer matches current source policy",
+                ));
+            }
+            if !probe.can_start_recovery {
+                return Err(AsterError::validation_error(
+                    "storage recovery probe did not find any recoverable source content",
+                ));
+            }
+            Some(probe)
+        }
+    };
     let target_driver = state.driver_registry().get_driver(&target_policy)?;
     let target_supports_stream_upload = target_driver.extensions().stream_upload.is_some();
     if !target_supports_stream_upload {
@@ -236,10 +272,14 @@ async fn build_storage_policy_migration_preflight(
             target_connection_ok: true,
             target_capacity_check,
             target_capacity,
-            delete_source_after_success_supported: false,
-            can_start,
+            source_recovery_probe: source_recovery_probe.clone(),
+            can_start: can_start
+                && source_recovery_probe
+                    .as_ref()
+                    .is_none_or(|probe| probe.can_start_recovery),
             warnings,
         },
+        source_recovery_probe,
     })
 }
 
@@ -273,7 +313,10 @@ fn storage_policy_migration_can_start(
     )
 }
 
-fn validate_storage_policy_migration_input(input: CreateStoragePolicyMigrationInput) -> Result<()> {
+/// Validates source and target policy identities before migration preflight.
+fn validate_storage_policy_migration_input(
+    input: &CreateStoragePolicyMigrationInput,
+) -> Result<()> {
     if input.source_policy_id <= 0 || input.target_policy_id <= 0 {
         return Err(AsterError::validation_error(
             "source_policy_id and target_policy_id must be greater than 0",
@@ -284,17 +327,12 @@ fn validate_storage_policy_migration_input(input: CreateStoragePolicyMigrationIn
             "source_policy_id and target_policy_id must be different",
         ));
     }
-    if input.delete_source_after_success {
-        return Err(AsterError::validation_error(
-            "delete_source_after_success is not supported in the first storage migration version",
-        ));
-    }
     Ok(())
 }
 
 async fn ensure_no_active_storage_policy_migration<C: sea_orm::ConnectionTrait>(
     db: &C,
-    input: CreateStoragePolicyMigrationInput,
+    input: &CreateStoragePolicyMigrationInput,
 ) -> Result<()> {
     if storage_migration_checkpoint_repo::has_active_conflict(
         db,
@@ -379,13 +417,28 @@ pub(super) async fn process_storage_policy_migration_task(
     let target_policy =
         policy_repo::find_by_id(state.writer_db(), payload.target_policy_id).await?;
     validate_migration_plan(&payload, &source_policy, &target_policy)?;
-    let source_driver = state.driver_registry().get_driver(&source_policy)?;
     let target_driver = state.driver_registry().get_driver(&target_policy)?;
     if target_driver.extensions().stream_upload.is_none() {
         return Err(AsterError::storage_driver_error(
             "target storage policy does not support stream upload",
         ));
     }
+    let source_has_stored_blobs = match payload.mode {
+        StoragePolicyMigrationMode::Normal => true,
+        StoragePolicyMigrationMode::RecoverAvailable => {
+            file_repo::summarize_blobs_by_policy_and_backing(
+                state.writer_db(),
+                payload.source_policy_id,
+                aster_drive_model::types::file_blob::FileBlobBacking::Stored,
+            )
+            .await?
+            .count
+                > 0
+        }
+    };
+    let source_driver = source_has_stored_blobs
+        .then(|| state.driver_registry().get_driver(&source_policy))
+        .transpose()?;
 
     context.ensure_active()?;
     storage_migration_checkpoint_repo::set_stage(
@@ -427,64 +480,114 @@ pub(super) async fn process_storage_policy_migration_task(
         source_policy_id: payload.source_policy_id,
         target_policy_id: payload.target_policy_id,
         target_multipart_part_size: target_policy.chunk_size,
-        source_driver: source_driver.as_ref(),
+        source_driver: source_driver.as_deref(),
         target_driver: target_driver.as_ref(),
     };
 
-    loop {
-        context.ensure_active()?;
-        let blobs = file_repo::find_blobs_by_policy_paginated(
+    if payload.mode == StoragePolicyMigrationMode::RecoverAvailable {
+        storage_migration_checkpoint_repo::set_stage(
             state.writer_db(),
-            payload.source_policy_id,
-            checkpoint.last_processed_blob_id,
-            MIGRATION_BATCH_SIZE,
+            task.id,
+            CHECKPOINT_STAGE_MIGRATE_VIRTUAL_EMPTY,
+            None,
         )
         .await?;
-        if blobs.is_empty() {
-            break;
-        }
+        migrate_recovery_virtual_empty(&migration_context, &mut checkpoint).await?;
+    }
 
-        set_task_step_succeeded(
-            &mut steps,
-            TASK_STEP_SCAN_BLOBS,
-            Some("Source blob batch loaded"),
-            None,
-        )?;
-        set_task_step_active(
-            &mut steps,
-            TASK_STEP_MIGRATE_BLOBS,
-            Some("Migrating blobs"),
-            None,
-        )?;
-
-        for blob in blobs {
+    if source_has_stored_blobs || payload.mode == StoragePolicyMigrationMode::Normal {
+        loop {
             context.ensure_active()?;
-            let outcome = migrate_one_blob(&migration_context, blob).await?;
-
-            checkpoint =
-                storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task.id)
-                    .await?;
-            let current = checkpoint
-                .migrated_blobs
-                .saturating_add(checkpoint.merged_blobs)
-                .saturating_add(checkpoint.skipped_blobs)
-                .saturating_add(checkpoint.failed_blobs);
-            let total = checkpoint.scanned_blobs.max(current);
-            mark_task_progress(
-                state,
-                &lease_guard,
-                current,
-                total,
-                Some(&format!(
-                    "Migrated {}, merged {}, skipped {} blob(s)",
-                    checkpoint.migrated_blobs, checkpoint.merged_blobs, checkpoint.skipped_blobs
-                )),
-                &steps,
-            )
-            .await?;
-
-            if outcome.failed > 0 {
+            let blobs = match payload.mode {
+                StoragePolicyMigrationMode::Normal => {
+                    file_repo::find_blobs_by_policy_paginated(
+                        state.writer_db(),
+                        payload.source_policy_id,
+                        checkpoint.last_processed_blob_id,
+                        MIGRATION_BATCH_SIZE,
+                    )
+                    .await?
+                }
+                StoragePolicyMigrationMode::RecoverAvailable => {
+                    file_repo::find_stored_blobs_by_policy_paginated(
+                        state.writer_db(),
+                        payload.source_policy_id,
+                        checkpoint.last_processed_blob_id,
+                        MIGRATION_BATCH_SIZE,
+                    )
+                    .await?
+                }
+            };
+            if blobs.is_empty() {
                 break;
+            }
+
+            set_task_step_succeeded(
+                &mut steps,
+                TASK_STEP_SCAN_BLOBS,
+                Some("Source blob batch loaded"),
+                None,
+            )?;
+            set_task_step_active(
+                &mut steps,
+                TASK_STEP_MIGRATE_BLOBS,
+                Some("Migrating blobs"),
+                None,
+            )?;
+
+            for blob in blobs {
+                context.ensure_active()?;
+                let blob_id = blob.id;
+                let outcome = match migrate_one_blob(&migration_context, blob).await {
+                    Ok(outcome) => outcome,
+                    Err(error)
+                        if payload.mode == StoragePolicyMigrationMode::RecoverAvailable
+                            && error.storage_error_kind()
+                                == Some(aster_drive_storage::StorageErrorKind::NotFound) =>
+                    {
+                        advance_checkpoint(
+                            state,
+                            task.id,
+                            blob_id,
+                            BlobMigrationOutcome {
+                                scanned: 1,
+                                failed: 1,
+                                ..Default::default()
+                            },
+                            Some(&error.to_string()),
+                        )
+                        .await?
+                    }
+                    Err(error) => return Err(error),
+                };
+
+                checkpoint =
+                    storage_migration_checkpoint_repo::get_by_task_id(state.writer_db(), task.id)
+                        .await?;
+                let current = checkpoint
+                    .migrated_blobs
+                    .saturating_add(checkpoint.merged_blobs)
+                    .saturating_add(checkpoint.skipped_blobs)
+                    .saturating_add(checkpoint.failed_blobs);
+                let total = checkpoint.scanned_blobs.max(current);
+                mark_task_progress(
+                    state,
+                    &lease_guard,
+                    current,
+                    total,
+                    Some(&format!(
+                        "Migrated {}, merged {}, skipped {} blob(s)",
+                        checkpoint.migrated_blobs,
+                        checkpoint.merged_blobs,
+                        checkpoint.skipped_blobs
+                    )),
+                    &steps,
+                )
+                .await?;
+
+                if outcome.failed > 0 && payload.mode == StoragePolicyMigrationMode::Normal {
+                    break;
+                }
             }
         }
     }
@@ -509,6 +612,10 @@ pub(super) async fn process_storage_policy_migration_task(
         Some("Finalizing migration"),
         None,
     )?;
+    let remaining_blobs = i64::try_from(
+        file_repo::count_blobs_by_policy(state.writer_db(), payload.source_policy_id).await?,
+    )
+    .map_err(|_| AsterError::internal_error("remaining storage migration blob count overflow"))?;
     let result = StoragePolicyMigrationTaskResult {
         source_policy_id: payload.source_policy_id,
         target_policy_id: payload.target_policy_id,
@@ -519,6 +626,7 @@ pub(super) async fn process_storage_policy_migration_task(
         failed_blobs: checkpoint.failed_blobs,
         migrated_bytes: checkpoint.migrated_bytes,
         renamed_opaque_blobs: checkpoint.renamed_opaque_blobs,
+        remaining_blobs,
     };
     let result_json = spec::serialize_result::<StoragePolicyMigrationTask>(&result)?;
     set_task_step_succeeded(
@@ -542,6 +650,99 @@ pub(super) async fn process_storage_policy_migration_task(
         &steps,
     )
     .await
+}
+
+/// Migrates the source policy's shared virtual-empty blob before any stored-object read.
+///
+/// A policy can contain at most one virtual-empty row under the backing uniqueness
+/// constraint. The stored-object cursor is deliberately preserved because this phase
+/// may run again after a worker lease handoff. No source driver method is called.
+async fn migrate_recovery_virtual_empty(
+    migration: &BlobMigrationContext<'_>,
+    checkpoint: &mut aster_drive_model::entities::storage_migration_checkpoint::Model,
+) -> Result<()> {
+    let Some(source_blob) = file_repo::find_virtual_empty_blob_by_policy(
+        migration.state.writer_db(),
+        migration.source_policy_id,
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    let cursor = checkpoint.last_processed_blob_id;
+    let target_blob = file_repo::find_virtual_empty_blob_by_policy(
+        migration.state.writer_db(),
+        migration.target_policy_id,
+    )
+    .await?;
+
+    let updated = transaction::with_transaction(migration.state.writer_db(), async |txn| {
+        let outcome = if let Some(target_blob) = target_blob {
+            let source_locked = file_repo::lock_blob_by_id(txn, source_blob.id).await?;
+            if source_locked.policy_id != migration.source_policy_id {
+                BlobMigrationOutcome {
+                    scanned: 1,
+                    skipped: 1,
+                    ..Default::default()
+                }
+            } else {
+                let target_locked = file_repo::lock_blob_by_id(txn, target_blob.id).await?;
+                if !target_locked.is_virtual_empty() {
+                    return Err(AsterError::internal_error(format!(
+                        "recovery target blob #{} is not virtual-empty",
+                        target_locked.id
+                    )));
+                }
+                file_repo::replace_file_blob_refs(txn, source_locked.id, target_locked.id).await?;
+                revision_repo::replace_blob_refs(txn, source_locked.id, target_locked.id).await?;
+                file_repo::increment_blob_ref_count_by(
+                    txn,
+                    target_locked.id,
+                    source_locked.ref_count,
+                )
+                .await?;
+                file_repo::delete_blob_by_id(txn, source_locked.id).await?;
+                BlobMigrationOutcome {
+                    scanned: 1,
+                    merged: 1,
+                    ..Default::default()
+                }
+            }
+        } else {
+            let moved = file_repo::move_virtual_empty_blob_policy_if_current(
+                txn,
+                source_blob.id,
+                migration.source_policy_id,
+                migration.target_policy_id,
+            )
+            .await?;
+            if moved {
+                BlobMigrationOutcome {
+                    scanned: 1,
+                    migrated: 1,
+                    ..Default::default()
+                }
+            } else {
+                BlobMigrationOutcome {
+                    scanned: 1,
+                    skipped: 1,
+                    ..Default::default()
+                }
+            }
+        };
+        storage_migration_checkpoint_repo::advance(
+            txn,
+            migration.task_id,
+            CHECKPOINT_STAGE_MIGRATE_BLOBS,
+            cursor,
+            checkpoint_delta(outcome),
+            None,
+        )
+        .await
+    })
+    .await?;
+    *checkpoint = updated;
+    Ok(())
 }
 
 async fn migrate_one_blob(
@@ -849,6 +1050,11 @@ async fn copy_blob_streaming(
         return copy_blob_multipart(migration, multipart, blob, target_path).await;
     }
 
+    let source_driver = source_driver.ok_or_else(|| {
+        AsterError::storage_driver_error(
+            "source storage driver is unavailable for a stored blob migration",
+        )
+    })?;
     let source_stream = source_driver.get_stream(source_path).await?;
     context.ensure_active()?;
     let hashing_reader = HashingReader::new(source_stream, context.clone());
@@ -909,6 +1115,11 @@ async fn copy_blob_multipart(
     context.ensure_active()?;
     let source_path = blob.storage_path_for_connector().ok_or_else(|| {
         AsterError::validation_error("virtual-empty blobs must migrate as metadata-only records")
+    })?;
+    let source_driver = source_driver.ok_or_else(|| {
+        AsterError::storage_driver_error(
+            "source storage driver is unavailable for multipart blob migration",
+        )
     })?;
     let mut source_stream = source_driver.get_stream(source_path).await?;
     let part_size = migration_multipart_part_size(blob.size, target_multipart_part_size)?;
@@ -1264,11 +1475,6 @@ fn validate_migration_plan(
     source_policy: &storage_policy::Model,
     target_policy: &storage_policy::Model,
 ) -> Result<()> {
-    if payload.delete_source_after_success {
-        return Err(AsterError::validation_error(
-            "delete_source_after_success is not supported",
-        ));
-    }
     if source_policy.updated_at != payload.source_policy_updated_at
         || target_policy.updated_at != payload.target_policy_updated_at
     {
@@ -1279,7 +1485,11 @@ fn validate_migration_plan(
     let current_hash = migration_plan_hash(
         payload.source_policy_id,
         payload.target_policy_id,
-        payload.delete_source_after_success,
+        payload.mode,
+        payload
+            .source_recovery_probe
+            .as_ref()
+            .map(|probe| probe.plan_hash.as_str()),
         source_policy,
         target_policy,
     )?;
@@ -1294,14 +1504,16 @@ fn validate_migration_plan(
 fn migration_plan_hash(
     source_policy_id: i64,
     target_policy_id: i64,
-    delete_source_after_success: bool,
+    mode: StoragePolicyMigrationMode,
+    source_recovery_plan_hash: Option<&str>,
     source_policy: &storage_policy::Model,
     target_policy: &storage_policy::Model,
 ) -> Result<String> {
     let plan = StorageMigrationPlanIdentity {
         source_policy_id,
         target_policy_id,
-        delete_source_after_success,
+        mode,
+        source_recovery_plan_hash,
         source: policy_identity(source_policy),
         target: policy_identity(target_policy),
     };
@@ -1317,7 +1529,8 @@ fn migration_plan_hash(
 struct StorageMigrationPlanIdentity<'a> {
     source_policy_id: i64,
     target_policy_id: i64,
-    delete_source_after_success: bool,
+    mode: StoragePolicyMigrationMode,
+    source_recovery_plan_hash: Option<&'a str>,
     source: StorageMigrationPolicyIdentity<'a>,
     target: StorageMigrationPolicyIdentity<'a>,
 }

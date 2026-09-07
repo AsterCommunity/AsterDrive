@@ -15,6 +15,7 @@
 	"kind_folder_tree_mutation": "目录树变更",
 	"kind_storage_policy_temp_cleanup": "存储临时对象清理",
 	"kind_storage_policy_migration": "存储策略迁移",
+	"kind_storage_policy_forced_purge": "存储策略永久清除",
 	"kind_blob_maintenance": "Blob 维护",
 	"kind_offline_download": "链接导入",
 	"kind_system_runtime": "系统运行任务",
@@ -71,5 +72,6 @@
 	"storage_migration_renamed_opaque_blobs": "已重命名 Opaque Key",
 	"storage_migration_skipped_blobs": "已跳过对象",
 	"storage_migration_failed_blobs": "失败对象",
-	"storage_migration_migrated_bytes": "字节数"
+	"storage_migration_migrated_bytes": "字节数",
+	"status_text_storage_policy_forced_purge_completed": "策略 #{{policyId}} 已清除：{{purgedFiles}} 个文件、{{deletedBlobRecords}} 条 Blob 记录、{{freedLogicalBytes}} 逻辑字节"
 }

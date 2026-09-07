@@ -246,11 +246,11 @@ fn detail_message(
         AuditAction::AdminCreatePolicy
         | AuditAction::AdminUpdatePolicy
         | AuditAction::AdminDeletePolicy => {
+            copy_param_with_legacy_key(details, &mut params, "connector_id", "driver_type");
             copy_params(
                 details,
                 &mut params,
                 &[
-                    "driver_type",
                     "remote_node_id",
                     "max_file_size",
                     "chunk_size",
@@ -260,17 +260,17 @@ fn detail_message(
             Some(message("storage_policy_snapshot", params))
         }
         AuditAction::AdminTriggerStorageAction => {
+            copy_param_with_legacy_key(details, &mut params, "connector_id", "driver_type");
             copy_params(
                 details,
                 &mut params,
-                &[
-                    "action",
-                    "driver_type",
-                    "used_draft_values",
-                    "mutates_remote_state",
-                ],
+                &["action", "used_draft_values", "mutates_remote_state"],
             );
             Some(message("storage_policy_action_triggered", params))
+        }
+        AuditAction::AdminCreateStoragePolicyForcedPurgeTask => {
+            copy_params(details, &mut params, &["task_id", "impact_digest"]);
+            Some(message("storage_policy_forced_purge_task_created", params))
         }
         AuditAction::AdminCreatePolicyGroup
         | AuditAction::AdminUpdatePolicyGroup
@@ -948,6 +948,21 @@ fn copy_params(source: &Value, params: &mut BTreeMap<String, Value>, keys: &[&st
     }
 }
 
+fn copy_param_with_legacy_key(
+    source: &Value,
+    params: &mut BTreeMap<String, Value>,
+    key: &str,
+    legacy_key: &str,
+) {
+    let Some(value) = source.get(key).or_else(|| source.get(legacy_key)) else {
+        return;
+    };
+    if value.is_null() {
+        return;
+    }
+    params.insert(key.to_string(), value.clone());
+}
+
 fn array_len_value(source: &Value, key: &str) -> Option<Value> {
     let len = source.get(key)?.as_array()?.len();
     Some(Value::Number(u64::try_from(len).ok()?.into()))
@@ -1010,6 +1025,29 @@ mod tests {
         assert_eq!(detail.code, "folder_policy_changed");
         assert_eq!(detail.params.get("previous_policy_id"), Some(&2.into()));
         assert_eq!(detail.params.get("policy_id"), Some(&5.into()));
+    }
+
+    #[test]
+    fn forced_policy_purge_audit_exposes_digest_but_not_free_text_reason() {
+        let presentation = build_audit_presentation(
+            AuditAction::AdminCreateStoragePolicyForcedPurgeTask,
+            AuditEntityType::StoragePolicy,
+            Some(7),
+            Some("Lost storage"),
+            Some(r#"{"task_id":42,"impact_digest":"impact-hash","reason":"Bearer secret"}"#),
+        )
+        .expect("forced purge audit presentation should exist");
+
+        let detail = presentation
+            .detail
+            .expect("forced purge detail should exist");
+        assert_eq!(detail.code, "storage_policy_forced_purge_task_created");
+        assert_eq!(detail.params.get("task_id"), Some(&42.into()));
+        assert_eq!(
+            detail.params.get("impact_digest"),
+            Some(&Value::String("impact-hash".to_string()))
+        );
+        assert!(!detail.params.contains_key("reason"));
     }
 
     #[test]
@@ -1102,6 +1140,50 @@ mod tests {
             detail.params.get("role"),
             Some(&Value::String("admin".to_string()))
         );
+    }
+
+    #[test]
+    fn presentation_includes_storage_policy_connector_id() {
+        let presentation = build_audit_presentation(
+            AuditAction::AdminTriggerStorageAction,
+            AuditEntityType::StoragePolicy,
+            Some(7),
+            Some("OneDrive"),
+            Some(
+                r#"{"action":"storage_credential_oauth","connector_id":"asterdrive.storage.onedrive","used_draft_values":false,"mutates_remote_state":false}"#,
+            ),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "storage_policy_action_triggered");
+        assert_eq!(
+            detail.params.get("connector_id"),
+            Some(&Value::String("asterdrive.storage.onedrive".to_string()))
+        );
+        assert!(!detail.params.contains_key("driver_type"));
+    }
+
+    #[test]
+    fn presentation_maps_legacy_storage_policy_driver_type_to_connector_id() {
+        let presentation = build_audit_presentation(
+            AuditAction::AdminCreatePolicy,
+            AuditEntityType::StoragePolicy,
+            Some(7),
+            Some("S3"),
+            Some(
+                r#"{"driver_type":"s3","remote_node_id":null,"max_file_size":1048576,"chunk_size":5242880,"is_default":false}"#,
+            ),
+        )
+        .expect("presentation should be built");
+
+        let detail = presentation.detail.as_ref().unwrap();
+        assert_eq!(detail.code, "storage_policy_snapshot");
+        assert_eq!(
+            detail.params.get("connector_id"),
+            Some(&Value::String("s3".to_string()))
+        );
+        assert!(!detail.params.contains_key("driver_type"));
     }
 
     #[test]

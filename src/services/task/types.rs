@@ -53,6 +53,7 @@ pub enum TaskPresentationCode {
     StatusTextOfflineDownloadDownloaded,
     StatusTextOfflineDownloadVerified,
     StatusTextStorageMigrationCompleted,
+    StatusTextStoragePolicyForcedPurgeCompleted,
     StatusTextSystemHealthy,
     StatusTextTemporaryUploadCleanupFinished,
     StatusTextThumbnailAlreadyAvailable,
@@ -76,6 +77,7 @@ pub enum TaskPresentationCode {
     TaskNameOfflineDownloadUrl,
     TaskNameOfflineDownloadUrlWithEngine,
     TaskNameStoragePolicyMigration,
+    TaskNameStoragePolicyForcedPurge,
     TaskNameStoragePolicyTempCleanup,
     TaskNameStoragePolicyTempCleanupPolicyId,
     TaskNameThumbnailGenerate,
@@ -528,17 +530,35 @@ pub struct StoragePolicyTempCleanupTaskResult {
     pub failed_objects: u64,
 }
 
+/// Product intent applied by a storage-policy migration task.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum StoragePolicyMigrationMode {
+    /// Routine migration expects every source object to remain available.
+    #[default]
+    Normal,
+    /// Recovery migration preserves every readable object without deleting the source policy.
+    RecoverAvailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyMigrationTaskPayload {
     pub source_policy_id: i64,
     pub target_policy_id: i64,
-    pub delete_source_after_success: bool,
+    /// Migration behavior selected when the immutable task plan was created.
+    #[serde(default)]
+    pub mode: StoragePolicyMigrationMode,
     pub plan_hash: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub source_policy_updated_at: chrono::DateTime<chrono::Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub target_policy_updated_at: chrono::DateTime<chrono::Utc>,
+    /// Read-only source evidence required for recovery-mode tasks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_recovery_probe:
+        Option<crate::services::storage_policy::recoverability::StoragePolicyRecoveryProbe>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,6 +574,42 @@ pub struct StoragePolicyMigrationTaskResult {
     pub migrated_bytes: i64,
     #[serde(default)]
     pub renamed_opaque_blobs: i64,
+    /// Blob rows that still reference the source policy after task execution.
+    #[serde(default)]
+    pub remaining_blobs: i64,
+}
+
+/// Immutable, administrator-confirmed plan for a destructive policy purge task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyForcedPurgeTaskPayload {
+    /// Storage policy whose remaining content references must be removed.
+    pub policy_id: i64,
+    /// Policy name embedded in the high-risk confirmation phrase.
+    pub policy_name: String,
+    /// Policy revision observed when the impact preview was confirmed.
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub policy_updated_at: chrono::DateTime<chrono::Utc>,
+    /// Digest binding this task to the previewed files, revisions, blobs, and blockers.
+    pub impact_digest: String,
+    /// Administrator-provided reason retained as task evidence and audit context.
+    pub reason: String,
+}
+
+/// Terminal summary of a confirmed storage-policy forced purge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyForcedPurgeTaskResult {
+    /// Source policy removed after all destructive cleanup checks passed.
+    pub policy_id: i64,
+    /// Number of file histories permanently purged.
+    pub purged_files: i64,
+    /// Number of source-policy blob metadata rows removed after reference checks.
+    pub deleted_blob_records: i64,
+    /// Logical quota bytes released through canonical file purge transactions.
+    pub freed_logical_bytes: i64,
+    /// Confirms that the final guarded policy deletion completed.
+    pub policy_deleted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -710,7 +766,10 @@ pub struct StoragePolicyMigrationDryRun {
     pub target_connection_ok: bool,
     pub target_capacity_check: StoragePolicyMigrationCapacityCheck,
     pub target_capacity: aster_drive_storage::StorageCapacityInfo,
-    pub delete_source_after_success_supported: bool,
+    /// Read-only source evidence used by recover-available mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_recovery_probe:
+        Option<crate::services::storage_policy::recoverability::StoragePolicyRecoveryProbe>,
     pub can_start: bool,
     pub warnings: Vec<StoragePolicyMigrationDryRunWarning>,
 }
@@ -729,6 +788,7 @@ pub enum TaskPayload {
     FolderTreeMutation(FolderTreeMutationTaskPayload),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskPayloadInfo),
     StoragePolicyMigration(StoragePolicyMigrationTaskPayload),
+    StoragePolicyForcedPurge(StoragePolicyForcedPurgeTaskPayload),
     BlobMaintenance(BlobMaintenanceTaskPayload),
     OfflineDownload(OfflineDownloadTaskPayloadInfo),
     SystemRuntime(RuntimeTaskPayload),
@@ -748,6 +808,7 @@ pub enum TaskResult {
     FolderTreeMutation(FolderTreeMutationTaskResult),
     StoragePolicyTempCleanup(StoragePolicyTempCleanupTaskResult),
     StoragePolicyMigration(StoragePolicyMigrationTaskResult),
+    StoragePolicyForcedPurge(StoragePolicyForcedPurgeTaskResult),
     BlobMaintenance(BlobMaintenanceTaskResult),
     OfflineDownload(OfflineDownloadTaskResult),
     SystemRuntime(RuntimeTaskResult),

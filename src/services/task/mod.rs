@@ -43,6 +43,7 @@ mod spec;
 mod steps;
 pub(crate) mod storage_migration;
 pub(crate) mod storage_policy_cleanup;
+pub(crate) mod storage_policy_forced_purge;
 pub(crate) mod thumbnail;
 pub(crate) mod trash;
 pub mod types;

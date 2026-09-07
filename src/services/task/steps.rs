@@ -25,6 +25,7 @@ pub(super) const TASK_STEP_PURGE_TRASH: &str = "purge_trash";
 pub(super) const TASK_STEP_FOLDER_TREE: &str = "folder_tree";
 pub(super) const TASK_STEP_SCAN_BLOBS: &str = "scan_blobs";
 pub(super) const TASK_STEP_MIGRATE_BLOBS: &str = "migrate_blobs";
+pub(super) const TASK_STEP_PURGE_FILES: &str = "purge_files";
 pub(super) const TASK_STEP_CHECK_BLOBS: &str = "check_blobs";
 pub(super) const TASK_STEP_RECONCILE_REFS: &str = "reconcile_refs";
 pub(super) const TASK_STEP_FINISH: &str = "finish";

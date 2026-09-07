@@ -129,6 +129,12 @@ fn title_message(
                 target_policy_id: payload.target_policy_id,
             })
         }
+        TaskPayload::StoragePolicyForcedPurge(payload) => {
+            Some(PresentationMessage::StoragePolicyForcedPurgeTitle {
+                policy: payload.policy_name.clone(),
+                policy_id: payload.policy_id,
+            })
+        }
         TaskPayload::BlobMaintenance(payload) => Some(PresentationMessage::BlobMaintenanceTitle {
             action: payload.action,
             selected_blob_count: payload
@@ -260,6 +266,14 @@ fn status_message_from_result(
                 renamed_opaque_blobs: result.renamed_opaque_blobs,
             })
         }
+        TaskResult::StoragePolicyForcedPurge(result) => Some(
+            PresentationMessage::StoragePolicyForcedPurgeCompletedStatus {
+                policy_id: result.policy_id,
+                purged_files: result.purged_files,
+                deleted_blob_records: result.deleted_blob_records,
+                freed_logical_bytes: result.freed_logical_bytes,
+            },
+        ),
         TaskResult::BlobMaintenance(_) => Some(PresentationMessage::BlobMaintenanceFinishedStatus),
         TaskResult::OfflineDownload(result) => {
             Some(PresentationMessage::OfflineDownloadImportedStatus {
@@ -409,6 +423,10 @@ enum PresentationMessage {
         source_policy_id: i64,
         target_policy_id: i64,
     },
+    StoragePolicyForcedPurgeTitle {
+        policy: String,
+        policy_id: i64,
+    },
     BlobMaintenanceTitle {
         action: BlobMaintenanceAction,
         selected_blob_count: Option<usize>,
@@ -477,6 +495,12 @@ enum PresentationMessage {
         failed_blobs: i64,
         migrated_bytes: i64,
         renamed_opaque_blobs: i64,
+    },
+    StoragePolicyForcedPurgeCompletedStatus {
+        policy_id: i64,
+        purged_files: i64,
+        deleted_blob_records: i64,
+        freed_logical_bytes: i64,
     },
     BlobMaintenanceFinishedStatus,
     OfflineDownloadImportedStatus {
@@ -599,6 +623,13 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 Params::new()
                     .with("sourcePolicyId", json!(source_policy_id))
                     .with("targetPolicyId", json!(target_policy_id))
+                    .finish(),
+            ),
+            PresentationMessage::StoragePolicyForcedPurgeTitle { policy, policy_id } => (
+                Code::TaskNameStoragePolicyForcedPurge,
+                Params::new()
+                    .with("policy", json!(policy))
+                    .with("policyId", json!(policy_id))
                     .finish(),
             ),
             PresentationMessage::BlobMaintenanceTitle {
@@ -787,6 +818,20 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                     .with("renamedOpaqueBlobs", json!(renamed_opaque_blobs))
                     .finish(),
             ),
+            PresentationMessage::StoragePolicyForcedPurgeCompletedStatus {
+                policy_id,
+                purged_files,
+                deleted_blob_records,
+                freed_logical_bytes,
+            } => (
+                Code::StatusTextStoragePolicyForcedPurgeCompleted,
+                Params::new()
+                    .with("policyId", json!(policy_id))
+                    .with("purgedFiles", json!(purged_files))
+                    .with("deletedBlobRecords", json!(deleted_blob_records))
+                    .with("freedLogicalBytes", json!(freed_logical_bytes))
+                    .finish(),
+            ),
             PresentationMessage::BlobMaintenanceFinishedStatus => {
                 (Code::StatusTextBlobMaintenanceFinished, BTreeMap::new())
             }
@@ -825,7 +870,8 @@ mod tests {
     use super::{Params, TaskPresentationContext, build_task_presentation};
     use crate::services::task::types::{
         FolderTreeMutationOperation, FolderTreeMutationTaskPayload, FolderTreeMutationTaskResult,
-        TaskPayload, TaskPresentationCode, TaskResult, TrashPurgeAllTaskPayload,
+        StoragePolicyForcedPurgeTaskPayload, StoragePolicyForcedPurgeTaskResult, TaskPayload,
+        TaskPresentationCode, TaskResult, TrashPurgeAllTaskPayload,
     };
     use aster_drive_model::types::BackgroundTaskStatus;
     use serde_json::json;
@@ -925,5 +971,50 @@ mod tests {
         )
         .expect("mismatched result should not prevent the payload presentation");
         assert!(mismatched.status.is_none());
+    }
+
+    #[test]
+    fn forced_policy_purge_presentation_contains_confirmed_scope_and_result_counts() {
+        let payload = TaskPayload::StoragePolicyForcedPurge(StoragePolicyForcedPurgeTaskPayload {
+            policy_id: 7,
+            policy_name: "Lost storage".to_string(),
+            policy_updated_at: chrono::Utc::now(),
+            impact_digest: "impact-hash".to_string(),
+            reason: String::new(),
+        });
+        let result = TaskResult::StoragePolicyForcedPurge(StoragePolicyForcedPurgeTaskResult {
+            policy_id: 7,
+            purged_files: 3,
+            deleted_blob_records: 5,
+            freed_logical_bytes: 1024,
+            policy_deleted: true,
+        });
+
+        let presentation = build_task_presentation(
+            &payload,
+            Some(&result),
+            BackgroundTaskStatus::Succeeded,
+            TaskPresentationContext::default(),
+        )
+        .expect("forced purge presentation should exist");
+        let title = presentation.title.expect("forced purge title should exist");
+        assert_eq!(
+            title.code,
+            TaskPresentationCode::TaskNameStoragePolicyForcedPurge
+        );
+        assert_eq!(title.params["policy"], json!("Lost storage"));
+        assert_eq!(title.params["policyId"], json!(7));
+
+        let status = presentation
+            .status
+            .expect("forced purge completion status should exist");
+        assert_eq!(
+            status.code,
+            TaskPresentationCode::StatusTextStoragePolicyForcedPurgeCompleted
+        );
+        assert_eq!(status.params["policyId"], json!(7));
+        assert_eq!(status.params["purgedFiles"], json!(3));
+        assert_eq!(status.params["deletedBlobRecords"], json!(5));
+        assert_eq!(status.params["freedLogicalBytes"], json!(1024));
     }
 }

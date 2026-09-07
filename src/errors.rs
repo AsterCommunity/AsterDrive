@@ -763,6 +763,7 @@ pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
     ] {
         sanitized = redact_key_value_after_marker(&sanitized, marker);
     }
+    sanitized = redact_authorization_bearer(&sanitized);
 
     sanitized
 }
@@ -854,6 +855,63 @@ fn redact_key_value_after_marker(input: &str, marker: &str) -> String {
         let (redacted_value, after_value) = value.split_at(value_end);
         let _ = redacted_value;
         rest = after_value;
+    }
+
+    output.push_str(rest);
+    output
+}
+
+/// Redacts bearer credentials in an Authorization header with optional ASCII whitespace.
+fn redact_authorization_bearer(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    const HEADER: &str = "authorization:";
+    let header_lower = HEADER.to_ascii_lowercase();
+    let mut rest = input;
+
+    while let Some(index) = rest.to_ascii_lowercase().find(&header_lower) {
+        let (before, after_before) = rest.split_at(index);
+        output.push_str(before);
+        let (actual_marker, after_header) = after_before.split_at(HEADER.len());
+        output.push_str(actual_marker);
+        let whitespace_len = after_header
+            .chars()
+            .take_while(|ch| ch.is_ascii_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        let (whitespace, after_whitespace) = after_header.split_at(whitespace_len);
+        if !after_whitespace.to_ascii_lowercase().starts_with("bearer") {
+            rest = after_header;
+            continue;
+        }
+        let (bearer, after_bearer) = after_whitespace.split_at("bearer".len());
+        if !after_bearer
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_whitespace())
+        {
+            rest = after_header;
+            continue;
+        }
+        output.push_str(whitespace);
+        output.push_str(bearer);
+        let bearer_whitespace_len = after_bearer
+            .chars()
+            .take_while(|ch| ch.is_ascii_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        let (bearer_whitespace, value) = after_bearer.split_at(bearer_whitespace_len);
+        output.push_str(bearer_whitespace);
+        output.push_str("[redacted]");
+
+        let value_end = value
+            .find(|ch: char| {
+                matches!(
+                    ch,
+                    ';' | '&' | ' ' | '\n' | '\r' | '\t' | '\'' | '"' | ')' | ']' | '>'
+                )
+            })
+            .unwrap_or(value.len());
+        rest = &value[value_end..];
     }
 
     output.push_str(rest);
@@ -1645,6 +1703,36 @@ mod tests {
                 "AccountKey=key;EndpointSuffix=core.windows.net SharedAccessSignature=sas) done",
                 "AccountKey=[redacted];EndpointSuffix=core.windows.net SharedAccessSignature=[redacted]) done",
                 vec!["key;Endpoint", "sas)"],
+            ),
+            (
+                "authorization bearer header ignores casing",
+                "failed with AUTHORIZATION: BEARER token-secret before retry",
+                "failed with AUTHORIZATION: BEARER [redacted] before retry",
+                vec!["token-secret"],
+            ),
+            (
+                "authorization bearer header permits no whitespace after colon",
+                "failed with Authorization:Bearer token-secret before retry",
+                "failed with authorization:Bearer [redacted] before retry",
+                vec!["token-secret"],
+            ),
+            (
+                "non-bearer authorization remains unchanged",
+                "failed with Authorization: Basic credentials before retry",
+                "failed with Authorization: Basic credentials before retry",
+                vec![],
+            ),
+            (
+                "bearer prefix without scheme separator remains unchanged",
+                "failed with Authorization:Bearertoken-secret before retry",
+                "failed with authorization:Bearertoken-secret before retry",
+                vec![],
+            ),
+            (
+                "later bearer authorization is still redacted",
+                "Basic Authorization: Basic credentials; Authorization:Bearer token-secret",
+                "Basic Authorization: Basic credentials; authorization:Bearer [redacted]",
+                vec!["token-secret"],
             ),
             (
                 "non-url text untouched",

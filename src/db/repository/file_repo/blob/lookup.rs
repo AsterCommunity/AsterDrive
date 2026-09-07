@@ -149,6 +149,73 @@ pub async fn find_stored_blobs_by_policy_paginated<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+/// Returns a small deterministic sample from both ends of a policy's stored-blob ID range.
+///
+/// The result is ordered by ascending blob ID and contains no duplicate row when the
+/// policy has fewer rows than `limit`. Virtual-empty blobs are excluded because they
+/// have no connector object to probe.
+pub async fn find_stored_blob_probe_sample_by_policy<C: ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+    limit: u64,
+) -> Result<Vec<file_blob::Model>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let first_count = limit.div_ceil(2);
+    let last_count = limit / 2;
+    let base = || {
+        FileBlob::find()
+            .filter(file_blob::Column::PolicyId.eq(policy_id))
+            .filter(file_blob::Column::Backing.eq(FileBlobBacking::Stored))
+    };
+    let mut sample = base()
+        .order_by_asc(file_blob::Column::Id)
+        .limit(first_count)
+        .all(db)
+        .await
+        .map_err(AsterError::from)?;
+    if last_count > 0 {
+        sample.extend(
+            base()
+                .order_by_desc(file_blob::Column::Id)
+                .limit(last_count)
+                .all(db)
+                .await
+                .map_err(AsterError::from)?,
+        );
+    }
+    sample.sort_unstable_by_key(|blob| blob.id);
+    sample.dedup_by_key(|blob| blob.id);
+    Ok(sample)
+}
+
+/// Summarizes one backing kind within a storage policy using the writer's SQL backend.
+pub async fn summarize_blobs_by_policy_and_backing<C: ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+    backing: FileBlobBacking,
+) -> Result<StoragePolicyBlobSummary> {
+    let (count, total_size) = FileBlob::find()
+        .select_only()
+        .column_as(Expr::col(file_blob::Column::Id).count(), "count")
+        .column_as(
+            sum_blob_size_as_i64_expr(db.get_database_backend()),
+            "total_size",
+        )
+        .filter(file_blob::Column::PolicyId.eq(policy_id))
+        .filter(file_blob::Column::Backing.eq(backing))
+        .into_tuple::<(i64, Option<i64>)>()
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .unwrap_or((0, None));
+    Ok(StoragePolicyBlobSummary {
+        count,
+        total_size: total_size.unwrap_or(0),
+    })
+}
+
 pub async fn summarize_blobs_by_policy<C: ConnectionTrait>(
     db: &C,
     policy_id: i64,

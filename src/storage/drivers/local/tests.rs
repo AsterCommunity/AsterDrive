@@ -1,6 +1,7 @@
 use super::DEFAULT_LOCAL_STORAGE_PATH;
 use super::paths::{effective_base_path, sanitize_relative_path};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
+use aster_drive_storage::StorageErrorKind;
 use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::{
     ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus, StreamUploadAttempt,
@@ -596,5 +597,25 @@ async fn same_target_stream_attempts_use_isolated_staging_paths() {
     assert!(body == b"first" || body == b"second");
     assert!(!driver.exists(&first.staging_path).await.unwrap());
     assert!(!driver.exists(&second.staging_path).await.unwrap());
+    let _ = tokio::fs::remove_dir_all(&base).await;
+}
+
+#[tokio::test]
+async fn missing_local_objects_keep_structured_not_found_classification() {
+    let base = unique_temp_dir("local-not-found-classification");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let driver = super::LocalDriver::new(&test_base_path(&base)).unwrap();
+
+    for error in [
+        driver.metadata("missing.bin").await.unwrap_err(),
+        driver
+            .get_stream("missing.bin")
+            .await
+            .err()
+            .expect("missing stream should fail"),
+        driver.delete("missing.bin").await.unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), StorageErrorKind::NotFound);
+    }
     let _ = tokio::fs::remove_dir_all(&base).await;
 }

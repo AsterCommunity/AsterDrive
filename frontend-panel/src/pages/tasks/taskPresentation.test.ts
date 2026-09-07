@@ -26,6 +26,7 @@ import {
 function t(key: string, values?: Record<string, number | string>) {
 	const translations: Record<string, string> = {
 		"tasks:kind_storage_policy_migration": "Storage policy migration",
+		"tasks:kind_storage_policy_forced_purge": "Storage policy forced purge",
 		"tasks:kind_folder_tree_mutation": "Folder tree mutation",
 		"tasks:summary_created_at": `Created ${values?.date}`,
 		"tasks:summary_started_at": `Started ${values?.date}`,
@@ -111,7 +112,6 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 		last_error: null,
 		max_attempts: 1,
 		payload: {
-			delete_source_after_success: false,
 			kind: "storage_policy_migration",
 			plan_hash: "plan-a",
 			source_policy_id: 1,
@@ -474,6 +474,12 @@ describe("taskPresentation storage policy migration", () => {
 		);
 		expect(formatTaskKind(t, "image_preview_generate" as never)).toBe(
 			"Image preview generation",
+		);
+	});
+
+	it("formats the storage policy forced purge kind", () => {
+		expect(formatTaskKind(t, "storage_policy_forced_purge")).toBe(
+			"Storage policy forced purge",
 		);
 	});
 

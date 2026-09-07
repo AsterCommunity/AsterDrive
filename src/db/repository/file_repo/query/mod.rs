@@ -4,6 +4,7 @@ mod admin;
 mod basic;
 mod cursor;
 mod names;
+mod policy_purge;
 #[cfg(test)]
 mod tests;
 
@@ -26,4 +27,8 @@ pub use cursor::{find_by_folder_cursor, find_by_team_folder_cursor};
 pub use names::{
     find_by_name_in_folder, find_by_name_in_team_folder, find_by_names_in_folder,
     find_by_names_in_team_folder, resolve_unique_filename, resolve_unique_team_filename,
+};
+pub use policy_purge::{
+    StoragePolicyPurgeImpact, find_files_referencing_policy_blobs_paginated,
+    summarize_storage_policy_purge_impact,
 };

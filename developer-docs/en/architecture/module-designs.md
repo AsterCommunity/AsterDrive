@@ -464,7 +464,17 @@ During migration, each blob is reloaded from the latest database state:
 - otherwise, the object is read from the source driver and streamed to the target driver, then the database reference is updated
 - one blob failure increases the failure count and sends the task through retry handling
 
-The first version does not support `delete_source_after_success = true`. The field is still present in the API, but a `true` value is rejected so the client does not assume old-policy objects will be auto-cleaned.
+Storage migration has no source-policy deletion option, preventing data movement from silently becoming policy deletion. `recover_available` is a separate administrator disaster mode: creation binds a read-only recovery probe, virtual-empty content moves first, and every readable stored object is verified and copied. The source policy always remains for an explicit later delete, retry, or permanent-purge decision.
+
+### Disaster recovery and permanent purge
+
+The source probe in `src/storage/read_probe.rs` depends only on `StorageDriver`: it validates metadata, performs a bounded range read for non-empty objects, applies one total timeout, and never invokes put, delete, or copy. The policy service deterministically samples both ends of the stored-blob ID range and aggregates `recoverable`, `partially_recoverable`, `blocked`, `indeterminate`, or `no_stored_objects`. Successful sampling permits task creation but never replaces per-object execution checks.
+
+Recovery continues to use the `storage_policy_migration` task and existing checkpoint. Mode, source evidence, policy revisions, and plan hash are immutable payload data. A missing object increments recovery failures and scanning continues; routine migration retains its existing failure and retry semantics. The result records remaining source blobs, policy deletion, and finalization errors.
+
+Permanent destruction has a distinct `storage_policy_forced_purge` kind while remaining in the unified `background_tasks` table: the immutable impact digest and optional reason live in payload JSON, while the file cursor and counters live in runtime JSON under lease and processing-token fencing. The task finds complete file histories where any revision references a source-policy blob, groups files by user/team scope, and reuses canonical purge transactions for revisions, shares, trash, quota, and events. Blob metadata and the policy are deleted only after every file and revision reference is gone.
+
+Ordinary force deletion continues strict remote upload cleanup. A confirmed disaster purge uses a dedicated abandon path that removes local upload sessions and temporary directories without contacting the lost data plane. Completed sessions are not active uploads, and placement targets are the routing blockers that must be detached before permanent purge.
 
 ## 6. Admin file / blob observability
 

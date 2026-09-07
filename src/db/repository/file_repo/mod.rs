@@ -18,13 +18,14 @@ pub use blob::{
     delete_blobs, find_active_blob_by_hash, find_admin_blobs_paginated, find_blob_by_hash,
     find_blob_by_id, find_blob_storage_paths_by_storage_paths, find_blobs_by_ids,
     find_blobs_by_policy_paginated, find_blobs_paginated, find_or_create_blob,
-    find_or_create_virtual_empty_blob, find_stored_blobs_by_policy_paginated,
-    find_virtual_empty_blob_by_policy, increment_blob_ref_count, increment_blob_ref_count_by,
-    increment_blob_ref_counts_by, lock_blob_by_id, move_blob_policy_if_current,
-    move_virtual_empty_blob_policy_if_current, reset_blob_ref_count_to_zero,
-    restore_blob_cleanup_claim, set_blob_ref_count, set_thumbnail_metadata, sum_blob_bytes,
-    sum_blob_bytes_by_policy, summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
-    summarize_missing_blobs_between_policies,
+    find_or_create_virtual_empty_blob, find_stored_blob_probe_sample_by_policy,
+    find_stored_blobs_by_policy_paginated, find_virtual_empty_blob_by_policy,
+    increment_blob_ref_count, increment_blob_ref_count_by, increment_blob_ref_counts_by,
+    lock_blob_by_id, move_blob_policy_if_current, move_virtual_empty_blob_policy_if_current,
+    reset_blob_ref_count_to_zero, restore_blob_cleanup_claim, set_blob_ref_count,
+    set_thumbnail_metadata, sum_blob_bytes, sum_blob_bytes_by_policy,
+    summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
+    summarize_blobs_by_policy_and_backing, summarize_missing_blobs_between_policies,
 };
 pub(crate) use common::FileScope;
 pub use common::{
@@ -36,15 +37,16 @@ pub use mutation::{
     replace_file_blob_refs,
 };
 pub use query::{
-    AdminBlobUploaderRef, AdminFileFilters, count_live_files,
+    AdminBlobUploaderRef, AdminFileFilters, StoragePolicyPurgeImpact, count_live_files,
     find_admin_blob_uploader_refs_for_blobs, find_admin_file_by_id, find_admin_files_paginated,
     find_all_in_folders, find_by_blob_id, find_by_folder, find_by_folder_after_id,
     find_by_folder_cursor, find_by_folders, find_by_folders_after_id, find_by_id, find_by_ids,
     find_by_ids_in_personal_scope, find_by_ids_in_team_scope, find_by_name_in_folder,
     find_by_name_in_team_folder, find_by_names_in_folder, find_by_names_in_team_folder,
     find_by_team_folder, find_by_team_folder_after_id, find_by_team_folder_cursor,
-    find_by_team_folders, find_by_team_folders_after_id, lock_by_id, resolve_unique_filename,
-    resolve_unique_team_filename, sum_live_file_bytes,
+    find_by_team_folders, find_by_team_folders_after_id,
+    find_files_referencing_policy_blobs_paginated, lock_by_id, resolve_unique_filename,
+    resolve_unique_team_filename, sum_live_file_bytes, summarize_storage_policy_purge_impact,
 };
 pub(crate) use query::{
     FileIdSize, find_all_by_folders_after_id_in_scope, find_id_size_by_folders,

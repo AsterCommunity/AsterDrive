@@ -484,6 +484,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/policies/{id}/forced-purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Creates a fenced background task after exact forced-purge confirmation. */
+        post: operations["create_storage_policy_forced_purge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/policies/{id}/forced-purge-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Returns the authoritative destructive impact that must be confirmed before policy purge. */
+        post: operations["preview_storage_policy_forced_purge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/policies/{id}/promote-connector": {
         parameters: {
             query?: never;
@@ -494,6 +528,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["promote_storage_policy_connector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/policies/{id}/recovery-probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Runs a bounded read-only recovery probe for one persisted storage policy. */
+        post: operations["probe_storage_policy_recoverability"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4686,7 +4737,7 @@ export interface components {
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
         ApiEmptyData: Record<string, never>;
         /** @enum {string} */
-        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.password_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "remote_storage_target.binding_mismatch" | "remote_storage_target.default_delete_requires_replacement" | "remote_storage_target.default_error" | "remote_storage_target.default_missing" | "remote_storage_target.default_not_applied" | "remote_storage_target.default_update_requires_replacement" | "remote_storage_target.connector_unsupported" | "remote_storage_target.local_path_invalid" | "remote_storage_target.required" | "remote_storage_target.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "policy.promotion_source_unsupported" | "policy.promotion_source_config_unsupported" | "policy.promotion_target_unsupported" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
+        ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "policy.blob_references_exist" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.password_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "remote_storage_target.binding_mismatch" | "remote_storage_target.default_delete_requires_replacement" | "remote_storage_target.default_error" | "remote_storage_target.default_missing" | "remote_storage_target.default_not_applied" | "remote_storage_target.default_update_requires_replacement" | "remote_storage_target.connector_unsupported" | "remote_storage_target.local_path_invalid" | "remote_storage_target.required" | "remote_storage_target.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "policy.promotion_source_unsupported" | "policy.promotion_source_config_unsupported" | "policy.promotion_target_unsupported" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
         ApiErrorDiagnostic: {
             kind: string;
             message: string;
@@ -4959,7 +5010,7 @@ export interface components {
          * @description 审计日志动作
          * @enum {string}
          */
-        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_trigger_storage_action" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach" | "remote_node_connected" | "remote_node_graceful_disconnect" | "remote_node_unexpected_disconnect" | "remote_node_heartbeat_timeout";
+        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_trigger_storage_action" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach" | "remote_node_connected" | "remote_node_graceful_disconnect" | "remote_node_unexpected_disconnect" | "remote_node_heartbeat_timeout" | "admin_create_storage_policy_forced_purge_task";
         /**
          * @description 审计日志实体类型
          * @enum {string}
@@ -5035,7 +5086,7 @@ export interface components {
          * @description 后台任务类型
          * @enum {string}
          */
-        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "image_preview_generate" | "media_metadata_extract" | "trash_purge_all" | "folder_tree_mutation" | "storage_policy_temp_cleanup" | "storage_policy_migration" | "blob_maintenance" | "offline_download" | "system_runtime";
+        BackgroundTaskKind: "archive_extract" | "archive_compress" | "archive_preview_generate" | "thumbnail_generate" | "image_preview_generate" | "media_metadata_extract" | "trash_purge_all" | "folder_tree_mutation" | "storage_policy_temp_cleanup" | "storage_policy_migration" | "storage_policy_forced_purge" | "blob_maintenance" | "offline_download" | "system_runtime";
         /**
          * @description 后台任务状态
          * @enum {string}
@@ -5354,9 +5405,21 @@ export interface components {
             password?: string | null;
             target: components["schemas"]["ShareTarget"];
         };
+        /** @description High-risk confirmation for permanently purging every remaining policy reference. */
+        CreateStoragePolicyForcedPurgeReq: {
+            /** @description Exact confirmation phrase returned by the latest forced-purge preview. */
+            confirmation: string;
+            /** @description Digest returned by the latest forced-purge preview. */
+            impact_digest: string;
+            /** @description Administrator explanation retained in task and audit evidence. */
+            reason: string;
+        };
         /** @description Create a background task that migrates blobs from one storage policy to another. */
         CreateStoragePolicyMigrationReq: {
-            delete_source_after_success?: boolean;
+            /** @description Selects routine migration or migration of currently recoverable source data. */
+            mode?: components["schemas"]["StoragePolicyMigrationMode"];
+            /** @description Plan hash returned by the latest source recovery probe. */
+            recovery_plan_hash?: string | null;
             /** Format: int64 */
             source_policy_id: number;
             /** Format: int64 */
@@ -5405,7 +5468,10 @@ export interface components {
         };
         /** @description Check a storage policy migration plan without creating a task. */
         DryRunStoragePolicyMigrationReq: {
-            delete_source_after_success?: boolean;
+            /** @description Selects routine migration or recoverable-data preflight. */
+            mode?: components["schemas"]["StoragePolicyMigrationMode"];
+            /** @description Optional recovery evidence to revalidate during dry-run. */
+            recovery_plan_hash?: string | null;
             /** Format: int64 */
             source_policy_id: number;
             /** Format: int64 */
@@ -8432,6 +8498,14 @@ export interface components {
          * @enum {string}
          */
         StorageCredentialStatus: "authorized" | "reauth_required" | "permission_denied" | "revoked" | "invalid";
+        /**
+         * @description Classifies a storage failure using a stable, transport-independent kind.
+         *
+         *     Drivers should assign a kind when they create an error so callers can make
+         *     retry, cleanup, and presentation decisions without parsing the message.
+         * @enum {string}
+         */
+        StorageErrorKind: "auth" | "misconfigured" | "not_found" | "permission" | "precondition" | "rate_limited" | "transient" | "unsupported" | "unknown";
         StoragePlacementClassification: {
             category: components["schemas"]["FileCategory"];
             compound_extension?: string | null;
@@ -8570,6 +8644,47 @@ export interface components {
             message: string;
             retryable: boolean;
         };
+        /** @description Immutable, administrator-confirmed plan for a destructive policy purge task. */
+        StoragePolicyForcedPurgeTaskPayload: {
+            /** @description Digest binding this task to the previewed files, revisions, blobs, and blockers. */
+            impact_digest: string;
+            /**
+             * Format: int64
+             * @description Storage policy whose remaining content references must be removed.
+             */
+            policy_id: number;
+            /** @description Policy name embedded in the high-risk confirmation phrase. */
+            policy_name: string;
+            /** @description Policy revision observed when the impact preview was confirmed. */
+            policy_updated_at: string;
+            /** @description Administrator-provided reason retained as task evidence and audit context. */
+            reason: string;
+        };
+        /** @description Terminal summary of a confirmed storage-policy forced purge. */
+        StoragePolicyForcedPurgeTaskResult: {
+            /**
+             * Format: int64
+             * @description Number of source-policy blob metadata rows removed after reference checks.
+             */
+            deleted_blob_records: number;
+            /**
+             * Format: int64
+             * @description Logical quota bytes released through canonical file purge transactions.
+             */
+            freed_logical_bytes: number;
+            /** @description Confirms that the final guarded policy deletion completed. */
+            policy_deleted: boolean;
+            /**
+             * Format: int64
+             * @description Source policy removed after all destructive cleanup checks passed.
+             */
+            policy_id: number;
+            /**
+             * Format: int64
+             * @description Number of file histories permanently purged.
+             */
+            purged_files: number;
+        };
         StoragePolicyGroup: {
             /**
              * @description Versioned typed admission payload. Legacy groups keep an empty/default
@@ -8611,12 +8726,19 @@ export interface components {
         StoragePolicyMigrationCapacityCheck: "sufficient" | "insufficient" | "unsupported" | "unavailable";
         /** @enum {string} */
         StoragePolicyMigrationDryRunWarning: "target_capacity_unavailable";
+        /**
+         * @description Product intent applied by a storage-policy migration task.
+         * @enum {string}
+         */
+        StoragePolicyMigrationMode: "normal" | "recover_available";
         StoragePolicyMigrationTaskPayload: {
-            delete_source_after_success: boolean;
+            /** @description Migration behavior selected when the immutable task plan was created. */
+            mode?: components["schemas"]["StoragePolicyMigrationMode"];
             plan_hash: string;
             /** Format: int64 */
             source_policy_id: number;
             source_policy_updated_at: string;
+            source_recovery_probe?: null | components["schemas"]["StoragePolicyRecoveryProbe"];
             /** Format: int64 */
             target_policy_id: number;
             target_policy_updated_at: string;
@@ -8630,6 +8752,11 @@ export interface components {
             migrated_blobs: number;
             /** Format: int64 */
             migrated_bytes: number;
+            /**
+             * Format: int64
+             * @description Blob rows that still reference the source policy after task execution.
+             */
+            remaining_blobs?: number;
             /** Format: int64 */
             renamed_opaque_blobs?: number;
             /** Format: int64 */
@@ -8640,6 +8767,59 @@ export interface components {
             source_policy_id: number;
             /** Format: int64 */
             target_policy_id: number;
+        };
+        /**
+         * @description Aggregate recoverability inferred from a bounded, deterministic object sample.
+         * @enum {string}
+         */
+        StoragePolicyRecoverabilityStatus: "recoverable" | "partially_recoverable" | "blocked" | "indeterminate" | "no_stored_objects";
+        /** @description Bounded evidence returned before creating a policy recovery migration. */
+        StoragePolicyRecoveryProbe: {
+            /** @description Whether the current evidence permits a recovery migration to start. */
+            can_start_recovery: boolean;
+            /** @description Digest binding task creation to the policy revision, counts, and sample evidence. */
+            plan_hash: string;
+            /**
+             * Format: int64
+             * @description Source policy selected by the administrator.
+             */
+            policy_id: number;
+            /** @description Source policy revision that must still match when a recovery task is created. */
+            policy_updated_at: string;
+            /** @description Deterministic sample results, bounded by the service sample limit. */
+            samples: components["schemas"]["StoragePolicyRecoveryProbeSample"][];
+            /** @description Aggregate recoverability classification. */
+            status: components["schemas"]["StoragePolicyRecoverabilityStatus"];
+            /**
+             * Format: int64
+             * @description Number of stored blob rows under the source policy.
+             */
+            stored_blob_count: number;
+            /**
+             * Format: int64
+             * @description Logical bytes represented by stored blob rows.
+             */
+            stored_total_bytes: number;
+            /**
+             * Format: int64
+             * @description Number of virtual-empty blob rows that need only metadata migration.
+             */
+            virtual_empty_blob_count: number;
+        };
+        /** @description Secret-free result for one stored blob sampled during policy recovery preflight. */
+        StoragePolicyRecoveryProbeSample: {
+            /**
+             * Format: int64
+             * @description Sampled blob ID used to correlate the result with admin blob observability.
+             */
+            blob_id: number;
+            /** @description Secret-free administrator diagnostic. */
+            diagnostic?: string | null;
+            error_kind?: null | components["schemas"]["StorageErrorKind"];
+            /** @description Whether retrying the sample may reasonably produce a different result. */
+            retryable: boolean;
+            /** @description Stable object probe status. */
+            status: components["schemas"]["StorageReadProbeStatus"];
         };
         StoragePolicySummaryInfo: {
             connector_id: string;
@@ -8663,6 +8843,11 @@ export interface components {
             /** Format: int64 */
             missing_objects: number;
         };
+        /**
+         * @description Stable outcome of a read-only storage object probe.
+         * @enum {string}
+         */
+        StorageReadProbeStatus: "readable" | "missing" | "blocked" | "indeterminate";
         StorageRoutingDecision: {
             evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
             excluded_targets: [
@@ -8803,6 +8988,9 @@ export interface components {
         }) | (components["schemas"]["StoragePolicyMigrationTaskPayload"] & {
             /** @enum {string} */
             kind: "storage_policy_migration";
+        }) | (components["schemas"]["StoragePolicyForcedPurgeTaskPayload"] & {
+            /** @enum {string} */
+            kind: "storage_policy_forced_purge";
         }) | (components["schemas"]["BlobMaintenanceTaskPayload"] & {
             /** @enum {string} */
             kind: "blob_maintenance";
@@ -8818,7 +9006,7 @@ export interface components {
             title?: null | components["schemas"]["TaskPresentationMessage"];
         };
         /** @enum {string} */
-        TaskPresentationCode: "blob_maintenance_integrity_check_name" | "blob_maintenance_orphan_cleanup_name" | "blob_maintenance_ref_count_reconcile_name" | "runtime_system_health_issue_detail" | "runtime_task_audit_cleanup" | "runtime_task_auth_session_cleanup" | "runtime_task_background_task_dispatch" | "runtime_task_blob_reconcile" | "runtime_task_completed_upload_cleanup" | "runtime_task_external_auth_flow_cleanup" | "runtime_task_lock_cleanup" | "runtime_task_mail_outbox_dispatch" | "runtime_task_mfa_flow_cleanup" | "runtime_task_remote_node_health_test" | "runtime_task_system_health_check" | "runtime_task_task_cleanup" | "runtime_task_team_archive_cleanup" | "runtime_task_trash_cleanup" | "runtime_task_upload_cleanup" | "runtime_task_wopi_session_cleanup" | "status_text_archive_extracted" | "status_text_archive_preview_ready" | "status_text_archive_ready" | "status_text_blob_maintenance_finished" | "status_text_folder_tree_delete_finished" | "status_text_folder_tree_mutation_scanning" | "status_text_folder_tree_restore_finished" | "status_text_image_preview_already_available" | "status_text_image_preview_ready" | "status_text_media_metadata_failed" | "status_text_media_metadata_ready" | "status_text_media_metadata_unsupported" | "status_text_offline_download_imported" | "status_text_offline_download_downloaded" | "status_text_offline_download_verified" | "status_text_storage_migration_completed" | "status_text_system_healthy" | "status_text_temporary_upload_cleanup_finished" | "status_text_thumbnail_already_available" | "status_text_thumbnail_ready" | "status_text_trash_purged" | "status_text_waiting_presigned_url_expiry" | "task_name_archive_compress" | "task_name_archive_extract" | "task_name_archive_preview_generate" | "task_name_archive_preview_generate_file_id" | "task_name_folder_tree_delete" | "task_name_folder_tree_restore" | "task_name_image_preview_generate" | "task_name_image_preview_generate_blob_with_processor" | "task_name_media_metadata_extract_blob" | "task_name_media_metadata_extract_source" | "task_name_offline_download_source" | "task_name_offline_download_source_with_engine" | "task_name_offline_download_target_folder" | "task_name_offline_download_target_folder_with_engine" | "task_name_offline_download_url" | "task_name_offline_download_url_with_engine" | "task_name_storage_policy_migration" | "task_name_storage_policy_temp_cleanup" | "task_name_storage_policy_temp_cleanup_policy_id" | "task_name_thumbnail_generate" | "task_name_thumbnail_generate_blob_with_processor" | "task_name_trash_purge_all";
+        TaskPresentationCode: "blob_maintenance_integrity_check_name" | "blob_maintenance_orphan_cleanup_name" | "blob_maintenance_ref_count_reconcile_name" | "runtime_system_health_issue_detail" | "runtime_task_audit_cleanup" | "runtime_task_auth_session_cleanup" | "runtime_task_background_task_dispatch" | "runtime_task_blob_reconcile" | "runtime_task_completed_upload_cleanup" | "runtime_task_external_auth_flow_cleanup" | "runtime_task_lock_cleanup" | "runtime_task_mail_outbox_dispatch" | "runtime_task_mfa_flow_cleanup" | "runtime_task_remote_node_health_test" | "runtime_task_system_health_check" | "runtime_task_task_cleanup" | "runtime_task_team_archive_cleanup" | "runtime_task_trash_cleanup" | "runtime_task_upload_cleanup" | "runtime_task_wopi_session_cleanup" | "status_text_archive_extracted" | "status_text_archive_preview_ready" | "status_text_archive_ready" | "status_text_blob_maintenance_finished" | "status_text_folder_tree_delete_finished" | "status_text_folder_tree_mutation_scanning" | "status_text_folder_tree_restore_finished" | "status_text_image_preview_already_available" | "status_text_image_preview_ready" | "status_text_media_metadata_failed" | "status_text_media_metadata_ready" | "status_text_media_metadata_unsupported" | "status_text_offline_download_imported" | "status_text_offline_download_downloaded" | "status_text_offline_download_verified" | "status_text_storage_migration_completed" | "status_text_storage_policy_forced_purge_completed" | "status_text_system_healthy" | "status_text_temporary_upload_cleanup_finished" | "status_text_thumbnail_already_available" | "status_text_thumbnail_ready" | "status_text_trash_purged" | "status_text_waiting_presigned_url_expiry" | "task_name_archive_compress" | "task_name_archive_extract" | "task_name_archive_preview_generate" | "task_name_archive_preview_generate_file_id" | "task_name_folder_tree_delete" | "task_name_folder_tree_restore" | "task_name_image_preview_generate" | "task_name_image_preview_generate_blob_with_processor" | "task_name_media_metadata_extract_blob" | "task_name_media_metadata_extract_source" | "task_name_offline_download_source" | "task_name_offline_download_source_with_engine" | "task_name_offline_download_target_folder" | "task_name_offline_download_target_folder_with_engine" | "task_name_offline_download_url" | "task_name_offline_download_url_with_engine" | "task_name_storage_policy_migration" | "task_name_storage_policy_forced_purge" | "task_name_storage_policy_temp_cleanup" | "task_name_storage_policy_temp_cleanup_policy_id" | "task_name_thumbnail_generate" | "task_name_thumbnail_generate_blob_with_processor" | "task_name_trash_purge_all";
         TaskPresentationMessage: {
             code: components["schemas"]["TaskPresentationCode"];
             params?: {
@@ -8855,6 +9043,9 @@ export interface components {
         }) | (components["schemas"]["StoragePolicyMigrationTaskResult"] & {
             /** @enum {string} */
             kind: "storage_policy_migration";
+        }) | (components["schemas"]["StoragePolicyForcedPurgeTaskResult"] & {
+            /** @enum {string} */
+            kind: "storage_policy_forced_purge";
         }) | (components["schemas"]["BlobMaintenanceTaskResult"] & {
             /** @enum {string} */
             kind: "blob_maintenance";
@@ -11866,6 +12057,211 @@ export interface operations {
             };
         };
     };
+    create_storage_policy_forced_purge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Policy ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateStoragePolicyForcedPurgeReq"];
+            };
+        };
+        responses: {
+            /** @description Storage policy forced-purge task created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int32 */
+                            attempt_count: number;
+                            can_retry: boolean;
+                            created_at: string;
+                            creator?: null | components["schemas"]["UserSummary"];
+                            display_name: string;
+                            expires_at: string;
+                            finished_at?: string | null;
+                            /** Format: int64 */
+                            id: number;
+                            kind: components["schemas"]["BackgroundTaskKind"];
+                            last_error?: string | null;
+                            lease_expires_at?: string | null;
+                            /** Format: int32 */
+                            max_attempts: number;
+                            payload: components["schemas"]["TaskPayload"];
+                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            /** Format: int64 */
+                            progress_current: number;
+                            /** Format: int32 */
+                            progress_percent: number;
+                            /** Format: int64 */
+                            progress_total: number;
+                            result?: null | components["schemas"]["TaskResult"];
+                            /** Format: int64 */
+                            share_id?: number | null;
+                            started_at?: string | null;
+                            status: components["schemas"]["BackgroundTaskStatus"];
+                            status_text?: string | null;
+                            steps: components["schemas"]["TaskStepInfo"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Impact, confirmation, or topology validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Policy not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    preview_storage_policy_forced_purge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Policy ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Storage policy forced-purge impact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        /** @description Complete impact preview that must be confirmed before destructive task creation. */
+                        data?: {
+                            /**
+                             * Format: int64
+                             * @description Logical quota bytes represented by affected revisions.
+                             */
+                            affected_logical_bytes: number;
+                            /**
+                             * Format: int64
+                             * @description Canonical revisions backed by source-policy blobs.
+                             */
+                            affected_revision_count: number;
+                            /**
+                             * Format: int64
+                             * @description Blob rows whose metadata will be removed after all references are purged.
+                             */
+                            blob_count: number;
+                            /**
+                             * Format: int64
+                             * @description Bytes represented by source-policy blob rows.
+                             */
+                            blob_total_bytes: number;
+                            /** @description Whether placement topology blockers have been cleared. */
+                            can_start: boolean;
+                            /** @description Exact phrase required by the destructive confirmation endpoint. */
+                            confirmation_phrase: string;
+                            /**
+                             * Format: int64
+                             * @description Direct shares removed with the affected files.
+                             */
+                            direct_share_count: number;
+                            /**
+                             * Format: int64
+                             * @description Distinct file histories permanently removed.
+                             */
+                            file_count: number;
+                            /** @description Digest binding task creation to this exact policy and impact snapshot. */
+                            impact_digest: string;
+                            /**
+                             * Format: int64
+                             * @description Placement targets that must be detached before purge can start.
+                             */
+                            placement_target_count: number;
+                            /**
+                             * Format: int64
+                             * @description Policy selected for permanent removal.
+                             */
+                            policy_id: number;
+                            /** @description Current policy name used by the confirmation phrase. */
+                            policy_name: string;
+                            /** @description Current policy revision bound into the impact digest. */
+                            policy_updated_at: string;
+                            /**
+                             * Format: int64
+                             * @description Affected files that are currently in trash.
+                             */
+                            trash_file_count: number;
+                            /**
+                             * Format: int64
+                             * @description Active upload sessions that the confirmed task will abandon locally.
+                             */
+                            upload_session_count: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Policy not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     promote_storage_policy_connector: {
         parameters: {
             query?: never;
@@ -11917,6 +12313,87 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Policy not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    probe_storage_policy_recoverability: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Policy ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Storage policy recovery evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        /** @description Bounded evidence returned before creating a policy recovery migration. */
+                        data?: {
+                            /** @description Whether the current evidence permits a recovery migration to start. */
+                            can_start_recovery: boolean;
+                            /** @description Digest binding task creation to the policy revision, counts, and sample evidence. */
+                            plan_hash: string;
+                            /**
+                             * Format: int64
+                             * @description Source policy selected by the administrator.
+                             */
+                            policy_id: number;
+                            /** @description Source policy revision that must still match when a recovery task is created. */
+                            policy_updated_at: string;
+                            /** @description Deterministic sample results, bounded by the service sample limit. */
+                            samples: components["schemas"]["StoragePolicyRecoveryProbeSample"][];
+                            /** @description Aggregate recoverability classification. */
+                            status: components["schemas"]["StoragePolicyRecoverabilityStatus"];
+                            /**
+                             * Format: int64
+                             * @description Number of stored blob rows under the source policy.
+                             */
+                            stored_blob_count: number;
+                            /**
+                             * Format: int64
+                             * @description Logical bytes represented by stored blob rows.
+                             */
+                            stored_total_bytes: number;
+                            /**
+                             * Format: int64
+                             * @description Number of virtual-empty blob rows that need only metadata migration.
+                             */
+                            virtual_empty_blob_count: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
             };
             /** @description Unauthorized */
             401: {
@@ -13819,7 +14296,6 @@ export interface operations {
                             can_start: boolean;
                             /** Format: int64 */
                             content_sha256_blob_count: number;
-                            delete_source_after_success_supported: boolean;
                             /** Format: int64 */
                             estimated_copy_blob_count: number;
                             /** Format: int64 */
@@ -13830,6 +14306,7 @@ export interface operations {
                             source_blob_count: number;
                             /** Format: int64 */
                             source_policy_id: number;
+                            source_recovery_probe?: null | components["schemas"]["StoragePolicyRecoveryProbe"];
                             /** Format: int64 */
                             source_total_bytes: number;
                             target_capacity: components["schemas"]["StorageCapacityInfo"];
@@ -22250,6 +22727,13 @@ export interface operations {
         responses: {
             /** @description Connector icon asset */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Connector icon is unchanged */
+            304: {
                 headers: {
                     [name: string]: unknown;
                 };
