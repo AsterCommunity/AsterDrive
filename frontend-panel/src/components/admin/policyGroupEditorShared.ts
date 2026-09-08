@@ -13,7 +13,6 @@ export interface PolicyGroupRuleTargetForm {
 	key: string;
 	policyId: string;
 	weight: string;
-	isEnabled: boolean;
 	acceptingNewWrites: boolean;
 }
 
@@ -67,7 +66,7 @@ export function buildPolicyGroupRuleTargetForm(
 	policyId?: number | null,
 	ruleTarget?: Pick<
 		StoragePlacementRuleInfo["targets"][number],
-		"policy_id" | "weight" | "is_enabled" | "accepting_new_writes"
+		"policy_id" | "weight" | "accepting_new_writes"
 	>,
 ): PolicyGroupRuleTargetForm {
 	return {
@@ -79,7 +78,6 @@ export function buildPolicyGroupRuleTargetForm(
 					? String(policyId)
 					: "",
 		weight: String(ruleTarget?.weight ?? 100),
-		isEnabled: ruleTarget?.is_enabled ?? true,
 		acceptingNewWrites: ruleTarget?.accepting_new_writes ?? true,
 	};
 }
@@ -309,7 +307,6 @@ export function buildPolicyGroupPayload(
 			targets: item.targets.map((target, targetIndex) => ({
 				policy_id: Number(target.policyId),
 				weight: Number(target.weight),
-				is_enabled: target.isEnabled,
 				accepting_new_writes: target.acceptingNewWrites,
 				stable_order: targetIndex + 1,
 			})),

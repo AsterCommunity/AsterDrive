@@ -200,8 +200,8 @@ describe("PolicyGroupSimulationDialog", () => {
 				decision: null,
 				evaluated_rules: [],
 				excluded_targets: [
-					[99, "target_disabled"],
-					[99, "target_disabled"],
+					[99, "target_draining"],
+					[99, "target_draining"],
 				],
 				rejection_code: "too_large",
 			}),

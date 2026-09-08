@@ -2225,7 +2225,6 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
             rule_id: Set(rule.id),
             policy_id: Set(constrained_policy.id),
             weight: Set(100),
-            is_enabled: Set(true),
             accepting_new_writes: Set(true),
             stable_order: Set(1),
             created_at: Set(now),

@@ -92,7 +92,6 @@ pub struct StoragePlacementTargetInfo {
     pub id: i64,
     pub policy_id: i64,
     pub weight: i32,
-    pub is_enabled: bool,
     pub accepting_new_writes: bool,
     pub stable_order: i32,
     pub policy: StoragePolicySummaryInfo,
@@ -103,8 +102,6 @@ pub struct StoragePlacementTargetInfo {
 pub struct StoragePlacementTargetInput {
     pub policy_id: i64,
     pub weight: i32,
-    #[serde(default = "default_true")]
-    pub is_enabled: bool,
     #[serde(default = "default_true")]
     pub accepting_new_writes: bool,
     #[serde(default)]

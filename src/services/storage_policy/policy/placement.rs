@@ -137,8 +137,6 @@ pub(crate) fn parse_execution_preference(value: &str) -> Option<UploadExecutionP
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum TargetExclusionReason {
-    #[serde(rename = "target_disabled")]
-    Disabled,
     #[serde(rename = "target_draining")]
     Draining,
     #[serde(rename = "target_unavailable")]
@@ -152,7 +150,6 @@ pub enum TargetExclusionReason {
 impl TargetExclusionReason {
     pub const fn code(self) -> &'static str {
         match self {
-            Self::Disabled => "target_disabled",
             Self::Draining => "target_draining",
             Self::Unavailable => "target_unavailable",
             Self::Incompatible => "target_incompatible",
@@ -223,7 +220,6 @@ pub struct PlacementTarget {
     pub policy_id: i64,
     pub weight: u32,
     pub stable_order: u32,
-    pub is_enabled: bool,
     pub accepting_new_writes: bool,
     pub policy_max_file_size: i64,
     pub exclusion: Option<TargetExclusionReason>,
@@ -231,9 +227,6 @@ pub struct PlacementTarget {
 
 impl PlacementTarget {
     pub fn eligible_for(&self, file_size: i64) -> Result<(), TargetExclusionReason> {
-        if !self.is_enabled {
-            return Err(TargetExclusionReason::Disabled);
-        }
         if !self.accepting_new_writes {
             return Err(TargetExclusionReason::Draining);
         }
@@ -686,7 +679,6 @@ mod tests {
                     policy_id: 101,
                     weight: 100,
                     stable_order: 1,
-                    is_enabled: true,
                     accepting_new_writes: true,
                     policy_max_file_size: 0,
                     exclusion: None,
@@ -799,7 +791,6 @@ mod tests {
                 policy_id: 102,
                 weight: 100,
                 stable_order: 1,
-                is_enabled: true,
                 accepting_new_writes: true,
                 policy_max_file_size: 0,
                 exclusion: None,
@@ -813,7 +804,7 @@ mod tests {
     #[test]
     fn reject_behavior_reports_no_target() {
         let mut profile = profile();
-        profile.rules[0].targets[0].is_enabled = false;
+        profile.rules[0].targets[0].accepting_new_writes = false;
         profile.rules[0].unavailable_behavior = PlacementUnavailableBehavior::Reject;
         assert_eq!(
             resolve_placement(&profile, &context("file.bin", 10), None).unwrap_err(),
@@ -824,7 +815,7 @@ mod tests {
     #[test]
     fn exhausted_next_rules_report_exclusions_and_rule_trace() {
         let mut exhausted_profile = profile();
-        exhausted_profile.rules[0].targets[0].is_enabled = false;
+        exhausted_profile.rules[0].targets[0].accepting_new_writes = false;
         let error =
             resolve_placement(&exhausted_profile, &context("file.bin", 10), None).unwrap_err();
         assert_eq!(error, PlacementRejection::NoEligibleTarget);
@@ -845,7 +836,6 @@ mod tests {
             policy_id: 102,
             weight: 30,
             stable_order: 2,
-            is_enabled: true,
             accepting_new_writes: true,
             policy_max_file_size: 0,
             exclusion: None,
@@ -901,7 +891,6 @@ mod tests {
             UploadExecutionPreference::ForceServerStream.as_str(),
             "force_server_stream"
         );
-        assert_eq!(TargetExclusionReason::Disabled.code(), "target_disabled");
         assert_eq!(TargetExclusionReason::Draining.code(), "target_draining");
         assert_eq!(
             TargetExclusionReason::Unavailable.code(),
@@ -932,13 +921,10 @@ mod tests {
             policy_id: 1,
             weight: 1,
             stable_order: 1,
-            is_enabled: false,
             accepting_new_writes: true,
             policy_max_file_size: 0,
             exclusion: None,
         };
-        assert_eq!(target.eligible_for(1), Err(TargetExclusionReason::Disabled));
-        target.is_enabled = true;
         target.accepting_new_writes = false;
         assert_eq!(target.eligible_for(1), Err(TargetExclusionReason::Draining));
         target.accepting_new_writes = true;

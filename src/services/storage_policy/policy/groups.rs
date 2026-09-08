@@ -467,7 +467,6 @@ async fn create_default_placement_rule<C: sea_orm::ConnectionTrait>(
             rule_id: Set(rule.id),
             policy_id: Set(policy_id),
             weight: Set(100),
-            is_enabled: Set(true),
             accepting_new_writes: Set(true),
             stable_order: Set(1),
             created_at: Set(now),
