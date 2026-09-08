@@ -106,6 +106,10 @@ function isFileChangeEvent(event: StorageChangeEventPayload) {
 	return event.kind.startsWith("file.") || event.kind.startsWith("lock.");
 }
 
+function isTrashProjectionEvent(event: StorageChangeEventPayload) {
+	return event.kind === "trash.purged_all";
+}
+
 function hasResourceReference(event: StorageChangeEventPayload) {
 	return (
 		event.root_affected ||
@@ -200,6 +204,16 @@ export function decideRemoteStorageMutation(
 				!isVirtualFileBrowserPath(context.pathname),
 				context.isRefreshGateActive,
 			),
+			refreshStorageUsage,
+		};
+	}
+
+	if (isTrashProjectionEvent(event)) {
+		return {
+			invalidateAllResourceCaches: false,
+			invalidateFileResourceCacheIds: [],
+			publishToWorkspace: true,
+			refreshCurrentFolder: "none",
 			refreshStorageUsage,
 		};
 	}

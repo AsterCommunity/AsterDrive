@@ -208,7 +208,7 @@ pub(crate) fn publish_purge_all_storage_change(
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
-            storage_change::StorageChangeKind::SyncRequired,
+            storage_change::StorageChangeKind::TrashPurgedAll,
             scope,
             vec![],
             vec![],

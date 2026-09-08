@@ -14,7 +14,9 @@ import {
 	consumeStorageEventEcho,
 } from "@/lib/storageEventEcho";
 import FileBrowserPage from "@/pages/FileBrowserPage";
+import { ApiError } from "@/services/http";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
 	batchDelete: vi.fn(),
@@ -36,6 +38,7 @@ const mockState = vi.hoisted(() => ({
 	fileBrowserContext: null as Record<string, unknown> | null,
 	folderPolicyPreload: vi.fn(),
 	formatBatchToast: vi.fn(),
+	getFolderAncestors: vi.fn(),
 	handleApiError: vi.fn(),
 	idleTasks: [] as Array<() => void>,
 	musicPlayTracks: vi.fn(),
@@ -44,6 +47,8 @@ const mockState = vi.hoisted(() => ({
 		search: "?name=Projects",
 		state: null as Record<string, unknown> | null,
 	},
+	listFolder: vi.fn(),
+	listRoot: vi.fn(),
 	navigate: vi.fn(),
 	params: { folderId: "12" as string | undefined },
 	previewAppStore: {
@@ -109,6 +114,7 @@ const mockState = vi.hoisted(() => ({
 		deleteFile: vi.fn(),
 		deleteFolder: vi.fn(),
 		error: null as string | null,
+		unavailableFolderId: null as number | null,
 		files: [] as Array<Record<string, unknown>>,
 		folders: [] as Array<Record<string, unknown>>,
 		hasMoreFiles: vi.fn(),
@@ -1110,11 +1116,15 @@ vi.mock("@/services/fileService", () => ({
 			mockState.createPreviewLink(...args),
 		getArchivePreview: (...args: unknown[]) =>
 			mockState.getArchivePreview(...args),
+		getFolderAncestors: (...args: unknown[]) =>
+			mockState.getFolderAncestors(...args),
 		createWopiSession: (...args: unknown[]) =>
 			mockState.createWopiSession(...args),
 		downloadPath: (id: number) => `/files/${id}/download`,
 		getMediaMetadata: vi.fn(async () => null),
 		imagePreviewPath: (id: number) => `/files/${id}/image-preview`,
+		listFolder: (...args: unknown[]) => mockState.listFolder(...args),
+		listRoot: (...args: unknown[]) => mockState.listRoot(...args),
 		resolveResourceHandle: (...args: unknown[]) =>
 			mockState.resolveResourceHandle(...args),
 		setFileLock: (...args: unknown[]) => mockState.setFileLock(...args),
@@ -1283,6 +1293,7 @@ describe("FileBrowserPage", () => {
 		mockState.fileBrowserContext = null;
 		mockState.folderPolicyPreload.mockReset();
 		mockState.formatBatchToast.mockReset();
+		mockState.getFolderAncestors.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.idleTasks = [];
 		mockState.musicPlayTracks.mockReset();
@@ -1291,6 +1302,8 @@ describe("FileBrowserPage", () => {
 			search: "?name=Projects",
 			state: null,
 		};
+		mockState.listFolder.mockReset();
+		mockState.listRoot.mockReset();
 		mockState.navigate.mockReset();
 		mockState.previewAppStore.load.mockReset();
 		mockState.thumbnailSupportStore.config = {
@@ -1349,6 +1362,7 @@ describe("FileBrowserPage", () => {
 		];
 		mockState.store.currentFolderId = 12;
 		mockState.store.error = null;
+		mockState.store.unavailableFolderId = null;
 		mockState.store.files = [createFile()];
 		mockState.store.folders = [createFolder()];
 		mockState.store.hasMoreFiles.mockReturnValue(false);
@@ -1444,6 +1458,115 @@ describe("FileBrowserPage", () => {
 		expect(mockState.store.setSortBy).toHaveBeenCalledWith("updated_at");
 		expect(mockState.store.setSortOrder).toHaveBeenCalledWith("desc");
 	});
+
+	it.each([
+		[{ kind: "personal" } as const, "/folder/3?name=Projects"],
+		[{ kind: "team", teamId: 9 } as const, "/teams/9/folder/3?name=Projects"],
+	])(
+		"recovers an unavailable current folder in %j to its nearest ancestor",
+		async (workspace, expectedPath) => {
+			mockState.workspace = workspace;
+			mockState.store.breadcrumb = [
+				{ id: null, name: "Root" },
+				{ id: 3, name: "Projects" },
+				{ id: 12, name: "Removed" },
+			];
+			mockState.store.unavailableFolderId = 12;
+
+			render(<FileBrowserPage />);
+
+			await waitFor(() => {
+				expect(mockState.navigate).toHaveBeenCalledWith(expectedPath, {
+					replace: true,
+				});
+			});
+			expect(mockState.toastError).toHaveBeenCalledWith(
+				"errors:folder_not_found",
+			);
+		},
+	);
+
+	it("recovers a FolderNotFound raised by the real fileStore navigation chain", async () => {
+		const { useFileStore: realFileStore } =
+			await vi.importActual<typeof import("@/stores/fileStore")>(
+				"@/stores/fileStore",
+			);
+		const notFound = new ApiError(
+			ApiErrorCode.FolderNotFound,
+			"Folder #12 is in trash",
+			{ retryable: false, status: 404 },
+		);
+		mockState.listFolder.mockRejectedValueOnce(notFound);
+		mockState.getFolderAncestors.mockResolvedValueOnce([
+			{ id: 3, name: "Projects" },
+		]);
+		realFileStore.getState().resetWorkspaceState();
+		realFileStore.setState({
+			breadcrumb: [
+				{ id: null, name: "Root" },
+				{ id: 3, name: "Projects" },
+			],
+			currentFolderId: 3,
+		});
+		mockState.store.breadcrumb = [
+			{ id: null, name: "Root" },
+			{ id: 3, name: "Projects" },
+		];
+		mockState.store.currentFolderId = 3;
+		mockState.store.navigateTo.mockImplementationOnce(
+			async (folderId: number | null, folderName?: string) => {
+				try {
+					await realFileStore.getState().navigateTo(folderId, folderName);
+				} finally {
+					const state = realFileStore.getState();
+					mockState.store.error = state.error;
+					mockState.store.unavailableFolderId = state.unavailableFolderId;
+				}
+			},
+		);
+
+		const view = render(<FileBrowserPage />);
+
+		await waitFor(() => {
+			expect(realFileStore.getState().unavailableFolderId).toBe(12);
+		});
+		expect(mockState.store.unavailableFolderId).toBe(12);
+		view.rerender(<FileBrowserPage />);
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith(
+				"/folder/3?name=Projects",
+				{ replace: true },
+			);
+		});
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"errors:folder_not_found",
+		);
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[{ kind: "personal" } as const, "/"],
+		[{ kind: "team", teamId: 9 } as const, "/teams/9"],
+	])(
+		"recovers an unavailable folder without a known ancestor in %j to the workspace root",
+		async (workspace, expectedPath) => {
+			mockState.workspace = workspace;
+			mockState.store.breadcrumb = [{ id: null, name: "Root" }];
+			mockState.store.unavailableFolderId = 12;
+
+			render(<FileBrowserPage />);
+
+			await waitFor(() => {
+				expect(mockState.navigate).toHaveBeenCalledWith(expectedPath, {
+					replace: true,
+				});
+			});
+			expect(mockState.toastError).toHaveBeenCalledWith(
+				"errors:folder_not_found",
+			);
+		},
+	);
 
 	it("does not expose folder policy management to regular users", () => {
 		render(<FileBrowserPage />);

@@ -1,13 +1,6 @@
 import { batchService, singleOperationResult } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import type { BatchResult } from "@/types/api";
-import {
-	applyWorkspaceRequestState,
-	beginWorkspaceRequest,
-	fetchFolder,
-	getInitialPageParams,
-	isRequestCanceled,
-} from "./request";
 import type { ClipboardSlice, FileStoreSlice } from "./types";
 
 export const createClipboardSlice: FileStoreSlice<ClipboardSlice> = (
@@ -93,33 +86,7 @@ export const createClipboardSlice: FileStoreSlice<ClipboardSlice> = (
 			return { mode, result };
 		}
 
-		const request = beginWorkspaceRequest(set, get);
-
-		try {
-			const contents = await fetchFolder(
-				currentFolderId,
-				getInitialPageParams(get().sortBy, get().sortOrder),
-				request.signal,
-			);
-
-			applyWorkspaceRequestState(set, get, request, {
-				folders: contents.folders,
-				files: contents.files,
-				foldersTotalCount: contents.folders_total,
-				filesTotalCount: contents.files_total,
-				nextFileCursor: contents.next_file_cursor ?? null,
-				loading: false,
-				loadingMore: false,
-			});
-		} catch (error) {
-			if (!isRequestCanceled(error)) {
-				applyWorkspaceRequestState(set, get, request, {
-					loading: false,
-					loadingMore: false,
-				});
-				throw error;
-			}
-		}
+		await get().refresh(currentFolderId);
 
 		return { mode, result };
 	},

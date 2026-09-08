@@ -126,6 +126,195 @@ async fn test_trash_restore_purge() {
 }
 
 #[actix_web::test]
+async fn test_folder_read_endpoints_return_domain_not_found_across_trash_lifecycle() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let missing_folder_id = i64::MAX;
+
+    for suffix in ["", "/info", "/ancestors"] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{missing_folder_id}{suffix}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            404,
+            "unexpected missing-folder status for {suffix}"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "folder.not_found");
+        assert_eq!(body["error"]["retryable"], false);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("does not exist or has been permanently removed")
+        );
+    }
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "lifecycle-folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    for suffix in ["", "/info", "/ancestors"] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{folder_id}{suffix}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404, "unexpected status for suffix {suffix}");
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "folder.not_found");
+        assert_eq!(body["error"]["retryable"], false);
+        assert!(
+            body["msg"].as_str().unwrap().contains("is in trash"),
+            "unexpected response: {body}"
+        );
+    }
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/trash/folder/{folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    for suffix in ["", "/info", "/ancestors"] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{folder_id}{suffix}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404, "unexpected status for suffix {suffix}");
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "folder.not_found");
+        assert_eq!(body["error"]["retryable"], false);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("does not exist or has been permanently removed"),
+            "unexpected response: {body}"
+        );
+    }
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Folder lifecycle team" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+    for suffix in ["", "/info", "/ancestors"] {
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/teams/{team_id}/folders/{missing_folder_id}{suffix}"
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            404,
+            "unexpected missing team-folder status for {suffix}"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "folder.not_found");
+        assert_eq!(body["error"]["retryable"], false);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("does not exist or has been permanently removed")
+        );
+    }
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "team-lifecycle-folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let team_folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/teams/{team_id}/folders/{team_folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    for suffix in ["", "/info", "/ancestors"] {
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/teams/{team_id}/folders/{team_folder_id}{suffix}"
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404, "unexpected team status for {suffix}");
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "folder.not_found");
+        assert_eq!(body["error"]["retryable"], false);
+        assert!(body["msg"].as_str().unwrap().contains("is in trash"));
+    }
+
+    let req = test::TestRequest::delete()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/trash/folder/{team_folder_id}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    for suffix in ["", "/info", "/ancestors"] {
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/teams/{team_id}/folders/{team_folder_id}{suffix}"
+            ))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404, "unexpected team status for {suffix}");
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "folder.not_found");
+        assert_eq!(body["error"]["retryable"], false);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("does not exist or has been permanently removed")
+        );
+    }
+}
+
+#[actix_web::test]
 async fn test_restore_file_rejects_active_name_conflict() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -277,8 +466,8 @@ async fn test_trash_purge_all() {
     assert_eq!(stats.succeeded, 2);
     let purge_all_event = rx
         .try_recv()
-        .expect("purge-all task should publish one storage sync event");
-    assert_eq!(purge_all_event.kind, StorageChangeKind::SyncRequired);
+        .expect("purge-all task should publish one aggregate storage event");
+    assert_eq!(purge_all_event.kind, StorageChangeKind::TrashPurgedAll);
     assert!(purge_all_event.file_ids.is_empty());
     assert!(purge_all_event.folder_ids.is_empty());
     assert!(purge_all_event.affected_parent_ids.is_empty());

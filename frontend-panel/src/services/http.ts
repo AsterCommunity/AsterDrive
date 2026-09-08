@@ -237,6 +237,18 @@ export class ApiError extends Error {
 	}
 }
 
+export function isApiErrorWithCode(
+	error: unknown,
+	code: ApiErrorCode,
+): error is ApiError {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		error.code === code
+	);
+}
+
 export class ApiPendingError extends Error {
 	retryAfterSeconds: number;
 

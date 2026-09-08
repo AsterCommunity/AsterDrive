@@ -32,6 +32,7 @@ import type {
 	FileListItem,
 	FolderListItem,
 } from "@/types/api";
+import { isFolderUnavailableError } from "./folderRecovery";
 
 const ENTITY_TYPE_BY_TARGET = {
 	file: "file",
@@ -98,7 +99,11 @@ export function useFileBrowserPageState({
 		setInfoPanelOpen(false);
 		setInfoTarget(null);
 		navigateTo(navigationTarget.folderId, navigationTarget.folderName).catch(
-			handleApiError,
+			(error) => {
+				if (!isFolderUnavailableError(error)) {
+					handleApiError(error);
+				}
+			},
 		);
 	}, [navigateTo, navigationTarget]);
 

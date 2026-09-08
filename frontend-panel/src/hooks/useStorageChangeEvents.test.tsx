@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { logger } from "@/lib/logger";
 import {
 	clearStorageEventEchoes,
 	rememberStorageEventEcho,
@@ -30,7 +31,7 @@ const mockState = vi.hoisted(() => ({
 			{ id: null, name: "Root" },
 			{ id: 7, name: "Docs" },
 		],
-		navigateTo: vi.fn(),
+		refresh: vi.fn(),
 	},
 	invalidateBlobUrl: vi.fn(),
 	invalidateTextContent: vi.fn(),
@@ -159,7 +160,7 @@ vi.mock("@/stores/fileStore", () => {
 			selector: (state: {
 				breadcrumb: typeof mockState.fileStore.breadcrumb;
 				currentFolderId: number | null;
-				navigateTo: typeof mockState.fileStore.navigateTo;
+				refresh: typeof mockState.fileStore.refresh;
 			}) => T,
 		) => selector(mockState.fileStore),
 		{
@@ -189,8 +190,8 @@ describe("useStorageChangeEvents", () => {
 			{ id: 7, name: "Docs" },
 		];
 		window.history.replaceState(null, "", "/");
-		mockState.fileStore.navigateTo.mockReset();
-		mockState.fileStore.navigateTo.mockResolvedValue(undefined);
+		mockState.fileStore.refresh.mockReset();
+		mockState.fileStore.refresh.mockResolvedValue(undefined);
 		mockState.invalidateBlobUrl.mockReset();
 		mockState.invalidateTextContent.mockReset();
 		mockState.storageRefreshGate.deferStorageRefresh.mockReset();
@@ -237,13 +238,48 @@ describe("useStorageChangeEvents", () => {
 			"/files/11/thumbnail",
 		);
 		await waitFor(() => {
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledWith(7);
 		});
 		expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
 		expect(mockState.teamStore.reload).not.toHaveBeenCalled();
 
 		hook.unmount();
 		expect(MockEventSource.instances[0]?.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("logs a current-folder refresh failure without navigating to root", async () => {
+		const refreshError = new Error("folder disappeared");
+		mockState.fileStore.refresh.mockRejectedValueOnce(refreshError);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		try {
+			renderHook(() => useStorageChangeEvents());
+			await connectStorageEvents();
+			MockEventSource.instances[0]?.emit({
+				kind: "file.updated",
+				workspace: { kind: "personal" },
+				file_ids: [],
+				folder_ids: [],
+				affected_parent_ids: [7],
+				root_affected: false,
+				affects_quota: false,
+				storage_delta: null,
+				at: "2026-04-08T00:00:00Z",
+			});
+
+			await waitFor(() => {
+				expect(warn).toHaveBeenCalledWith(
+					"storage event folder refresh failed",
+					refreshError,
+				);
+			});
+			expect(mockState.fileStore.refresh).toHaveBeenCalledWith(7);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it("handles sync.required without refreshing during search", async () => {
@@ -274,7 +310,7 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.invalidateTextContent).toHaveBeenCalledWith();
 		expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
 		expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("handles sync.required without refreshing on subpath search routes", async () => {
@@ -304,7 +340,7 @@ describe("useStorageChangeEvents", () => {
 		});
 		expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
 		expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("ignores non-quota events from other workspaces", async () => {
@@ -332,7 +368,7 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.teamStore.reload).not.toHaveBeenCalled();
 		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
 		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("reloads teams for quota-affecting team events from other workspaces", async () => {
@@ -362,7 +398,7 @@ describe("useStorageChangeEvents", () => {
 		});
 		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
 		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("refreshes only personal quota for quota-affecting personal events", async () => {
@@ -392,6 +428,44 @@ describe("useStorageChangeEvents", () => {
 			});
 		});
 		expect(mockState.teamStore.reload).not.toHaveBeenCalled();
+	});
+
+	it("publishes purge-all without refreshing a live folder", async () => {
+		const { subscribeStorageChange } = await import("@/lib/storageChangeBus");
+		const listener = vi.fn();
+		const unsubscribe = subscribeStorageChange(listener);
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		try {
+			renderHook(() => useStorageChangeEvents());
+			await connectStorageEvents();
+
+			MockEventSource.instances[0]?.emit({
+				kind: "trash.purged_all",
+				workspace: { kind: "personal" },
+				file_ids: [],
+				folder_ids: [],
+				affected_parent_ids: [],
+				root_affected: false,
+				affects_quota: true,
+				storage_delta: -128,
+				at: "2026-04-08T00:00:00Z",
+			});
+
+			await waitFor(() => {
+				expect(listener).toHaveBeenCalledWith(
+					expect.objectContaining({ kind: "trash.purged_all" }),
+				);
+			});
+			expect(mockState.auth.refreshUser).toHaveBeenCalledWith({
+				fields: ["quota"],
+			});
+			expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
+		} finally {
+			unsubscribe();
+		}
 	});
 
 	it("defers folder refresh while the upload queue gate is active", async () => {
@@ -424,7 +498,7 @@ describe("useStorageChangeEvents", () => {
 			);
 		});
 		expect(mockState.storageRefreshGate.deferStorageRefresh).toHaveBeenCalled();
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("refreshes the current folder for matching tag assignment events", async () => {
@@ -449,7 +523,7 @@ describe("useStorageChangeEvents", () => {
 		});
 
 		await waitFor(() => {
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledWith(7);
 		});
 		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
 		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
@@ -476,7 +550,7 @@ describe("useStorageChangeEvents", () => {
 			at: "2026-04-08T00:00:00Z",
 		});
 
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("publishes tag events without navigating on virtual browser routes", async () => {
@@ -510,7 +584,7 @@ describe("useStorageChangeEvents", () => {
 					expect.objectContaining({ kind: "tag.updated" }),
 				);
 			});
-			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+			expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 		} finally {
 			unsubscribe();
 		}
@@ -545,7 +619,7 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
 		expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
 		expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
-		expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
 	it("does not open the event stream when the user disables realtime sync", async () => {
@@ -720,7 +794,7 @@ describe("useStorageChangeEvents", () => {
 			expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
 			expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
 			expect(mockState.teamStore.reload).not.toHaveBeenCalled();
-			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+			expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -749,8 +823,8 @@ describe("useStorageChangeEvents", () => {
 			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
 			expect(mockState.teamStore.reload).toHaveBeenCalledTimes(1);
 			expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledTimes(1);
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledTimes(1);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledWith(7);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -773,7 +847,7 @@ describe("useStorageChangeEvents", () => {
 			expect(mockState.invalidateTextContent).toHaveBeenCalledWith();
 			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
 			expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledWith(7);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -799,7 +873,7 @@ describe("useStorageChangeEvents", () => {
 			expect(
 				mockState.storageRefreshGate.deferStorageRefresh,
 			).toHaveBeenCalledTimes(1);
-			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+			expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
 			expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
 		} finally {
@@ -825,7 +899,7 @@ describe("useStorageChangeEvents", () => {
 
 			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
 			expect(mockState.teamStore.reload).toHaveBeenCalledTimes(1);
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledTimes(1);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledTimes(1);
 
 			MockEventSource.instances[1]?.triggerError();
 			await vi.advanceTimersByTimeAsync(1000);
@@ -833,7 +907,7 @@ describe("useStorageChangeEvents", () => {
 
 			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(2);
 			expect(mockState.teamStore.reload).toHaveBeenCalledTimes(2);
-			expect(mockState.fileStore.navigateTo).toHaveBeenCalledTimes(2);
+			expect(mockState.fileStore.refresh).toHaveBeenCalledTimes(2);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -857,7 +931,7 @@ describe("useStorageChangeEvents", () => {
 			expect(MockEventSource.instances).toHaveLength(1);
 			expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
 			expect(mockState.teamStore.reload).not.toHaveBeenCalled();
-			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+			expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}

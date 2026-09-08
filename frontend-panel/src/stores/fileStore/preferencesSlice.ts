@@ -32,10 +32,12 @@ function reloadSortedFolder(
 	sortBy: SortBy,
 	sortOrder: SortOrder,
 ) {
-	const request = beginWorkspaceRequest(set, get);
+	const currentFolderId = get().currentFolderId;
+	const request = beginWorkspaceRequest(set, get, "refresh", currentFolderId);
+	if (!request) return;
 
 	void fetchFolder(
-		get().currentFolderId,
+		currentFolderId,
 		getInitialPageParams(sortBy, sortOrder),
 		request.signal,
 	)

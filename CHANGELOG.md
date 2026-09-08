@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Single multipart upload entry point** — Removed the personal and team `POST /files/upload` compatibility entry points and the server-side staged multipart fallback; clients must first initialize an upload session, then submit content via the negotiated data plane.
 
+### Fixed
+
+- **File browser navigation and deleted-folder recovery** — Route navigation now takes priority over concurrent SSE and mutation-completion refreshes, keeping the URL, current folder, breadcrumb, and visible contents aligned. Empty-trash completion uses a scoped aggregate event instead of a full reconciliation signal, while personal and team folder routes recover to the nearest available ancestor (or workspace root) when the current folder is trashed or permanently removed; folder list, info, and ancestor APIs consistently return `folder.not_found` with a readable lifecycle message.
+
 ## [v0.5.1] - 2026-08-24
 
 ### Added

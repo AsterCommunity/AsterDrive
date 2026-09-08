@@ -14,6 +14,8 @@ import type {
 import { createRootBreadcrumb } from "./types";
 
 interface WorkspaceRequestHandle {
+	folderId: number | null;
+	intent: "navigation" | "refresh";
 	requestId: number;
 	revision: number;
 	signal: AbortSignal;
@@ -76,7 +78,25 @@ export async function resolveBreadcrumb(
 export function beginWorkspaceRequest(
 	set: FileStoreSet,
 	get: FileStoreGet,
-): WorkspaceRequestHandle {
+	intent: "navigation",
+	folderId: number | null,
+): WorkspaceRequestHandle;
+export function beginWorkspaceRequest(
+	set: FileStoreSet,
+	get: FileStoreGet,
+	intent: "refresh",
+	folderId: number | null,
+): WorkspaceRequestHandle | null;
+export function beginWorkspaceRequest(
+	set: FileStoreSet,
+	get: FileStoreGet,
+	intent: WorkspaceRequestHandle["intent"],
+	folderId: number | null,
+): WorkspaceRequestHandle | null {
+	if (intent === "refresh" && get()._workspaceRequestIntent === "navigation") {
+		return null;
+	}
+
 	get()._workspaceRequestController?.abort();
 
 	const requestId = get()._workspaceRequestId + 1;
@@ -84,9 +104,13 @@ export function beginWorkspaceRequest(
 	set({
 		_workspaceRequestId: requestId,
 		_workspaceRequestController: controller,
+		_workspaceRequestIntent: intent,
+		_workspaceRequestFolderId: folderId,
 	});
 
 	return {
+		folderId,
+		intent,
 		requestId,
 		revision: get().workspaceRequestRevision,
 		signal: controller.signal,
@@ -102,6 +126,8 @@ export function cancelWorkspaceRequest(set: FileStoreSet, get: FileStoreGet) {
 	controller.abort();
 	set((state) => ({
 		_workspaceRequestController: null,
+		_workspaceRequestIntent: null,
+		_workspaceRequestFolderId: null,
 		_workspaceRequestId: state._workspaceRequestId + 1,
 	}));
 }
@@ -113,7 +139,11 @@ export function isCurrentWorkspaceRequest(
 	const state = get();
 	return (
 		state.workspaceRequestRevision === request.revision &&
-		state._workspaceRequestId === request.requestId
+		state._workspaceRequestId === request.requestId &&
+		state._workspaceRequestIntent === request.intent &&
+		state._workspaceRequestFolderId === request.folderId &&
+		(request.intent === "navigation" ||
+			state.currentFolderId === request.folderId)
 	);
 }
 
@@ -126,7 +156,11 @@ export function finishWorkspaceRequest(
 		return false;
 	}
 
-	set({ _workspaceRequestController: null });
+	set({
+		_workspaceRequestController: null,
+		_workspaceRequestIntent: null,
+		_workspaceRequestFolderId: null,
+	});
 	return true;
 }
 
@@ -144,6 +178,8 @@ export function applyWorkspaceRequestState(
 		set((current) => ({
 			...state(current),
 			_workspaceRequestController: null,
+			_workspaceRequestIntent: null,
+			_workspaceRequestFolderId: null,
 		}));
 		return true;
 	}
@@ -151,6 +187,8 @@ export function applyWorkspaceRequestState(
 	set({
 		...state,
 		_workspaceRequestController: null,
+		_workspaceRequestIntent: null,
+		_workspaceRequestFolderId: null,
 	});
 	return true;
 }

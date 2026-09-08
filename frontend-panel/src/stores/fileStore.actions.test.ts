@@ -2,8 +2,23 @@ import { waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_KEYS } from "@/config/app";
 import { FILE_PAGE_SIZE, FOLDER_LIMIT } from "@/lib/constants";
+import { ApiError } from "@/services/http";
+import {
+	beginWorkspaceRequest,
+	cancelWorkspaceRequest,
+	finishWorkspaceRequest,
+} from "@/stores/fileStore/request";
 import { createFolderContents } from "@/test/fixtures";
 import type { FolderContents } from "@/types/api";
+import { ApiErrorCode } from "@/types/api-helpers";
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((nextResolve) => {
+		resolve = nextResolve;
+	});
+	return { promise, resolve };
+}
 
 const mockState = vi.hoisted(() => ({
 	batchCopy: vi.fn(),
@@ -135,6 +150,7 @@ describe("useFileStore actions", () => {
 		mockState.deleteFile.mockReset();
 		mockState.deleteFolder.mockReset();
 		mockState.getFolderAncestors.mockReset();
+		mockState.getFolderAncestors.mockResolvedValue([]);
 		mockState.listFolder.mockReset();
 		mockState.listRoot.mockReset();
 		mockState.queuePreferenceSync.mockReset();
@@ -203,6 +219,66 @@ describe("useFileStore actions", () => {
 		expect(state.selectedFileIds.size).toBe(0);
 		expect(state.selectedFolderIds.size).toBe(0);
 		expect(state.clipboard).toBeNull();
+	});
+
+	it("cancels a pending workspace request and clears its identity", async () => {
+		const { useFileStore } = await loadStore();
+		const controller = new AbortController();
+		useFileStore.setState({
+			_workspaceRequestController: controller,
+			_workspaceRequestIntent: "refresh",
+			_workspaceRequestFolderId: 5,
+			_workspaceRequestId: 4,
+		});
+
+		cancelWorkspaceRequest(useFileStore.setState, useFileStore.getState);
+
+		expect(controller.signal.aborted).toBe(true);
+		expect(useFileStore.getState()).toMatchObject({
+			_workspaceRequestController: null,
+			_workspaceRequestIntent: null,
+			_workspaceRequestFolderId: null,
+			_workspaceRequestId: 5,
+		});
+	});
+
+	it("leaves request state unchanged when there is nothing to cancel", async () => {
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ _workspaceRequestId: 4 });
+
+		cancelWorkspaceRequest(useFileStore.setState, useFileStore.getState);
+
+		expect(useFileStore.getState()._workspaceRequestId).toBe(4);
+	});
+
+	it("finishes the current request and rejects a repeated finish", async () => {
+		const { useFileStore } = await loadStore();
+		const request = beginWorkspaceRequest(
+			useFileStore.setState,
+			useFileStore.getState,
+			"navigation",
+			12,
+		);
+
+		expect(
+			finishWorkspaceRequest(
+				useFileStore.setState,
+				useFileStore.getState,
+				request,
+			),
+		).toBe(true);
+		expect(useFileStore.getState()).toMatchObject({
+			_workspaceRequestController: null,
+			_workspaceRequestIntent: null,
+			_workspaceRequestFolderId: null,
+		});
+		expect(
+			finishWorkspaceRequest(
+				useFileStore.setState,
+				useFileStore.getState,
+				request,
+			),
+		).toBe(false);
 	});
 
 	it("manages selection helpers across files and folders", async () => {
@@ -280,6 +356,74 @@ describe("useFileStore actions", () => {
 		expect(useFileStore.getState().files).toEqual([
 			expect.objectContaining({ id: 8, name: "zeta.txt" }),
 		]);
+	});
+
+	it("replays a sort refresh for the final folder after navigation", async () => {
+		const pending = deferred<FolderContents>();
+		mockState.listFolder
+			.mockImplementationOnce(() => pending.promise)
+			.mockResolvedValueOnce(
+				createFolderContents({
+					files: [{ id: 90, name: "sorted.txt" }],
+					files_total: 1,
+				}),
+			);
+		mockState.getFolderAncestors.mockResolvedValue([]);
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		const navigation = useFileStore.getState().navigateTo(12, "Projects");
+		useFileStore.getState().setSortOrder("desc");
+
+		expect(mockState.listFolder).toHaveBeenCalledTimes(1);
+		pending.resolve(createFolderContents());
+		await navigation;
+
+		expect(mockState.listFolder).toHaveBeenCalledTimes(2);
+		expectFolderRefresh(2, 12, "name", "desc");
+		expect(useFileStore.getState()).toMatchObject({
+			currentFolderId: 12,
+			sortOrder: "desc",
+		});
+		expect(useFileStore.getState().files).toEqual([
+			expect.objectContaining({ id: 90, name: "sorted.txt" }),
+		]);
+	});
+
+	it("logs a failed post-navigation sort refresh without failing navigation", async () => {
+		const pending = deferred<FolderContents>();
+		const refreshError = new Error("sort refresh failed");
+		mockState.listFolder
+			.mockImplementationOnce(() => pending.promise)
+			.mockRejectedValueOnce(refreshError);
+		mockState.getFolderAncestors.mockResolvedValue([]);
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		const navigation = useFileStore.getState().navigateTo(12, "Projects");
+		useFileStore.getState().setSortOrder("desc");
+		pending.resolve(createFolderContents());
+
+		await expect(navigation).resolves.toBeUndefined();
+		expect(mockState.warn).toHaveBeenCalledWith(
+			"post-navigation sort refresh failed",
+			refreshError,
+		);
+	});
+
+	it("records a generic navigation failure without a folder-unavailable marker", async () => {
+		const failure = "temporary failure";
+		mockState.listFolder.mockRejectedValue(failure);
+		const { useFileStore } = await loadStore();
+
+		await expect(
+			useFileStore.getState().navigateTo(12, "Projects"),
+		).rejects.toBe(failure);
+		expect(useFileStore.getState()).toMatchObject({
+			error: "Projects",
+			unavailableFolderId: null,
+			loading: false,
+		});
 	});
 
 	it("applies server preferences into state and local storage", async () => {
@@ -464,5 +608,238 @@ describe("useFileStore actions", () => {
 		expect(useFileStore.getState().loading).toBe(false);
 		expect(useFileStore.getState().loadingMore).toBe(false);
 		expect(useFileStore.getState().error).toBeNull();
+	});
+
+	it("does not let a current-folder refresh supersede route navigation", async () => {
+		const navigationContents = deferred<FolderContents>();
+		mockState.listFolder.mockImplementation((folderId: number) => {
+			if (folderId === 12) return navigationContents.promise;
+			return Promise.resolve(createFolderContents());
+		});
+		mockState.getFolderAncestors.mockResolvedValue([
+			{ id: 12, name: "Projects" },
+		]);
+
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		const navigation = useFileStore.getState().navigateTo(12, "Projects");
+		const navigationSignal = mockState.listFolder.mock.calls[0]?.[2]
+			?.signal as AbortSignal;
+		await useFileStore.getState().refresh(5);
+
+		expect(mockState.listFolder).toHaveBeenCalledTimes(1);
+		expect(navigationSignal.aborted).toBe(false);
+
+		navigationContents.resolve(
+			createFolderContents({
+				files: [{ id: 90, name: "target.txt" }],
+				files_total: 1,
+			}),
+		);
+		await navigation;
+
+		expect(useFileStore.getState()).toMatchObject({
+			currentFolderId: 12,
+			error: null,
+		});
+		expect(useFileStore.getState().files).toEqual([
+			expect.objectContaining({ id: 90, name: "target.txt" }),
+		]);
+	});
+
+	it("does not let load-more supersede route navigation", async () => {
+		const pending = deferred<FolderContents>();
+		mockState.listFolder.mockReturnValue(pending.promise);
+		mockState.getFolderAncestors.mockResolvedValue([]);
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({
+			currentFolderId: 5,
+			nextFileCursor: { id: 10, value: "cursor" },
+		});
+
+		const navigation = useFileStore.getState().navigateTo(12, "Projects");
+		await useFileStore.getState().loadMoreFiles();
+
+		expect(mockState.listFolder).toHaveBeenCalledTimes(1);
+		pending.resolve(createFolderContents());
+		await navigation;
+	});
+
+	it("does not request a refresh for an expired folder snapshot", async () => {
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 12 });
+
+		await useFileStore.getState().refresh(5);
+
+		expect(mockState.listFolder).not.toHaveBeenCalled();
+		expect(mockState.listRoot).not.toHaveBeenCalled();
+		expect(mockState.getFolderAncestors).not.toHaveBeenCalled();
+		expect(useFileStore.getState().currentFolderId).toBe(12);
+	});
+
+	it("discards a stale refresh when newer navigation starts", async () => {
+		const oldContents = deferred<FolderContents>();
+		mockState.listFolder.mockImplementation((folderId: number) => {
+			if (folderId === 5) return oldContents.promise;
+			return Promise.resolve(
+				createFolderContents({
+					files: [{ id: 90, name: "target.txt" }],
+					files_total: 1,
+				}),
+			);
+		});
+		mockState.getFolderAncestors.mockImplementation((folderId: number) =>
+			Promise.resolve([{ id: folderId, name: `Folder ${folderId}` }]),
+		);
+
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		const refresh = useFileStore.getState().refresh(5);
+		const refreshSignal = mockState.listFolder.mock.calls[0]?.[2]
+			?.signal as AbortSignal;
+		await useFileStore.getState().navigateTo(12, "Projects");
+
+		expect(refreshSignal.aborted).toBe(true);
+		oldContents.resolve(
+			createFolderContents({
+				files: [{ id: 50, name: "stale.txt" }],
+				files_total: 1,
+			}),
+		);
+		await refresh;
+
+		expect(useFileStore.getState().currentFolderId).toBe(12);
+		expect(useFileStore.getState().files).toEqual([
+			expect.objectContaining({ id: 90, name: "target.txt" }),
+		]);
+	});
+
+	it("finishes a refresh canceled by newer navigation", async () => {
+		mockState.listFolder.mockImplementation(
+			(
+				folderId: number,
+				_params: unknown,
+				options: { signal: AbortSignal },
+			) => {
+				if (folderId !== 5) {
+					return Promise.resolve(createFolderContents());
+				}
+				return new Promise((_resolve, reject) => {
+					options.signal.addEventListener(
+						"abort",
+						() =>
+							reject(
+								Object.assign(new Error("canceled"), {
+									code: "ERR_CANCELED",
+								}),
+							),
+						{ once: true },
+					);
+				});
+			},
+		);
+		mockState.getFolderAncestors.mockResolvedValue([]);
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		const refresh = useFileStore.getState().refresh(5);
+		await useFileStore.getState().navigateTo(12, "Projects");
+
+		await expect(refresh).resolves.toBeUndefined();
+		expect(useFileStore.getState().currentFolderId).toBe(12);
+	});
+
+	it("keeps navigation authoritative when a move completion refresh arrives late", async () => {
+		const moveResult = {
+			errors: [],
+			failed: 0,
+			succeeded: 1,
+		};
+		const pendingMove = deferred<typeof moveResult>();
+		mockState.batchMove.mockReturnValue(pendingMove.promise);
+		mockState.listFolder.mockResolvedValue(
+			createFolderContents({
+				files: [{ id: 90, name: "target.txt" }],
+				files_total: 1,
+			}),
+		);
+		mockState.getFolderAncestors.mockResolvedValue([
+			{ id: 12, name: "Projects" },
+		]);
+
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		const move = useFileStore.getState().moveToFolder([1], [], 9);
+		await useFileStore.getState().navigateTo(12, "Projects");
+		pendingMove.resolve(moveResult);
+		await move;
+
+		expect(mockState.listFolder).toHaveBeenCalledTimes(1);
+		expect(mockState.listFolder).toHaveBeenCalledWith(
+			12,
+			expect.any(Object),
+			expect.any(Object),
+		);
+		expect(useFileStore.getState().currentFolderId).toBe(12);
+		expect(useFileStore.getState().files).toEqual([
+			expect.objectContaining({ id: 90, name: "target.txt" }),
+		]);
+	});
+
+	it("marks a folder.not_found refresh as a recoverable unavailable route", async () => {
+		const notFound = new ApiError(
+			ApiErrorCode.FolderNotFound,
+			"Folder #5 is in trash",
+			{ retryable: false, status: 404 },
+		);
+		mockState.listFolder.mockRejectedValue(notFound);
+
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		await expect(useFileStore.getState().refresh(5)).rejects.toBe(notFound);
+
+		expect(useFileStore.getState()).toMatchObject({
+			currentFolderId: 5,
+			error: "Folder #5 is in trash",
+			loading: false,
+			unavailableFolderId: 5,
+		});
+	});
+
+	it("marks a folder.not_found navigation as a recoverable unavailable route", async () => {
+		const notFound = new ApiError(
+			ApiErrorCode.FolderNotFound,
+			"Folder #12 is in trash",
+			{ retryable: false, status: 404 },
+		);
+		mockState.listFolder.mockRejectedValue(notFound);
+		const { useFileStore } = await loadStore();
+
+		await expect(
+			useFileStore.getState().navigateTo(12, "Projects"),
+		).rejects.toBe(notFound);
+		expect(useFileStore.getState()).toMatchObject({
+			error: "Folder #12 is in trash",
+			unavailableFolderId: 12,
+			loading: false,
+		});
+	});
+
+	it("uses the current folder and fallback message for an untyped refresh error", async () => {
+		const failure = "temporary failure";
+		mockState.listFolder.mockRejectedValue(failure);
+		const { useFileStore } = await loadStore();
+		useFileStore.setState({ currentFolderId: 5 });
+
+		await expect(useFileStore.getState().refresh()).rejects.toBe(failure);
+		expect(useFileStore.getState()).toMatchObject({
+			error: "Failed to refresh folder",
+			unavailableFolderId: null,
+			loading: false,
+		});
 	});
 });

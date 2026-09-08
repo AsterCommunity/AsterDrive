@@ -108,6 +108,27 @@ describe("storageMutationCoordinator", () => {
 		});
 	});
 
+	it("limits trash purge-all to trash projections and scoped quota refresh", () => {
+		const decision = decideRemoteStorageMutation(
+			storageEvent({
+				kind: "trash.purged_all",
+				file_ids: [],
+				affected_parent_ids: [],
+				affects_quota: true,
+				storage_delta: -128,
+			}),
+			personalContext,
+		);
+
+		expect(decision).toEqual({
+			invalidateAllResourceCaches: false,
+			invalidateFileResourceCacheIds: [],
+			publishToWorkspace: true,
+			refreshCurrentFolder: "none",
+			refreshStorageUsage: "personal_quota",
+		});
+	});
+
 	it("defers folder refresh while the refresh gate is active", () => {
 		const decision = decideRemoteStorageMutation(storageEvent(), {
 			...personalContext,
