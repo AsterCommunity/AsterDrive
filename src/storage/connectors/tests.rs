@@ -1906,6 +1906,19 @@ fn built_in_connector_descriptors_do_not_duplicate_core_native_behavior_state() 
             );
         }
     }
+    assert!(
+        descriptor(TencentCosConnector::ID)
+            .capabilities
+            .custom_download_base_url
+    );
+    for connector_id in [LocalConnector::ID, OneDriveConnector::ID, SftpConnector::ID] {
+        assert!(
+            !descriptor(connector_id)
+                .capabilities
+                .custom_download_base_url,
+            "connector {connector_id} must not advertise a custom download base URL"
+        );
+    }
     assert_eq!(descriptor(TencentCosConnector::ID).config_schema_version, 1);
 }
 

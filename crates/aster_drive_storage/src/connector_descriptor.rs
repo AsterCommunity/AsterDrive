@@ -1607,7 +1607,7 @@ fn normalize_storage_connector_field_values<'a>(
     for _ in 0..=fields.len() {
         let mut changed = false;
         for field in fields.values() {
-            if input.contains_key(&field.name) {
+            if supplied_connector_field_value(input, &field.name).is_some() {
                 continue;
             }
             let next = resolved_field_default(field, &resolved_input).map(default_value_to_json);
@@ -1628,7 +1628,7 @@ fn normalize_storage_connector_field_values<'a>(
     let mut normalized = BTreeMap::new();
     for field in fields.values() {
         if reject_secrets && (field.secret || field.kind == StorageConnectorFieldKind::Secret) {
-            if input.contains_key(&field.name) {
+            if supplied_connector_field_value(input, &field.name).is_some() {
                 return Err(StorageConnectorOptionsValidationError::SecretField(
                     field.name.clone(),
                 ));
@@ -1636,14 +1636,8 @@ fn normalize_storage_connector_field_values<'a>(
             continue;
         }
 
-        let supplied = input
-            .get(&field.name)
-            .filter(|value| !value.is_null())
-            .cloned();
-        let value = resolved_input
-            .get(&field.name)
-            .filter(|value| !value.is_null())
-            .cloned();
+        let supplied = supplied_connector_field_value(input, &field.name).cloned();
+        let value = supplied_connector_field_value(&resolved_input, &field.name).cloned();
         let Some(mut value) = value else {
             if field.required {
                 return Err(
@@ -1675,6 +1669,13 @@ fn normalize_storage_connector_field_values<'a>(
         normalized.insert(field.name.clone(), value);
     }
     Ok(normalized)
+}
+
+fn supplied_connector_field_value<'a>(
+    values: &'a BTreeMap<String, serde_json::Value>,
+    name: &str,
+) -> Option<&'a serde_json::Value> {
+    values.get(name).filter(|value| !value.is_null())
 }
 
 fn resolved_field_default<'a>(
@@ -3594,6 +3595,7 @@ mod tests {
 
         for values in [
             BTreeMap::new(),
+            BTreeMap::from([("base_path".to_string(), serde_json::Value::Null)]),
             BTreeMap::from([("base_path".to_string(), serde_json::json!(""))]),
         ] {
             let normalized = normalize_storage_connector_config(
@@ -3635,6 +3637,33 @@ mod tests {
         )
         .unwrap();
         assert!(!normalized.values.contains_key("base_path"));
+    }
+
+    #[test]
+    fn null_secret_is_treated_as_not_supplied() {
+        let secret = storage_connector_field(
+            "token",
+            StorageConnectorFieldScope::StaticCredential,
+            StorageConnectorFieldKind::Secret,
+            true,
+            true,
+        );
+        let normalized = normalize_storage_connector_field_values(
+            [&secret],
+            &BTreeMap::from([("token".to_string(), serde_json::Value::Null)]),
+            true,
+        )
+        .expect("null secret should be treated as omitted");
+        assert!(normalized.is_empty());
+
+        assert!(matches!(
+            normalize_storage_connector_field_values(
+                [&secret],
+                &BTreeMap::from([("token".to_string(), serde_json::json!("secret"))]),
+                true,
+            ),
+            Err(StorageConnectorOptionsValidationError::SecretField(field)) if field == "token"
+        ));
     }
 
     #[test]

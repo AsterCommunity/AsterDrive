@@ -73,8 +73,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
                 paths.download,
                 file,
                 blob,
-                request.delivery_mode,
-                request.purpose,
+                request,
                 scope,
                 revision_etag,
             )
@@ -125,8 +124,7 @@ async fn original_handle(
     download_path: String,
     file: &file::Model,
     blob: &file_blob::Model,
-    delivery_mode: FileResourceDeliveryMode,
-    purpose: FileResourcePurpose,
+    request: &FileResourceHandleRequest,
     scope: Option<&str>,
     revision_etag: Option<&str>,
 ) -> Result<FileResourceHandle> {
@@ -136,7 +134,7 @@ async fn original_handle(
             crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?
         }
     };
-    let disposition = match purpose {
+    let disposition = match request.purpose {
         FileResourcePurpose::Download => DownloadDisposition::Attachment,
         FileResourcePurpose::Preview | FileResourcePurpose::ExternalViewer => {
             DownloadDisposition::Inline
@@ -166,7 +164,7 @@ async fn original_handle(
                 redirect_policy: FileResourceRedirectPolicy::MayCrossOrigin,
             },
             delivery: FileResourceDeliveryInfo {
-                mode: delivery_mode,
+                mode: request.delivery_mode,
                 mime_type: Some(file.mime_type.clone()),
             },
             lifecycle: direct
@@ -188,7 +186,7 @@ async fn original_handle(
             redirect_policy: FileResourceRedirectPolicy::SameOriginOnly,
         },
         delivery: FileResourceDeliveryInfo {
-            mode: delivery_mode,
+            mode: request.delivery_mode,
             mime_type: Some(file.mime_type.clone()),
         },
         lifecycle: None,

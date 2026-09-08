@@ -318,6 +318,43 @@ describe("fileService", () => {
 		);
 	});
 
+	it.each([
+		["personal", "personal"],
+		["team", "team"],
+		["share", "share"],
+		["unexpected", undefined],
+	] as const)(
+		"normalizes resource-handle scope %s",
+		async (apiScope, expectedScope) => {
+			const { fileService } = await import("@/services/fileService");
+			mockState.post.mockResolvedValueOnce({
+				identity: {
+					cache_key: "/files/8/download",
+					etag: null,
+					scope: apiScope,
+				},
+				request: {
+					conditional_headers: "allowed",
+					credentials: "include",
+					redirect_policy: "same_origin_only",
+					url: "/files/8/download?disposition=attachment",
+				},
+				delivery: {
+					mime_type: "application/octet-stream",
+					mode: "blob_url",
+				},
+			});
+
+			const handle = await fileService.resolveResourceHandle(8, {
+				delivery_mode: "blob_url",
+				purpose: "download",
+				representation: "original",
+			});
+
+			expect(handle.identity.scope).toBe(expectedScope);
+		},
+	);
+
 	it("omits relative_path when creating an empty file without a relative path", async () => {
 		const { fileService } = await import("@/services/fileService");
 
