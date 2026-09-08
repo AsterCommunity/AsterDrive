@@ -11,6 +11,7 @@
 	"create_team": "Create team",
 	"create_team_desc": "Create a team as a system admin, choose the initial team admin, and bind exactly one storage policy group.",
 	"team_details_title": "Team details",
+	"back_to_teams": "Back to teams",
 	"team_details_desc": "Review the team overview, storage usage, and update the name, description, and policy group binding.",
 	"team_no_description": "No description yet.",
 	"team_archived_at": "Archived on",

@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/useAdminTeamDetailTabs";
 
 describe("useAdminTeamDetailTabs", () => {
-	it("manages dialog tabs and ignores invalid values", () => {
+	it("ignores invalid tab values", () => {
+		const onPageTabChange = vi.fn();
 		const { result } = renderHook(() =>
-			useAdminTeamDetailTabs({ isPageLayout: false }),
+			useAdminTeamDetailTabs({ onPageTabChange, pageTab: "overview" }),
 		);
 
 		expect(result.current.currentTab).toBe("overview");
@@ -14,19 +15,13 @@ describe("useAdminTeamDetailTabs", () => {
 			result.current.handleTabChange("members");
 		});
 
-		expect(result.current.currentTab).toBe("members");
+		expect(onPageTabChange).toHaveBeenCalledWith("members");
 
 		act(() => {
 			result.current.handleTabChange("not-a-tab");
 		});
 
-		expect(result.current.currentTab).toBe("members");
-
-		act(() => {
-			result.current.resetDialogTab();
-		});
-
-		expect(result.current.currentTab).toBe("overview");
+		expect(onPageTabChange).toHaveBeenCalledTimes(1);
 	});
 
 	it("syncs page tabs and reports changes with directional animation", () => {
@@ -34,7 +29,6 @@ describe("useAdminTeamDetailTabs", () => {
 		const { result, rerender } = renderHook(
 			({ pageTab }: { pageTab: "overview" | "members" | "audit" | "danger" }) =>
 				useAdminTeamDetailTabs({
-					isPageLayout: true,
 					onPageTabChange,
 					pageTab,
 				}),

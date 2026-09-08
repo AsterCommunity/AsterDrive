@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **管理端详情工作流** — 用户与团队条目改为打开可直接访问的独立详情页，统一返回导航、页面标题、响应式概览和兼容减少动态效果的入场动画；用户资料、策略组与安全设置采用分段两栏编辑布局，团队概览、成员、审计与危险操作继续使用 URL 驱动的标签页和独立滚动。新建用户、邀请用户和新建团队等短操作仍保留在列表页弹窗中。
+
 - **Connector 自有图标资产** — Storage connector 现在自行编译并通过版本化同源后端端点提供图标字节；descriptor 客户端消费结构化 URL、媒体类型和 revision 元数据，不再依赖前端静态路径或核心图标库名称。带版本请求使用 immutable 缓存，无版本请求会在复用前重新验证。
 
 - **统一存储连接与远程目标 RPC** — 普通 storage policy 与 follower remote storage target 共享同一个 `StorageConnectionInput`、connector config/credential normalization、descriptor、credential 保留语义和直接 driver factory；remote target 只额外负责 binding、target key、default、revision、reconciliation 与签名 RPC，不再维护 driver enum、扁平 provider 字段、旧请求 adapter 或伪造 policy 的 driver 构造路径。Local、S3、SFTP、腾讯云 COS、阿里云 OSS、七牛 Kodo、Azure Blob 和 Huawei OBS 均由同一个运行时 connector registry 接入，管理端复用普通 storage 的 descriptor-driven 字段表单。内部协议 V6 仅通过 `remote_storage_target.connector_ids` 协商能力；启动前的一次性 0.5.0 转换会把旧 Local/S3 扁平配置写入 connector envelope 并加密旧 S3 凭据，旧物理列和转换代码保留 `TODO(remote-storage-target-0.7.0)` 清理标记。

@@ -126,6 +126,11 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminUsersPage"),
 	},
 	{
+		key: "route:admin-user-detail",
+		label: "AdminUserDetailPage",
+		load: () => import("@/pages/admin/AdminUserDetailPage"),
+	},
+	{
 		key: "route:admin-user-invitations",
 		label: "AdminUserInvitationsPage",
 		load: () => import("@/pages/admin/AdminUserInvitationsPage"),

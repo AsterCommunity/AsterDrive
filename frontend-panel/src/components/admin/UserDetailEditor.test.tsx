@@ -6,7 +6,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UserDetailDialog } from "@/components/admin/UserDetailDialog";
+import { UserDetailEditor } from "@/components/admin/UserDetailEditor";
 
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
@@ -86,31 +86,6 @@ vi.mock("@/components/ui/button", () => ({
 		>
 			{children}
 		</button>
-	),
-}));
-
-vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div>{children}</div> : null,
-	DialogContent: ({
-		children,
-		className,
-	}: {
-		children: React.ReactNode;
-		className?: string;
-	}) => <div className={className}>{children}</div>,
-	DialogFooter: ({
-		children,
-		className,
-	}: {
-		children: React.ReactNode;
-		className?: string;
-	}) => <div className={className}>{children}</div>,
-	DialogHeader: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
-	DialogTitle: ({ children }: { children: React.ReactNode }) => (
-		<h2>{children}</h2>
 	),
 }));
 
@@ -407,12 +382,13 @@ function createPolicyGroup(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function renderDialog(userOverrides: Record<string, unknown> = {}) {
+function renderEditor(userOverrides: Record<string, unknown> = {}) {
+	const user = createUser(userOverrides);
+	mockState.onUpdate.mockResolvedValue(user);
 	return render(
-		<UserDetailDialog
-			user={createUser(userOverrides)}
-			open
-			onOpenChange={vi.fn()}
+		<UserDetailEditor
+			user={user}
+			onBack={vi.fn()}
 			onUpdate={mockState.onUpdate}
 		/>,
 	);
@@ -442,7 +418,7 @@ async function waitForPolicyLoad(selectedPolicyLabel = "Primary") {
 	);
 }
 
-describe("UserDetailDialog", () => {
+describe("UserDetailEditor", () => {
 	beforeEach(() => {
 		mockState.handleApiError.mockReset();
 		mockState.listPolicies.mockReset();
@@ -463,14 +439,13 @@ describe("UserDetailDialog", () => {
 			],
 			total: 2,
 		});
-		mockState.onUpdate.mockResolvedValue(undefined);
 		mockState.resetMfa.mockResolvedValue(undefined);
 		mockState.revokeSessions.mockResolvedValue(undefined);
 		mockState.resetPassword.mockResolvedValue(undefined);
 	});
 
 	it("loads policy groups on open and saves changed profile values", async () => {
-		renderDialog();
+		renderEditor();
 
 		await waitForPolicyLoad();
 
@@ -486,7 +461,9 @@ describe("UserDetailDialog", () => {
 			target: { value: "20" },
 		});
 
-		fireEvent.click(screen.getByRole("button", { name: /save_changes/i }));
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /save_changes/i })[0],
+		);
 
 		await waitFor(() => {
 			expect(mockState.onUpdate).toHaveBeenCalledWith(2, {
@@ -500,7 +477,7 @@ describe("UserDetailDialog", () => {
 	});
 
 	it("renders email verification details from the user model", async () => {
-		renderDialog({
+		renderEditor({
 			email_verified: false,
 			pending_email: "alice+next@example.com",
 		});
@@ -521,7 +498,7 @@ describe("UserDetailDialog", () => {
 			total: 1,
 		});
 
-		renderDialog();
+		renderEditor();
 
 		await waitForPolicyLoad("#1");
 		expect(
@@ -554,7 +531,7 @@ describe("UserDetailDialog", () => {
 			},
 		);
 
-		renderDialog({ policy_group_id: 101 });
+		renderEditor({ policy_group_id: 101 });
 
 		await waitFor(() => {
 			expect(mockState.listPolicies).toHaveBeenCalledWith({
@@ -576,7 +553,7 @@ describe("UserDetailDialog", () => {
 			total: 0,
 		});
 
-		renderDialog({
+		renderEditor({
 			id: 1,
 			email_verified: true,
 			policy_group_id: null,
@@ -603,7 +580,7 @@ describe("UserDetailDialog", () => {
 	});
 
 	it("shows unlimited instead of 0 for an unlimited quota user", async () => {
-		renderDialog({
+		renderEditor({
 			storage_quota: 0,
 		});
 
@@ -615,7 +592,7 @@ describe("UserDetailDialog", () => {
 	});
 
 	it("shows a realtime quota validation error and blocks profile save", async () => {
-		renderDialog();
+		renderEditor();
 
 		await waitForPolicyLoad();
 
@@ -628,52 +605,27 @@ describe("UserDetailDialog", () => {
 		expect(mockState.onUpdate).not.toHaveBeenCalled();
 	});
 
-	it("caps the dialog height and keeps the two columns independently scrollable on desktop", async () => {
-		const { container } = renderDialog();
+	it("uses the page editor layout with a sticky summary and staged content panels", async () => {
+		const { container } = renderEditor();
 
 		await waitForPolicyLoad();
 
-		const shell = container.querySelector(
-			".flex.min-h-0.flex-1.flex-col.overflow-y-auto.lg\\:overflow-hidden",
-		);
-		const leftColumn = container.querySelector(
-			".border-b.lg\\:min-h-0.lg\\:w-80.lg\\:flex-none.lg\\:overflow-y-auto.lg\\:border-b-0",
-		);
-		const rightColumn = container.querySelector(
-			".min-h-0.min-w-0.lg\\:flex-1.lg\\:overflow-y-auto",
-		);
-		const footer = screen.getByText("user_details_footer_hint").parentElement;
-
 		expect(
 			container.querySelector(
-				".overflow-hidden.max-h-\\[min\\(860px\\,calc\\(100vh-2rem\\)\\)\\]",
+				".grid.gap-8.lg\\:grid-cols-\\[300px_minmax\\(0\\,1fr\\)\\]",
 			),
 		).not.toBeNull();
-		expect(shell).not.toBeNull();
 		expect(
-			container.querySelector(
-				".flex.min-h-full.flex-col.lg\\:h-full.lg\\:min-h-0.lg\\:flex-1.lg\\:flex-row",
-			),
+			container.querySelector("aside.lg\\:sticky.lg\\:top-6"),
 		).not.toBeNull();
-		expect(leftColumn).not.toBeNull();
-		expect(rightColumn).not.toBeNull();
-		expect(container.querySelector(".space-y-8.p-6")).not.toBeNull();
 		expect(
-			container.querySelector(".min-w-0.p-6.lg\\:overflow-y-auto"),
-		).toBeNull();
-		expect(
-			container.querySelector(
-				".mx-0.mb-0.w-full.shrink-0.border-t.bg-muted\\/10.px-6.py-4",
-			),
-		).not.toBeNull();
-		expect(footer).not.toBeNull();
-		expect(shell?.contains(footer as Node)).toBe(false);
-		expect(leftColumn?.contains(footer as Node)).toBe(false);
-		expect(rightColumn?.contains(footer as Node)).toBe(false);
+			container.querySelectorAll(".slide-in-from-top-1").length,
+		).toBeGreaterThan(3);
+		expect(screen.getByText("user_details_footer_hint")).toBeInTheDocument();
 	});
 
-	it("resets the user's password from the detail dialog", async () => {
-		renderDialog();
+	it("resets the user's password from the detail page", async () => {
+		renderEditor();
 
 		await waitForPolicyLoad();
 		expect(screen.getByLabelText("password")).toHaveAttribute(
@@ -706,7 +658,7 @@ describe("UserDetailDialog", () => {
 	});
 
 	it("validates admin password reset fields before submitting", async () => {
-		renderDialog();
+		renderEditor();
 
 		await waitForPolicyLoad();
 		fireEvent.change(screen.getByLabelText("password"), {
@@ -725,8 +677,8 @@ describe("UserDetailDialog", () => {
 		expect(mockState.resetPassword).not.toHaveBeenCalled();
 	});
 
-	it("resets user MFA from the detail dialog", async () => {
-		renderDialog();
+	it("resets user MFA from the detail page", async () => {
+		renderEditor();
 
 		await waitForPolicyLoad();
 
@@ -744,8 +696,8 @@ describe("UserDetailDialog", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("reset_mfa_success");
 	});
 
-	it("revokes user sessions from the detail dialog", async () => {
-		renderDialog();
+	it("revokes user sessions from the detail page", async () => {
+		renderEditor();
 
 		await waitForPolicyLoad();
 
@@ -769,7 +721,7 @@ describe("UserDetailDialog", () => {
 		const error = new Error("revoke failed");
 		mockState.revokeSessions.mockRejectedValueOnce(error);
 
-		renderDialog();
+		renderEditor();
 
 		await waitForPolicyLoad();
 		fireEvent.click(

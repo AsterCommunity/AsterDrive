@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UserDetailDialogBody } from "@/components/admin/user-detail-dialog/UserDetailDialogBody";
+import { UserDetailEditorBody } from "@/components/admin/user-detail/UserDetailEditorBody";
 import type { StoragePolicyGroup, UserInfo } from "@/types/api";
 
 vi.mock("react-i18next", () => ({
@@ -33,9 +33,21 @@ vi.mock("@/components/ui/button", () => ({
 	),
 }));
 
-vi.mock("@/components/ui/dialog", () => ({
-	DialogFooter: ({ children }: { children: React.ReactNode }) => (
-		<footer>{children}</footer>
+vi.mock("@/components/layout/AdminPageHeader", () => ({
+	AdminPageHeader: ({
+		actions,
+		description,
+		title,
+	}: {
+		actions?: React.ReactNode;
+		description?: string;
+		title: string;
+	}) => (
+		<header>
+			<h1>{title}</h1>
+			<p>{description}</p>
+			{actions}
+		</header>
 	),
 }));
 
@@ -106,13 +118,13 @@ vi.mock("@/services/adminService", () => ({
 	},
 }));
 
-vi.mock("@/components/admin/user-detail-dialog/UserDetailSidebar", () => ({
+vi.mock("@/components/admin/user-detail/UserDetailSidebar", () => ({
 	UserDetailSidebar: ({ user }: { user: UserInfo }) => (
 		<aside>{user.username}</aside>
 	),
 }));
 
-vi.mock("@/components/admin/user-detail-dialog/UserProfileSection", () => ({
+vi.mock("@/components/admin/user-detail/UserProfileSection", () => ({
 	UserProfileSection: ({
 		children,
 		onDraftEmailVerifiedChange,
@@ -140,7 +152,7 @@ vi.mock("@/components/admin/user-detail-dialog/UserProfileSection", () => ({
 	),
 }));
 
-vi.mock("@/components/admin/user-detail-dialog/UserPolicyGroupSection", () => ({
+vi.mock("@/components/admin/user-detail/UserPolicyGroupSection", () => ({
 	UserPolicyGroupSection: ({
 		onDraftPolicyGroupIdChange,
 	}: {
@@ -183,37 +195,40 @@ function user(overrides: Partial<UserInfo> = {}): UserInfo {
 	};
 }
 
-function renderDialog(overrides: Partial<UserInfo> = {}) {
-	const onUpdate = vi.fn().mockResolvedValue(undefined);
+function renderEditor(overrides: Partial<UserInfo> = {}) {
+	const currentUser = user(overrides);
+	const onUpdate = vi.fn().mockResolvedValue(currentUser);
 	render(
-		<UserDetailDialogBody
-			onClose={vi.fn()}
+		<UserDetailEditorBody
+			onBack={vi.fn()}
 			onRefreshPolicyGroups={vi.fn().mockResolvedValue(undefined)}
 			onUpdate={onUpdate}
 			policyGroups={[] satisfies StoragePolicyGroup[]}
 			policyGroupsLoading={false}
-			user={user(overrides)}
+			user={currentUser}
 		/>,
 	);
 	return { onUpdate };
 }
 
-describe("UserDetailDialogBody forced password-change control", () => {
+describe("UserDetailEditorBody forced password-change control", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
 	it("saves enabling the forced password-change flag through the user PATCH payload", async () => {
-		const { onUpdate } = renderDialog();
+		const { onUpdate } = renderEditor();
 
 		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
+			screen.queryByRole("button", { name: /save_changes/i }),
 		).not.toBeInTheDocument();
 
 		fireEvent.click(
 			screen.getByRole("switch", { name: "force_password_change" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /save_changes/i })[0],
+		);
 
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
@@ -223,7 +238,7 @@ describe("UserDetailDialogBody forced password-change control", () => {
 	});
 
 	it("saves clearing an existing forced password-change flag", async () => {
-		const { onUpdate } = renderDialog({ must_change_password: true });
+		const { onUpdate } = renderEditor({ must_change_password: true });
 
 		expect(
 			screen.getByText("force_password_change_enabled"),
@@ -231,7 +246,9 @@ describe("UserDetailDialogBody forced password-change control", () => {
 		fireEvent.click(
 			screen.getByRole("switch", { name: "force_password_change" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /save_changes/i })[0],
+		);
 
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
@@ -241,10 +258,11 @@ describe("UserDetailDialogBody forced password-change control", () => {
 	});
 
 	it("saves profile field and policy group changes into one PATCH payload", async () => {
-		const onUpdate = vi.fn().mockResolvedValue(undefined);
+		const currentUser = user();
+		const onUpdate = vi.fn().mockResolvedValue(currentUser);
 		render(
-			<UserDetailDialogBody
-				onClose={vi.fn()}
+			<UserDetailEditorBody
+				onBack={vi.fn()}
 				onRefreshPolicyGroups={vi.fn().mockResolvedValue(undefined)}
 				onUpdate={onUpdate}
 				policyGroups={[
@@ -272,7 +290,7 @@ describe("UserDetailDialogBody forced password-change control", () => {
 					},
 				]}
 				policyGroupsLoading={false}
-				user={user()}
+				user={currentUser}
 			/>,
 		);
 
@@ -282,7 +300,9 @@ describe("UserDetailDialogBody forced password-change control", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "assign-policy-group" }),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		fireEvent.click(
+			screen.getAllByRole("button", { name: /save_changes/i })[0],
+		);
 
 		await waitFor(() => {
 			expect(onUpdate).toHaveBeenCalledWith(11, {
@@ -295,19 +315,19 @@ describe("UserDetailDialogBody forced password-change control", () => {
 	});
 
 	it("does not show a save action when the toggle returns to its original value", () => {
-		renderDialog();
+		renderEditor();
 
 		const toggle = screen.getByRole("switch", {
 			name: "force_password_change",
 		});
 		fireEvent.click(toggle);
 		expect(
-			screen.getByRole("button", { name: "save_changes" }),
+			screen.getAllByRole("button", { name: /save_changes/i })[0],
 		).toBeInTheDocument();
 		fireEvent.click(toggle);
 
 		expect(
-			screen.queryByRole("button", { name: "save_changes" }),
+			screen.queryByRole("button", { name: /save_changes/i }),
 		).not.toBeInTheDocument();
 	});
 });

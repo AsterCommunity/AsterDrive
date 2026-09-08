@@ -46,16 +46,12 @@ test.describe
 			});
 
 			await tableRowByCellText(page, username).click();
-			const detailDialog = dialogByTitle(page, "User details");
-			await expect(detailDialog).toBeVisible();
+			await expect(page).toHaveURL(/\/admin\/users\/\d+$/);
 			await expect(
-				detailDialog.getByText(email, { exact: true }),
+				page.getByText(email, { exact: true }).first(),
 			).toBeVisible();
-			await detailDialog
-				.locator('[data-slot="dialog-footer"]')
-				.getByRole("button", { name: "Close" })
-				.click();
-			await expect(detailDialog).toBeHidden();
+			await page.getByRole("button", { name: "Back to users" }).click();
+			await expect(page).toHaveURL(/\/admin\/users$/);
 
 			await clickRowAction(tableRowByCellText(page, username), "Delete user");
 			const deleteDialog = page.getByRole("alertdialog", {

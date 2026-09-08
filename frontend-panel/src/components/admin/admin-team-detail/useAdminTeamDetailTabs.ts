@@ -1,72 +1,58 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
 	getAdminTeamDetailPanelAnimationClass,
 	getAdminTeamDetailTabDirection,
 	isAdminTeamDetailTab,
-} from "./adminTeamDetailDialogState";
+} from "./adminTeamDetailState";
 import type { AdminTeamDetailTab } from "./types";
 
 interface UseAdminTeamDetailTabsArgs {
-	isPageLayout: boolean;
-	onPageTabChange?: (
+	onPageTabChange: (
 		tab: AdminTeamDetailTab,
 		options?: { replace?: boolean },
 	) => void;
-	pageTab?: AdminTeamDetailTab;
+	pageTab: AdminTeamDetailTab;
 }
 
 export function useAdminTeamDetailTabs({
-	isPageLayout,
 	onPageTabChange,
 	pageTab,
 }: UseAdminTeamDetailTabsArgs) {
-	const [dialogTab, setDialogTab] = useState<AdminTeamDetailTab>("overview");
-	const [pageLayoutTab, setPageLayoutTab] = useState<AdminTeamDetailTab>(
-		pageTab ?? "overview",
-	);
+	const [pageLayoutTab, setPageLayoutTab] =
+		useState<AdminTeamDetailTab>(pageTab);
 	const [tabDirection, setTabDirection] = useState<"forward" | "backward">(
 		"forward",
 	);
-	const currentTab = isPageLayout ? pageLayoutTab : dialogTab;
+	const currentTab = pageLayoutTab;
 	const panelAnimationClass =
 		getAdminTeamDetailPanelAnimationClass(tabDirection);
 
 	useEffect(() => {
-		if (!isPageLayout || pageTab == null || pageLayoutTab === pageTab) {
+		if (pageLayoutTab === pageTab) {
 			return;
 		}
 
 		setTabDirection(getAdminTeamDetailTabDirection(pageTab, pageLayoutTab));
 		setPageLayoutTab(pageTab);
-	}, [isPageLayout, pageLayoutTab, pageTab]);
-
-	const resetDialogTab = useCallback(() => {
-		setDialogTab("overview");
-	}, []);
+	}, [pageLayoutTab, pageTab]);
 
 	const handleTabChange = (value: string) => {
 		if (!isAdminTeamDetailTab(value)) {
 			return;
 		}
 
-		if (isPageLayout) {
-			if (value === currentTab) {
-				return;
-			}
-
-			setTabDirection(getAdminTeamDetailTabDirection(value, currentTab));
-			setPageLayoutTab(value);
-			onPageTabChange?.(value);
+		if (value === currentTab) {
 			return;
 		}
 
-		setDialogTab(value);
+		setTabDirection(getAdminTeamDetailTabDirection(value, currentTab));
+		setPageLayoutTab(value);
+		onPageTabChange(value);
 	};
 
 	return {
 		currentTab,
 		handleTabChange,
 		panelAnimationClass,
-		resetDialogTab,
 	};
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPolicyGroupOptions } from "@/components/admin/user-detail-dialog/types";
+import { buildPolicyGroupOptions } from "@/components/admin/user-detail/types";
 
 const group = (overrides: Record<string, unknown> = {}) => ({
 	id: 1,

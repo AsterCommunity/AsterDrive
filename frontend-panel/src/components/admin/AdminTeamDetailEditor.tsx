@@ -14,12 +14,12 @@ import {
 	adminTeamDetailContentScrollPositions,
 	adminTeamDetailSidebarScrollPositions,
 	buildPolicyGroupOptions,
-} from "@/components/admin/admin-team-detail/adminTeamDetailDialogState";
+} from "@/components/admin/admin-team-detail/adminTeamDetailState";
 import type { AdminTeamDetailTab } from "@/components/admin/admin-team-detail/types";
 import { useAdminTeamDetailData } from "@/components/admin/admin-team-detail/useAdminTeamDetailData";
 import { useAdminTeamDetailScrollRestoration } from "@/components/admin/admin-team-detail/useAdminTeamDetailScrollRestoration";
 import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/useAdminTeamDetailTabs";
-import { policyGroupRuleCount } from "@/components/admin/user-detail-dialog/types";
+import { policyGroupRuleCount } from "@/components/admin/user-detail/types";
 import { handleApiError } from "@/hooks/useApiError";
 import type { SortOrder } from "@/lib/pagination";
 import {
@@ -39,20 +39,17 @@ import type {
 
 export type { AdminTeamDetailTab } from "@/components/admin/admin-team-detail/types";
 
-interface AdminTeamDetailDialogProps {
-	layout?: "dialog" | "page";
-	open: boolean;
-	teamId: number | null;
+interface AdminTeamDetailEditorProps {
+	teamId: number;
 	policyGroups: StoragePolicyGroup[];
 	policyGroupsLoading: boolean;
-	onListChange: () => Promise<void>;
-	onOpenChange: (open: boolean) => void;
-	onPageTabChange?: (
+	onBack: () => void;
+	onPageTabChange: (
 		tab: AdminTeamDetailTab,
 		options?: { replace?: boolean },
 	) => void;
 	onRefreshPolicyGroups: () => Promise<void>;
-	pageTab?: AdminTeamDetailTab;
+	pageTab: AdminTeamDetailTab;
 }
 
 function quotaDraftValue(team: AdminTeamInfo | null) {
@@ -83,26 +80,18 @@ interface QuotaDraftOverride {
 	value: string;
 }
 
-export function AdminTeamDetailDialog({
-	layout = "dialog",
-	open,
+export function AdminTeamDetailEditor({
 	teamId,
 	policyGroups,
 	policyGroupsLoading,
-	onListChange,
-	onOpenChange,
+	onBack,
 	onPageTabChange,
 	onRefreshPolicyGroups,
 	pageTab,
-}: AdminTeamDetailDialogProps) {
+}: AdminTeamDetailEditorProps) {
 	const { t } = useTranslation(["admin", "core", "settings"]);
-	const isPageLayout = layout === "page";
-	const { currentTab, handleTabChange, panelAnimationClass, resetDialogTab } =
-		useAdminTeamDetailTabs({
-			isPageLayout,
-			onPageTabChange,
-			pageTab,
-		});
+	const { currentTab, handleTabChange, panelAnimationClass } =
+		useAdminTeamDetailTabs({ onPageTabChange, pageTab });
 	const [archiveConfirmValue, setArchiveConfirmValue] = useState("");
 	const [archiving, setArchiving] = useState(false);
 	const [auditOffset, setAuditOffset] = useState(0);
@@ -185,13 +174,11 @@ export function AdminTeamDetailDialog({
 		memberOffset,
 		memberSortBy,
 		memberSortOrder,
-		open,
 		teamId,
 	});
 
 	useAdminTeamDetailScrollRestoration({
 		contentRef,
-		isPageLayout,
 		pageTab,
 		sidebarRef,
 		teamId,
@@ -344,11 +331,7 @@ export function AdminTeamDetailDialog({
 				storage_quota: nextQuota,
 				policy_group_id: nextPolicyGroupId,
 			});
-			await Promise.all([
-				loadTeamDetail(team.id),
-				loadAuditEntries(team.id),
-				onListChange(),
-			]);
+			await Promise.all([loadTeamDetail(team.id), loadAuditEntries(team.id)]);
 			setQuotaDraftOverride(null);
 			toast.success(t("team_updated"));
 		} catch (error) {
@@ -367,11 +350,7 @@ export function AdminTeamDetailDialog({
 			setArchiving(true);
 			overviewSyncAllowedRef.current = true;
 			await adminTeamService.delete(team.id);
-			await Promise.all([
-				loadTeamDetail(team.id),
-				loadAuditEntries(team.id),
-				onListChange(),
-			]);
+			await Promise.all([loadTeamDetail(team.id), loadAuditEntries(team.id)]);
 			setQuotaDraftOverride(null);
 			toast.success(t("team_deleted"));
 		} catch (error) {
@@ -390,11 +369,7 @@ export function AdminTeamDetailDialog({
 			setRestoring(true);
 			overviewSyncAllowedRef.current = true;
 			await adminTeamService.restore(team.id);
-			await Promise.all([
-				loadTeamDetail(team.id),
-				loadAuditEntries(team.id),
-				onListChange(),
-			]);
+			await Promise.all([loadTeamDetail(team.id), loadAuditEntries(team.id)]);
 			setQuotaDraftOverride(null);
 			toast.success(t("team_restored"));
 		} catch (error) {
@@ -406,7 +381,7 @@ export function AdminTeamDetailDialog({
 
 	const handleAddMember = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (teamId == null || !canMutateTeam) {
+		if (!canMutateTeam) {
 			return;
 		}
 
@@ -428,7 +403,6 @@ export function AdminTeamDetailDialog({
 				loadTeamDetail(teamId),
 				loadMembers(teamId, 0, memberFilters, memberSortBy, memberSortOrder),
 				loadAuditEntries(teamId),
-				onListChange(),
 			]);
 			toast.success(t("settings:settings_team_member_added"));
 		} catch (error) {
@@ -442,7 +416,7 @@ export function AdminTeamDetailDialog({
 		memberUserId: number,
 		role: TeamMemberRole,
 	) => {
-		if (teamId == null || !canMutateTeam) {
+		if (!canMutateTeam) {
 			return;
 		}
 
@@ -459,7 +433,6 @@ export function AdminTeamDetailDialog({
 					memberSortOrder,
 				),
 				loadAuditEntries(teamId),
-				onListChange(),
 			]);
 			toast.success(t("settings:settings_team_member_role_updated"));
 		} catch (error) {
@@ -470,7 +443,7 @@ export function AdminTeamDetailDialog({
 	};
 
 	const handleRemoveMember = async (memberUserId: number) => {
-		if (teamId == null || !canMutateTeam) {
+		if (!canMutateTeam) {
 			return;
 		}
 
@@ -487,7 +460,6 @@ export function AdminTeamDetailDialog({
 					memberSortOrder,
 				),
 				loadAuditEntries(teamId),
-				onListChange(),
 			]);
 			toast.success(t("settings:settings_team_member_removed"));
 		} catch (error) {
@@ -497,53 +469,28 @@ export function AdminTeamDetailDialog({
 		}
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: changing the route team must reset page-local drafts
 	useEffect(() => {
-		if (!open || teamId == null) {
-			overviewSyncAllowedRef.current = true;
-			setArchiveConfirmValue("");
-			setArchiving(false);
-			setAuditOffset(0);
-			setDescription("");
-			setMemberIdentifier("");
-			setMemberMutating(false);
-			setMemberOffset(0);
-			setMemberQuery("");
-			setMemberRole("member");
-			setMemberRoleFilter("__all__");
-			setMemberSortBy("role");
-			setMemberSortOrder("asc");
-			setMemberStatusFilter("__all__");
-			setName("");
-			setPolicyGroupId("");
-			setQuotaDraftOverride(null);
-			setRestoring(false);
-			setSaving(false);
-			resetDialogTab();
-			return;
-		}
-
 		overviewSyncAllowedRef.current = true;
+		setArchiveConfirmValue("");
+		setArchiving(false);
 		setAuditOffset(0);
+		setMemberIdentifier("");
+		setMemberMutating(false);
 		setMemberOffset(0);
+		setMemberQuery("");
+		setMemberRole("member");
+		setMemberRoleFilter("__all__");
 		setMemberSortBy("role");
 		setMemberSortOrder("asc");
+		setMemberStatusFilter("__all__");
 		setQuotaDraftOverride(null);
-		resetDialogTab();
-	}, [open, resetDialogTab, teamId]);
-
-	if (teamId == null) {
-		return null;
-	}
-
-	const handleDialogOpenChange = (nextOpen: boolean) => {
-		if (!nextOpen) {
-			setQuotaDraftOverride(null);
-		}
-		onOpenChange(nextOpen);
-	};
+		setRestoring(false);
+		setSaving(false);
+	}, [teamId]);
 
 	const handleContentScroll = () => {
-		if (teamId == null || contentRef.current == null) {
+		if (contentRef.current == null) {
 			return;
 		}
 
@@ -554,7 +501,7 @@ export function AdminTeamDetailDialog({
 	};
 
 	const handleSidebarScroll = () => {
-		if (teamId == null || sidebarRef.current == null) {
+		if (sidebarRef.current == null) {
 			return;
 		}
 
@@ -644,7 +591,7 @@ export function AdminTeamDetailDialog({
 
 	const auditSection = (
 		<AdminTeamDetailAuditSection
-			teamId={teamId ?? 0}
+			teamId={teamId}
 			auditCurrentPage={auditCurrentPage}
 			auditEntries={auditEntries}
 			auditLoading={auditLoading}
@@ -680,14 +627,11 @@ export function AdminTeamDetailDialog({
 			currentPolicyGroupName={currentPolicyGroup?.name ?? null}
 			currentTab={currentTab}
 			dangerSection={dangerSection}
-			isPageLayout={isPageLayout}
 			membersSection={membersSection}
 			onContentScroll={handleContentScroll}
-			onOpenChange={handleDialogOpenChange}
-			onPageBack={() => handleDialogOpenChange(false)}
+			onPageBack={onBack}
 			onSidebarScroll={handleSidebarScroll}
 			onTabChange={handleTabChange}
-			open={open}
 			overviewSection={overviewSection}
 			ownerCount={ownerCount}
 			managerCount={managerCount}

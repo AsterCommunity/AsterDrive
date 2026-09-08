@@ -31,7 +31,6 @@ function renderShell(
 ) {
 	const handlers = {
 		onContentScroll: vi.fn(),
-		onOpenChange: vi.fn(),
 		onPageBack: vi.fn(),
 		onSidebarScroll: vi.fn(),
 		onTabChange: vi.fn(),
@@ -44,9 +43,7 @@ function renderShell(
 			currentPolicyGroupName="Primary"
 			currentTab="audit"
 			dangerSection={<div>danger content</div>}
-			isPageLayout
 			membersSection={<div>members content</div>}
-			open
 			overviewSection={<div>overview content</div>}
 			ownerCount={2}
 			managerCount={3}
@@ -86,7 +83,7 @@ describe("AdminTeamDetailShell", () => {
 		expect(screen.getByText("Pinned")).toBeInTheDocument();
 		expect(screen.queryByText("Primary")).not.toBeInTheDocument();
 
-		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
+		fireEvent.click(screen.getByRole("button", { name: /back_to_teams/i }));
 		fireEvent.click(
 			screen.getByRole("tab", { name: "settings:settings_team_members" }),
 		);
@@ -98,16 +95,14 @@ describe("AdminTeamDetailShell", () => {
 		);
 	});
 
-	it("renders every section together in dialog layout", () => {
+	it("renders only the selected page tab", () => {
 		renderShell({
 			currentTab: "overview",
-			isPageLayout: false,
 		});
 
-		expect(screen.getByText("team_details_title")).toBeInTheDocument();
 		expect(screen.getByText("overview content")).toBeInTheDocument();
-		expect(screen.getByText("members content")).toBeInTheDocument();
-		expect(screen.getByText("audit content")).toBeInTheDocument();
-		expect(screen.getByText("danger content")).toBeInTheDocument();
+		expect(screen.queryByText("members content")).not.toBeInTheDocument();
+		expect(screen.queryByText("audit content")).not.toBeInTheDocument();
+		expect(screen.queryByText("danger content")).not.toBeInTheDocument();
 	});
 });

@@ -186,6 +186,9 @@ describe("router", () => {
 		expect(
 			allRoutes.some((route) => route.path === "/admin/users/invitations"),
 		).toBe(true);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/users/:userId"),
+		).toBe(true);
 		expect(allRoutes.some((route) => route.path === "/tasks")).toBe(true);
 		expect(allRoutes.some((route) => route.path === "tasks")).toBe(true);
 		expect(allRoutes.some((route) => route.path === "/tags")).toBe(false);

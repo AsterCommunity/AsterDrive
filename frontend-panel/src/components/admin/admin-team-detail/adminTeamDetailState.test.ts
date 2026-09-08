@@ -4,7 +4,7 @@ import {
 	getAdminTeamDetailPanelAnimationClass,
 	getAdminTeamDetailTabDirection,
 	isAdminTeamDetailTab,
-} from "@/components/admin/admin-team-detail/adminTeamDetailDialogState";
+} from "@/components/admin/admin-team-detail/adminTeamDetailState";
 import type { StoragePolicyGroup } from "@/types/api";
 
 const group = (
@@ -40,7 +40,7 @@ const group = (
 	...overrides,
 });
 
-describe("adminTeamDetailDialogState", () => {
+describe("adminTeamDetailState", () => {
 	it("validates team detail tabs and directions", () => {
 		expect(isAdminTeamDetailTab("overview")).toBe(true);
 		expect(isAdminTeamDetailTab("members")).toBe(true);
