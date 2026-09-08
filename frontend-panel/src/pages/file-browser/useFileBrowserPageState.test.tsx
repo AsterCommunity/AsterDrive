@@ -2,14 +2,21 @@ import { act, renderHook } from "@testing-library/react";
 import type { TFunction } from "i18next";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/services/http";
 import type { FileListItem, FolderListItem } from "@/types/api";
+import { ApiErrorCode } from "@/types/api-helpers";
 import { useFileBrowserPageState } from "./useFileBrowserPageState";
 
 const mockState = vi.hoisted(() => ({
+	handleApiError: vi.fn(),
 	renamePreload: vi.fn(),
 	sharePreload: vi.fn(),
 	targetPreload: vi.fn(),
 	versionPreload: vi.fn(),
+}));
+
+vi.mock("@/hooks/useApiError", () => ({
+	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
 vi.mock("@/pages/file-browser/fileBrowserLazy", () => ({
@@ -43,10 +50,34 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 describe("useFileBrowserPageState", () => {
 	beforeEach(() => {
+		mockState.handleApiError.mockReset();
 		mockState.renamePreload.mockReset();
 		mockState.sharePreload.mockReset();
 		mockState.targetPreload.mockReset();
 		mockState.versionPreload.mockReset();
+	});
+
+	it("suppresses folder-unavailable navigation errors", async () => {
+		const options = createOptions();
+		const error = new ApiError(ApiErrorCode.FolderNotFound, "gone");
+		options.navigateTo.mockRejectedValueOnce(error);
+
+		renderHook(() => useFileBrowserPageState(options), { wrapper });
+
+		await vi.waitFor(() => expect(options.navigateTo).toHaveBeenCalled());
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
+
+	it("reports non-folder navigation errors", async () => {
+		const options = createOptions();
+		const error = new Error("network down");
+		options.navigateTo.mockRejectedValueOnce(error);
+
+		renderHook(() => useFileBrowserPageState(options), { wrapper });
+
+		await vi.waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
 	});
 
 	it("opens an auto preview when image navigation arrives without current preview state", () => {

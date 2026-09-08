@@ -591,6 +591,8 @@ mod tests {
         assert_eq!(serialized["workspace"]["kind"], "personal");
         assert_eq!(serialized["storage_delta"], -512);
         assert_eq!(serialized["affects_quota"], true);
+        assert!(!event.kind.invalidates_folder_path_cache());
+        assert!(!event.kind.invalidates_webdav_path_cache());
 
         let targets = super::cache_invalidation_targets(&event);
         assert!(targets.prefixes.is_empty());

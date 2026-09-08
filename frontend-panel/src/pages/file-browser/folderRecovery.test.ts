@@ -38,6 +38,13 @@ describe("folderRecovery", () => {
 		).toEqual({ id: null, name: "Root" });
 	});
 
+	it("creates a root target when the breadcrumb is empty", () => {
+		expect(resolveFolderRecoveryTarget([], 7)).toEqual({
+			id: null,
+			name: "Root",
+		});
+	});
+
 	it("ignores stale breadcrumb entries after the unavailable folder", () => {
 		expect(
 			resolveFolderRecoveryTarget(

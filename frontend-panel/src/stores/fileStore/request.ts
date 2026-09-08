@@ -78,6 +78,18 @@ export async function resolveBreadcrumb(
 export function beginWorkspaceRequest(
 	set: FileStoreSet,
 	get: FileStoreGet,
+	intent: "navigation",
+	folderId: number | null,
+): WorkspaceRequestHandle;
+export function beginWorkspaceRequest(
+	set: FileStoreSet,
+	get: FileStoreGet,
+	intent: "refresh",
+	folderId: number | null,
+): WorkspaceRequestHandle | null;
+export function beginWorkspaceRequest(
+	set: FileStoreSet,
+	get: FileStoreGet,
 	intent: WorkspaceRequestHandle["intent"],
 	folderId: number | null,
 ): WorkspaceRequestHandle | null {

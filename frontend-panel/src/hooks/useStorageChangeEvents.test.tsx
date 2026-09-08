@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { logger } from "@/lib/logger";
 import {
 	clearStorageEventEchoes,
 	rememberStorageEventEcho,
@@ -244,6 +245,41 @@ describe("useStorageChangeEvents", () => {
 
 		hook.unmount();
 		expect(MockEventSource.instances[0]?.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("logs a current-folder refresh failure without navigating to root", async () => {
+		const refreshError = new Error("folder disappeared");
+		mockState.fileStore.refresh.mockRejectedValueOnce(refreshError);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+		const { useStorageChangeEvents } = await import(
+			"@/hooks/useStorageChangeEvents"
+		);
+
+		try {
+			renderHook(() => useStorageChangeEvents());
+			await connectStorageEvents();
+			MockEventSource.instances[0]?.emit({
+				kind: "file.updated",
+				workspace: { kind: "personal" },
+				file_ids: [],
+				folder_ids: [],
+				affected_parent_ids: [7],
+				root_affected: false,
+				affects_quota: false,
+				storage_delta: null,
+				at: "2026-04-08T00:00:00Z",
+			});
+
+			await waitFor(() => {
+				expect(warn).toHaveBeenCalledWith(
+					"storage event folder refresh failed",
+					refreshError,
+				);
+			});
+			expect(mockState.fileStore.refresh).toHaveBeenCalledWith(7);
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it("handles sync.required without refreshing during search", async () => {

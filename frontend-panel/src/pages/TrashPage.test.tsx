@@ -762,6 +762,46 @@ describe("TrashPage", () => {
 		});
 	});
 
+	it("queues trash.purged_all received during an active reload", async () => {
+		let resolveReload:
+			| ((value: ReturnType<typeof emptyTrashContents>) => void)
+			| null = null;
+		mockState.list
+			.mockResolvedValueOnce({
+				files: [fileItem],
+				files_total: 1,
+				folders: [],
+				folders_total: 0,
+				next_file_cursor: null,
+			} as never)
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolveReload = resolve;
+					}) as never,
+			)
+			.mockResolvedValueOnce(emptyTrashContents());
+
+		render(<TrashPage />);
+		await screen.findByText("select:report.pdf");
+
+		for (const listener of mockState.listeners) {
+			listener({ kind: "sync.required" });
+			listener({ kind: "trash.purged_all" });
+			listener({ kind: "trash.purged_all" });
+		}
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(2);
+		});
+		resolveReload?.(emptyTrashContents());
+
+		await waitFor(() => {
+			expect(mockState.list).toHaveBeenCalledTimes(3);
+		});
+		expect(mockState.refreshUser).toHaveBeenCalledTimes(2);
+	});
+
 	it("shows the server total even when only the first trash page is loaded", async () => {
 		mockState.list.mockResolvedValueOnce({
 			files: [fileItem],

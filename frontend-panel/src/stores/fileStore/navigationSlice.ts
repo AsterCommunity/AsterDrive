@@ -35,8 +35,9 @@ export const createNavigationSlice: FileStoreSlice<NavigationSlice> = (
 	nextFileCursor: null,
 
 	navigateTo: async (folderId, folderName, breadcrumbPath) => {
+		const requestSortBy = get().sortBy;
+		const requestSortOrder = get().sortOrder;
 		const request = beginWorkspaceRequest(set, get, "navigation", folderId);
-		if (!request) return;
 		set({
 			loading: true,
 			error: null,
@@ -49,13 +50,13 @@ export const createNavigationSlice: FileStoreSlice<NavigationSlice> = (
 			const [contents, newBreadcrumb] = await Promise.all([
 				fetchFolder(
 					folderId,
-					getInitialPageParams(get().sortBy, get().sortOrder),
+					getInitialPageParams(requestSortBy, requestSortOrder),
 					request.signal,
 				),
 				resolveBreadcrumb(folderId, breadcrumbPath, request.signal),
 			]);
 
-			applyWorkspaceRequestState(set, get, request, {
+			const committed = applyWorkspaceRequestState(set, get, request, {
 				currentFolderId: folderId,
 				folders: contents.folders,
 				files: contents.files,
@@ -66,13 +67,24 @@ export const createNavigationSlice: FileStoreSlice<NavigationSlice> = (
 				lastFolderContents: {
 					folderId,
 					folders: contents.folders,
-					sortBy: get().sortBy,
-					sortOrder: get().sortOrder,
+					sortBy: requestSortBy,
+					sortOrder: requestSortOrder,
 					workspaceRevision: get().workspaceRequestRevision,
 				},
 				loading: false,
 				error: null,
 			});
+
+			if (
+				committed &&
+				(get().sortBy !== requestSortBy || get().sortOrder !== requestSortOrder)
+			) {
+				try {
+					await get().refresh(folderId);
+				} catch (error) {
+					logger.warn("post-navigation sort refresh failed", error);
+				}
+			}
 		} catch (error) {
 			if (isRequestCanceled(error)) {
 				finishWorkspaceRequest(set, get, request);

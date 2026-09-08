@@ -79,6 +79,7 @@ export default function TrashPage() {
 		usePendingAction();
 	const pendingRef = useRef(false);
 	const syncInFlightRef = useRef(false);
+	const purgeAllSyncPendingRef = useRef(false);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 
 	// D9 Finder 化：回收站复用文件浏览器（trashMode），选择状态走 fileStore
@@ -195,20 +196,37 @@ export default function TrashPage() {
 	}, []);
 
 	useEffect(() => {
-		return subscribeStorageChange((event) => {
-			if (event.kind !== "sync.required" && event.kind !== "trash.purged_all") {
-				return;
-			}
-			if (syncInFlightRef.current) {
-				return;
-			}
+		let active = true;
+		const runSync = () => {
 			syncInFlightRef.current = true;
 			void Promise.all([load(), refreshUser({ fields: ["quota"] })]).finally(
 				() => {
 					syncInFlightRef.current = false;
+					if (!active || !purgeAllSyncPendingRef.current) {
+						return;
+					}
+					purgeAllSyncPendingRef.current = false;
+					runSync();
 				},
 			);
+		};
+		const unsubscribe = subscribeStorageChange((event) => {
+			if (event.kind !== "sync.required" && event.kind !== "trash.purged_all") {
+				return;
+			}
+			if (syncInFlightRef.current) {
+				if (event.kind === "trash.purged_all") {
+					purgeAllSyncPendingRef.current = true;
+				}
+				return;
+			}
+			runSync();
 		});
+		return () => {
+			active = false;
+			purgeAllSyncPendingRef.current = false;
+			unsubscribe();
+		};
 	}, [load, refreshUser]);
 
 	// Infinite scroll

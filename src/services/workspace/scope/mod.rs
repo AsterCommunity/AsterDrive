@@ -437,15 +437,19 @@ async fn verify_folder_access_with_db<C: ConnectionTrait>(
     require_scope_access_with_db(state, db, scope).await?;
     let folder = folder_repo::find_by_id(db, folder_id)
         .await
-        .map_err(|error| match error {
-            AsterError::RecordNotFound(_) => AsterError::folder_not_found(format!(
-                "Folder #{folder_id} does not exist or has been permanently removed"
-            )),
-            other => other,
-        })?;
+        .map_err(|error| map_folder_lookup_error(folder_id, error))?;
     ensure_active_folder_scope(&folder, scope)?;
 
     Ok(folder)
+}
+
+fn map_folder_lookup_error(folder_id: i64, error: AsterError) -> AsterError {
+    match error {
+        AsterError::RecordNotFound(_) => AsterError::folder_not_found(format!(
+            "Folder #{folder_id} does not exist or has been permanently removed"
+        )),
+        other => other,
+    }
 }
 
 pub(crate) async fn lock_folder_access_on<C: ConnectionTrait>(
@@ -508,7 +512,10 @@ pub(crate) async fn list_files_in_folder(
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
+    use super::{
+        WorkspaceStorageScope, map_folder_lookup_error, require_team_access,
+        require_team_policy_group_id,
+    };
     use crate::config::{Config, RuntimeConfig};
     use crate::db::repository::{
         policy_group_repo, policy_placement_repo, policy_repo, team_member_repo, team_repo,
@@ -574,6 +581,30 @@ mod tests {
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }
+    }
+
+    #[test]
+    fn folder_lookup_error_mapping_is_specific_and_preserves_other_errors() {
+        let missing = map_folder_lookup_error(
+            42,
+            crate::errors::AsterError::record_not_found("folder #42"),
+        );
+        assert!(matches!(
+            missing,
+            crate::errors::AsterError::FolderNotFound(_)
+        ));
+        assert_eq!(
+            missing.raw_message(),
+            "Folder #42 does not exist or has been permanently removed"
+        );
+
+        let database = crate::errors::AsterError::database_operation("database unavailable");
+        let preserved = map_folder_lookup_error(42, database);
+        assert!(matches!(
+            preserved,
+            crate::errors::AsterError::DatabaseOperation(_)
+        ));
+        assert_eq!(preserved.raw_message(), "database unavailable");
     }
 
     async fn create_user(state: &impl SharedRuntimeState, username: &str) -> user::Model {
