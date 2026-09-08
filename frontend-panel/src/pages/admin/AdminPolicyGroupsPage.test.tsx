@@ -555,7 +555,6 @@ function createGroup(overrides: Record<string, unknown> = {}) {
 						id: 21,
 						policy_id: 1,
 						weight: 100,
-						is_enabled: true,
 						accepting_new_writes: true,
 						stable_order: 1,
 						policy: createPolicy(),

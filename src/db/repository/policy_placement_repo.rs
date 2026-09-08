@@ -74,7 +74,6 @@ pub async fn group_has_assignable_target<C: ConnectionTrait>(
         )
         .filter(storage_policy_group_rule::Column::GroupId.eq(group_id))
         .filter(storage_policy_group_rule::Column::IsEnabled.eq(true))
-        .filter(storage_policy_group_rule_target::Column::IsEnabled.eq(true))
         .filter(storage_policy_group_rule_target::Column::AcceptingNewWrites.eq(true))
         .one(db)
         .await
@@ -143,7 +142,6 @@ mod tests {
             rule_id,
             policy_id,
             weight: 100,
-            is_enabled: true,
             accepting_new_writes: true,
             stable_order: 1,
             created_at: now,
@@ -199,7 +197,6 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(sql.contains("accepting_new_writes"));
-        assert!(sql.contains("is_enabled"));
         assert!(sql.contains("DELETE FROM"));
     }
 }

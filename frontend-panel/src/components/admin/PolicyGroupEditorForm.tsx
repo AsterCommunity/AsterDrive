@@ -569,17 +569,6 @@ function RuleCard({
 									<span className="flex items-center gap-2 text-xs text-muted-foreground">
 										<Switch
 											size="sm"
-											checked={target.isEnabled}
-											onCheckedChange={(checked) =>
-												setTarget(target.key, "isEnabled", checked)
-											}
-											aria-label={t("policy_group_target_enabled")}
-										/>
-										{t("policy_group_target_enabled")}
-									</span>
-									<span className="flex items-center gap-2 text-xs text-muted-foreground">
-										<Switch
-											size="sm"
 											checked={target.acceptingNewWrites}
 											onCheckedChange={(checked) =>
 												setTarget(target.key, "acceptingNewWrites", checked)

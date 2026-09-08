@@ -390,7 +390,6 @@ function createPolicyGroup(overrides: Record<string, unknown> = {}) {
 						id: 201,
 						policy_id: 201,
 						weight: 100,
-						is_enabled: true,
 						accepting_new_writes: true,
 						stable_order: 1,
 						policy: {

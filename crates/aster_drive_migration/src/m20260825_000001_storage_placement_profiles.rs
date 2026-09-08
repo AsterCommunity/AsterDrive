@@ -235,12 +235,6 @@ async fn create_targets(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .default(100),
                 )
                 .col(
-                    ColumnDef::new(StoragePolicyGroupRuleTargets::IsEnabled)
-                        .boolean()
-                        .not_null()
-                        .default(true),
-                )
-                .col(
                     ColumnDef::new(StoragePolicyGroupRuleTargets::AcceptingNewWrites)
                         .boolean()
                         .not_null()
@@ -376,7 +370,6 @@ async fn materialize_legacy_items(manager: &SchemaManager<'_>) -> Result<(), DbE
                 StoragePolicyGroupRuleTargets::RuleId,
                 StoragePolicyGroupRuleTargets::PolicyId,
                 StoragePolicyGroupRuleTargets::Weight,
-                StoragePolicyGroupRuleTargets::IsEnabled,
                 StoragePolicyGroupRuleTargets::AcceptingNewWrites,
                 StoragePolicyGroupRuleTargets::StableOrder,
                 StoragePolicyGroupRuleTargets::CreatedAt,
@@ -387,7 +380,6 @@ async fn materialize_legacy_items(manager: &SchemaManager<'_>) -> Result<(), DbE
                 id.into(),
                 policy_id.into(),
                 100_i32.into(),
-                true.into(),
                 true.into(),
                 1_i32.into(),
                 created_at.into(),
@@ -456,7 +448,6 @@ enum StoragePolicyGroupRuleTargets {
     RuleId,
     PolicyId,
     Weight,
-    IsEnabled,
     AcceptingNewWrites,
     StableOrder,
     CreatedAt,

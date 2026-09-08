@@ -1352,7 +1352,7 @@ async fn create_s3_default_policy(
             rules: Some(vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
                 name: "Rule 1".to_string(), description: None, priority: 1, is_enabled: true,
                 matcher: Default::default(), selection_mode: Default::default(), unavailable_behavior: Default::default(),
-                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: policy.id, weight: 100, is_enabled: true, accepting_new_writes: true, stable_order: 1 }],
+                targets: vec![aster_drive::services::storage_policy::policy::StoragePlacementTargetInput { policy_id: policy.id, weight: 100, accepting_new_writes: true, stable_order: 1 }],
             }]),
         },
     )

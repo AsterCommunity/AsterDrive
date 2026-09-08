@@ -108,7 +108,7 @@ async fn storage_placement_migration_preserves_legacy_rule_semantics() {
     let target = db
         .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,
-            "SELECT rule_id, policy_id, weight, is_enabled, accepting_new_writes, stable_order \
+            "SELECT rule_id, policy_id, weight, accepting_new_writes, stable_order \
              FROM storage_policy_group_rule_targets WHERE id = 4442",
         ))
         .await
@@ -118,8 +118,7 @@ async fn storage_placement_migration_preserves_legacy_rule_semantics() {
     assert_eq!(target.try_get_by_index::<i64>(1).unwrap(), policy_id);
     assert_eq!(target.try_get_by_index::<i32>(2).unwrap(), 100);
     assert!(target.try_get_by_index::<bool>(3).unwrap());
-    assert!(target.try_get_by_index::<bool>(4).unwrap());
-    assert_eq!(target.try_get_by_index::<i32>(5).unwrap(), 1);
+    assert_eq!(target.try_get_by_index::<i32>(4).unwrap(), 1);
 
     let legacy_count: i64 = db
         .query_one_raw(Statement::from_string(

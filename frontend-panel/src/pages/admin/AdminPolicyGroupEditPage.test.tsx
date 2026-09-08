@@ -345,7 +345,6 @@ function createRule(
 				id: id * 10,
 				policy_id: policyId,
 				weight: 100,
-				is_enabled: true,
 				accepting_new_writes: true,
 				stable_order: 1,
 				policy: createPolicy({ id: policyId }),
@@ -467,7 +466,6 @@ describe("AdminPolicyGroupEditPage", () => {
 							{
 								policy_id: 1,
 								weight: 100,
-								is_enabled: true,
 								accepting_new_writes: true,
 								stable_order: 1,
 							},

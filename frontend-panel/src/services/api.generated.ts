@@ -8556,7 +8556,6 @@ export interface components {
             accepting_new_writes: boolean;
             /** Format: int64 */
             id: number;
-            is_enabled: boolean;
             policy: components["schemas"]["StoragePolicySummaryInfo"];
             /** Format: int64 */
             policy_id: number;
@@ -8567,7 +8566,6 @@ export interface components {
         };
         StoragePlacementTargetInput: {
             accepting_new_writes?: boolean;
-            is_enabled?: boolean;
             /** Format: int64 */
             policy_id: number;
             /** Format: int32 */
@@ -8858,7 +8856,7 @@ export interface components {
             evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
             excluded_targets: [
                 number,
-                "target_disabled" | "target_draining" | "target_unavailable" | "target_incompatible" | "policy_max_file_size_exceeded"
+                "target_draining" | "target_unavailable" | "target_incompatible" | "policy_max_file_size_exceeded"
             ][];
             execution_preference: components["schemas"]["UploadExecutionPreference"];
             folder_override: boolean;
@@ -13086,7 +13084,7 @@ export interface operations {
                             evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
                             excluded_targets: [
                                 number,
-                                "target_disabled" | "target_draining" | "target_unavailable" | "target_incompatible" | "policy_max_file_size_exceeded"
+                                "target_draining" | "target_unavailable" | "target_incompatible" | "policy_max_file_size_exceeded"
                             ][];
                             rejection_code?: string | null;
                         };

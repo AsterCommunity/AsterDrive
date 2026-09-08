@@ -46,7 +46,6 @@
 	"policy_group_remove_rule_confirm": "再按一次确认删除",
 	"policy_group_add_target": "添加目标",
 	"policy_group_target_remove": "移除目标",
-	"policy_group_target_enabled": "启用",
 	"policy_group_target_accepting_new_writes": "接收新文件",
 	"policy_group_target_weight": "权重",
 	"policy_group_target_count": "{{count}} 个目标",

@@ -18,7 +18,6 @@ pub struct Model {
     pub rule_id: i64,
     pub policy_id: i64,
     pub weight: i32,
-    pub is_enabled: bool,
     pub accepting_new_writes: bool,
     pub stable_order: i32,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

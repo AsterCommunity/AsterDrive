@@ -690,7 +690,6 @@ mod tests {
                 rule_id: Set(rule.id),
                 policy_id: Set(policy.id),
                 weight: Set(100),
-                is_enabled: Set(true),
                 accepting_new_writes: Set(true),
                 stable_order: Set(1),
                 created_at: Set(now),

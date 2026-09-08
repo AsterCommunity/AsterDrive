@@ -2155,7 +2155,6 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
                 targets: vec![policy::StoragePlacementTargetInput {
                     policy_id: alternate_policy.id,
                     weight: 100,
-                    is_enabled: true,
                     accepting_new_writes: true,
                     stable_order: 1,
                 }],
@@ -3023,7 +3022,6 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
                 targets: vec![policy::StoragePlacementTargetInput {
                     policy_id: policy.id,
                     weight: 100,
-                    is_enabled: true,
                     accepting_new_writes: true,
                     stable_order: 1,
                 }],
@@ -4658,7 +4656,6 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
                 targets: vec![policy::StoragePlacementTargetInput {
                     policy_id: default_policy.id,
                     weight: 100,
-                    is_enabled: true,
                     accepting_new_writes: true,
                     stable_order: 1,
                 }],
@@ -4757,7 +4754,6 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
                     targets: vec![policy::StoragePlacementTargetInput {
                         policy_id: default_policy.id,
                         weight: 100,
-                        is_enabled: true,
                         accepting_new_writes: true,
                         stable_order: 1,
                     }],
@@ -4777,7 +4773,6 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
                     targets: vec![policy::StoragePlacementTargetInput {
                         policy_id: overflow_policy.id,
                         weight: 100,
-                        is_enabled: true,
                         accepting_new_writes: true,
                         stable_order: 1,
                     }],

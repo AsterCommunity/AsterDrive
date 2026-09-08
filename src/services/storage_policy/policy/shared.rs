@@ -98,7 +98,6 @@ pub(super) fn build_group_info(
                                 id: target.id,
                                 policy_id: target.policy_id,
                                 weight: i32::try_from(target.weight).ok()?,
-                                is_enabled: target.is_enabled,
                                 accepting_new_writes: target.accepting_new_writes,
                                 stable_order: i32::try_from(target.stable_order).ok()?,
                                 policy: StoragePolicySummaryInfo {
@@ -265,7 +264,6 @@ pub(super) async fn replace_placement_rules<C: sea_orm::ConnectionTrait>(
                     rule_id: Set(created.id),
                     policy_id: Set(target.policy_id),
                     weight: Set(target.weight),
-                    is_enabled: Set(target.is_enabled),
                     accepting_new_writes: Set(target.accepting_new_writes),
                     stable_order: Set(target.stable_order),
                     created_at: Set(now),
@@ -408,7 +406,6 @@ pub(super) async fn ensure_singleton_group_for_policy<C: sea_orm::ConnectionTrai
             rule_id: Set(rule.id),
             policy_id: Set(policy.id),
             weight: Set(100),
-            is_enabled: Set(true),
             accepting_new_writes: Set(true),
             stable_order: Set(1),
             created_at: Set(now),

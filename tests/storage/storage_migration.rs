@@ -1328,7 +1328,6 @@ async fn confirmed_forced_purge_removes_file_quota_blob_and_policy_through_backg
                 targets: vec![policy::StoragePlacementTargetInput {
                     policy_id: source.id,
                     weight: 100,
-                    is_enabled: true,
                     accepting_new_writes: true,
                     stable_order: 1,
                 }],
