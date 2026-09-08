@@ -7,20 +7,27 @@
 use super::s3::S3Driver;
 use std::{sync::Arc, time::Duration};
 
-use aster_drive_storage::traits::driver::PresignedDownloadOptions;
-use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::traits::driver::{DirectDownloadOptions, DirectDownloadRequest};
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, PresignedUploadStorageDriver,
+};
 
 #[async_trait::async_trait]
-impl PresignedStorageDriver for S3CompatibleDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for S3CompatibleDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: PresignedDownloadOptions,
-    ) -> aster_drive_storage::Result<Option<String>> {
-        self.inner.presigned_url(path, expires, options).await
+        options: DirectDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
+        self.inner
+            .resolve_download_url(path, expires, options)
+            .await
     }
+}
 
+#[async_trait::async_trait]
+impl PresignedUploadStorageDriver for S3CompatibleDriver {
     async fn presigned_put_request(
         &self,
         path: &str,
@@ -117,7 +124,8 @@ macro_rules! delegate_s3_compatible_storage_driver {
                 let this = self;
                 let base = this.$field.extensions();
                 aster_drive_storage::StorageDriverExtensions {
-                    presigned: Some(this),
+                    direct_download: Some(this),
+                    presigned_upload: Some(this),
                     list: $crate::storage::drivers::s3_compatible::delegate_s3_compatible_storage_driver!(@list $list_mode, base, this),
                     stream_upload: base.stream_upload,
                     multipart: Some(this),
@@ -279,7 +287,10 @@ mod tests {
         let driver = build_driver().expect("driver should build");
 
         assert!(driver.supports_efficient_range());
-        let presigned = driver.extensions().presigned.expect("presigned capability");
+        let presigned = driver
+            .extensions()
+            .presigned_upload
+            .expect("presigned upload capability");
         assert!(presigned.presigned_single_put_requires_etag());
         assert!(driver.extensions().list.is_some());
         assert!(driver.extensions().stream_upload.is_some());
@@ -292,7 +303,7 @@ mod tests {
         let driver = build_driver().expect("driver should build");
         let presigned = driver
             .extensions()
-            .presigned
+            .presigned_upload
             .expect("presigned capability")
             .presigned_put_request("docs/report.txt", Duration::from_secs(60))
             .await

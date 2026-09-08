@@ -584,13 +584,13 @@ pub(crate) fn resolve_policy_object_naming(
     registry.object_naming(policy)
 }
 
-pub(crate) fn presigned_download_enabled(
+pub(crate) fn direct_download_enabled(
     registry: &StorageConnectorRegistry,
     policy: &storage_policy::Model,
 ) -> Result<bool> {
     registry
         .require_policy(policy)?
-        .presigned_download_enabled(policy)
+        .direct_download_enabled(policy)
 }
 
 pub(crate) fn presigned_download_requires_filename_match(

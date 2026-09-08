@@ -20,8 +20,10 @@ use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::object_key;
-use aster_drive_storage::traits::driver::PresignedDownloadOptions;
-use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::traits::driver::{DirectDownloadOptions, DirectDownloadRequest};
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, PresignedUploadStorageDriver,
+};
 use aster_drive_storage::{MapStorageErr, Result};
 
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
@@ -40,6 +42,7 @@ pub struct TencentCosDriver {
     access_key: String,
     secret_key: String,
     base_path: String,
+    download_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +50,7 @@ pub struct TencentCosDriverConfig {
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
+    pub download_base_url: Option<String>,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
@@ -81,6 +85,25 @@ impl TencentCosDriver {
                 StorageErrorKind::Misconfigured,
                 "COS endpoint must use a Tencent COS myqcloud.com host",
             ));
+        }
+        if let Some(download_base_url) = config.download_base_url.as_deref() {
+            let url = Url::parse(download_base_url).map_storage_err_ctx(
+                StorageErrorKind::Misconfigured,
+                "parse COS download base URL",
+            )?;
+            if url.scheme() != "https"
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.port().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "COS download base URL must be an HTTPS URL with a hostname and no credentials, non-default port, query, or fragment",
+                ));
+            }
         }
         S3Driver::validate_config(
             &S3DriverConfig {
@@ -143,6 +166,7 @@ impl TencentCosDriver {
             access_key: credentials.access_key,
             secret_key: credentials.secret_key,
             base_path: config.base_path,
+            download_base_url: config.download_base_url,
         })
     }
 
@@ -177,19 +201,27 @@ fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<reqwest::Client
 }
 
 #[async_trait::async_trait]
-impl PresignedStorageDriver for TencentCosDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for TencentCosDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
+        options: DirectDownloadOptions,
+    ) -> Result<Option<DirectDownloadRequest>> {
+        if self.download_base_url.is_some() {
+            let expires =
+                super::s3::presigned::clamp_presign_ttl(expires, "COS resolve_download_url");
+            let url = self.signed_custom_download_url(path, expires, &options)?;
+            return Ok(Some(DirectDownloadRequest::temporary_url(url, expires)));
+        }
         self.storage
-            .s3_driver()
-            .presigned_url(path, expires, options)
+            .resolve_download_url(path, expires, options)
             .await
     }
+}
 
+#[async_trait::async_trait]
+impl PresignedUploadStorageDriver for TencentCosDriver {
     async fn presigned_put_request(
         &self,
         path: &str,

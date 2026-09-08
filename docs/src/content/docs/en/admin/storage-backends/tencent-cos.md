@@ -195,10 +195,15 @@ Common fields:
 | Access Key | Tencent Cloud secret ID |
 | Secret Key | Tencent Cloud secret key |
 | Prefix / base path | `prod/` |
+| Download delivery URL (optional) | `https://cdn.example.com/assets` |
 | Upload mode | Use `relay_stream` for the first setup |
 | Download mode | Use `relay_stream` for the first setup |
 
 Use the COS endpoint shown in the Tencent Cloud console. You do not need to tune it as a generic S3 path-style service.
+
+If the bucket exposes the same object keys through a custom origin domain, CDN, or deployment-managed reverse proxy, you can set the optional **Download delivery URL**. It is used only for browser requests after direct download is enabled. AsterDrive appends the policy base path and object path to its path prefix and generates COS Q-Sign against the final host. Backend reads and writes, uploads, cleanup, CORS, and bucket administration continue to use the official Endpoint above.
+
+The delivery URL must be HTTPS with a DNS hostname. It may include a fixed path prefix, but it must not contain credentials, a non-default port, query, fragment, backslashes, or traversal segments. A successful connection test proves only that the official COS Endpoint works; verify private-object access, Range downloads, and response-header overrides through the delivery domain before enabling it for users.
 
 Before or after saving, click `Test Connection` once. When editing an existing policy, leaving Access Key or Secret Key blank lets the draft connection test reuse the credentials already saved for that policy. This lets you test endpoint, bucket, base path, upload mode, or COS CI switch changes without pasting the secret every time. New policies have no saved credentials to reuse, so required credentials still need to be filled in.
 

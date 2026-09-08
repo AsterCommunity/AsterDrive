@@ -890,6 +890,8 @@ pub struct StorageConnectorCapabilities {
     pub list: bool,
     /// 是否支持 presigned download。
     pub presigned_download: bool,
+    /// 是否允许 connector config 提供自定义下载交付根 URL。
+    pub custom_download_base_url: bool,
     /// 是否支持 provider/storage-native thumbnail。
     pub storage_native_thumbnail: bool,
     /// 是否支持 provider/storage-native media metadata。
@@ -1634,8 +1636,14 @@ fn normalize_storage_connector_field_values<'a>(
             continue;
         }
 
-        let supplied = input.get(&field.name).cloned();
-        let value = resolved_input.get(&field.name).cloned();
+        let supplied = input
+            .get(&field.name)
+            .filter(|value| !value.is_null())
+            .cloned();
+        let value = resolved_input
+            .get(&field.name)
+            .filter(|value| !value.is_null())
+            .cloned();
         let Some(mut value) = value else {
             if field.required {
                 return Err(
@@ -2216,6 +2224,38 @@ impl StorageConnectorDescriptor {
                 )));
             }
         }
+        let download_base_url_field = self.fields.iter().find(|field| {
+            field.scope == StorageConnectorFieldScope::ConnectorConfig
+                && field.name == "download_base_url"
+        });
+        match (
+            self.capabilities.custom_download_base_url,
+            download_base_url_field,
+        ) {
+            (true, Some(field))
+                if field.kind == StorageConnectorFieldKind::Text
+                    && !field.required
+                    && !field.secret => {}
+            (true, Some(_)) => {
+                return Err(StorageConnectorDescriptorError(
+                    "custom download base URL capability requires an optional non-secret text connector-config field named 'download_base_url'"
+                        .to_string(),
+                ));
+            }
+            (true, None) => {
+                return Err(StorageConnectorDescriptorError(
+                    "custom download base URL capability requires connector-config field 'download_base_url'"
+                        .to_string(),
+                ));
+            }
+            (false, Some(_)) => {
+                return Err(StorageConnectorDescriptorError(
+                    "connector-config field 'download_base_url' requires custom download base URL capability"
+                        .to_string(),
+                ));
+            }
+            (false, None) => {}
+        }
         for field in &self.fields {
             let mut visiting = HashSet::new();
             if has_conditional_field_cycle(&self.fields, field, &mut visiting) {
@@ -2606,6 +2646,7 @@ pub fn object_storage_connector_descriptor(
             capacity: false,
             list: true,
             presigned_download: true,
+            custom_download_base_url: false,
             storage_native_thumbnail: input.storage_native_processing,
             storage_native_media_metadata: input.storage_native_processing,
             remote_node_binding: false,

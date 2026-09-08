@@ -6,9 +6,10 @@ use crate::storage::remote_protocol::{
 };
 use actix_web::{App, HttpResponse, HttpServer, web};
 use aster_drive_storage::error::StorageErrorKind;
-use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
+use aster_drive_storage::traits::driver::{DirectDownloadOptions, StorageDriver};
 use aster_drive_storage::traits::extensions::{
-    ListStorageDriver, PresignedStorageDriver, StreamUploadDriver,
+    DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
+    StreamUploadDriver,
 };
 use aster_drive_storage::traits::multipart::MultipartStorageDriver;
 use std::collections::HashMap;
@@ -219,10 +220,10 @@ async fn presigned_urls_include_base_path_response_options_and_signature() {
     let driver = build_target_scoped_driver("http://storage.example.com/root/", "base", "rst-a");
 
     let download_url = driver
-        .presigned_url(
+        .resolve_download_url(
             "folder/file name.txt",
             Duration::from_secs(60),
-            PresignedDownloadOptions {
+            DirectDownloadOptions {
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private, max-age=60".to_string()),
@@ -235,7 +236,7 @@ async fn presigned_urls_include_base_path_response_options_and_signature() {
         .await
         .expect("download presigned URL should build")
         .expect("remote driver should return URL");
-    let parsed = reqwest::Url::parse(&download_url).expect("download URL should parse");
+    let parsed = reqwest::Url::parse(&download_url.url).expect("download URL should parse");
     let query = parsed.query_pairs().into_owned().collect::<HashMap<_, _>>();
 
     assert_eq!(
@@ -312,10 +313,10 @@ async fn reverse_tunnel_driver_rejects_presigned_browser_urls() {
         .expect("reverse tunnel driver should build");
 
     let download_error = driver
-        .presigned_url(
+        .resolve_download_url(
             "file.txt",
             Duration::from_secs(60),
-            PresignedDownloadOptions::default(),
+            DirectDownloadOptions::default(),
         )
         .await
         .expect_err("reverse tunnel download presigned URL should be rejected");

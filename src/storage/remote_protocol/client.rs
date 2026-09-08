@@ -11,7 +11,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
-use aster_drive_storage::traits::driver::{BlobMetadata, PresignedDownloadOptions};
+use aster_drive_storage::traits::driver::{BlobMetadata, DirectDownloadOptions};
 
 use super::errors::remote_api_error_kind;
 use super::models::{
@@ -451,7 +451,7 @@ impl RemoteStorageClient {
         &self,
         key: &str,
         expires: Duration,
-        options: PresignedDownloadOptions,
+        options: DirectDownloadOptions,
     ) -> Result<String> {
         let mut path = self.object_path(key);
         let mut query = Vec::new();

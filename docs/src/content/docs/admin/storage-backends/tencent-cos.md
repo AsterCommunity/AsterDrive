@@ -199,10 +199,15 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 | Access Key | 腾讯云访问密钥 ID |
 | Secret Key | 腾讯云访问密钥 Secret |
 | Prefix / 基础路径 | `prod/` |
+| 下载交付地址（可选） | `https://cdn.example.com/assets` |
 | 上传方式 | 初次建议 `relay_stream` |
 | 下载方式 | 初次建议 `relay_stream` |
 
 使用腾讯云控制台提供的 COS endpoint 即可，不需要把它当普通 S3 服务调整 path-style。
+
+如果 bucket 已经通过自定义源站域、CDN 或部署方反向代理暴露相同对象 key，可以填写可选的 **下载交付地址**。该地址只用于启用直连下载后的浏览器请求；AsterDrive 会把基础路径和对象路径追加到地址的 path prefix，并针对最终域名生成 COS Q-Sign。后端读写、上传、清理、CORS 和 bucket 管理仍使用上面的官方 Endpoint。
+
+下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。连接测试只证明官方 COS Endpoint 可用；启用前还要实际验证交付域能访问私有对象、Range 下载和响应头覆盖。
 
 ## 6. 保存前先测试连接
 

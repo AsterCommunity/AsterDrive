@@ -909,6 +909,7 @@ impl OneDriveConnector {
                 capacity: true,
                 list: false,
                 presigned_download: true,
+                custom_download_base_url: false,
                 storage_native_thumbnail: false,
                 storage_native_media_metadata: false,
                 remote_node_binding: false,
@@ -1356,7 +1357,7 @@ impl StorageConnector for OneDriveConnector {
         ))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+    fn direct_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
         let config = Self::decode_config(policy)?;
         Ok(config.provider_download_strategy == ProviderDownloadStrategy::FrontendDirect)
     }
@@ -2135,7 +2136,7 @@ mod tests {
                 ProviderResumableUploadStrategy::ServerRelay
             )
         );
-        assert!(!connector.presigned_download_enabled(&relay_policy).unwrap());
+        assert!(!connector.direct_download_enabled(&relay_policy).unwrap());
         assert!(
             !connector
                 .presigned_download_requires_filename_match(&relay_policy)
@@ -2155,11 +2156,7 @@ mod tests {
                 ProviderResumableUploadStrategy::FrontendDirect
             )
         );
-        assert!(
-            connector
-                .presigned_download_enabled(&direct_policy)
-                .unwrap()
-        );
+        assert!(connector.direct_download_enabled(&direct_policy).unwrap());
         assert!(
             connector
                 .presigned_download_requires_filename_match(&direct_policy)

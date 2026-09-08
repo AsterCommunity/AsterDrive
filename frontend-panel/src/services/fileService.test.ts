@@ -79,6 +79,9 @@ describe("fileService", () => {
 				mime_type: "video/mp4",
 				mode: "direct_url",
 			},
+			lifecycle: {
+				expires_at: "2026-09-08T10:00:00Z",
+			},
 		});
 		const resolvedResource = await fileService.resolveResourceHandle(8, {
 			delivery_mode: "direct_url",
@@ -162,6 +165,9 @@ describe("fileService", () => {
 			delivery: {
 				mimeType: "video/mp4",
 				mode: "direct_url",
+			},
+			lifecycle: {
+				expiresAt: "2026-09-08T10:00:00Z",
 			},
 		});
 		expect(mockState.post).toHaveBeenNthCalledWith(3, "/files/8/wopi/open", {

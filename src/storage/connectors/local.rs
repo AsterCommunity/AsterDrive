@@ -99,6 +99,7 @@ impl LocalConnector {
                 capacity: true,
                 list: true,
                 presigned_download: false,
+                custom_download_base_url: false,
                 storage_native_thumbnail: false,
                 storage_native_media_metadata: false,
                 remote_node_binding: false,

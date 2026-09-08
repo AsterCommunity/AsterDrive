@@ -3,7 +3,6 @@ use std::sync::{
     Arc, RwLock,
     atomic::{AtomicUsize, Ordering},
 };
-use std::time::Duration;
 
 use actix_web::body;
 use async_trait::async_trait;
@@ -23,7 +22,8 @@ use aster_drive_model::types::{
     ProviderDownloadStrategy, UserRole, UserStatus,
 };
 use aster_drive_storage::{
-    BlobMetadata, PresignedDownloadOptions, PresignedStorageDriver, StorageDriver,
+    BlobMetadata, DirectDownloadOptions, DirectDownloadRequest, DirectDownloadStorageDriver,
+    StorageDriver,
 };
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
@@ -284,20 +284,20 @@ impl StorageDriver for PresignedCountingStreamDriver {
 
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         aster_drive_storage::traits::StorageDriverExtensions {
-            presigned: Some(self),
+            direct_download: Some(self),
             ..Default::default()
         }
     }
 }
 
 #[async_trait]
-impl PresignedStorageDriver for PresignedCountingStreamDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for PresignedCountingStreamDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
-        _expires: Duration,
-        options: PresignedDownloadOptions,
-    ) -> aster_drive_storage::Result<Option<String>> {
+        expires: std::time::Duration,
+        options: DirectDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
         if !self.returns_url {
             return Ok(None);
         }
@@ -322,19 +322,10 @@ impl PresignedStorageDriver for PresignedCountingStreamDriver {
                 query.append_pair("response-content-type", &value);
             }
         }
-        Ok(Some(url.to_string()))
-    }
-
-    async fn presigned_put_request(
-        &self,
-        path: &str,
-        _expires: Duration,
-    ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>> {
-        Ok(Some(
-            aster_drive_storage::PresignedUploadRequest::without_headers(format!(
-                "https://objects.example.test/upload?path={path}"
-            )),
-        ))
+        Ok(Some(DirectDownloadRequest::temporary_url(
+            url.to_string(),
+            expires,
+        )))
     }
 }
 
@@ -781,7 +772,7 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
     .await
     .expect("attachment presigned outcome should build");
 
-    let DownloadOutcome::PresignedRedirect { url } = outcome else {
+    let DownloadOutcome::DirectRedirect { url } = outcome else {
         panic!("attachment downloads should redirect to presigned storage URL");
     };
     let parsed = reqwest::Url::parse(&url).expect("presigned URL should parse");
@@ -835,7 +826,7 @@ async fn safe_inline_preview_redirects_to_presigned_url_with_inline_disposition(
     .await
     .expect("safe inline presigned outcome should build");
 
-    let DownloadOutcome::PresignedRedirect { url } = outcome else {
+    let DownloadOutcome::DirectRedirect { url } = outcome else {
         panic!("safe inline previews should redirect to presigned storage URL");
     };
     let parsed = reqwest::Url::parse(&url).expect("presigned URL should parse");
@@ -885,7 +876,7 @@ async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
     .await
     .expect("explicit OneDrive direct download should build");
 
-    assert!(matches!(direct, DownloadOutcome::PresignedRedirect { .. }));
+    assert!(matches!(direct, DownloadOutcome::DirectRedirect { .. }));
     assert_eq!(direct_stream_calls.load(Ordering::SeqCst), 0);
 
     let relay_base_driver = CountingStreamDriver::new(payload.clone());
@@ -942,7 +933,7 @@ async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
     .await
     .expect("OneDrive range download should use provider redirect");
 
-    assert!(matches!(outcome, DownloadOutcome::PresignedRedirect { .. }));
+    assert!(matches!(outcome, DownloadOutcome::DirectRedirect { .. }));
     assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
 }
 
@@ -971,7 +962,7 @@ async fn onedrive_strict_filename_mode_requires_provider_name_match() {
     .expect("strict OneDrive download should build");
 
     match outcome {
-        DownloadOutcome::PresignedRedirect { url } => {
+        DownloadOutcome::DirectRedirect { url } => {
             assert!(url.contains("require-download-name-match=true"));
         }
         DownloadOutcome::Stream(_) => {
@@ -1009,7 +1000,7 @@ async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
     assert!(
         error
             .raw_message()
-            .contains("presigned download not supported by driver")
+            .contains("direct download is enabled but unsupported by driver")
     );
 }
 
@@ -1075,7 +1066,7 @@ async fn onedrive_direct_download_falls_back_for_conditional_and_sandboxed_inlin
 }
 
 #[actix_web::test]
-async fn conditional_miss_inline_preview_streams_instead_of_presigned_redirect() {
+async fn conditional_miss_inline_preview_streams_instead_of_direct_redirect() {
     let payload = b"changed presigned inline".to_vec();
     let base_driver = CountingStreamDriver::new(payload.clone());
     let get_stream_calls = base_driver.get_stream_calls.clone();

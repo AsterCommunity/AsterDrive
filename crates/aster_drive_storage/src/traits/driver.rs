@@ -6,7 +6,8 @@
 
 use crate::error::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 use async_trait::async_trait;
-use serde::Serialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -17,7 +18,7 @@ pub struct BlobMetadata {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct PresignedDownloadOptions {
+pub struct DirectDownloadOptions {
     /// Current user-visible file name. Providers whose temporary URL fixes the
     /// response filename can use this to decide whether direct delivery is safe.
     pub download_name: Option<String>,
@@ -26,6 +27,53 @@ pub struct PresignedDownloadOptions {
     pub response_cache_control: Option<String>,
     pub response_content_disposition: Option<String>,
     pub response_content_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub enum DirectDownloadCredentials {
+    Include,
+    Omit,
+}
+
+/// Browser-addressable request returned by a direct-download driver.
+///
+/// Authentication must already be embedded in the URL or delegated to browser
+/// cookies. Callers must not append provider-specific query parameters or
+/// rewrite the host after the driver has signed the request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct DirectDownloadRequest {
+    pub url: String,
+    pub credentials: DirectDownloadCredentials,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        all(debug_assertions, feature = "openapi"),
+        schema(value_type = Option<String>)
+    )]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+impl DirectDownloadRequest {
+    pub fn temporary_url(url: impl Into<String>, expires_in: std::time::Duration) -> Self {
+        let expires_at = chrono::Duration::from_std(expires_in)
+            .ok()
+            .and_then(|duration| Utc::now().checked_add_signed(duration));
+        Self {
+            url: url.into(),
+            credentials: DirectDownloadCredentials::Omit,
+            expires_at,
+        }
+    }
+
+    pub fn preauthenticated_url(url: impl Into<String>, expires_at: Option<DateTime<Utc>>) -> Self {
+        Self {
+            url: url.into(),
+            credentials: DirectDownloadCredentials::Omit,
+            expires_at,
+        }
+    }
 }
 
 /// Complete browser request descriptor returned by a presigning driver.
@@ -376,7 +424,8 @@ mod tests {
     fn default_optional_capabilities_are_absent() {
         let driver = MemoryDriver::new(b"data");
 
-        assert!(driver.extensions().presigned.is_none());
+        assert!(driver.extensions().direct_download.is_none());
+        assert!(driver.extensions().presigned_upload.is_none());
         assert!(driver.extensions().list.is_none());
         assert!(driver.extensions().stream_upload.is_none());
         assert!(driver.extensions().provider_resumable.is_none());

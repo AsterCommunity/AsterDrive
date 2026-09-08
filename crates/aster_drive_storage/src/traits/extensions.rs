@@ -7,7 +7,9 @@
 //! OAuth、连接测试、策略动作或前端可见能力声明，应该放到 connector/descriptor。
 
 use crate::error::Result;
-use crate::traits::driver::{PresignedDownloadOptions, PresignedUploadRequest, StoragePathVisitor};
+use crate::traits::driver::{
+    DirectDownloadOptions, DirectDownloadRequest, PresignedUploadRequest, StoragePathVisitor,
+};
 use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -33,7 +35,8 @@ pub enum StorageCapacityStatus {
 /// require a matching forwarding method in every decorator.
 #[derive(Clone, Copy, Default)]
 pub struct StorageDriverExtensions<'a> {
-    pub presigned: Option<&'a dyn PresignedStorageDriver>,
+    pub direct_download: Option<&'a dyn DirectDownloadStorageDriver>,
+    pub presigned_upload: Option<&'a dyn PresignedUploadStorageDriver>,
     pub list: Option<&'a dyn ListStorageDriver>,
     pub stream_upload: Option<&'a dyn StreamUploadDriver>,
     pub provider_resumable: Option<&'a dyn ProviderResumableUploadDriver>,
@@ -224,20 +227,24 @@ impl StorageCapacityInfo {
     }
 }
 
-/// Presigned URL 支持（S3/R2/OSS/remote follower 等）。
+/// Provider-neutral direct-download URL support.
 ///
-/// 这是运行期能力：调用者已经有一个 driver，只是询问它能不能给对象生成临时 URL。
-/// 是否在 UI 中显示 presigned 选项，应由 connector descriptor 的 capability 决定。
+/// This includes provider-presigned URLs, CDN-signed URLs, custom delivery
+/// domains, and provider-native preauthenticated URLs. The driver owns final
+/// host selection, path construction, authentication, and expiration.
 #[async_trait]
-pub trait PresignedStorageDriver: Send + Sync {
-    /// 生成临时下载 URL
-    async fn presigned_url(
+pub trait DirectDownloadStorageDriver: Send + Sync {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: PresignedDownloadOptions,
-    ) -> Result<Option<String>>;
+        options: DirectDownloadOptions,
+    ) -> Result<Option<DirectDownloadRequest>>;
+}
 
+/// Presigned browser-upload support.
+#[async_trait]
+pub trait PresignedUploadStorageDriver: Send + Sync {
     /// 生成供客户端直传的完整 presigned PUT 请求。
     ///
     /// URL 和请求头必须由同一个 provider signer 一起产生；调用方不得

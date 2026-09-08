@@ -218,6 +218,7 @@ fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfig
 
 fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV1 {
     TencentCosConnectorConfigV1 {
+        download_base_url: None,
         endpoint: "https://cos.ap-beijing.myqcloud.com".to_string(),
         bucket: "archive-1250000000".to_string(),
         base_path: "tenant-a".to_string(),
@@ -2155,11 +2156,11 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
         )
         .await
         .expect("valid Qiniu draft driver should build");
-    assert!(draft.extensions().presigned.is_some());
+    assert!(draft.extensions().direct_download.is_some());
     assert!(draft.extensions().multipart.is_some());
     let presigned = draft
         .extensions()
-        .presigned
+        .presigned_upload
         .expect("Qiniu draft driver should expose presigned requests")
         .presigned_put_request("reports/2026.txt", std::time::Duration::from_secs(60))
         .await
@@ -2171,7 +2172,7 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
         Some("archive-s3-global.s3.cn-east-1.qiniucs.com")
     );
     assert_eq!(presigned.path(), "/tenant-a/reports/2026.txt");
-    assert!(qiniu.presigned_download_enabled(&qiniu_policy).unwrap());
+    assert!(qiniu.direct_download_enabled(&qiniu_policy).unwrap());
 
     let error = match qiniu.build_runtime_driver(&driver_registry, &qiniu_policy) {
         Ok(_) => panic!("runtime Qiniu driver should require a loaded credential"),
@@ -2201,7 +2202,7 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
         QiniuConnector::ID,
         qiniu_config(ObjectStorageUploadStrategy::RelayStream),
     );
-    assert!(!qiniu.presigned_download_enabled(&relay_policy).unwrap());
+    assert!(!qiniu.direct_download_enabled(&relay_policy).unwrap());
 }
 
 #[tokio::test]
@@ -2243,5 +2244,6 @@ async fn connector_neutral_factory_builds_qiniu_without_a_policy_entity() {
         )
         .await
         .expect("connector-neutral factory should build without policy entity");
-    assert!(driver.extensions().presigned.is_some());
+    assert!(driver.extensions().direct_download.is_some());
+    assert!(driver.extensions().presigned_upload.is_some());
 }

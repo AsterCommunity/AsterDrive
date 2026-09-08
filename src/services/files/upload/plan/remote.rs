@@ -203,7 +203,7 @@ async fn remote_presigned_put_request(
     driver: &dyn aster_drive_storage::StorageDriver,
     temp_key: &str,
 ) -> Result<aster_drive_storage::PresignedUploadRequest> {
-    let presigned_driver = driver.extensions().presigned.ok_or_else(|| {
+    let presigned_driver = driver.extensions().presigned_upload.ok_or_else(|| {
         AsterError::storage_driver_error("remote driver does not implement presigned PUT")
     })?;
     presigned_driver

@@ -7551,7 +7551,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
         .await
         .expect("remote presigned download should resolve");
     let presigned_path = match download_result {
-        file::DownloadOutcome::PresignedRedirect { url, .. } => path_and_query_from_url(&url),
+        file::DownloadOutcome::DirectRedirect { url, .. } => path_and_query_from_url(&url),
         other => panic!("expected remote presigned download, got {other:?}"),
     };
 

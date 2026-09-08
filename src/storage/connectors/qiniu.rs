@@ -335,7 +335,7 @@ impl StorageConnector for QiniuConnector {
         ))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+    fn direct_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
         let config = Self::decode_config(policy)?;
         Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }

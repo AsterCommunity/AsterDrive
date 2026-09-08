@@ -6,8 +6,8 @@ use aster_drive::storage::drivers::azure_blob::{
     AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials,
 };
 use aster_drive_storage::{
-    ListStorageDriver, MultipartStorageDriver, PresignedDownloadOptions, PresignedStorageDriver,
-    StorageDriver, StorageErrorKind, StreamUploadDriver,
+    DirectDownloadOptions, DirectDownloadStorageDriver, ListStorageDriver, MultipartStorageDriver,
+    PresignedUploadStorageDriver, StorageDriver, StorageErrorKind, StreamUploadDriver,
 };
 use base64::Engine as _;
 use chrono::Utc;
@@ -271,15 +271,15 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     );
 
     let presigned_get = driver
-        .presigned_url(
+        .resolve_download_url(
             "direct/presigned.bin",
             Duration::from_secs(300),
-            PresignedDownloadOptions::default(),
+            DirectDownloadOptions::default(),
         )
         .await
         .unwrap()
         .expect("azure presigned get");
-    let get_resp = reqwest::get(&presigned_get).await.unwrap();
+    let get_resp = reqwest::get(&presigned_get.url).await.unwrap();
     assert!(get_resp.status().is_success());
     assert_eq!(get_resp.bytes().await.unwrap().as_ref(), b"presigned body");
 

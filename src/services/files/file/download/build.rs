@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -10,13 +8,10 @@ use crate::services::files::file::{
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use actix_web::http::header::HeaderValue;
 use aster_drive_model::entities::{file, file_blob, file_revision};
-use aster_drive_storage::PresignedDownloadOptions;
 use aster_forge_utils::numbers;
 
 use super::range::ResolvedDownloadRange;
 use super::types::{DownloadOutcome, StreamedFile};
-
-const PRESIGNED_DOWNLOAD_TTL_SECS: u64 = 5 * 60;
 
 /// Loads content and its validator from one writer-backed snapshot.
 pub(crate) async fn load_current_download_snapshot(
@@ -215,20 +210,19 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     let requires_sandbox =
         disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type);
-    let should_presign = !requires_sandbox
-        && crate::storage::connectors::presigned_download_enabled(
-            state.driver_registry().connectors(),
-            &policy,
-        )?;
-
-    if should_presign {
-        // Inline previews may redirect to provider storage only for types that
-        // do not require same-origin CSP sandboxing.
-        if let Some(outcome) =
-            build_presigned_redirect_outcome(state, &policy, file, blob, disposition).await?
-        {
-            return Ok(outcome);
-        }
+    if !requires_sandbox
+        && let Some(request) =
+            super::delivery::resolve_download_delivery(state, &policy, file, blob, disposition)
+                .await?
+    {
+        tracing::debug!(
+            file_id = file.id,
+            blob_id = blob.id,
+            policy_id = blob.policy_id,
+            connector_id = %policy.connector_id,
+            "redirecting file download to direct delivery URL"
+        );
+        return Ok(DownloadOutcome::DirectRedirect { url: request.url });
     }
 
     build_stream_outcome_with_disposition_and_range(
@@ -241,58 +235,6 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
         revision_etag,
     )
     .await
-}
-
-async fn build_presigned_redirect_outcome(
-    state: &PrimaryAppState,
-    policy: &aster_drive_model::entities::storage_policy::Model,
-    file: &file::Model,
-    blob: &file_blob::Model,
-    disposition: DownloadDisposition,
-) -> Result<Option<DownloadOutcome>> {
-    if blob.is_virtual_empty() {
-        return Ok(None);
-    }
-    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
-        AsterError::internal_error(format!("stored blob #{} is missing storage_path", blob.id))
-    })?;
-    let driver = state.driver_registry().get_driver(policy)?;
-    let presigned = driver.extensions().presigned.ok_or_else(|| {
-        AsterError::storage_driver_error("presigned download not supported by driver")
-    })?;
-
-    let url = presigned
-        .presigned_url(
-            storage_path,
-            Duration::from_secs(PRESIGNED_DOWNLOAD_TTL_SECS),
-            PresignedDownloadOptions {
-                download_name: Some(file.name.clone()),
-                require_download_name_match:
-                    crate::storage::connectors::presigned_download_requires_filename_match(
-                        state.driver_registry().connectors(),
-                        policy,
-                    )?,
-                response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
-                response_content_disposition: Some(disposition.header_value(&file.name)),
-                response_content_type: Some(file.mime_type.clone()),
-            },
-        )
-        .await?;
-
-    let Some(url) = url else {
-        return Ok(None);
-    };
-
-    tracing::debug!(
-        file_id = file.id,
-        blob_id = blob.id,
-        policy_id = blob.policy_id,
-        ttl_secs = PRESIGNED_DOWNLOAD_TTL_SECS,
-        connector_id = %policy.connector_id,
-        "redirecting file download to provider storage URL"
-    );
-
-    Ok(Some(DownloadOutcome::PresignedRedirect { url }))
 }
 
 pub async fn build_stream_outcome_with_disposition(

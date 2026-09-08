@@ -71,15 +71,16 @@ pub use storage_policy_config::{
     StoragePolicyConfigEnvelope, decode_storage_policy_config, encode_storage_policy_config,
 };
 pub use traits::driver::{
-    BlobMetadata, PresignedDownloadOptions, PresignedUploadRequest, StorageDriver,
-    StoragePathVisitor,
+    BlobMetadata, DirectDownloadCredentials, DirectDownloadOptions, DirectDownloadRequest,
+    PresignedUploadRequest, StorageDriver, StoragePathVisitor,
 };
 pub use traits::{
-    ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativeMediaMetadataRequest,
-    NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativeThumbnailRequest,
-    NativeThumbnailStorageDriver, PresignedStorageDriver, ProviderResumableUploadCapabilities,
-    ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
-    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
-    StorageCapacityStatus, StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup,
-    StreamUploadDriver, UploadedMultipartPart,
+    DirectDownloadStorageDriver, ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver,
+    NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
+    NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedUploadStorageDriver,
+    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
+    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
+    ProviderResumableUploadStatus, StorageCapacityInfo, StorageCapacityStatus,
+    StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    UploadedMultipartPart,
 };

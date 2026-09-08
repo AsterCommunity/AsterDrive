@@ -82,7 +82,8 @@ impl StorageDriver for RemoteDriver {
         aster_drive_storage::traits::StorageDriverExtensions {
             list: Some(self),
             stream_upload: Some(self),
-            presigned: Some(self),
+            direct_download: Some(self),
+            presigned_upload: Some(self),
             multipart: Some(self),
             ..Default::default()
         }

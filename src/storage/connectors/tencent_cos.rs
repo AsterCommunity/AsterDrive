@@ -182,6 +182,15 @@ aster_drive_storage::storage_connector_schema! {
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        pub download_base_url: Option<String> => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+            label_key: "download_base_url", placeholder: Some("https://cdn.example.com/assets"),
+            help_key: Some("download_base_url_desc"), required_message_key: None,
+            invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+            allowed_endpoint_protocols: vec!["https:"], allow_endpoint_without_protocol: false,
+            trim_on_blur: true,
+        }),
         pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
             "object_storage_upload_strategy", StorageTransferDirection::Upload,
         ),
@@ -214,6 +223,7 @@ impl TencentCosConnector {
             endpoint: config.endpoint,
             bucket: config.bucket,
             base_path: config.base_path,
+            download_base_url: config.download_base_url,
             connect_timeout: std::time::Duration::from_secs(5),
             read_timeout: std::time::Duration::from_secs(30),
             operation_timeout: std::time::Duration::from_secs(3_600),
@@ -273,6 +283,7 @@ impl TencentCosConnector {
             });
         descriptor.actions.push(configure_cors_action_descriptor());
         descriptor.promotions.push(promote_from_s3_descriptor());
+        descriptor.capabilities.custom_download_base_url = true;
         descriptor
     }
 }
@@ -343,6 +354,11 @@ impl StorageConnector for TencentCosConnector {
         .map_err(|error| error.into_aster_error())?;
         config.endpoint = connection.endpoint;
         config.bucket = connection.bucket;
+        config.download_base_url = config
+            .download_base_url
+            .as_deref()
+            .map(super::common::normalize_download_base_url)
+            .transpose()?;
         let endpoint = url::Url::parse(&config.endpoint)
             .map_err(|error| AsterError::validation_error(error.to_string()))?;
         if !endpoint
@@ -486,7 +502,7 @@ impl StorageConnector for TencentCosConnector {
         ))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+    fn direct_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
         let config = Self::decode_config(policy)?;
         Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }

@@ -1,20 +1,15 @@
-use std::time::Duration;
-
 use crate::api::dto::files::{
     FileResourceConditionalHeaders, FileResourceCredentials, FileResourceDeliveryInfo,
     FileResourceDeliveryMode, FileResourceHandle, FileResourceHandleRequest, FileResourceIdentity,
-    FileResourcePurpose, FileResourceRedirectPolicy, FileResourceRepresentation,
-    FileResourceRequestInfo,
+    FileResourceLifecycleInfo, FileResourcePurpose, FileResourceRedirectPolicy,
+    FileResourceRepresentation, FileResourceRequestInfo,
 };
-use crate::errors::{AsterError, Result};
+use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::{file, file_blob};
-use aster_drive_storage::PresignedDownloadOptions;
 
-use super::{DownloadDisposition, get_info_in_scope, requires_inline_sandbox};
-
-const PRESIGNED_PREVIEW_TTL_SECS: u64 = 5 * 60;
+use super::{DownloadDisposition, get_info_in_scope};
 
 pub(crate) struct FileResourcePathSet {
     pub download: String,
@@ -79,6 +74,7 @@ pub(crate) async fn resolve_file_resource_handle_for_file(
                 file,
                 blob,
                 request.delivery_mode,
+                request.purpose,
                 scope,
                 revision_etag,
             )
@@ -130,6 +126,7 @@ async fn original_handle(
     file: &file::Model,
     blob: &file_blob::Model,
     delivery_mode: FileResourceDeliveryMode,
+    purpose: FileResourcePurpose,
     scope: Option<&str>,
     revision_etag: Option<&str>,
 ) -> Result<FileResourceHandle> {
@@ -139,7 +136,16 @@ async fn original_handle(
             crate::db::repository::revision_repo::current_etag(state.reader_db(), file.id).await?
         }
     };
-    if let Some(presigned_url) = presigned_original_url(state, file, blob).await? {
+    let disposition = match purpose {
+        FileResourcePurpose::Download => DownloadDisposition::Attachment,
+        FileResourcePurpose::Preview | FileResourcePurpose::ExternalViewer => {
+            DownloadDisposition::Inline
+        }
+    };
+    let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
+    if let Some(direct) =
+        super::download::resolve_download_delivery(state, &policy, file, blob, disposition).await?
+    {
         return Ok(FileResourceHandle {
             identity: FileResourceIdentity {
                 cache_key: download_path,
@@ -147,8 +153,15 @@ async fn original_handle(
                 scope: scope.map(str::to_string),
             },
             request: FileResourceRequestInfo {
-                url: presigned_url,
-                credentials: FileResourceCredentials::Omit,
+                url: direct.url,
+                credentials: match direct.credentials {
+                    aster_drive_storage::DirectDownloadCredentials::Include => {
+                        FileResourceCredentials::Include
+                    }
+                    aster_drive_storage::DirectDownloadCredentials::Omit => {
+                        FileResourceCredentials::Omit
+                    }
+                },
                 conditional_headers: FileResourceConditionalHeaders::Forbidden,
                 redirect_policy: FileResourceRedirectPolicy::MayCrossOrigin,
             },
@@ -156,6 +169,9 @@ async fn original_handle(
                 mode: delivery_mode,
                 mime_type: Some(file.mime_type.clone()),
             },
+            lifecycle: direct
+                .expires_at
+                .map(|expires_at| FileResourceLifecycleInfo { expires_at }),
         });
     }
 
@@ -166,7 +182,7 @@ async fn original_handle(
             scope: scope.map(str::to_string),
         },
         request: FileResourceRequestInfo {
-            url: with_download_query(&download_path, "inline"),
+            url: with_download_query(&download_path, disposition.as_query_value()),
             credentials: FileResourceCredentials::Include,
             conditional_headers: FileResourceConditionalHeaders::Allowed,
             redirect_policy: FileResourceRedirectPolicy::SameOriginOnly,
@@ -175,59 +191,8 @@ async fn original_handle(
             mode: delivery_mode,
             mime_type: Some(file.mime_type.clone()),
         },
+        lifecycle: None,
     })
-}
-
-async fn presigned_original_url(
-    state: &PrimaryAppState,
-    file: &file::Model,
-    blob: &file_blob::Model,
-) -> Result<Option<String>> {
-    if blob.is_virtual_empty() {
-        return Ok(None);
-    }
-    if requires_inline_sandbox(&file.mime_type) {
-        return Ok(None);
-    }
-
-    let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    if !crate::storage::connectors::presigned_download_enabled(
-        state.driver_registry().connectors(),
-        &policy,
-    )? {
-        return Ok(None);
-    }
-
-    let driver = state.driver_registry().get_driver(&policy)?;
-    let Some(presigned) = driver.extensions().presigned else {
-        return Ok(None);
-    };
-
-    presigned
-        .presigned_url(
-            blob.storage_path_for_connector().ok_or_else(|| {
-                AsterError::internal_error(format!(
-                    "stored blob #{} is missing storage_path",
-                    blob.id
-                ))
-            })?,
-            Duration::from_secs(PRESIGNED_PREVIEW_TTL_SECS),
-            PresignedDownloadOptions {
-                download_name: Some(file.name.clone()),
-                require_download_name_match:
-                    crate::storage::connectors::presigned_download_requires_filename_match(
-                        state.driver_registry().connectors(),
-                        &policy,
-                    )?,
-                response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
-                response_content_disposition: Some(
-                    DownloadDisposition::Inline.header_value(&file.name),
-                ),
-                response_content_type: Some(file.mime_type.clone()),
-            },
-        )
-        .await
-        .map_err(Into::into)
 }
 
 fn image_preview_handle(
@@ -294,6 +259,7 @@ fn derived_image_handle(
             mode: delivery_mode,
             mime_type: Some("image/webp".to_string()),
         },
+        lifecycle: None,
     }
 }
 
@@ -395,7 +361,6 @@ fn can_browser_render_image(file: &file::Model) -> bool {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Duration;
 
     use async_trait::async_trait;
     use chrono::Utc;
@@ -417,9 +382,9 @@ mod tests {
         ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy, ProviderDownloadFilenameMode,
         ProviderDownloadStrategy, UserRole, UserStatus,
     };
-    use aster_drive_storage::traits::driver::PresignedDownloadOptions;
-    use aster_drive_storage::traits::extensions::PresignedStorageDriver;
-    use aster_drive_storage::{BlobMetadata, StorageDriver};
+    use aster_drive_storage::traits::driver::DirectDownloadOptions;
+    use aster_drive_storage::traits::extensions::DirectDownloadStorageDriver;
+    use aster_drive_storage::{BlobMetadata, DirectDownloadRequest, StorageDriver};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
 
@@ -501,20 +466,20 @@ mod tests {
 
         fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
             aster_drive_storage::traits::StorageDriverExtensions {
-                presigned: Some(self),
+                direct_download: Some(self),
                 ..Default::default()
             }
         }
     }
 
     #[async_trait]
-    impl PresignedStorageDriver for PresignedTestDriver {
-        async fn presigned_url(
+    impl DirectDownloadStorageDriver for PresignedTestDriver {
+        async fn resolve_download_url(
             &self,
             path: &str,
-            expires: Duration,
-            options: PresignedDownloadOptions,
-        ) -> aster_drive_storage::Result<Option<String>> {
+            expires: std::time::Duration,
+            options: DirectDownloadOptions,
+        ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
             let mut url = reqwest::Url::parse("https://objects.example.test/download")
                 .expect("test presigned URL base should parse");
             {
@@ -534,20 +499,10 @@ mod tests {
                     query.append_pair("response-content-type", &value);
                 }
             }
-            Ok(Some(url.to_string()))
-        }
-
-        async fn presigned_put_request(
-            &self,
-            path: &str,
-            _expires: Duration,
-        ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>>
-        {
-            Ok(Some(
-                aster_drive_storage::PresignedUploadRequest::without_headers(format!(
-                    "https://objects.example.test/upload?path={path}"
-                )),
-            ))
+            Ok(Some(DirectDownloadRequest::temporary_url(
+                url.to_string(),
+                expires,
+            )))
         }
     }
 
@@ -930,6 +885,12 @@ mod tests {
         );
         assert_eq!(handle.delivery.mode, FileResourceDeliveryMode::DirectUrl);
         assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/png"));
+        assert!(
+            handle
+                .lifecycle
+                .as_ref()
+                .is_some_and(|value| value.expires_at > chrono::Utc::now())
+        );
 
         let parsed =
             reqwest::Url::parse(&handle.request.url).expect("presigned resource URL should parse");
@@ -953,6 +914,28 @@ mod tests {
         assert_eq!(
             query.get("response-content-type").map(String::as_str),
             Some("image/png")
+        );
+
+        let download_handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Download,
+                FileResourceDeliveryMode::BlobUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("team"),
+            None,
+        )
+        .await
+        .expect("download init should resolve");
+        assert_eq!(
+            query_pairs(&download_handle.request.url)
+                .get("response-content-disposition")
+                .map(String::as_str),
+            Some("attachment; filename*=UTF-8''space%20name.png")
         );
     }
 
@@ -1272,7 +1255,14 @@ mod tests {
             );
             assert_eq!(
                 handle.request.url,
-                "/files/42/download?existing=1&disposition=inline#frag"
+                format!(
+                    "/files/42/download?existing=1&disposition={}#frag",
+                    if purpose == FileResourcePurpose::Download {
+                        "attachment"
+                    } else {
+                        "inline"
+                    }
+                )
             );
             assert_eq!(handle.delivery.mode, delivery_mode);
             assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/heic"));

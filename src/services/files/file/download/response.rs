@@ -24,7 +24,7 @@ pub(crate) fn outcome_to_response(outcome: DownloadOutcome) -> HttpResponse {
             }
             response.finish()
         }
-        DownloadOutcome::PresignedRedirect { url } => HttpResponse::Found()
+        DownloadOutcome::DirectRedirect { url } => HttpResponse::Found()
             .insert_header((header::LOCATION, url))
             .insert_header((header::CACHE_CONTROL, "no-store"))
             .finish(),

@@ -31,7 +31,7 @@ pub enum DownloadOutcome {
         csp: Option<&'static str>,
     },
     /// 302 redirect to a provider-issued temporary download URL.
-    PresignedRedirect { url: String },
+    DirectRedirect { url: String },
 }
 
 impl DownloadOutcome {
@@ -45,7 +45,7 @@ impl DownloadOutcome {
                 }
             }
             Self::NotModified { .. } => "not_modified",
-            Self::PresignedRedirect { .. } => "presigned_redirect",
+            Self::DirectRedirect { .. } => "direct_redirect",
         }
     }
 
@@ -83,10 +83,9 @@ impl std::fmt::Debug for DownloadOutcome {
                 .field("cache_control", cache_control)
                 .field("csp", csp)
                 .finish(),
-            Self::PresignedRedirect { url } => f
-                .debug_struct("PresignedRedirect")
-                .field("url", url)
-                .finish(),
+            Self::DirectRedirect { url } => {
+                f.debug_struct("DirectRedirect").field("url", url).finish()
+            }
         }
     }
 }
