@@ -102,7 +102,7 @@ impl Default for RemoteProtocolRuntime {
 mod tests {
     use super::*;
     use aster_drive_storage::error::StorageErrorKind;
-    use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+    use aster_drive_storage::traits::driver::DirectDownloadOptions;
     use std::time::Duration;
 
     fn build_node(
@@ -174,7 +174,7 @@ mod tests {
             .presigned_url(
                 "object.bin",
                 Duration::from_secs(60),
-                PresignedDownloadOptions::default(),
+                DirectDownloadOptions::default(),
             )
             .expect_err("auto empty base_url should not support direct presigned URLs");
 

@@ -149,6 +149,7 @@ impl RemoteConnector {
                 capacity: true,
                 list: true,
                 presigned_download: true,
+                custom_download_base_url: false,
                 storage_native_thumbnail: false,
                 storage_native_media_metadata: false,
                 remote_node_binding: true,
@@ -341,7 +342,7 @@ impl StorageConnector for RemoteConnector {
         }))
     }
 
-    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
+    fn direct_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
         Self::decode_config(policy)
             .map(|config| config.remote_download_strategy == RemoteDownloadStrategy::Presigned)
     }

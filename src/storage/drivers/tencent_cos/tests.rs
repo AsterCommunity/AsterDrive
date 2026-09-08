@@ -3,12 +3,13 @@ use super::signing::cos_virtual_hosted_s3_endpoint;
 use super::*;
 use aster_drive_storage::traits::driver::StorageDriver;
 use aster_drive_storage::traits::extensions::{
-    NativeThumbnailRequest, NativeThumbnailStorageDriver,
+    DirectDownloadStorageDriver, NativeThumbnailRequest, NativeThumbnailStorageDriver,
 };
 use url::Url;
 
 fn sample_config(endpoint: &str, bucket: &str) -> TencentCosDriverConfig {
     TencentCosDriverConfig {
+        download_base_url: None,
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
         base_path: "tenant/prefix".to_string(),
@@ -167,11 +168,12 @@ async fn native_thumbnail_supports_only_cos_image_candidates() {
 fn s3_compatible_capabilities_are_available_on_cos_driver() {
     let driver = sample_driver("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
 
-    assert!(driver.extensions().presigned.is_some());
+    assert!(driver.extensions().direct_download.is_some());
+    assert!(driver.extensions().presigned_upload.is_some());
     assert!(
         !driver
             .extensions()
-            .presigned
+            .presigned_upload
             .expect("presigned capability")
             .presigned_single_put_requires_etag()
     );
@@ -179,4 +181,50 @@ fn s3_compatible_capabilities_are_available_on_cos_driver() {
     assert!(driver.extensions().stream_upload.is_some());
     assert!(driver.extensions().multipart.is_some());
     assert!(driver.extensions().native_thumbnail.is_some());
+}
+
+#[tokio::test]
+async fn custom_download_base_url_builds_and_signs_the_final_host() {
+    let mut config = sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
+    config.download_base_url = Some("https://cdn.example.test/assets".to_string());
+    let driver = TencentCosDriver::new(config, sample_credentials()).expect("COS driver");
+
+    let request = driver
+        .resolve_download_url(
+            "docs/报告 +#%.txt",
+            std::time::Duration::from_secs(300),
+            aster_drive_storage::DirectDownloadOptions {
+                response_content_disposition: Some(
+                    "attachment; filename*=UTF-8''report.txt".to_string(),
+                ),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("custom download URL")
+        .expect("direct download request");
+    let url = Url::parse(&request.url).expect("valid custom download URL");
+    let query = url
+        .query_pairs()
+        .into_owned()
+        .collect::<std::collections::HashMap<_, _>>();
+
+    assert_eq!(url.host_str(), Some("cdn.example.test"));
+    assert_eq!(
+        url.path(),
+        "/assets/tenant/prefix/docs/%E6%8A%A5%E5%91%8A%20+%23%25.txt"
+    );
+    assert_eq!(query.get("q-header-list").map(String::as_str), Some("host"));
+    assert_eq!(
+        query.get("q-sign-algorithm").map(String::as_str),
+        Some("sha1")
+    );
+    assert_eq!(
+        query
+            .get("response-content-disposition")
+            .map(String::as_str),
+        Some("attachment; filename*=UTF-8''report.txt")
+    );
+    assert!(query.contains_key("q-signature"));
+    assert!(request.expires_at.is_some());
 }

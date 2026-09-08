@@ -466,7 +466,7 @@ pub(crate) trait StorageConnector: Send + Sync {
         ))
     }
 
-    fn presigned_download_enabled(&self, _policy: &storage_policy::Model) -> Result<bool> {
+    fn direct_download_enabled(&self, _policy: &storage_policy::Model) -> Result<bool> {
         Ok(false)
     }
 

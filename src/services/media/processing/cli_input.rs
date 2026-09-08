@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, MapAsterErr, Result, thumbnail_generation_error_with_code};
-use aster_drive_storage::{PresignedDownloadOptions, StorageDriver};
+use aster_drive_storage::{DirectDownloadOptions, StorageDriver};
 
 use super::shared::cli_source_temp_path;
 
@@ -77,17 +77,17 @@ pub(crate) async fn prepare_cli_source(
         });
     }
 
-    if allow_presigned_url && let Some(presigned_driver) = driver.extensions().presigned {
-        let url = presigned_driver
-            .presigned_url(
+    if allow_presigned_url && let Some(direct_driver) = driver.extensions().direct_download {
+        let request = direct_driver
+            .resolve_download_url(
                 storage_path,
                 Duration::from_secs(HOUR_SECS),
-                PresignedDownloadOptions::default(),
+                DirectDownloadOptions::default(),
             )
             .await?;
-        if let Some(url) = url {
+        if let Some(request) = request {
             return Ok(PreparedCliSource {
-                input_arg: url,
+                input_arg: request.url,
                 kind: PreparedCliSourceKind::PresignedUrl,
             });
         }
@@ -133,8 +133,8 @@ async fn materialize_local_cli_source(source_path: &Path, input_path: &Path) -> 
 mod tests {
     use super::{PreparedCliSourceKind, prepare_cli_source};
     use aster_drive_storage::{
-        BlobMetadata, LocalPathStorageDriver, PresignedDownloadOptions, PresignedStorageDriver,
-        StorageDriver,
+        BlobMetadata, DirectDownloadOptions, DirectDownloadRequest, DirectDownloadStorageDriver,
+        LocalPathStorageDriver, StorageDriver,
     };
     use async_trait::async_trait;
     use std::path::PathBuf;
@@ -224,30 +224,24 @@ mod tests {
 
         fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
             aster_drive_storage::traits::StorageDriverExtensions {
-                presigned: Some(self),
+                direct_download: Some(self),
                 ..Default::default()
             }
         }
     }
 
     #[async_trait]
-    impl PresignedStorageDriver for PresignedOnlyDriver {
-        async fn presigned_url(
+    impl DirectDownloadStorageDriver for PresignedOnlyDriver {
+        async fn resolve_download_url(
             &self,
             _path: &str,
-            _expires: std::time::Duration,
-            _options: PresignedDownloadOptions,
-        ) -> aster_drive_storage::Result<Option<String>> {
-            Ok(Some(self.url.clone()))
-        }
-
-        async fn presigned_put_request(
-            &self,
-            _path: &str,
-            _expires: std::time::Duration,
-        ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>>
-        {
-            unreachable!()
+            expires: std::time::Duration,
+            _options: DirectDownloadOptions,
+        ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
+            Ok(Some(DirectDownloadRequest::temporary_url(
+                self.url.clone(),
+                expires,
+            )))
         }
     }
 

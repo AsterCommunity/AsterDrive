@@ -113,6 +113,7 @@
 - 创建和更新都会采用请求里的 `chunk_size`
 - `options` 当前承载策略级行为：
   - S3-compatible / Alibaba OSS / Azure Blob / Tencent COS 这类对象存储 connector 使用 `object_storage_upload_strategy` / `object_storage_download_strategy` 表达传输策略，例如 `{"object_storage_upload_strategy":"presigned","object_storage_download_strategy":"presigned"}`；旧 `s3_upload_strategy` / `s3_download_strategy` JSON 字段仍作为兼容 alias 接受
+  - Tencent COS descriptor 声明 `custom_download_base_url`，并通过 connector-owned 可选字段 `download_base_url` 配置仅用于浏览器下载的 HTTPS 交付根地址。最终对象路径与 COS Q-Sign 由 runtime driver 基于该域名生成；普通后端 I/O、上传、清理、CORS 和 bucket 管理仍使用官方 COS endpoint
   - Alibaba OSS 原生字段：公网 `endpoint`、可选 `oss_server_side_endpoint`、`oss_region`、`oss_use_cname`。后端 I/O 优先使用服务端 endpoint；presigned URL 固定使用公网 endpoint。CNAME 模式只接受自定义域名，普通模式只接受 `aliyuncs.com` OSS endpoint
   - Remote 上传下载策略，例如 `{"remote_upload_strategy":"presigned","remote_download_strategy":"presigned"}`
   - 本地策略的内容去重开关 `content_dedup`
@@ -131,7 +132,7 @@
 - `driver_type = "azure_blob"` 使用 Azure Blob Block Blob 能力，预签名上传使用 SAS URL，前端直传时需要带 `x-ms-blob-type: BlockBlob`
 - `driver_type = "one_drive"` 使用 Microsoft Graph OAuth 凭据，授权前需要先保存策略和 `application_config.microsoft_graph`
 - `driver_type = "sftp"` 使用 SSH 用户名 / 密码连接 SFTP 服务器；Endpoint 支持 `sftp://host:port`、裸 `host` 和 `host:port`，远程根目录放在 `base_path`。未知或不匹配的 SSH 主机密钥会以 `StorageErrorKind::Precondition` 拒绝，并通过诊断提示 actual / expected 指纹；确认后的指纹保存在 `options.sftp_host_key_fingerprint`。
-- `driver_type = "tencent_cos"` 普通读写复用 S3-compatible 对象存储路径，会校验 Tencent COS endpoint 形态；策略启用后可通过 COS CI 暴露原生缩略图、图片预览和媒体元数据能力
+- `driver_type = "tencent_cos"` 普通读写复用 S3-compatible 对象存储路径，会校验 Tencent COS endpoint 形态；可选 `download_base_url` 接受带受控 path prefix 的 HTTPS 下载交付域，并拒绝 userinfo、非默认端口、query、fragment、反斜杠和路径穿越；策略启用后可通过 COS CI 暴露原生缩略图、图片预览和媒体元数据能力
 - `driver_type = "alibaba_oss"` 复用 AWS S3 SDK 的对象、流式和 multipart 编排，但使用原生 `OSS4-HMAC-SHA256` header/query 签名；普通请求和 generated presign 分别验证
 - `driver_type = "huawei_obs"` 复用 AWS S3 SDK 的对象、流式和 multipart 序列化，但使用华为原生 OBS 签名；虚拟托管与自定义域名、marker-based 列表、普通请求和 generated presign 分别验证
 - 内置 Local、S3-compatible、Alibaba OSS、Huawei OBS、SFTP、Azure Blob、OneDrive 和 Remote driver 不提供存储原生缩略图、图片预览或媒体元数据能力

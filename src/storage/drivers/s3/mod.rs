@@ -3,7 +3,7 @@
 mod error;
 mod list;
 mod multipart;
-mod presigned;
+pub(crate) mod presigned;
 mod storage_driver;
 mod stream_upload;
 #[cfg(test)]

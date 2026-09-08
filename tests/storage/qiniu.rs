@@ -6,7 +6,7 @@ use aster_drive::storage::drivers::qiniu::{
 use std::time::Duration;
 
 use aster_drive_storage::{
-    MultipartStorageDriver, PresignedDownloadOptions, StorageDriver, StorageErrorKind,
+    DirectDownloadOptions, MultipartStorageDriver, StorageDriver, StorageErrorKind,
 };
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::io::AsyncReadExt;
@@ -230,7 +230,7 @@ async fn qiniu_wrapper_performs_standard_s3_object_range_list_and_multipart_oper
     let client = reqwest::Client::new();
     let presigned = driver
         .extensions()
-        .presigned
+        .presigned_upload
         .expect("Qiniu presigned extension");
     let put_request = presigned
         .presigned_put_request("folder/presigned.txt", Duration::from_secs(60))
@@ -244,17 +244,20 @@ async fn qiniu_wrapper_performs_standard_s3_object_range_list_and_multipart_oper
         .expect("execute RustFS presigned PUT");
     assert!(response.status().is_success());
     assert!(response.headers().get(reqwest::header::ETAG).is_some());
-    let get_url = presigned
-        .presigned_url(
+    let get_url = driver
+        .extensions()
+        .direct_download
+        .expect("Qiniu direct download extension")
+        .resolve_download_url(
             "folder/presigned.txt",
             Duration::from_secs(60),
-            PresignedDownloadOptions::default(),
+            DirectDownloadOptions::default(),
         )
         .await
         .expect("presign RustFS GET")
         .expect("Qiniu wrapper should expose presigned GET");
     let response = client
-        .get(get_url)
+        .get(get_url.url)
         .send()
         .await
         .expect("execute RustFS presigned GET");
@@ -389,7 +392,7 @@ async fn real_qiniu_kodo_smoke_validates_connection_presigned_cors_and_multipart
 
     let presigned = driver
         .extensions()
-        .presigned
+        .presigned_upload
         .expect("Qiniu presigned capability");
     let presigned_path = "objects/presigned.txt";
     let presigned_payload = b"presigned Kodo payload";
@@ -413,17 +416,20 @@ async fn real_qiniu_kodo_smoke_validates_connection_presigned_cors_and_multipart
         "real Kodo presigned PUT must expose ETag"
     );
 
-    let get_url = presigned
-        .presigned_url(
+    let get_url = driver
+        .extensions()
+        .direct_download
+        .expect("Qiniu direct download capability")
+        .resolve_download_url(
             presigned_path,
             Duration::from_secs(300),
-            PresignedDownloadOptions::default(),
+            DirectDownloadOptions::default(),
         )
         .await
         .expect("Kodo presigned GET should be generated")
         .expect("Qiniu driver should expose presigned GET");
     let get_response = client
-        .get(&get_url)
+        .get(&get_url.url)
         .send()
         .await
         .unwrap_or_else(|_| panic!("real Kodo presigned GET request failed"));

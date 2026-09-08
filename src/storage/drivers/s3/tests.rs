@@ -2,7 +2,9 @@ use super::presigned::{MAX_PRESIGN_TTL, clamp_presign_ttl};
 use super::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use aster_drive_storage::error::StorageErrorKind;
 use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
-use aster_drive_storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
+};
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient, capture_request};
@@ -686,10 +688,10 @@ async fn presigned_url_includes_download_response_overrides() {
     driver.base_path = "base".to_string();
 
     let url = driver
-        .presigned_url(
+        .resolve_download_url(
             "folder/file name.txt",
             Duration::from_secs(60),
-            aster_drive_storage::traits::driver::PresignedDownloadOptions {
+            aster_drive_storage::traits::driver::DirectDownloadOptions {
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private, max-age=60".to_string()),
@@ -702,7 +704,7 @@ async fn presigned_url_includes_download_response_overrides() {
         .await
         .expect("presigned URL should build")
         .expect("S3 should return a URL");
-    let parsed = reqwest::Url::parse(&url).expect("presigned URL should parse");
+    let parsed = reqwest::Url::parse(&url.url).expect("presigned URL should parse");
     let query = parsed
         .query_pairs()
         .into_owned()

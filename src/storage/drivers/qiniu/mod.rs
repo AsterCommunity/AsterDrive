@@ -11,7 +11,9 @@ use std::{sync::Arc, time::Duration};
 
 use aster_drive_storage::Result;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
-use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, PresignedUploadStorageDriver,
+};
 
 use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use super::s3_compatible::{
@@ -131,16 +133,21 @@ impl QiniuDriver {
 }
 
 #[async_trait::async_trait]
-impl PresignedStorageDriver for QiniuDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for QiniuDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: aster_drive_storage::PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
-        self.storage.presigned_url(path, expires, options).await
+        options: aster_drive_storage::DirectDownloadOptions,
+    ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
+        self.storage
+            .resolve_download_url(path, expires, options)
+            .await
     }
+}
 
+#[async_trait::async_trait]
+impl PresignedUploadStorageDriver for QiniuDriver {
     async fn presigned_put_request(
         &self,
         path: &str,

@@ -195,7 +195,8 @@ impl StorageDriver for S3Driver {
 
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         aster_drive_storage::traits::StorageDriverExtensions {
-            presigned: Some(self),
+            direct_download: Some(self),
+            presigned_upload: Some(self),
             list: Some(self),
             stream_upload: Some(self),
             multipart: Some(self),

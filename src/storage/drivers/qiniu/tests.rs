@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::PresignedUploadStorageDriver;
 use aster_drive_storage::traits::multipart::MultipartStorageDriver;
 use aster_drive_storage::{StorageDriver, StorageErrorKind};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -149,7 +149,8 @@ fn exposes_standard_s3_compatible_capabilities() {
     assert!(std::sync::Arc::strong_count(&driver.s3_driver()) >= 2);
 
     assert!(driver.supports_efficient_range());
-    assert!(driver.extensions().presigned.is_some());
+    assert!(driver.extensions().direct_download.is_some());
+    assert!(driver.extensions().presigned_upload.is_some());
     assert!(driver.extensions().list.is_some());
     assert!(driver.extensions().stream_upload.is_some());
     assert!(driver.extensions().multipart.is_some());

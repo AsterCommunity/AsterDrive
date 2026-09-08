@@ -143,10 +143,19 @@ pub struct FileResourceDeliveryInfo {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct FileResourceLifecycleInfo {
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FileResourceHandle {
     pub identity: FileResourceIdentity,
     pub request: FileResourceRequestInfo,
     pub delivery: FileResourceDeliveryInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<FileResourceLifecycleInfo>,
 }
 
 /// Patch (partial update) a file.

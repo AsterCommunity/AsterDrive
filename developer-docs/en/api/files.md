@@ -198,7 +198,7 @@ Core response contract:
 }
 ```
 
-`identity.cache_key` is the stable resource identity, while `request.url` is the concrete URL for this request. `etag`, `conditional_headers`, and `credentials` tell the frontend whether conditional requests and login credentials are appropriate. `redirect_policy = "may_cross_origin"` means the URL can be a short-lived OneDrive or object-storage direct URL.
+`identity.cache_key` is the stable resource identity, while `request.url` is the concrete URL for this request. `etag`, `conditional_headers`, and `credentials` tell the frontend whether conditional requests and login credentials are appropriate. `purpose = "download"` resolves attachment disposition; preview and external-viewer purposes resolve inline disposition. `redirect_policy = "may_cross_origin"` means the URL can be a short-lived OneDrive, object-storage, or connector-defined delivery URL. Short-lived results also include optional `lifecycle.expires_at` and must not be used as stable cache identities.
 
 For `auto + preview + blob_url`, browser-hostile image formats such as HEIC, RAW, and TIFF may resolve to a derived WebP image-preview path. Sandbox-sensitive MIME types such as HTML remain on the same-origin path rather than bypassing isolation through a provider direct URL.
 

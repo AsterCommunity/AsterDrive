@@ -10,10 +10,10 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::{
-    PresignedStorageDriver, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
-    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageCapacityInfo, StreamUploadAttempt, StreamUploadCleanup,
-    StreamUploadDriver,
+    DirectDownloadStorageDriver, ProviderResumableUploadCapabilities,
+    ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
+    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
+    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
 };
 use aster_drive_storage::{
     MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
@@ -477,7 +477,7 @@ impl StorageDriver for OneDriveDriver {
 
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         aster_drive_storage::traits::StorageDriverExtensions {
-            presigned: Some(self),
+            direct_download: Some(self),
             stream_upload: Some(self),
             provider_resumable: Some(self),
             ..Default::default()
@@ -503,13 +503,13 @@ impl StorageDriver for OneDriveDriver {
 }
 
 #[async_trait]
-impl PresignedStorageDriver for OneDriveDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for OneDriveDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         _expires: std::time::Duration,
-        options: aster_drive_storage::traits::driver::PresignedDownloadOptions,
-    ) -> aster_drive_storage::Result<Option<String>> {
+        options: aster_drive_storage::traits::driver::DirectDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<aster_drive_storage::DirectDownloadRequest>> {
         if options.require_download_name_match {
             let Some(stored_filename) = paths::provider_resumable_filename(path) else {
                 // Legacy objects do not carry a provider filename in their
@@ -529,15 +529,9 @@ impl PresignedStorageDriver for OneDriveDriver {
         self.client
             .get_download_url(&self.graph_content_path(path)?)
             .await
-            .map(Some)
-    }
-
-    async fn presigned_put_request(
-        &self,
-        _path: &str,
-        _expires: std::time::Duration,
-    ) -> aster_drive_storage::Result<Option<aster_drive_storage::PresignedUploadRequest>> {
-        Ok(None)
+            .map(|url| {
+                Some(aster_drive_storage::DirectDownloadRequest::preauthenticated_url(url, None))
+            })
     }
 }
 
@@ -1349,7 +1343,8 @@ mod tests {
         assert!(capabilities.implicit_completion);
         assert!(capabilities.abort_supported);
         assert!(capabilities.status_query_supported);
-        assert!(driver.extensions().presigned.is_some());
+        assert!(driver.extensions().direct_download.is_some());
+        assert!(driver.extensions().presigned_upload.is_none());
     }
 
     #[tokio::test]
@@ -1398,7 +1393,7 @@ mod tests {
         ))
         .expect("Graph client should build");
         let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
-        let options = aster_drive_storage::traits::driver::PresignedDownloadOptions {
+        let options = aster_drive_storage::traits::driver::DirectDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             require_download_name_match: true,
             ..Default::default()
@@ -1406,7 +1401,7 @@ mod tests {
 
         assert_eq!(
             driver
-                .presigned_url(
+                .resolve_download_url(
                     "files/550e8400-e29b-41d4-a716-446655440000",
                     std::time::Duration::from_secs(60),
                     options.clone(),
@@ -1418,13 +1413,13 @@ mod tests {
 
         let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
         let driver = lifecycle_driver(&server);
-        let native_options = aster_drive_storage::traits::driver::PresignedDownloadOptions {
+        let native_options = aster_drive_storage::traits::driver::DirectDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             ..Default::default()
         };
         assert_eq!(
             driver
-                .presigned_url(
+                .resolve_download_url(
                     "files/550e8400-e29b-41d4-a716-446655440000",
                     std::time::Duration::from_secs(60),
                     native_options,
@@ -1432,7 +1427,10 @@ mod tests {
                 .await
                 .expect("provider-native legacy path should classify")
                 .expect("provider-native filename mode should keep direct download"),
-            "https://download.example/file"
+            aster_drive_storage::DirectDownloadRequest::preauthenticated_url(
+                "https://download.example/file",
+                None,
+            )
         );
         server.stop().await;
     }
@@ -1441,7 +1439,7 @@ mod tests {
     async fn renamed_object_declines_direct_download_when_filename_match_is_required() {
         let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
         let driver = lifecycle_driver(&server);
-        let options = aster_drive_storage::traits::driver::PresignedDownloadOptions {
+        let options = aster_drive_storage::traits::driver::DirectDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             require_download_name_match: true,
             ..Default::default()
@@ -1449,7 +1447,7 @@ mod tests {
 
         assert_eq!(
             driver
-                .presigned_url(
+                .resolve_download_url(
                     "files/550e8400-e29b-41d4-a716-446655440000/old.mp4",
                     std::time::Duration::from_secs(60),
                     options,
@@ -1467,10 +1465,10 @@ mod tests {
         let driver = lifecycle_driver(&server);
 
         let url = driver
-            .presigned_url(
+            .resolve_download_url(
                 NAMED_PATH,
                 std::time::Duration::from_secs(60),
-                aster_drive_storage::traits::driver::PresignedDownloadOptions {
+                aster_drive_storage::traits::driver::DirectDownloadOptions {
                     download_name: Some("video.mp4".to_string()),
                     ..Default::default()
                 },
@@ -1479,7 +1477,7 @@ mod tests {
             .expect("matching named object should resolve direct URL")
             .expect("matching named object should return Graph download URL");
 
-        assert_eq!(url, "https://download.example/file");
+        assert_eq!(url.url, "https://download.example/file");
         {
             let state = server.state.lock().expect("Graph lifecycle state lock");
             assert_eq!(state.methods, ["GET"]);

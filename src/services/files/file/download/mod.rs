@@ -7,6 +7,7 @@
 //! route / scope 层只决定"是否允许下载"，真正的传输策略在这里统一收口。
 
 mod build;
+mod delivery;
 pub(crate) mod range;
 mod response;
 mod streaming;
@@ -20,5 +21,6 @@ pub(crate) use build::{
     load_current_download_snapshot, resolve_range_for_download_snapshot,
 };
 pub use build::{download, download_raw};
+pub(crate) use delivery::resolve_download_delivery;
 pub(crate) use response::outcome_to_response;
 pub use types::{DownloadOutcome, StreamedFile};

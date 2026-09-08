@@ -9,7 +9,7 @@ use aster_drive::services::auth::local;
 use aster_drive_model::types::UploadSessionKind;
 use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
 use aster_drive_storage::{
-    BlobMetadata, MultipartStorageDriver, PresignedStorageDriver, PresignedUploadRequest,
+    BlobMetadata, MultipartStorageDriver, PresignedUploadRequest, PresignedUploadStorageDriver,
     ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageDriver, StorageDriverExtensions, StorageError,
@@ -114,7 +114,7 @@ impl StorageDriver for UploadDataPlaneProbe {
 
     fn extensions(&self) -> StorageDriverExtensions<'_> {
         StorageDriverExtensions {
-            presigned: Some(self),
+            presigned_upload: Some(self),
             stream_upload: Some(self),
             provider_resumable: Some(self),
             multipart: Some(self),
@@ -316,24 +316,14 @@ impl StreamUploadDriver for DirectStreamFailureDriver {
 }
 
 #[async_trait]
-impl PresignedStorageDriver for UploadDataPlaneProbe {
-    async fn presigned_url(
-        &self,
-        _path: &str,
-        _expires: Duration,
-        _options: aster_drive_storage::PresignedDownloadOptions,
-    ) -> aster_drive_storage::Result<Option<String>> {
-        self.presigned_calls.fetch_add(1, Ordering::SeqCst);
-        Err(self.unexpected("PresignedStorageDriver::presigned_url"))
-    }
-
+impl PresignedUploadStorageDriver for UploadDataPlaneProbe {
     async fn presigned_put_request(
         &self,
         _path: &str,
         _expires: Duration,
     ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
         self.presigned_calls.fetch_add(1, Ordering::SeqCst);
-        Err(self.unexpected("PresignedStorageDriver::presigned_put_request"))
+        Err(self.unexpected("PresignedUploadStorageDriver::presigned_put_request"))
     }
 }
 

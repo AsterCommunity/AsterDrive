@@ -109,7 +109,8 @@ fn exposes_s3_shaped_runtime_capabilities_under_obs_signing() {
     .expect("valid OBS driver");
 
     assert!(driver.supports_efficient_range());
-    assert!(driver.extensions().presigned.is_some());
+    assert!(driver.extensions().direct_download.is_some());
+    assert!(driver.extensions().presigned_upload.is_some());
     assert!(driver.extensions().list.is_some());
     assert!(driver.extensions().stream_upload.is_some());
     assert!(driver.extensions().multipart.is_some());

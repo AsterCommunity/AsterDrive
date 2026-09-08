@@ -213,7 +213,7 @@ async fn presigned_put_request(
 ) -> Result<(aster_drive_storage::PresignedUploadRequest, bool)> {
     let presigned_driver = driver
         .extensions()
-        .presigned
+        .presigned_upload
         .ok_or_else(|| AsterError::storage_driver_error("presigned PUT not supported by driver"))?;
     let request = presigned_driver
         .presigned_put_request(temp_key, std::time::Duration::from_secs(HOUR_SECS))

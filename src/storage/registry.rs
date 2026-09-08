@@ -984,18 +984,18 @@ mod tests {
 
         assert!(driver.extensions().list.is_some());
         assert!(driver.extensions().stream_upload.is_some());
-        assert!(driver.extensions().presigned.is_some());
+        assert!(driver.extensions().direct_download.is_some());
         assert!(driver.extensions().multipart.is_some());
 
         let extensions = driver.extensions();
         assert!(extensions.list.is_some());
         assert!(extensions.stream_upload.is_some());
-        assert!(extensions.presigned.is_some());
+        assert!(extensions.direct_download.is_some());
         assert!(extensions.multipart.is_some());
 
         let presigned = driver
             .extensions()
-            .presigned
+            .presigned_upload
             .expect("remote driver should support presigned URLs")
             .presigned_put_request("files/object.bin", Duration::from_secs(60))
             .await

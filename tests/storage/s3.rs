@@ -4,7 +4,8 @@ use aster_drive::storage::drivers::s3::{
     S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials,
 };
 use aster_drive_storage::{
-    PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StreamUploadDriver,
+    DirectDownloadOptions, DirectDownloadStorageDriver, PresignedUploadStorageDriver,
+    StorageDriver, StreamUploadDriver,
 };
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
@@ -162,15 +163,15 @@ async fn test_s3_put_get_delete() {
 
     // PRESIGNED URL (just verify it generates without error)
     let url = driver
-        .presigned_url(
+        .resolve_download_url(
             "test/dst.txt",
             std::time::Duration::from_secs(300),
-            PresignedDownloadOptions::default(),
+            DirectDownloadOptions::default(),
         )
         .await
         .unwrap();
     assert!(url.is_some());
-    assert!(url.unwrap().contains("test-prefix"));
+    assert!(url.unwrap().url.contains("test-prefix"));
 
     // PRESIGNED PUT URL
     let url = driver

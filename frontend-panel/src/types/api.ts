@@ -138,6 +138,7 @@ export type FileResourceDeliveryMode =
 	components["schemas"]["FileResourceDeliveryMode"];
 export type FileResourceHandleRequest =
 	components["schemas"]["FileResourceHandleRequest"];
+export type FileResourceHandle = components["schemas"]["FileResourceHandle"];
 export type FileResourcePurpose = components["schemas"]["FileResourcePurpose"];
 export type FileResourceRepresentation =
 	components["schemas"]["FileResourceRepresentation"];

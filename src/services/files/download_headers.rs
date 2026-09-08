@@ -11,6 +11,13 @@ pub(crate) enum DownloadDisposition {
 }
 
 impl DownloadDisposition {
+    pub(crate) const fn as_query_value(self) -> &'static str {
+        match self {
+            Self::Attachment => "attachment",
+            Self::Inline => "inline",
+        }
+    }
+
     pub(crate) fn header_value(self, filename: &str) -> String {
         let safe_filename = filename
             .chars()

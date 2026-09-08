@@ -3,8 +3,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
 
-use aster_drive_storage::traits::driver::{PresignedDownloadOptions, PresignedUploadRequest};
-use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::traits::driver::{
+    DirectDownloadOptions, DirectDownloadRequest, PresignedUploadRequest,
+};
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, PresignedUploadStorageDriver,
+};
 use aster_drive_storage::{MapStorageErr, StorageErrorKind};
 
 use super::S3Driver;
@@ -18,7 +22,7 @@ pub(super) const MAX_PRESIGN_TTL: Duration = Duration::from_secs(60 * 60); // 1 
 
 /// 钳制 presigned TTL：不可超过 `MAX_PRESIGN_TTL`，也不可为 0。
 /// 0/超限都按上限处理，并记 warn 日志。
-pub(super) fn clamp_presign_ttl(requested: Duration, ctx: &'static str) -> Duration {
+pub(crate) fn clamp_presign_ttl(requested: Duration, ctx: &'static str) -> Duration {
     if requested > MAX_PRESIGN_TTL {
         tracing::warn!(
             requested_secs = requested.as_secs(),
@@ -40,20 +44,21 @@ pub(super) fn sdk_presigned_upload_request(
     PresignedUploadRequest::from_header_pairs(request.uri(), request.headers())
 }
 // =============================================================================
-// PresignedStorageDriver 扩展
+// Direct-download and presigned-upload extensions
 // =============================================================================
 
 #[async_trait]
-impl PresignedStorageDriver for S3Driver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for S3Driver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: PresignedDownloadOptions,
-    ) -> aster_drive_storage::Result<Option<String>> {
+        options: DirectDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
         let key = self.full_key(path);
+        let expires = clamp_presign_ttl(expires, "S3 resolve_download_url");
         let presign_config = PresigningConfig::builder()
-            .expires_in(clamp_presign_ttl(expires, "S3 presigned_url"))
+            .expires_in(expires)
             .build()
             .map_storage_err_ctx(StorageErrorKind::Misconfigured, "presign config")?;
 
@@ -73,9 +78,15 @@ impl PresignedStorageDriver for S3Driver {
             .await
             .map_storage_err_ctx(StorageErrorKind::Misconfigured, "S3 presigned URL failed")?;
 
-        Ok(Some(url.uri().to_string()))
+        Ok(Some(DirectDownloadRequest::temporary_url(
+            url.uri().to_string(),
+            expires,
+        )))
     }
+}
 
+#[async_trait]
+impl PresignedUploadStorageDriver for S3Driver {
     async fn presigned_put_request(
         &self,
         path: &str,

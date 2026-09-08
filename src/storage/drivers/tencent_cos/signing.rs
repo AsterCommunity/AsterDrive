@@ -221,6 +221,87 @@ const COS_QUERY_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b'|');
 
 impl TencentCosDriver {
+    pub(super) fn signed_custom_download_url(
+        &self,
+        path: &str,
+        expires: Duration,
+        options: &aster_drive_storage::DirectDownloadOptions,
+    ) -> Result<String> {
+        let base_url = self.download_base_url.as_deref().ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "COS custom download URL is not configured",
+            )
+        })?;
+        let key = self.full_key(path);
+        let mut url = Url::parse(base_url).map_aster_err_ctx(
+            "parse COS custom download URL",
+            AsterError::storage_driver_error,
+        )?;
+        {
+            let mut segments = url.path_segments_mut().map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "COS custom download URL cannot be used as a path base",
+                )
+            })?;
+            segments.pop_if_empty();
+            segments.extend(key.split('/'));
+        }
+
+        let mut params = Vec::<(String, String)>::new();
+        if let Some(value) = options.response_cache_control.as_ref() {
+            params.push(("response-cache-control".to_string(), value.clone()));
+        }
+        if let Some(value) = options.response_content_disposition.as_ref() {
+            params.push(("response-content-disposition".to_string(), value.clone()));
+        }
+        if let Some(value) = options.response_content_type.as_ref() {
+            params.push(("response-content-type".to_string(), value.clone()));
+        }
+
+        let start = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_aster_err_ctx("read system time", AsterError::storage_driver_error)?
+            .as_secs();
+        let end = start.checked_add(expires.as_secs()).ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "COS custom download expiration overflow",
+            )
+        })?;
+        let key_time = format!("{start};{end}");
+        let host = host_header_value(&url, "COS custom download URL missing host")?;
+        let canonical_path = canonical_url_path(&url)?;
+        let param_refs = params
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>();
+        let authorization = cos_authorization(
+            "GET",
+            &canonical_path,
+            &param_refs,
+            &[("host", host.as_str())],
+            &self.access_key,
+            &self.secret_key,
+            &key_time,
+        )?;
+        {
+            let mut query = url.query_pairs_mut();
+            query.extend_pairs(param_refs.iter().copied());
+            for component in authorization.split('&') {
+                let (key, value) = component.split_once('=').ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "invalid COS custom download authorization component",
+                    )
+                })?;
+                query.append_pair(key, value);
+            }
+        }
+        Ok(url.into())
+    }
+
     pub(super) fn object_url(&self, path: &str) -> Result<(Url, String)> {
         let key = self.full_key(path);
         let mut url = Url::parse(&self.endpoint)
@@ -592,6 +673,7 @@ mod tests {
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
         TencentCosDriver::new(
             TencentCosDriverConfig {
+                download_base_url: None,
                 endpoint: endpoint.to_string(),
                 bucket: "media-1250000000".to_string(),
                 base_path: String::new(),

@@ -890,6 +890,8 @@ pub struct StorageConnectorCapabilities {
     pub list: bool,
     /// 是否支持 presigned download。
     pub presigned_download: bool,
+    /// 是否允许 connector config 提供自定义下载交付根 URL。
+    pub custom_download_base_url: bool,
     /// 是否支持 provider/storage-native thumbnail。
     pub storage_native_thumbnail: bool,
     /// 是否支持 provider/storage-native media metadata。
@@ -1605,7 +1607,7 @@ fn normalize_storage_connector_field_values<'a>(
     for _ in 0..=fields.len() {
         let mut changed = false;
         for field in fields.values() {
-            if input.contains_key(&field.name) {
+            if supplied_connector_field_value(input, &field.name).is_some() {
                 continue;
             }
             let next = resolved_field_default(field, &resolved_input).map(default_value_to_json);
@@ -1626,7 +1628,7 @@ fn normalize_storage_connector_field_values<'a>(
     let mut normalized = BTreeMap::new();
     for field in fields.values() {
         if reject_secrets && (field.secret || field.kind == StorageConnectorFieldKind::Secret) {
-            if input.contains_key(&field.name) {
+            if supplied_connector_field_value(input, &field.name).is_some() {
                 return Err(StorageConnectorOptionsValidationError::SecretField(
                     field.name.clone(),
                 ));
@@ -1634,8 +1636,8 @@ fn normalize_storage_connector_field_values<'a>(
             continue;
         }
 
-        let supplied = input.get(&field.name).cloned();
-        let value = resolved_input.get(&field.name).cloned();
+        let supplied = supplied_connector_field_value(input, &field.name).cloned();
+        let value = supplied_connector_field_value(&resolved_input, &field.name).cloned();
         let Some(mut value) = value else {
             if field.required {
                 return Err(
@@ -1667,6 +1669,13 @@ fn normalize_storage_connector_field_values<'a>(
         normalized.insert(field.name.clone(), value);
     }
     Ok(normalized)
+}
+
+fn supplied_connector_field_value<'a>(
+    values: &'a BTreeMap<String, serde_json::Value>,
+    name: &str,
+) -> Option<&'a serde_json::Value> {
+    values.get(name).filter(|value| !value.is_null())
 }
 
 fn resolved_field_default<'a>(
@@ -2216,6 +2225,38 @@ impl StorageConnectorDescriptor {
                 )));
             }
         }
+        let download_base_url_field = self.fields.iter().find(|field| {
+            field.scope == StorageConnectorFieldScope::ConnectorConfig
+                && field.name == "download_base_url"
+        });
+        match (
+            self.capabilities.custom_download_base_url,
+            download_base_url_field,
+        ) {
+            (true, Some(field))
+                if field.kind == StorageConnectorFieldKind::Text
+                    && !field.required
+                    && !field.secret => {}
+            (true, Some(_)) => {
+                return Err(StorageConnectorDescriptorError(
+                    "custom download base URL capability requires an optional non-secret text connector-config field named 'download_base_url'"
+                        .to_string(),
+                ));
+            }
+            (true, None) => {
+                return Err(StorageConnectorDescriptorError(
+                    "custom download base URL capability requires connector-config field 'download_base_url'"
+                        .to_string(),
+                ));
+            }
+            (false, Some(_)) => {
+                return Err(StorageConnectorDescriptorError(
+                    "connector-config field 'download_base_url' requires custom download base URL capability"
+                        .to_string(),
+                ));
+            }
+            (false, None) => {}
+        }
         for field in &self.fields {
             let mut visiting = HashSet::new();
             if has_conditional_field_cycle(&self.fields, field, &mut visiting) {
@@ -2606,6 +2647,7 @@ pub fn object_storage_connector_descriptor(
             capacity: false,
             list: true,
             presigned_download: true,
+            custom_download_base_url: false,
             storage_native_thumbnail: input.storage_native_processing,
             storage_native_media_metadata: input.storage_native_processing,
             remote_node_binding: false,
@@ -3553,6 +3595,7 @@ mod tests {
 
         for values in [
             BTreeMap::new(),
+            BTreeMap::from([("base_path".to_string(), serde_json::Value::Null)]),
             BTreeMap::from([("base_path".to_string(), serde_json::json!(""))]),
         ] {
             let normalized = normalize_storage_connector_config(
@@ -3594,6 +3637,33 @@ mod tests {
         )
         .unwrap();
         assert!(!normalized.values.contains_key("base_path"));
+    }
+
+    #[test]
+    fn null_secret_is_treated_as_not_supplied() {
+        let secret = storage_connector_field(
+            "token",
+            StorageConnectorFieldScope::StaticCredential,
+            StorageConnectorFieldKind::Secret,
+            true,
+            true,
+        );
+        let normalized = normalize_storage_connector_field_values(
+            [&secret],
+            &BTreeMap::from([("token".to_string(), serde_json::Value::Null)]),
+            true,
+        )
+        .expect("null secret should be treated as omitted");
+        assert!(normalized.is_empty());
+
+        assert!(matches!(
+            normalize_storage_connector_field_values(
+                [&secret],
+                &BTreeMap::from([("token".to_string(), serde_json::json!("secret"))]),
+                true,
+            ),
+            Err(StorageConnectorOptionsValidationError::SecretField(field)) if field == "token"
+        ));
     }
 
     #[test]

@@ -154,7 +154,8 @@ fn driver_exposes_s3_compatible_capabilities_with_public_presigning() {
     let extensions = driver.extensions();
 
     assert!(driver.supports_efficient_range());
-    assert!(extensions.presigned.is_some());
+    assert!(extensions.direct_download.is_some());
+    assert!(extensions.presigned_upload.is_some());
     assert!(extensions.list.is_some());
     assert!(extensions.stream_upload.is_some());
     assert!(extensions.multipart.is_some());
@@ -167,7 +168,10 @@ async fn public_presigned_url_ignores_server_side_endpoint() {
     let driver =
         AlibabaOssDriver::new(config, sample_credentials()).expect("OSS driver should build");
 
-    let presigned = driver.extensions().presigned.expect("presigned extension");
+    let presigned = driver
+        .extensions()
+        .presigned_upload
+        .expect("presigned upload extension");
     let request = presigned
         .presigned_put_request("docs/report.txt", Duration::from_secs(60))
         .await
@@ -231,7 +235,7 @@ async fn public_presigned_url_uses_cname_without_bucket_wire_path() {
 
     let request = driver
         .extensions()
-        .presigned
+        .presigned_upload
         .expect("presigned extension")
         .presigned_put_request("docs/report.txt", Duration::from_secs(60))
         .await
@@ -256,12 +260,12 @@ async fn public_presigned_get_omits_unsupported_content_type_override() {
 
     let url = driver
         .extensions()
-        .presigned
+        .direct_download
         .expect("presigned extension")
-        .presigned_url(
+        .resolve_download_url(
             "files/photo.jpg",
             Duration::from_secs(300),
-            PresignedDownloadOptions {
+            DirectDownloadOptions {
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(
                     "inline; filename*=UTF-8''photo@0.5x.jpg".to_string(),
@@ -273,7 +277,7 @@ async fn public_presigned_get_omits_unsupported_content_type_override() {
         .await
         .expect("presigned GET")
         .expect("presigned URL");
-    let parsed = Url::parse(&url).expect("valid OSS presigned URL");
+    let parsed = Url::parse(&url.url).expect("valid OSS presigned URL");
     let raw_query = parsed.query().expect("presigned GET query");
     let query = parsed
         .query_pairs()
@@ -284,7 +288,7 @@ async fn public_presigned_get_omits_unsupported_content_type_override() {
         parsed.host_str(),
         Some("asterdrive-test.oss-cn-hangzhou.aliyuncs.com")
     );
-    assert!(!url.contains("internal"));
+    assert!(!url.url.contains("internal"));
     assert_eq!(
         query.get("response-cache-control").map(String::as_str),
         Some("private, max-age=0, must-revalidate")

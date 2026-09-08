@@ -694,7 +694,7 @@ async fn download_share_resource_with_disposition(
         Ok(mut outcome) => {
             // 如果是流式响应，挂一个 abort hook：客户端中途断连导致 body 未读到 EOF 就 drop 时，
             // 回滚刚才的 increment，避免 `download_count` 虚增、提前触碰 `max_downloads`。
-            // NotModified/PresignedRedirect 一次性响应不需要挂 hook。
+            // NotModified/DirectRedirect 一次性响应不需要挂 hook。
             if let file_ops::DownloadOutcome::Stream(ref mut s) = outcome {
                 let queue = state.share_download_rollback().clone();
                 let share_id = share.id;

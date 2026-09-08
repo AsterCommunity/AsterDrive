@@ -10,8 +10,10 @@ mod tests;
 
 use std::{sync::Arc, time::Duration};
 
-use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
-use aster_drive_storage::traits::extensions::{PresignedStorageDriver, StorageDriverExtensions};
+use aster_drive_storage::traits::driver::{DirectDownloadOptions, StorageDriver};
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, PresignedUploadStorageDriver, StorageDriverExtensions,
+};
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_storage::{Result, StorageCapacityInfo};
 use bytes::Bytes;
@@ -382,7 +384,8 @@ impl StorageDriver for AlibabaOssDriver {
 
     fn extensions(&self) -> StorageDriverExtensions<'_> {
         StorageDriverExtensions {
-            presigned: Some(self),
+            direct_download: Some(self),
+            presigned_upload: Some(self),
             multipart: Some(self),
             ..self.storage.extensions()
         }
@@ -394,25 +397,28 @@ impl StorageDriver for AlibabaOssDriver {
 }
 
 #[async_trait::async_trait]
-impl PresignedStorageDriver for AlibabaOssDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for AlibabaOssDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
+        options: DirectDownloadOptions,
+    ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
         // OSS rejects response-content-type on signed GET requests with
         // 0017-00000902. The object's stored Content-Type remains authoritative.
         // https://help.aliyun.com/zh/oss/support/0017-00000902
-        let options = PresignedDownloadOptions {
+        let options = DirectDownloadOptions {
             response_content_type: None,
             ..options
         };
         self.public_driver
-            .presigned_url(path, expires, options)
+            .resolve_download_url(path, expires, options)
             .await
     }
+}
 
+#[async_trait::async_trait]
+impl PresignedUploadStorageDriver for AlibabaOssDriver {
     async fn presigned_put_request(
         &self,
         path: &str,

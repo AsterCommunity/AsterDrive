@@ -217,16 +217,21 @@ impl HuaweiObsDriver {
 }
 
 #[async_trait::async_trait]
-impl aster_drive_storage::traits::extensions::PresignedStorageDriver for HuaweiObsDriver {
-    async fn presigned_url(
+impl aster_drive_storage::DirectDownloadStorageDriver for HuaweiObsDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        options: aster_drive_storage::PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
-        self.storage.presigned_url(path, expires, options).await
+        options: aster_drive_storage::DirectDownloadOptions,
+    ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
+        self.storage
+            .resolve_download_url(path, expires, options)
+            .await
     }
+}
 
+#[async_trait::async_trait]
+impl aster_drive_storage::PresignedUploadStorageDriver for HuaweiObsDriver {
     async fn presigned_put_request(
         &self,
         path: &str,

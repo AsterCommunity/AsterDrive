@@ -1,14 +1,12 @@
 import { config } from "@/config/app";
 import { joinApiUrl } from "@/lib/apiUrl";
 import { absoluteAppUrl } from "@/lib/publicSiteUrl";
-import type {
-	FileResourceDeliveryMode,
-	ReadyFileResourceHandle,
-} from "@/lib/resourceRequest";
+import type { ReadyFileResourceHandle } from "@/lib/resourceRequest";
 import { buildWorkspacePath, type Workspace } from "@/lib/workspace";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
 import type {
 	ApiErrorCode,
+	FileResourceHandle as ApiFileResourceHandle,
 	ArchiveFilenameEncoding,
 	ArchivePreviewManifest,
 	CreateOfflineDownloadTaskParams,
@@ -44,33 +42,21 @@ export interface FileVersionPage {
 	nextAfterSequence: number | null;
 }
 
-interface ApiFileResourceHandle {
-	identity: {
-		cache_key: string;
-		etag?: string | null;
-		scope?: "personal" | "team" | "share" | null;
-	};
-	request: {
-		url: string;
-		credentials: "include" | "omit";
-		conditional_headers: "allowed" | "forbidden";
-		redirect_policy: "same_origin_only" | "may_cross_origin";
-	};
-	delivery: {
-		mode: FileResourceDeliveryMode;
-		mime_type?: string | null;
-	};
-}
-
 function toReadyFileResourceHandle(
 	handle: ApiFileResourceHandle,
 ): ReadyFileResourceHandle {
+	const scope =
+		handle.identity.scope === "personal" ||
+		handle.identity.scope === "team" ||
+		handle.identity.scope === "share"
+			? handle.identity.scope
+			: undefined;
 	return {
 		kind: "ready",
 		identity: {
 			cacheKey: handle.identity.cache_key,
 			etag: handle.identity.etag ?? null,
-			scope: handle.identity.scope ?? undefined,
+			scope,
 		},
 		request: {
 			url: handle.request.url,
@@ -82,6 +68,9 @@ function toReadyFileResourceHandle(
 			mode: handle.delivery.mode,
 			mimeType: handle.delivery.mime_type ?? undefined,
 		},
+		lifecycle: handle.lifecycle
+			? { expiresAt: handle.lifecycle.expires_at }
+			: undefined,
 	};
 }
 

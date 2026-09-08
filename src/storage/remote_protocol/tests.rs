@@ -7,7 +7,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::AsterError;
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
 use aster_drive_storage::error::StorageErrorKind;
-use aster_drive_storage::{PresignedDownloadOptions, StorageCapacityInfo, StorageCapacityStatus};
+use aster_drive_storage::{DirectDownloadOptions, StorageCapacityInfo, StorageCapacityStatus};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -558,7 +558,7 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
         .presigned_url(
             "folder/file name.txt",
             Duration::from_secs(60),
-            PresignedDownloadOptions {
+            DirectDownloadOptions {
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private".to_string()),

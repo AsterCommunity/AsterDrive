@@ -17,6 +17,104 @@ use super::StorageConnectorCredentialInput;
 
 const STATIC_CREDENTIAL_CLEANUP_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
+pub(super) fn normalize_download_base_url(value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.contains('\\') {
+        return Err(AsterError::validation_error(
+            "download_base_url must not contain backslashes",
+        ));
+    }
+    let raw_uri = trimmed.parse::<http::Uri>().map_err(|error| {
+        AsterError::validation_error(format!("invalid download_base_url: {error}"))
+    })?;
+    if raw_uri.path().split('/').any(|segment| {
+        match percent_encoding::percent_decode_str(segment).decode_utf8() {
+            Ok(decoded) => matches!(decoded.as_ref(), "." | ".."),
+            Err(_) => true,
+        }
+    }) {
+        return Err(AsterError::validation_error(
+            "download_base_url path must not contain traversal segments",
+        ));
+    }
+    let mut url = url::Url::parse(trimmed).map_err(|error| {
+        AsterError::validation_error(format!("invalid download_base_url: {error}"))
+    })?;
+    if url.scheme() != "https" {
+        return Err(AsterError::validation_error(
+            "download_base_url must use HTTPS",
+        ));
+    }
+    match url.host() {
+        Some(url::Host::Domain(host)) if !host.eq_ignore_ascii_case("localhost") => {}
+        Some(_) => {
+            return Err(AsterError::validation_error(
+                "download_base_url must use a DNS hostname",
+            ));
+        }
+        None => {
+            return Err(AsterError::validation_error(
+                "download_base_url must include a hostname",
+            ));
+        }
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(AsterError::validation_error(
+            "download_base_url must not contain credentials",
+        ));
+    }
+    if url.port().is_some() {
+        return Err(AsterError::validation_error(
+            "download_base_url must not use a non-default port",
+        ));
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(AsterError::validation_error(
+            "download_base_url must not contain query or fragment components",
+        ));
+    }
+    let normalized_path = url.path().trim_end_matches('/').to_string();
+    url.set_path(if normalized_path.is_empty() {
+        "/"
+    } else {
+        &normalized_path
+    });
+    Ok(String::from(url).trim_end_matches('/').to_string())
+}
+
+#[cfg(test)]
+mod download_base_url_tests {
+    use super::normalize_download_base_url;
+
+    #[test]
+    fn normalizes_https_download_base_url_with_path_prefix() {
+        assert_eq!(
+            normalize_download_base_url("  https://CDN.example.com/assets/  ").unwrap(),
+            "https://cdn.example.com/assets"
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_download_base_url_shapes() {
+        for value in [
+            "http://cdn.example.com",
+            "https://user@cdn.example.com",
+            "https://cdn.example.com:8443",
+            "https://cdn.example.com/assets?token=x",
+            "https://cdn.example.com/assets#fragment",
+            "https://127.0.0.1/assets",
+            "https://localhost/assets",
+            "https://cdn.example.com/%2e%2e/private",
+            "https://cdn.example.com/assets\\private",
+        ] {
+            assert!(
+                normalize_download_base_url(value).is_err(),
+                "unsafe URL should be rejected: {value}"
+            );
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StaticCredentialCleanupSnapshotV1 {
@@ -38,6 +136,16 @@ pub(super) const LOCALIZATION_MESSAGES:
         "内容去重",
     ),
     aster_drive_storage::storage_connector_message!("endpoint", "Endpoint", "端点"),
+    aster_drive_storage::storage_connector_message!(
+        "download_base_url",
+        "Download delivery URL",
+        "下载交付地址",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "download_base_url_desc",
+        "Optional HTTPS base URL used only for browser downloads. The connector signs the final host; backend I/O, uploads, cleanup, and bucket administration continue to use the storage endpoint.",
+        "仅用于浏览器下载的可选 HTTPS 根地址。connector 会对最终域名签名；后端读写、上传、清理和存储桶管理仍使用存储端点。",
+    ),
     aster_drive_storage::storage_connector_message!(
         "download_strategy_presigned",
         "Presigned Redirect",

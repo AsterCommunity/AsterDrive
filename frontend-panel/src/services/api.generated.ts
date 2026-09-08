@@ -5765,6 +5765,7 @@ export interface components {
         FileResourceHandle: {
             delivery: components["schemas"]["FileResourceDeliveryInfo"];
             identity: components["schemas"]["FileResourceIdentity"];
+            lifecycle?: null | components["schemas"]["FileResourceLifecycleInfo"];
             request: components["schemas"]["FileResourceRequestInfo"];
         };
         FileResourceHandleRequest: {
@@ -5776,6 +5777,9 @@ export interface components {
             cache_key: string;
             etag?: string | null;
             scope?: string | null;
+        };
+        FileResourceLifecycleInfo: {
+            expires_at: string;
         };
         /** @enum {string} */
         FileResourcePurpose: "preview" | "download" | "external_viewer";
@@ -7979,6 +7983,8 @@ export interface components {
         StorageConnectorCapabilities: {
             /** @description 是否支持容量观测。 */
             capacity: boolean;
+            /** @description 是否允许 connector config 提供自定义下载交付根 URL。 */
+            custom_download_base_url: boolean;
             /** @description 是否支持高效 range read。 */
             efficient_range: boolean;
             /** @description 是否支持底层对象路径列举。 */
@@ -19885,6 +19891,7 @@ export interface operations {
                         data?: {
                             delivery: components["schemas"]["FileResourceDeliveryInfo"];
                             identity: components["schemas"]["FileResourceIdentity"];
+                            lifecycle?: null | components["schemas"]["FileResourceLifecycleInfo"];
                             request: components["schemas"]["FileResourceRequestInfo"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -26047,6 +26054,7 @@ export interface operations {
                         data?: {
                             delivery: components["schemas"]["FileResourceDeliveryInfo"];
                             identity: components["schemas"]["FileResourceIdentity"];
+                            lifecycle?: null | components["schemas"]["FileResourceLifecycleInfo"];
                             request: components["schemas"]["FileResourceRequestInfo"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];

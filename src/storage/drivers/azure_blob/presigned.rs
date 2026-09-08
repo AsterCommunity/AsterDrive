@@ -5,23 +5,31 @@ use async_trait::async_trait;
 use azure_storage_blob::models::BlobContainerClientListBlobsOptions;
 use futures::{StreamExt as _, TryStreamExt as _};
 
-use aster_drive_storage::PresignedUploadRequest;
-use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
-use aster_drive_storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
+use aster_drive_storage::traits::driver::{DirectDownloadOptions, StoragePathVisitor};
+use aster_drive_storage::traits::extensions::{
+    DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
+};
+use aster_drive_storage::{DirectDownloadRequest, PresignedUploadRequest};
 
 use super::AzureBlobDriver;
 
 #[async_trait]
-impl PresignedStorageDriver for AzureBlobDriver {
-    async fn presigned_url(
+impl DirectDownloadStorageDriver for AzureBlobDriver {
+    async fn resolve_download_url(
         &self,
         path: &str,
         expires: Duration,
-        _options: PresignedDownloadOptions,
-    ) -> aster_drive_storage::Result<Option<String>> {
-        Ok(Some(self.blob_url(path, "r", expires)?.to_string()))
+        _options: DirectDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
+        Ok(Some(DirectDownloadRequest::temporary_url(
+            self.blob_url(path, "r", expires)?.to_string(),
+            expires,
+        )))
     }
+}
 
+#[async_trait]
+impl PresignedUploadStorageDriver for AzureBlobDriver {
     async fn presigned_put_request(
         &self,
         path: &str,
