@@ -207,6 +207,7 @@
 	"storage_authorization_failed_server": "服务器处理存储授权时出错，请稍后重试。",
 	"connection_test_failed_save_prompt": "连接测试失败，仍要保存此策略吗？",
 	"policy_connector_field_required": "必须填写{{field}}。",
+	"policy_connector_field_invalid": "请检查{{field}}的填写内容。",
 	"policy_recovery_title": "恢复 {{name}}",
 	"policy_recovery_desc": "先检查源存储可读性，再恢复仍可用的数据或永久清除受影响的文件历史。",
 	"policy_recovery_probe_title": "源存储可读性",

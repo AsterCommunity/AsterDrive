@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Storage connector validation feedback** — Connection-test errors now expose the connector configuration or static-credential field that failed validation; the admin policy form localizes the message from connector metadata and highlights the matching input instead of showing raw provider diagnostics.
+
 - **File browser navigation and deleted-folder recovery** — Route navigation now takes priority over concurrent SSE and mutation-completion refreshes, keeping the URL, current folder, breadcrumb, and visible contents aligned. Empty-trash completion uses a scoped aggregate event instead of a full reconciliation signal, while personal and team folder routes recover to the nearest available ancestor (or workspace root) when the current folder is trashed or permanently removed; folder list, info, and ancestor APIs consistently return `folder.not_found` with a readable lifecycle message.
 
 ## [v0.5.1] - 2026-08-24

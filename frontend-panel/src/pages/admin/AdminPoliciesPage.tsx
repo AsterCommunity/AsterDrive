@@ -530,6 +530,7 @@ function useAdminPoliciesPageContent(
 		key: K,
 		value: PolicyFormData[K],
 	) => {
+		actionController.clearConnectionFieldErrors();
 		setSaveAnywayConfirmOpen(false);
 		actionController.clearActionConfirms();
 		setForm((prev) => {
@@ -655,6 +656,7 @@ function useAdminPoliciesPageContent(
 			createStep={createStep}
 			createStepTouched={createStepTouched}
 			endpointValidationMessage={endpointValidationMessage}
+			connectionFieldErrors={actionController.connectionFieldErrors}
 			saveAnywayConfirmOpen={saveAnywayConfirmOpen}
 			showStorageDialogCloseButton={!setupMode && !createMode && !detailMode}
 			forceDefaultPolicy={setupMode}

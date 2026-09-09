@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { StoragePolicyDialog } from "@/components/admin/StoragePolicyDialog";
+import type { StorageConnectorFieldErrors } from "@/components/admin/storage-policy-dialog/connectionErrors";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
 import type { StorageConnectorPromotionCandidate } from "@/components/admin/storage-policy-dialog/policyPromotion";
 import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
@@ -31,6 +32,7 @@ interface PolicyDialogsProps {
 	dialogOpen: boolean;
 	editMode: boolean;
 	endpointValidationMessage: string | null;
+	connectionFieldErrors: StorageConnectorFieldErrors;
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
@@ -112,6 +114,7 @@ export function PolicyDialogs({
 	dialogOpen,
 	editMode,
 	endpointValidationMessage,
+	connectionFieldErrors,
 	form,
 	storageDriverDescriptor,
 	storageDriverDescriptors,
@@ -226,6 +229,7 @@ export function PolicyDialogs({
 				createStep={createStep}
 				createStepTouched={createStepTouched}
 				endpointValidationMessage={endpointValidationMessage}
+				connectionFieldErrors={connectionFieldErrors}
 				saveAnywayConfirmOpen={saveAnywayConfirmOpen}
 				onCancelConnectorAction={onCancelConnectorAction}
 				onApplyDraftConnectorPromotion={onApplyDraftConnectorPromotion}

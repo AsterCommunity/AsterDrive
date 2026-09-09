@@ -37,6 +37,7 @@ import type {
 	StorageConnectorFieldValue,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
+import type { StorageConnectorFieldErrors } from "./storage-policy-dialog/connectionErrors";
 import {
 	findConnectorFieldByDataSource,
 	supportsDraftConnectionTest,
@@ -81,6 +82,7 @@ interface StoragePolicyDialogProps {
 	createStep: number;
 	createStepTouched: boolean;
 	endpointValidationMessage: string | null;
+	connectionFieldErrors?: StorageConnectorFieldErrors;
 	connectorActionConfirmId: string | null;
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
@@ -158,6 +160,7 @@ export function StoragePolicyDialog({
 	createStep,
 	createStepTouched,
 	endpointValidationMessage,
+	connectionFieldErrors = {},
 	connectorActionConfirmId,
 	connectorActionSubmittingId,
 	connectorActionValues,
@@ -435,10 +438,14 @@ export function StoragePolicyDialog({
 														remoteNodes={remoteNodes}
 														remoteStorageTargets={remoteStorageTargets}
 														showRequiredErrors={createStepTouched}
+														fieldErrors={connectionFieldErrors}
 														t={t}
 														onFieldChange={onFieldChange}
 													/>
-													{endpointValidationMessage ? (
+													{endpointValidationMessage &&
+													!Object.values(connectionFieldErrors).includes(
+														endpointValidationMessage,
+													) ? (
 														<p className="text-xs text-destructive">
 															{endpointValidationMessage}
 														</p>
@@ -556,6 +563,7 @@ export function StoragePolicyDialog({
 												remoteNodes={remoteNodes}
 												remoteStorageTargets={remoteStorageTargets}
 												showRequiredErrors={false}
+												fieldErrors={connectionFieldErrors}
 												t={t}
 												onFieldChange={onFieldChange}
 											/>
@@ -610,10 +618,14 @@ export function StoragePolicyDialog({
 												remoteNodes={remoteNodes}
 												remoteStorageTargets={remoteStorageTargets}
 												showRequiredErrors={false}
+												fieldErrors={connectionFieldErrors}
 												t={t}
 												onFieldChange={onFieldChange}
 											/>
-											{endpointValidationMessage ? (
+											{endpointValidationMessage &&
+											!Object.values(connectionFieldErrors).includes(
+												endpointValidationMessage,
+											) ? (
 												<p className="text-xs text-destructive">
 													{endpointValidationMessage}
 												</p>

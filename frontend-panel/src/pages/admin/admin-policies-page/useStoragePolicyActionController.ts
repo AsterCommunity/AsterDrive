@@ -3,6 +3,11 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { presentStorageConnectorActionOutput } from "@/components/admin/storage-policy-dialog/actionResultPresentation";
 import {
+	getStorageConnectorFieldError,
+	type StorageConnectorFieldErrors,
+	storageConnectorFieldErrorKey,
+} from "@/components/admin/storage-policy-dialog/connectionErrors";
+import {
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
 } from "@/components/admin/storage-policy-dialog/connectionNormalization";
@@ -63,6 +68,8 @@ export function useStoragePolicyActionController({
 	const [validatedConnectionKey, setValidatedConnectionKey] = useState<
 		string | null
 	>(null);
+	const [connectionFieldErrors, setConnectionFieldErrors] =
+		useState<StorageConnectorFieldErrors>({});
 
 	const clearActionConfirms = () => {
 		setConnectorActionConfirmId(null);
@@ -73,7 +80,10 @@ export function useStoragePolicyActionController({
 		setConnectorActionSubmittingId(null);
 		setConnectorActionValues({});
 		setValidatedConnectionKey(null);
+		setConnectionFieldErrors({});
 	};
+
+	const clearConnectionFieldErrors = () => setConnectionFieldErrors({});
 
 	const runConnectionTest = async ({
 		showSuccessToast = true,
@@ -82,6 +92,7 @@ export function useStoragePolicyActionController({
 		showSuccessToast?: boolean;
 		showFailureError?: boolean;
 	} = {}) => {
+		setConnectionFieldErrors({});
 		const currentForm = syncNormalizedPolicyForm();
 		const descriptor = getStorageConnectorDescriptor(
 			storageDriverDescriptors,
@@ -98,6 +109,21 @@ export function useStoragePolicyActionController({
 			descriptor,
 		);
 		if (currentEndpointValidationMessage) {
+			const endpointField = descriptor.fields.find(
+				(field) =>
+					field.scope === "connector_config" &&
+					((field.allowed_endpoint_protocols?.length ?? 0) > 0 ||
+						field.allow_endpoint_without_protocol === true ||
+						field.invalid_protocol_message_key != null),
+			);
+			if (endpointField) {
+				setConnectionFieldErrors({
+					[storageConnectorFieldErrorKey(
+						endpointField.scope,
+						endpointField.name,
+					)]: currentEndpointValidationMessage,
+				});
+			}
 			if (showFailureError) {
 				toast.error(currentEndpointValidationMessage);
 			}
@@ -128,14 +154,26 @@ export function useStoragePolicyActionController({
 			setValidatedConnectionKey(
 				getPolicyConnectionTestKey(currentForm, descriptor),
 			);
+			setConnectionFieldErrors({});
 			if (showSuccessToast) {
 				toast.success(t("connection_success"));
 			}
 			return true;
 		} catch (e) {
 			setValidatedConnectionKey(null);
+			const fieldError = getStorageConnectorFieldError(e, descriptor, t);
+			if (fieldError) {
+				setConnectionFieldErrors({
+					[storageConnectorFieldErrorKey(fieldError.scope, fieldError.name)]:
+						fieldError.message,
+				});
+			}
 			if (showFailureError) {
-				handleApiError(e);
+				if (fieldError) {
+					toast.error(fieldError.message);
+				} else {
+					handleApiError(e);
+				}
 			}
 			return false;
 		}
@@ -300,6 +338,8 @@ export function useStoragePolicyActionController({
 		runConnectionTest,
 		setValidatedConnectionKey,
 		setConnectorActionValue,
+		clearConnectionFieldErrors,
+		connectionFieldErrors,
 		validatedConnectionKey,
 	};
 }

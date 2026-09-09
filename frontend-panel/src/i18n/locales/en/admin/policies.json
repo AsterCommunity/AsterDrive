@@ -207,6 +207,7 @@
 	"storage_authorization_failed_server": "The server failed while completing storage authorization. Try again later.",
 	"connection_test_failed_save_prompt": "The connection test failed. Save this policy anyway?",
 	"policy_connector_field_required": "{{field}} is required.",
+	"policy_connector_field_invalid": "Check the {{field}} value.",
 	"policy_recovery_title": "Recover {{name}}",
 	"policy_recovery_desc": "Check source readability before recovering data or permanently purging the affected file histories.",
 	"policy_recovery_probe_title": "Source readability",

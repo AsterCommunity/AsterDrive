@@ -735,12 +735,48 @@ impl AsterError {
 
 impl ApiErrorDiagnostic {
     pub fn from_error(error: &AsterError) -> Option<Self> {
-        let kind = error.storage_error_kind()?;
+        let storage_kind = error.storage_error_kind();
+        let field = connector_validation_field(error.message());
+        if storage_kind.is_none()
+            && (field.is_none() || !matches!(error, AsterError::ValidationError(_)))
+        {
+            return None;
+        }
+        let kind = storage_kind
+            .map(|kind| kind.as_str().to_string())
+            .unwrap_or_else(|| "connector_validation".to_string());
         Some(Self {
-            kind: kind.as_str().to_string(),
+            kind,
             message: sanitize_storage_driver_client_message(error.message()),
+            field: field.as_ref().map(|(field, _)| field.clone()),
+            scope: field.map(|(_, scope)| scope.to_string()),
         })
     }
+}
+
+/// Extract a safe connector field reference from the stable validation messages
+/// emitted by the storage connector descriptor and credential boundaries.
+/// Field names are descriptor ids, never user-provided values.
+fn connector_validation_field(message: &str) -> Option<(String, &'static str)> {
+    let (marker, scope) =
+        if message.contains("static credentials") && message.contains("missing field") {
+            ("missing field `", "static_credential")
+        } else if message.contains("required provider option field '") {
+            ("required provider option field '", "connector_config")
+        } else if message.contains("provider option field '") {
+            ("provider option field '", "connector_config")
+        } else {
+            return None;
+        };
+    let start = message.find(marker)? + marker.len();
+    let field = &message[start..];
+    let end = if marker.ends_with('`') {
+        field.find('`')?
+    } else {
+        field.find('\'')?
+    };
+    let field = field[..end].trim();
+    (!field.is_empty()).then(|| (field.to_string(), scope))
 }
 
 pub(crate) fn sanitize_storage_driver_client_message(message: &str) -> String {
@@ -1404,6 +1440,54 @@ mod tests {
 
         assert!(!info.retryable);
         assert!(info.diagnostic.is_none());
+    }
+
+    #[test]
+    fn connector_validation_diagnostic_exposes_field_scope() {
+        let config =
+            AsterError::validation_error("required provider option field 'endpoint' is missing");
+        let config_diagnostic = config
+            .api_error_info()
+            .diagnostic
+            .expect("connector config validation should be diagnostic");
+        assert_eq!(config_diagnostic.kind, "connector_validation");
+        assert_eq!(config_diagnostic.field.as_deref(), Some("endpoint"));
+        assert_eq!(config_diagnostic.scope.as_deref(), Some("connector_config"));
+
+        let credential = AsterError::validation_error(
+            "invalid static credentials for storage connector 'asterdrive.storage.alibaba_oss': missing field `aliyun_oss_access_key_id`",
+        );
+        let credential_diagnostic = credential
+            .api_error_info()
+            .diagnostic
+            .expect("static credential validation should be diagnostic");
+        assert_eq!(
+            credential_diagnostic.field.as_deref(),
+            Some("aliyun_oss_access_key_id")
+        );
+        assert_eq!(
+            credential_diagnostic.scope.as_deref(),
+            Some("static_credential")
+        );
+    }
+
+    #[test]
+    fn connector_validation_diagnostic_ignores_ambiguous_messages() {
+        let generic = AsterError::validation_error("missing field");
+        assert!(generic.api_error_info().diagnostic.is_none());
+
+        let malformed_credential =
+            AsterError::validation_error("invalid static credentials: missing field");
+        assert!(malformed_credential.api_error_info().diagnostic.is_none());
+
+        let storage = storage_driver_error(StorageErrorKind::Misconfigured, "provider unavailable");
+        let diagnostic = storage
+            .api_error_info()
+            .diagnostic
+            .expect("storage errors retain diagnostics");
+        assert_eq!(diagnostic.kind, "misconfigured");
+        assert!(diagnostic.field.is_none());
+        assert!(diagnostic.scope.is_none());
     }
 
     #[test]

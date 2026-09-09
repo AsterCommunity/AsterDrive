@@ -22,6 +22,10 @@ import type {
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
 } from "@/types/api";
+import {
+	type StorageConnectorFieldErrors,
+	storageConnectorFieldErrorKey,
+} from "./connectionErrors";
 import { normalizeConnectorFieldValue } from "./connectionNormalization";
 import {
 	applyConnectorConfigFieldTransition,
@@ -44,6 +48,7 @@ interface StorageConnectorFieldsPanelProps {
 	remoteNodes: RemoteNodeInfo[];
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	showRequiredErrors: boolean;
+	fieldErrors?: StorageConnectorFieldErrors;
 	t: Translate;
 	onFieldChange: <K extends keyof PolicyFormData>(
 		key: K,
@@ -60,6 +65,7 @@ export function StorageConnectorFieldsPanel({
 	remoteNodes,
 	remoteStorageTargets,
 	showRequiredErrors,
+	fieldErrors,
 	t,
 	onFieldChange,
 }: StorageConnectorFieldsPanelProps) {
@@ -96,6 +102,7 @@ export function StorageConnectorFieldsPanel({
 				remoteNodes={remoteNodes}
 				remoteStorageTargets={remoteStorageTargets}
 				showRequiredErrors={showRequiredErrors}
+				fieldErrors={fieldErrors}
 				t={t}
 				onFieldChange={onFieldChange}
 			/>
@@ -114,6 +121,7 @@ export function StorageConnectorFieldsPanel({
 						remoteNodes={remoteNodes}
 						remoteStorageTargets={remoteStorageTargets}
 						showRequiredErrors={showRequiredErrors}
+						fieldErrors={fieldErrors}
 						t={t}
 						onFieldChange={onFieldChange}
 					/>
@@ -188,6 +196,7 @@ function ConnectorField({
 	remoteNodes,
 	remoteStorageTargets,
 	showRequiredErrors,
+	fieldErrors,
 	t,
 	onFieldChange,
 }: StorageConnectorFieldsPanelProps & {
@@ -222,6 +231,9 @@ function ConnectorField({
 					field: connectorT(field.label_key),
 				})
 		: null;
+	const serverError =
+		fieldErrors?.[storageConnectorFieldErrorKey(field.scope, field.name)] ??
+		null;
 
 	if (field.kind === "boolean") {
 		return (
@@ -233,12 +245,17 @@ function ConnectorField({
 					<Switch
 						id={inputId}
 						checked={(value ?? resolvedDefault) === true}
+						aria-invalid={Boolean(serverError) || undefined}
 						onCheckedChange={(checked) =>
 							setFieldValue(form, descriptor, field, checked, onFieldChange)
 						}
 					/>
 				</div>
-				<FieldHelp field={field} t={connectorT} />
+				<FieldMessages
+					errorMessage={serverError ?? errorMessage}
+					field={field}
+					t={connectorT}
+				/>
 			</div>
 		);
 	}
@@ -304,13 +321,15 @@ function ConnectorField({
 			showRequiredErrors &&
 			customSelected &&
 			(typeof value !== "string" || value.trim() === "");
-		const selectErrorMessage = customValueMissing
-			? t("policy_connector_field_required", {
-					field: connectorT(
-						field.select?.custom_value_label_key ?? field.label_key,
-					),
-				})
-			: errorMessage;
+		const selectErrorMessage =
+			serverError ??
+			(customValueMissing
+				? t("policy_connector_field_required", {
+						field: connectorT(
+							field.select?.custom_value_label_key ?? field.label_key,
+						),
+					})
+				: errorMessage);
 		return (
 			<div className="space-y-2">
 				<FormFieldLabel htmlFor={inputId} required={required}>
@@ -349,7 +368,9 @@ function ConnectorField({
 				>
 					<SelectTrigger
 						id={inputId}
-						aria-invalid={missing || customValueMissing || undefined}
+						aria-invalid={
+							Boolean(serverError || missing || customValueMissing) || undefined
+						}
 					>
 						<SelectValue placeholder={field.placeholder ?? undefined} />
 					</SelectTrigger>
@@ -374,7 +395,9 @@ function ConnectorField({
 							placeholder={field.placeholder ?? undefined}
 							maxLength={field.validation?.max_length ?? undefined}
 							required
-							aria-invalid={customValueMissing || undefined}
+							aria-invalid={
+								Boolean(serverError || customValueMissing) || undefined
+							}
 							autoComplete="off"
 							className={ADMIN_CONTROL_HEIGHT_CLASS}
 							onChange={(event) =>
@@ -437,7 +460,7 @@ function ConnectorField({
 				max={field.validation?.max_integer ?? undefined}
 				maxLength={field.validation?.max_length ?? undefined}
 				required={required}
-				aria-invalid={missing || undefined}
+				aria-invalid={Boolean(serverError || missing) || undefined}
 				placeholder={
 					mode === "edit" && field.scope !== "connector_config"
 						? t("policy_editor_credentials_keep_placeholder")
@@ -467,7 +490,11 @@ function ConnectorField({
 					}
 				}}
 			/>
-			<FieldMessages errorMessage={errorMessage} field={field} t={connectorT} />
+			<FieldMessages
+				errorMessage={serverError ?? errorMessage}
+				field={field}
+				t={connectorT}
+			/>
 		</div>
 	);
 }
