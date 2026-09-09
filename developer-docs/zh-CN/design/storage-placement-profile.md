@@ -34,4 +34,4 @@ workspace scope
 
 ## 验收
 
-至少覆盖 matcher 边界、admission deny precedence、folder override、target draining/unavailable、weighted selection、profile revision、session binding、迁移前后 legacy routing 一致性和多 workspace copy policy 保留语义。
+至少覆盖 matcher 边界、admission allowlist、folder override、target draining/unavailable、weighted selection、profile revision、session binding、迁移前后 legacy routing 一致性和多 workspace copy policy 保留语义。

@@ -356,6 +356,13 @@ function createRule(
 
 function createGroup(overrides: Record<string, unknown> = {}) {
 	return {
+		admission: {
+			allowed_extensions: [],
+			denied_extensions: [],
+			accept_extensionless: true,
+			allowed_categories: [],
+			max_file_size: 0,
+		},
 		created_at: "2026-03-28T00:00:00Z",
 		description: "",
 		id: 7,
@@ -442,7 +449,6 @@ describe("AdminPolicyGroupEditPage", () => {
 					denied_extensions: [],
 					accept_extensionless: true,
 					allowed_categories: [],
-					denied_categories: [],
 					max_file_size: 0,
 				},
 				execution_preference: "automatic",
@@ -478,6 +484,45 @@ describe("AdminPolicyGroupEditPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_group_created");
 		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policy-groups", {
 			viewTransition: false,
+		});
+	});
+
+	it("requires a selected category in allowlist mode and submits the selection", async () => {
+		render(<AdminPolicyGroupEditPage />);
+
+		await waitFor(() => {
+			expect(screen.getByLabelText("core:name")).toBeInTheDocument();
+		});
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Images only" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_group_category_allowlist",
+			}),
+		);
+		fireEvent.click(screen.getAllByRole("button", { name: /core:create/i })[0]);
+
+		expect(mockState.createGroup).not.toHaveBeenCalled();
+		expect(
+			screen.getByText("policy_group_allowed_categories_required"),
+		).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_group_category_image",
+			}),
+		);
+		fireEvent.click(screen.getAllByRole("button", { name: /core:create/i })[0]);
+
+		await waitFor(() => {
+			expect(mockState.createGroup).toHaveBeenCalledWith(
+				expect.objectContaining({
+					admission: expect.objectContaining({
+						allowed_categories: ["image"],
+					}),
+				}),
+			);
 		});
 	});
 

@@ -7856,7 +7856,6 @@ export interface components {
             accept_extensionless?: boolean;
             allowed_categories?: components["schemas"]["FileCategory"][];
             allowed_extensions?: string[];
-            denied_categories?: components["schemas"]["FileCategory"][];
             denied_extensions?: string[];
             /** Format: int64 */
             max_file_size?: number;
