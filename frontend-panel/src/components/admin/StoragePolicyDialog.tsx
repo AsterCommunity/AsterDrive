@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { getStorageConnectorBadgePresentation } from "@/components/admin/admin-policies-page/policyPresentation";
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { FormFieldLabel } from "@/components/common/FormFieldLabel";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
 import { AdminDetailPageShell } from "@/components/layout/AdminDetailPageShell";
 import { Badge } from "@/components/ui/badge";
@@ -1073,7 +1074,9 @@ function PolicyNameField({
 	const invalid = showError && !form.name.trim();
 	return (
 		<div className="space-y-2">
-			<Label htmlFor="name">{t("core:name")}</Label>
+			<FormFieldLabel htmlFor="name" required>
+				{t("core:name")}
+			</FormFieldLabel>
 			<Input
 				id="name"
 				value={form.name}

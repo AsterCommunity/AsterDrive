@@ -1,9 +1,9 @@
 import { type ReactNode, useState } from "react";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
+import { FormFieldLabel } from "@/components/common/FormFieldLabel";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
 	Select,
 	SelectContent,
@@ -227,7 +227,9 @@ function ConnectorField({
 		return (
 			<div className="space-y-2 md:col-span-2">
 				<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2">
-					<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
+					<FormFieldLabel htmlFor={inputId} required={required}>
+						{connectorT(field.label_key)}
+					</FormFieldLabel>
 					<Switch
 						id={inputId}
 						checked={(value ?? resolvedDefault) === true}
@@ -311,7 +313,9 @@ function ConnectorField({
 			: errorMessage;
 		return (
 			<div className="space-y-2">
-				<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
+				<FormFieldLabel htmlFor={inputId} required={required}>
+					{connectorT(field.label_key)}
+				</FormFieldLabel>
 				<Select
 					items={renderedOptions}
 					value={selectedValue}
@@ -359,11 +363,11 @@ function ConnectorField({
 				</Select>
 				{customSelected ? (
 					<div className="space-y-2 pt-1">
-						<Label htmlFor={`${inputId}-custom`}>
+						<FormFieldLabel htmlFor={`${inputId}-custom`} required>
 							{connectorT(
 								field.select?.custom_value_label_key ?? field.label_key,
 							)}
-						</Label>
+						</FormFieldLabel>
 						<Input
 							id={`${inputId}-custom`}
 							value={typeof value === "string" ? value : ""}
@@ -411,7 +415,9 @@ function ConnectorField({
 	const displayedValue = value ?? resolvedDefault ?? "";
 	return (
 		<div className="space-y-2">
-			<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
+			<FormFieldLabel htmlFor={inputId} required={required}>
+				{connectorT(field.label_key)}
+			</FormFieldLabel>
 			<Input
 				id={inputId}
 				type={

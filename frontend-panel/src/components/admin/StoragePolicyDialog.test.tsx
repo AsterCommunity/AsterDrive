@@ -321,6 +321,7 @@ describe("StoragePolicyDialog", () => {
 		render(
 			<StoragePolicyDialog
 				{...dialogProps({
+					createStep: 1,
 					mode: "create",
 					pageBackLabel: "Back to policies",
 					presentation: "page",
@@ -331,6 +332,12 @@ describe("StoragePolicyDialog", () => {
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 		expect(screen.getByText("create_policy")).toBeInTheDocument();
 		expect(screen.getByTestId("policy-step-panel")).toBeInTheDocument();
+		expect(screen.getByText("core:name")).toHaveClass(
+			"gap-0",
+			"after:ml-0.5",
+			"after:text-destructive",
+			"after:content-['*']",
+		);
 	});
 
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {

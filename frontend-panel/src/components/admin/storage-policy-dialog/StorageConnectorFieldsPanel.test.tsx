@@ -208,6 +208,21 @@ describe("StorageConnectorFieldsPanel", () => {
 			],
 			showRequiredErrors: true,
 		});
+		expect(screen.getByText("Text field")).toHaveClass(
+			"gap-0",
+			"after:ml-0.5",
+			"after:text-destructive",
+			"after:content-['*']",
+		);
+		expect(screen.getByText("Base path")).toHaveClass(
+			"gap-0",
+			"after:ml-0.5",
+			"after:text-destructive",
+			"after:content-['*']",
+		);
+		expect(screen.getByText("Secret field")).not.toHaveClass(
+			"after:content-['*']",
+		);
 
 		expect(screen.getByLabelText("Text field")).toHaveAttribute(
 			"maxlength",
