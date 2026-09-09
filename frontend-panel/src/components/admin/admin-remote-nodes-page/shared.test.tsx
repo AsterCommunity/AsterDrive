@@ -7,7 +7,6 @@ import {
 	getRemoteNodeEnrollmentStatusTone,
 	getRemoteNodeStatusLabel,
 	getRemoteNodeStatusTone,
-	getRemoteNodeTransportBadge,
 	getRemoteNodeTransportLabel,
 	getRemoteNodeTransportTone,
 	getRemoteNodeTunnelLabel,
@@ -166,14 +165,6 @@ describe("admin remote nodes shared helpers", () => {
 			"border-cyan",
 		);
 		expect(getRemoteNodeTransportTone("auto")).toContain("border-violet");
-	});
-
-	it("marks reverse tunnel as a test transport", () => {
-		expect(getRemoteNodeTransportBadge(t, "direct")).toBeNull();
-		expect(getRemoteNodeTransportBadge(t, "reverse_tunnel")).toBe(
-			"remote_node_transport_test_badge",
-		);
-		expect(getRemoteNodeTransportBadge(t, "auto")).toBeNull();
 	});
 
 	it("maps tunnel status from node transport state", () => {

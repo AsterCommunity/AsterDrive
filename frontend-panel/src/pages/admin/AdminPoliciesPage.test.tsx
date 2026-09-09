@@ -2103,7 +2103,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			expect(currentDialog().form.connector_id).toBe("plugin.setup"),
 		);
 		expect(currentDialog().forceDefaultPolicy).toBe(true);
-		expect(currentDialog().showStorageDialogCloseButton).toBe(false);
+		expect(currentDialog().storageDialogPresentation).toBe("setup");
 		await setField("name", "Setup Policy");
 		await setField("is_default", false);
 		await act(async () => currentDialog().onCreateStepChange(2));

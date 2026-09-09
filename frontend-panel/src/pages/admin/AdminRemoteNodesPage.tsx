@@ -1,8 +1,5 @@
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
-import { RemoteNodeDialog } from "@/components/admin/admin-remote-nodes-page/RemoteNodeDialog";
-import { RemoteNodeEnrollmentDialog } from "@/components/admin/admin-remote-nodes-page/RemoteNodeEnrollmentDialog";
 import { RemoteNodesTable } from "@/components/admin/admin-remote-nodes-page/RemoteNodesTable";
-import { hasCompletedRemoteNodeEnrollment } from "@/components/admin/admin-remote-nodes-page/shared";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
@@ -15,42 +12,15 @@ import { useAdminRemoteNodesPageController } from "./useAdminRemoteNodesPageCont
 export default function AdminRemoteNodesPage() {
 	const controller = useAdminRemoteNodesPageController();
 	const {
-		copyToClipboard,
 		createButtonTitle,
-		createRemoteStorageTarget,
-		createStep,
-		createStepTouched,
 		currentPage,
 		deleteDialogProps,
-		deleteRemoteStorageTarget,
 		deleteNodeName,
 		deletingRemoteNodeId,
-		dialogOpen,
-		editingId,
-		editingNode,
-		enrollmentCommand,
-		enrollmentCommandCanTest,
-		enrollmentDialogOpen,
-		form,
-		generatingEnrollmentId,
-		handleCreateBack,
-		handleCreateNext,
-		handleCreateStepChange,
-		handleDialogOpenChange,
-		handleEnrollmentDialogOpenChange,
-		handleGenerateEnrollmentCommand,
 		handlePageSizeChange,
 		handleRefresh,
 		handleSortChange,
-		handleSubmit,
-		handleVerifyEnrollmentConnection,
 		loading,
-		remoteStorageTargets,
-		remoteStorageTargetConnectorDescriptors,
-		remoteStorageTargetConnectorDescriptorsError,
-		remoteStorageTargetConnectorDescriptorsLoading,
-		remoteStorageTargetsError,
-		remoteStorageTargetsLoading,
 		nextPageDisabled,
 		openCreate,
 		openEdit,
@@ -59,16 +29,12 @@ export default function AdminRemoteNodesPage() {
 		prevPageDisabled,
 		remoteNodes,
 		requestConfirm,
-		runConnectionTest,
-		setField,
 		setOffset,
 		sortBy,
 		sortOrder,
-		submitting,
 		t,
 		total,
 		totalPages,
-		updateRemoteStorageTarget,
 	} = controller;
 
 	return (
@@ -110,30 +76,27 @@ export default function AdminRemoteNodesPage() {
 					loading={loading}
 					items={remoteNodes}
 					deletingRemoteNodeId={deletingRemoteNodeId}
-					generatingEnrollmentId={generatingEnrollmentId}
 					onEdit={openEdit}
-					onGenerateEnrollmentCommand={(node) =>
-						void handleGenerateEnrollmentCommand(node)
-					}
 					onRequestDelete={requestConfirm}
 					sortBy={sortBy}
 					sortOrder={sortOrder}
 					onSortChange={handleSortChange}
-				/>
-
-				<AdminOffsetPagination
-					total={total}
-					currentPage={currentPage}
-					totalPages={totalPages}
-					pageSize={String(pageSize)}
-					pageSizeOptions={pageSizeOptions}
-					onPageSizeChange={handlePageSizeChange}
-					prevDisabled={prevPageDisabled}
-					nextDisabled={nextPageDisabled}
-					onPrevious={() =>
-						setOffset((current) => Math.max(0, current - pageSize))
+					pagination={
+						<AdminOffsetPagination
+							total={total}
+							currentPage={currentPage}
+							totalPages={totalPages}
+							pageSize={String(pageSize)}
+							pageSizeOptions={pageSizeOptions}
+							onPageSizeChange={handlePageSizeChange}
+							prevDisabled={prevPageDisabled}
+							nextDisabled={nextPageDisabled}
+							onPrevious={() =>
+								setOffset((current) => Math.max(0, current - pageSize))
+							}
+							onNext={() => setOffset((current) => current + pageSize)}
+						/>
 					}
-					onNext={() => setOffset((current) => current + pageSize)}
 				/>
 
 				<ConfirmDialog
@@ -142,50 +105,6 @@ export default function AdminRemoteNodesPage() {
 					description={t("delete_remote_node_desc")}
 					confirmLabel={t("core:delete")}
 					variant="destructive"
-				/>
-				<RemoteNodeDialog
-					open={dialogOpen}
-					mode={editingId === null ? "create" : "edit"}
-					form={form}
-					editingNode={editingNode}
-					submitting={submitting}
-					createStep={createStep}
-					createStepTouched={createStepTouched}
-					remoteStorageTargetsEnabled={
-						editingId !== null &&
-						editingNode !== null &&
-						hasCompletedRemoteNodeEnrollment(editingNode)
-					}
-					remoteStorageTargets={remoteStorageTargets}
-					remoteStorageTargetConnectorDescriptors={
-						remoteStorageTargetConnectorDescriptors
-					}
-					remoteStorageTargetConnectorDescriptorsError={
-						remoteStorageTargetConnectorDescriptorsError
-					}
-					remoteStorageTargetConnectorDescriptorsLoading={
-						remoteStorageTargetConnectorDescriptorsLoading
-					}
-					remoteStorageTargetsLoading={remoteStorageTargetsLoading}
-					remoteStorageTargetsError={remoteStorageTargetsError}
-					onFieldChange={setField}
-					onOpenChange={handleDialogOpenChange}
-					onRunConnectionTest={() => runConnectionTest()}
-					onSubmit={handleSubmit}
-					onCreateBack={handleCreateBack}
-					onCreateNext={handleCreateNext}
-					onCreateStepChange={handleCreateStepChange}
-					onCreateRemoteStorageTarget={createRemoteStorageTarget}
-					onUpdateRemoteStorageTarget={updateRemoteStorageTarget}
-					onDeleteRemoteStorageTarget={deleteRemoteStorageTarget}
-				/>
-				<RemoteNodeEnrollmentDialog
-					open={enrollmentDialogOpen}
-					command={enrollmentCommand}
-					canTestConnection={enrollmentCommandCanTest}
-					onCopy={copyToClipboard}
-					onVerifyConnection={handleVerifyEnrollmentConnection}
-					onOpenChange={handleEnrollmentDialogOpenChange}
 				/>
 			</AdminPageShell>
 		</AdminLayout>

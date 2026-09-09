@@ -166,6 +166,16 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminRemoteNodesPage"),
 	},
 	{
+		key: "route:admin-remote-node-create",
+		label: "AdminRemoteNodeCreatePage",
+		load: () => import("@/pages/admin/AdminRemoteNodeCreatePage"),
+	},
+	{
+		key: "route:admin-remote-node-detail",
+		label: "AdminRemoteNodeDetailPage",
+		load: () => import("@/pages/admin/AdminRemoteNodeDetailPage"),
+	},
+	{
 		key: "route:admin-external-auth",
 		label: "AdminExternalAuthPage",
 		load: () => import("@/pages/admin/AdminExternalAuthPage"),

@@ -65,7 +65,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 		) ?? null;
 
 	return (
-		<div className="mt-4 rounded-2xl border border-border/70 bg-muted/10 p-4">
+		<div className="mt-4 rounded-xl border border-border/70 bg-muted/10 p-4">
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div>
 					<h4 className="text-sm font-semibold text-foreground">

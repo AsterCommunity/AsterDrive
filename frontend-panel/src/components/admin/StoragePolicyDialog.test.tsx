@@ -338,6 +338,62 @@ describe("StoragePolicyDialog", () => {
 			"after:text-destructive",
 			"after:content-['*']",
 		);
+		expect(document.querySelector('[data-slot="dialog-footer"]')).toBeNull();
+	});
+
+	it("keeps the page connector catalog compact, searchable, and explicitly advanced", () => {
+		const local = descriptor("local", {
+			ui: {
+				...descriptor("local").ui,
+				description_key: "local_description",
+				label_key: "local_label",
+			},
+		});
+		const objectStorage = descriptor("s3", {
+			ui: {
+				...descriptor("s3").ui,
+				description_key: "s3_description",
+				label_key: "s3_label",
+			},
+		});
+		const props = dialogProps({
+			form: policyForm({ connector_id: "local" }),
+			presentation: "page",
+			storageDriverDescriptor: local,
+			storageDriverDescriptors: [local, objectStorage],
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		const options = screen.getByTestId("storage-driver-options");
+		expect(options).toHaveClass(
+			"items-start",
+			"lg:grid-cols-[20rem_minmax(0,1fr)]",
+		);
+		const catalog = within(options)
+			.getByRole("searchbox", {
+				name: "policy_connector_search",
+			})
+			.closest("div")?.parentElement;
+		expect(catalog).toHaveClass("max-h-[26rem]", "lg:max-h-[min(56vh,34rem)]");
+
+		fireEvent.change(
+			within(options).getByRole("searchbox", {
+				name: "policy_connector_search",
+			}),
+			{ target: { value: "s3" } },
+		);
+		expect(
+			within(options).getByRole("button", { name: /s3_label/ }),
+		).toBeVisible();
+		expect(
+			within(options).queryByRole("button", { name: /local_label/ }),
+		).toBeNull();
+
+		fireEvent.click(within(options).getByRole("button", { name: /s3_label/ }));
+		expect(props.onConnectorIdChange).toHaveBeenCalledWith("s3");
+		expect(props.onCreateStepChange).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+		expect(props.onCreateNext).toHaveBeenCalledOnce();
 	});
 
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {

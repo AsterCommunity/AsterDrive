@@ -335,6 +335,20 @@ describe("router", () => {
 		);
 	});
 
+	it("registers remote node detail subpages alongside the legacy detail URL", async () => {
+		const routes = (await loadRoutes()) as TestRoute[];
+		const allRoutes = flattenRoutes(routes);
+
+		expect(
+			allRoutes.some((route) => route.path === "/admin/remote-nodes/:nodeId"),
+		).toBe(true);
+		expect(
+			allRoutes.some(
+				(route) => route.path === "/admin/remote-nodes/:nodeId/:section",
+			),
+		).toBe(true);
+	});
+
 	it("registers root and canonical subfolder routes for public folder shares", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const shareRoute = routes.find((route) => route.path === "/s/:token");
@@ -404,6 +418,14 @@ describe("router", () => {
 			{
 				path: "/admin/teams/:teamId/:section",
 				namespaces: ["admin", "core", "settings"],
+			},
+			{
+				path: "/admin/remote-nodes/:nodeId",
+				namespaces: ["admin", "core", "errors"],
+			},
+			{
+				path: "/admin/remote-nodes/:nodeId/:section",
+				namespaces: ["admin", "core", "errors"],
 			},
 		];
 

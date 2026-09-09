@@ -65,6 +65,12 @@ vi.mock("@/pages/admin/AdminPolicyDetailPage", () => ({
 vi.mock("@/pages/admin/AdminRemoteNodesPage", () => ({
 	default: "AdminRemoteNodesPage",
 }));
+vi.mock("@/pages/admin/AdminRemoteNodeCreatePage", () => ({
+	default: "AdminRemoteNodeCreatePage",
+}));
+vi.mock("@/pages/admin/AdminRemoteNodeDetailPage", () => ({
+	default: "AdminRemoteNodeDetailPage",
+}));
 vi.mock("@/pages/admin/AdminExternalAuthPage", () => ({
 	default: "AdminExternalAuthPage",
 }));
@@ -171,6 +177,8 @@ describe("pwaWarmupLoaders", () => {
 			"route:admin-policy-create",
 			"route:admin-policy-detail",
 			"route:admin-remote-nodes",
+			"route:admin-remote-node-create",
+			"route:admin-remote-node-detail",
 			"route:admin-external-auth",
 			"route:admin-external-auth-create",
 			"route:admin-external-auth-detail",

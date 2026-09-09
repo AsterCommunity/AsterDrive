@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	buildCreateRemoteStorageTargetPayload,
@@ -69,6 +69,15 @@ export function RemoteNodeRemoteStorageTargetSection({
 		string | null
 	>(null);
 	const [readOnlyOpen, setReadOnlyOpen] = useState(false);
+	const [animateDraftClose, setAnimateDraftClose] = useState(true);
+	const draftCloseResetTimer = useRef<number | null>(null);
+	useEffect(() => {
+		return () => {
+			if (draftCloseResetTimer.current !== null) {
+				window.clearTimeout(draftCloseResetTimer.current);
+			}
+		};
+	}, []);
 	const editingTarget =
 		draftMode === "edit"
 			? (targets.find((target) => target.target_key === editingTargetKey) ??
@@ -121,7 +130,17 @@ export function RemoteNodeRemoteStorageTargetSection({
 		setForm(getRemoteStorageTargetForm(target));
 	};
 
-	const resetDraft = () => {
+	const resetDraft = (options?: { immediate?: boolean }) => {
+		if (options?.immediate) {
+			setAnimateDraftClose(false);
+			if (draftCloseResetTimer.current !== null) {
+				window.clearTimeout(draftCloseResetTimer.current);
+			}
+			draftCloseResetTimer.current = window.setTimeout(() => {
+				draftCloseResetTimer.current = null;
+				setAnimateDraftClose(true);
+			}, 0);
+		}
 		setDraftMode(null);
 		setEditingTargetKey(null);
 		setForm(emptyRemoteStorageTargetForm);
@@ -187,13 +206,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 					),
 				);
 			}
-			resetDraft();
+			resetDraft({ immediate: true });
 		} catch {
 			// Parent handlers surface API errors; keep the draft open on failure.
 		} finally {
 			setSubmitting(false);
 		}
 	};
+	const draftModeForRender = activeDraftMode ?? "create";
 
 	const handleDeleteTarget = async (target: RemoteStorageTargetInfo) => {
 		if (!onDeleteTarget) {
@@ -210,14 +230,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const rootClassName =
 		surface === "card"
 			? "rounded-2xl border border-border/70 bg-background/70 p-5"
-			: "space-y-4 border-t border-border/70 pt-4";
+			: "space-y-6";
 	const listProps = {
 		errorMessage,
 		loading,
 		pendingDeleteTargetKey: activePendingDeleteTargetKey,
 		onCancelDelete: () => setPendingDeleteTargetKey(null),
 		onConfirmDeleteTarget: (target: RemoteStorageTargetInfo) =>
-			void handleDeleteTarget(target),
+			handleDeleteTarget(target),
 		onRequestDeleteTarget: (target: RemoteStorageTargetInfo) =>
 			setPendingDeleteTargetKey(target.target_key),
 		onEditTarget: startEdit,
@@ -297,26 +317,28 @@ export function RemoteNodeRemoteStorageTargetSection({
 			</div>
 
 			{errorMessage ? (
-				<div className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+				<div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
 					{errorMessage}
 				</div>
 			) : null}
 
-			{activeDraftMode != null ? (
-				<RemoteNodeRemoteStorageTargetForm
-					defaultToggleLocked={Boolean(defaultToggleLocked)}
-					connectorDescriptors={supportedConnectorDescriptors}
-					connectorIdError={connectorIdError}
-					draftMode={activeDraftMode}
-					form={form}
-					nameError={nameError}
-					onCancel={resetDraft}
-					onFieldChange={setField}
-					onSubmit={() => void handleSubmit()}
-					submitDisabled={submitDisabled}
-					submitting={submitting}
-					targets={targets}
-				/>
+			{animateDraftClose ? (
+				<AnimatedCollapsible open={activeDraftMode != null}>
+					<RemoteNodeRemoteStorageTargetForm
+						defaultToggleLocked={Boolean(defaultToggleLocked)}
+						connectorDescriptors={supportedConnectorDescriptors}
+						connectorIdError={connectorIdError}
+						draftMode={draftModeForRender}
+						form={form}
+						nameError={nameError}
+						onCancel={() => resetDraft()}
+						onFieldChange={setField}
+						onSubmit={() => void handleSubmit()}
+						submitDisabled={submitDisabled}
+						submitting={submitting}
+						targets={targets}
+					/>
+				</AnimatedCollapsible>
 			) : null}
 
 			{readOnly ? (

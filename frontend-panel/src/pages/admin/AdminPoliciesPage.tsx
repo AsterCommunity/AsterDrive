@@ -658,10 +658,9 @@ function useAdminPoliciesPageContent(
 			endpointValidationMessage={endpointValidationMessage}
 			connectionFieldErrors={actionController.connectionFieldErrors}
 			saveAnywayConfirmOpen={saveAnywayConfirmOpen}
-			showStorageDialogCloseButton={!setupMode && !createMode && !detailMode}
 			forceDefaultPolicy={setupMode}
 			storageDialogPresentation={
-				setupMode ? "setup" : createMode || detailMode ? "page" : "dialog"
+				setupMode ? "setup" : createMode || detailMode ? "page" : undefined
 			}
 			storageDialogPageBackLabel={t("back_to_policies")}
 			onStorageSetupLogout={setupMode ? () => void logout() : undefined}
