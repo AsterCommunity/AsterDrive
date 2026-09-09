@@ -41,6 +41,7 @@ export interface PolicyGroupFormData {
 	isDefault: boolean;
 	items: PolicyGroupRuleForm[];
 	admission?: components["schemas"]["StorageAdmissionConstraints"];
+	categoryRestrictionEnabled: boolean;
 	executionPreference?: "automatic" | "force_server_stream";
 }
 
@@ -168,9 +169,9 @@ export function getDefaultPolicyGroupForm(
 			denied_extensions: [],
 			accept_extensionless: true,
 			allowed_categories: [],
-			denied_categories: [],
 			max_file_size: 0,
 		},
+		categoryRestrictionEnabled: false,
 		executionPreference: "automatic",
 	};
 }
@@ -194,6 +195,8 @@ export function getPolicyGroupForm(
 				),
 			),
 		admission: group.admission,
+		categoryRestrictionEnabled:
+			(group.admission.allowed_categories?.length ?? 0) > 0,
 		executionPreference: group.execution_preference,
 	};
 }
@@ -214,6 +217,12 @@ export function validatePolicyGroupForm(
 	}
 	if (form.items.length === 0) {
 		return t("policy_group_rule_required");
+	}
+	if (
+		form.categoryRestrictionEnabled &&
+		(form.admission?.allowed_categories?.length ?? 0) === 0
+	) {
+		return t("policy_group_allowed_categories_required");
 	}
 
 	const seenPrimaryPolicyIds = new Set<number>();
@@ -274,13 +283,16 @@ export function buildPolicyGroupPayload(
 		description: form.description.trim(),
 		is_enabled: form.isEnabled,
 		is_default: form.isDefault,
-		admission: form.admission ?? {
-			allowed_extensions: [],
-			denied_extensions: [],
-			accept_extensionless: true,
-			allowed_categories: [],
-			denied_categories: [],
-			max_file_size: 0,
+		admission: {
+			...(form.admission ?? {
+				allowed_extensions: [],
+				denied_extensions: [],
+				accept_extensionless: true,
+				max_file_size: 0,
+			}),
+			allowed_categories: form.categoryRestrictionEnabled
+				? (form.admission?.allowed_categories ?? [])
+				: [],
 		},
 		execution_preference: form.executionPreference ?? "automatic",
 		rules: form.items.map((item, index) => ({

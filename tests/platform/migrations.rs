@@ -82,6 +82,24 @@ async fn storage_placement_migration_preserves_legacy_rule_semantics() {
         .await
         .expect("storage placement migration should apply");
 
+    let admission: serde_json::Value = serde_json::from_str(
+        &db.query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT admission_config FROM storage_policy_groups WHERE id = 4441",
+        ))
+        .await
+        .expect("placement admission should query")
+        .expect("placement group should exist")
+        .try_get_by_index::<String>(0)
+        .expect("placement admission should decode"),
+    )
+    .expect("placement admission should be valid JSON");
+    assert_eq!(
+        admission["values"]["allowed_categories"],
+        serde_json::json!([])
+    );
+    assert!(admission["values"].get("denied_categories").is_none());
+
     let rule = db
         .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,

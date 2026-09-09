@@ -17,7 +17,7 @@ use serde_json::json;
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
-const DEFAULT_ADMISSION: &str = r#"{"format_version":1,"schema_version":1,"values":{"allowed_extensions":[],"denied_extensions":[],"accept_extensionless":true,"allowed_categories":[],"denied_categories":[],"max_file_size":0}}"#;
+const DEFAULT_ADMISSION: &str = r#"{"format_version":1,"schema_version":1,"values":{"allowed_extensions":[],"denied_extensions":[],"accept_extensionless":true,"allowed_categories":[],"max_file_size":0}}"#;
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {

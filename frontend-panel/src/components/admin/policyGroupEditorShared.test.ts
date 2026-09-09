@@ -20,6 +20,7 @@ describe("policyGroupEditorShared", () => {
 			isEnabled: true,
 			isDefault: false,
 			items: [],
+			categoryRestrictionEnabled: false,
 		};
 		expect(validatePolicyGroupForm({ ...base, name: " " }, 1, t)).toBe(
 			"policy_group_name_required",
@@ -108,6 +109,32 @@ describe("policyGroupEditorShared", () => {
 		expect(form.items[0]?.targets[0]?.policyId).toBe("8");
 		expect(form.items[0]?.targets[0]?.weight).toBe("100");
 		expect(form.items[0]?.name).toBe("Rule 1");
+		expect(form.categoryRestrictionEnabled).toBe(false);
+		expect(form.admission?.allowed_categories).toEqual([]);
+	});
+
+	it("derives category restriction mode from an existing allowlist", () => {
+		const unrestricted = getPolicyGroupForm({
+			name: "Open",
+			description: "",
+			is_enabled: true,
+			is_default: false,
+			admission: { allowed_categories: [] },
+			execution_preference: "automatic",
+			rules: [],
+		} as never);
+		const restricted = getPolicyGroupForm({
+			name: "Images",
+			description: "",
+			is_enabled: true,
+			is_default: false,
+			admission: { allowed_categories: ["image"] },
+			execution_preference: "automatic",
+			rules: [],
+		} as never);
+
+		expect(unrestricted.categoryRestrictionEnabled).toBe(false);
+		expect(restricted.categoryRestrictionEnabled).toBe(true);
 	});
 
 	it("preserves custom rule names and sends edited names", () => {
@@ -125,6 +152,7 @@ describe("policyGroupEditorShared", () => {
 			isEnabled: true,
 			isDefault: false,
 			items: [rule],
+			categoryRestrictionEnabled: false,
 		});
 		expect(payload.rules?.[0]?.name).toBe("Images to primary");
 	});
@@ -382,6 +410,7 @@ describe("policyGroupEditorShared", () => {
 				description: "Routing rules",
 				isEnabled: true,
 				isDefault: false,
+				categoryRestrictionEnabled: false,
 				items: [
 					{
 						key: "a",
@@ -445,7 +474,6 @@ describe("policyGroupEditorShared", () => {
 				denied_extensions: [],
 				accept_extensionless: true,
 				allowed_categories: [],
-				denied_categories: [],
 				max_file_size: 0,
 			},
 			execution_preference: "automatic",
@@ -508,6 +536,45 @@ describe("policyGroupEditorShared", () => {
 		});
 	});
 
+	it("requires a non-empty allowlist only when category restriction is enabled", () => {
+		const form = {
+			...getDefaultPolicyGroupForm([{ id: 1 } as StoragePolicy]),
+			name: "Group",
+		};
+
+		expect(validatePolicyGroupForm(form, 1, t)).toBeNull();
+		expect(
+			validatePolicyGroupForm(
+				{ ...form, categoryRestrictionEnabled: true },
+				1,
+				t,
+			),
+		).toBe("policy_group_allowed_categories_required");
+		expect(
+			validatePolicyGroupForm(
+				{
+					...form,
+					categoryRestrictionEnabled: true,
+					admission: { ...form.admission, allowed_categories: ["image"] },
+				},
+				1,
+				t,
+			),
+		).toBeNull();
+	});
+
+	it("serializes unrestricted mode as an empty category allowlist", () => {
+		const form = getDefaultPolicyGroupForm([{ id: 1 } as StoragePolicy]);
+		const payload = buildPolicyGroupPayload({
+			...form,
+			categoryRestrictionEnabled: false,
+			admission: { ...form.admission, allowed_categories: ["image", "video"] },
+		});
+
+		expect(payload.admission?.allowed_categories).toEqual([]);
+		expect(payload.admission).not.toHaveProperty("denied_categories");
+	});
+
 	it("preserves exact byte thresholds when editing an existing group", () => {
 		const preciseBytes = 12_345;
 
@@ -517,6 +584,7 @@ describe("policyGroupEditorShared", () => {
 				description: "",
 				isEnabled: true,
 				isDefault: false,
+				categoryRestrictionEnabled: false,
 				items: [
 					{
 						key: "a",
@@ -557,9 +625,9 @@ describe("policyGroupEditorShared", () => {
 				denied_extensions: ["exe"],
 				accept_extensionless: false,
 				allowed_categories: ["image"],
-				denied_categories: [],
 				max_file_size: 99,
 			},
+			categoryRestrictionEnabled: true,
 			executionPreference: "force_server_stream",
 			items: [
 				{
