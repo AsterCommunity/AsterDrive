@@ -268,29 +268,40 @@ describe("PolicyGroupEditorForm", () => {
 	});
 
 	it("renders empty policy state and updates basic fields and categories", () => {
-		render(
-			<PolicyGroupEditorForm
-				{...createProps({ policies: [], formError: "bad form" })}
-			/>,
-		);
+		const props = createProps({ policies: [], formError: "bad form" });
+		const { rerender } = render(<PolicyGroupEditorForm {...props} />);
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Renamed" },
 		});
-		const [selectAll] = screen.getAllByRole("button", {
+		expect(
+			screen.queryByRole("button", {
+				name: "policy_group_category_select_all",
+			}),
+		).not.toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_group_category_allowlist",
+			}),
+		);
+		expect(mockState.fieldChange).toHaveBeenCalledWith(
+			"categoryRestrictionEnabled",
+			true,
+		);
+		rerender(
+			<PolicyGroupEditorForm
+				{...props}
+				form={{ ...props.form, categoryRestrictionEnabled: true }}
+			/>,
+		);
+		const selectAll = screen.getByRole("button", {
 			name: "policy_group_category_select_all",
 		});
-		if (!selectAll) throw new Error("select-all button missing");
 		fireEvent.click(selectAll);
-		const [imageCategory] = screen.getAllByRole("button", {
+		const imageCategory = screen.getByRole("button", {
 			name: "policy_group_category_image",
 		});
-		if (!imageCategory) throw new Error("image category button missing");
 		fireEvent.click(imageCategory);
 		fireEvent.click(screen.getAllByRole("checkbox")[0]);
-		const [, deniedCategory] = screen.getAllByRole("button", {
-			name: "policy_group_category_image",
-		});
-		if (deniedCategory) fireEvent.click(deniedCategory);
 		fireEvent.change(screen.getByLabelText("policy_group_allowed_extensions"), {
 			target: { value: "jpg, png" },
 		});
@@ -346,9 +357,9 @@ describe("PolicyGroupEditorForm", () => {
 					"code",
 					"other",
 				],
-				denied_categories: [],
 				max_file_size: 0,
 			},
+			categoryRestrictionEnabled: true,
 		});
 		const initialRule = initial.items[0];
 		if (!initialRule?.targets[0]) throw new Error("initial rule missing");
@@ -384,6 +395,19 @@ describe("PolicyGroupEditorForm", () => {
 		expect(mockState.fieldChange).toHaveBeenCalledWith(
 			"admission",
 			expect.objectContaining({ max_file_size: 5 * 1024 * 1024 }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_group_category_unrestricted",
+			}),
+		);
+		expect(mockState.fieldChange).toHaveBeenCalledWith(
+			"categoryRestrictionEnabled",
+			false,
+		);
+		expect(mockState.fieldChange).toHaveBeenCalledWith(
+			"admission",
+			expect.objectContaining({ allowed_categories: [] }),
 		);
 	});
 

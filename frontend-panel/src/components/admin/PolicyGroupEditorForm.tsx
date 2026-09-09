@@ -1069,32 +1069,65 @@ export function PolicyGroupEditorForm({
 								?
 							</button>
 						</div>
-						<div className="grid gap-5 lg:grid-cols-2">
-							<CategoryCheckboxGroup
-								legend={t("policy_group_allowed_categories")}
-								hint={t("policy_group_allowed_categories_desc")}
-								t={t}
-								value={form.admission?.allowed_categories ?? []}
-								onChange={(next) =>
+						<fieldset
+							aria-label={t("policy_group_category_restriction_mode")}
+							className="inline-flex rounded-md bg-muted p-1"
+						>
+							<button
+								type="button"
+								aria-pressed={!form.categoryRestrictionEnabled}
+								className={cn(
+									"min-h-8 rounded-sm px-3 text-xs font-medium transition-colors",
+									!form.categoryRestrictionEnabled
+										? "bg-background text-foreground shadow-sm"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() => {
+									onFieldChange("categoryRestrictionEnabled", false);
 									onFieldChange("admission", {
 										...(form.admission ?? {}),
-										allowed_categories: next,
-									})
+										allowed_categories: [],
+									});
+								}}
+							>
+								{t("policy_group_category_unrestricted")}
+							</button>
+							<button
+								type="button"
+								aria-pressed={form.categoryRestrictionEnabled}
+								className={cn(
+									"min-h-8 rounded-sm px-3 text-xs font-medium transition-colors",
+									form.categoryRestrictionEnabled
+										? "bg-background text-foreground shadow-sm"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() =>
+									onFieldChange("categoryRestrictionEnabled", true)
 								}
-							/>
-							<CategoryCheckboxGroup
-								legend={t("policy_group_denied_categories")}
-								hint={t("policy_group_denied_categories_desc")}
-								t={t}
-								value={form.admission?.denied_categories ?? []}
-								onChange={(next) =>
-									onFieldChange("admission", {
-										...(form.admission ?? {}),
-										denied_categories: next,
-									})
-								}
-							/>
-						</div>
+							>
+								{t("policy_group_category_allowlist")}
+							</button>
+						</fieldset>
+						{form.categoryRestrictionEnabled ? (
+							<div className="mt-4">
+								<CategoryCheckboxGroup
+									legend={t("policy_group_allowed_categories")}
+									hint={t("policy_group_allowed_categories_desc")}
+									t={t}
+									value={form.admission?.allowed_categories ?? []}
+									onChange={(next) =>
+										onFieldChange("admission", {
+											...(form.admission ?? {}),
+											allowed_categories: next,
+										})
+									}
+								/>
+							</div>
+						) : (
+							<p className="mt-3 text-xs text-muted-foreground">
+								{t("policy_group_category_unrestricted_desc")}
+							</p>
+						)}
 					</div>
 				</section>
 

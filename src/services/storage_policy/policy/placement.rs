@@ -46,8 +46,6 @@ pub struct StorageAdmissionConstraints {
     #[serde(default)]
     pub allowed_categories: Vec<FileCategory>,
     #[serde(default)]
-    pub denied_categories: Vec<FileCategory>,
-    #[serde(default)]
     pub max_file_size: i64,
 }
 
@@ -58,7 +56,6 @@ impl Default for StorageAdmissionConstraints {
             denied_extensions: Vec::new(),
             accept_extensionless: true,
             allowed_categories: Vec::new(),
-            denied_categories: Vec::new(),
             max_file_size: 0,
         }
     }
@@ -351,7 +348,6 @@ pub fn compile_admission(
     compiled.allowed_extensions = normalize_unique_extensions(&compiled.allowed_extensions)?;
     compiled.denied_extensions = normalize_unique_extensions(&compiled.denied_extensions)?;
     validate_categories(&compiled.allowed_categories)?;
-    validate_categories(&compiled.denied_categories)?;
     if compiled.max_file_size < 0 {
         return Err("admission max_file_size must be non-negative".to_string());
     }
@@ -582,9 +578,6 @@ fn apply_admission(
         {
             return Err(PlacementRejection::AdmissionExtensionDenied);
         }
-    }
-    if admission.denied_categories.contains(&context.category) {
-        return Err(PlacementRejection::AdmissionCategoryDenied);
     }
     if !admission.allowed_categories.is_empty()
         && !admission.allowed_categories.contains(&context.category)
@@ -878,6 +871,12 @@ mod tests {
         let payload = PlacementPayloadEnvelope::new(StorageAdmissionConstraints::default());
         assert_eq!(payload.format_version, PLACEMENT_PAYLOAD_FORMAT_VERSION);
         assert_eq!(payload.schema_version, PLACEMENT_PAYLOAD_SCHEMA_VERSION);
+        let serialized = serde_json::to_value(&payload).unwrap();
+        assert_eq!(
+            serialized["values"]["allowed_categories"],
+            serde_json::json!([])
+        );
+        assert!(serialized["values"].get("denied_categories").is_none());
         assert_eq!(UploadExecutionPreference::Automatic.as_str(), "automatic");
         assert_eq!(
             PlacementSelectionMode::FirstAvailable.as_str(),
@@ -948,7 +947,27 @@ mod tests {
     }
 
     #[test]
-    fn category_and_size_admission_boundaries_are_enforced() {
+    fn empty_category_allowlist_accepts_every_classified_type() {
+        for filename in [
+            "photo.jpg",
+            "movie.mp4",
+            "track.mp3",
+            "report.pdf",
+            "data.xlsx",
+            "slides.pptx",
+            "bundle.zip",
+            "main.rs",
+            "file.bin",
+        ] {
+            assert!(
+                resolve_placement(&profile(), &context(filename, 1), None).is_ok(),
+                "default admission should accept {filename}"
+            );
+        }
+    }
+
+    #[test]
+    fn category_allowlist_and_size_admission_boundaries_are_enforced() {
         let mut profile = profile();
         profile.admission.allowed_categories = vec![FileCategory::Image];
         profile.admission.max_file_size = 10;
