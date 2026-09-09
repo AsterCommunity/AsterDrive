@@ -350,14 +350,22 @@ export default function AdminPolicyGroupEditPage() {
 		try {
 			setSubmitting(true);
 			if (isCreate) {
-				await adminPolicyGroupService.create(payload);
+				const createdGroup = await adminPolicyGroupService.create(payload);
 				toast.success(t("policy_group_created"));
+				invalidateAdminPolicyGroupLookup();
+				navigate(`/admin/policy-groups/${createdGroup.id}`, {
+					replace: true,
+					viewTransition: false,
+				});
 			} else {
-				await adminPolicyGroupService.update(parsedGroupId, payload);
+				const updatedGroup = await adminPolicyGroupService.update(
+					parsedGroupId,
+					payload,
+				);
+				setGroup(updatedGroup);
 				toast.success(t("policy_group_updated"));
+				invalidateAdminPolicyGroupLookup();
 			}
-			invalidateAdminPolicyGroupLookup();
-			backToList();
 		} catch (e) {
 			handleApiError(e);
 		} finally {

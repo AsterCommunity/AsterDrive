@@ -482,7 +482,8 @@ describe("AdminPolicyGroupEditPage", () => {
 			});
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_group_created");
-		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policy-groups", {
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policy-groups/99", {
+			replace: true,
 			viewTransition: false,
 		});
 	});
@@ -663,9 +664,8 @@ describe("AdminPolicyGroupEditPage", () => {
 			);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_group_updated");
-		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policy-groups", {
-			viewTransition: false,
-		});
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		expect(screen.getByDisplayValue("Renamed Group")).toBeInTheDocument();
 	});
 
 	it("reorders rules with the move buttons and derives priorities from row order", async () => {
