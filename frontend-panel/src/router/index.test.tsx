@@ -255,6 +255,19 @@ describe("router", () => {
 		).toBe(true);
 	});
 
+	it("registers dedicated external auth provider pages", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/external-auth/new"),
+		).toBe(true);
+		expect(
+			allRoutes.some(
+				(route) => route.path === "/admin/external-auth/:providerId",
+			),
+		).toBe(true);
+	});
+
 	it("keeps settings routes outside workspace routes so they preserve the active workspace", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const protectedRoute = routes.find((route) => {

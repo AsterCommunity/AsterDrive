@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 import { useState } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AdminExternalAuthPage from "@/pages/admin/AdminExternalAuthPage";
+import ActualAdminExternalAuthPage from "@/pages/admin/AdminExternalAuthPage";
 import type { AdminExternalAuthProviderKindInfo } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
 	deleteProvider: vi.fn(),
+	get: vi.fn(),
 	handleApiError: vi.fn(),
 	list: vi.fn(),
 	listKinds: vi.fn(),
@@ -17,7 +18,25 @@ const mockState = vi.hoisted(() => ({
 	toastSuccess: vi.fn(),
 	update: vi.fn(),
 	writeTextToClipboard: vi.fn(),
+	blocker: {
+		proceed: vi.fn(),
+		reset: vi.fn(),
+		state: "unblocked" as "blocked" | "proceeding" | "unblocked",
+	},
 }));
+
+vi.mock("react-router-dom", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("react-router-dom")>();
+	return {
+		...actual,
+		useBlocker: (shouldBlock: boolean | (() => boolean)) => ({
+			...mockState.blocker,
+			state: (typeof shouldBlock === "function" ? shouldBlock() : shouldBlock)
+				? mockState.blocker.state
+				: "unblocked",
+		}),
+	};
+});
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -128,6 +147,7 @@ vi.mock("@/components/ui/button", () => ({
 		"aria-label": ariaLabel,
 		children,
 		disabled,
+		form,
 		onClick,
 		title,
 		type,
@@ -135,6 +155,7 @@ vi.mock("@/components/ui/button", () => ({
 		"aria-label"?: string;
 		children: React.ReactNode;
 		disabled?: boolean;
+		form?: string;
 		onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 		title?: string;
 		type?: "button" | "submit";
@@ -143,6 +164,7 @@ vi.mock("@/components/ui/button", () => ({
 			type={type ?? "button"}
 			aria-label={ariaLabel}
 			disabled={disabled}
+			form={form}
 			onClick={onClick}
 			title={title}
 		>
@@ -290,6 +312,7 @@ vi.mock("@/services/adminService", () => ({
 	adminExternalAuthService: {
 		create: (...args: unknown[]) => mockState.create(...args),
 		delete: (...args: unknown[]) => mockState.deleteProvider(...args),
+		get: (...args: unknown[]) => mockState.get(...args),
 		list: (...args: unknown[]) => mockState.list(...args),
 		listKinds: (...args: unknown[]) => mockState.listKinds(...args),
 		test: (...args: unknown[]) => mockState.test(...args),
@@ -297,6 +320,27 @@ vi.mock("@/services/adminService", () => ({
 		update: (...args: unknown[]) => mockState.update(...args),
 	},
 }));
+
+function AdminExternalAuthPage() {
+	return (
+		<Routes>
+			<Route
+				path="/admin/external-auth"
+				element={<ActualAdminExternalAuthPage />}
+			/>
+			<Route
+				path="/admin/external-auth/new"
+				element={<ActualAdminExternalAuthPage variant="create" />}
+			/>
+			<Route
+				path="/admin/external-auth/:providerId"
+				element={
+					<ActualAdminExternalAuthPage variant="detail" providerId={1} />
+				}
+			/>
+		</Routes>
+	);
+}
 
 function savedProvider(overrides: Record<string, unknown> = {}) {
 	return {
@@ -371,18 +415,22 @@ function escapeRegExp(value: string) {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function clickProviderKindCard(name = "OpenID Connect") {
+function clickProviderKindCard(name = "OpenID Connect", continueToForm = true) {
 	fireEvent.click(
 		screen.getByRole("button", {
 			name: new RegExp(`^${escapeRegExp(name)}\\b`),
 		}),
 	);
+	if (continueToForm) {
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+	}
 }
 
 describe("AdminExternalAuthPage", () => {
 	beforeEach(() => {
 		mockState.create.mockReset();
 		mockState.deleteProvider.mockReset();
+		mockState.get.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.list.mockReset();
 		mockState.listKinds.mockReset();
@@ -391,6 +439,9 @@ describe("AdminExternalAuthPage", () => {
 		mockState.toastSuccess.mockReset();
 		mockState.update.mockReset();
 		mockState.writeTextToClipboard.mockReset();
+		mockState.blocker.proceed.mockReset();
+		mockState.blocker.reset.mockReset();
+		mockState.blocker.state = "unblocked";
 
 		mockState.writeTextToClipboard.mockResolvedValue(undefined);
 		mockState.listKinds.mockResolvedValue([providerKind()]);
@@ -400,6 +451,7 @@ describe("AdminExternalAuthPage", () => {
 			offset: 0,
 			total: 0,
 		});
+		mockState.get.mockResolvedValue(savedProvider());
 		mockState.create.mockResolvedValue({
 			allowed_domains: ["example.com"],
 			authorization_url: null,
@@ -467,7 +519,9 @@ describe("AdminExternalAuthPage", () => {
 		});
 		fireEvent.click(createButtons[createButtons.length - 1]);
 
-		expect(screen.getByText("OpenID Connect")).toBeInTheDocument();
+		expect(screen.getAllByText("OpenID Connect").length).toBeGreaterThanOrEqual(
+			2,
+		);
 		clickProviderKindCard();
 
 		fireEvent.change(
@@ -1033,8 +1087,8 @@ describe("AdminExternalAuthPage", () => {
 				.length,
 		).toBeGreaterThan(0);
 		expect(
-			screen.queryByRole("button", { name: "policy_wizard_next" }),
-		).not.toBeInTheDocument();
+			screen.getByRole("button", { name: "policy_wizard_next" }),
+		).toBeDisabled();
 		expect(
 			screen.queryByLabelText("external_auth_provider_display_name"),
 		).not.toBeInTheDocument();
@@ -1066,7 +1120,7 @@ describe("AdminExternalAuthPage", () => {
 		});
 		fireEvent.click(createButtons[createButtons.length - 1]);
 
-		await screen.findByText("QQ");
+		await screen.findAllByText("QQ");
 		clickProviderKindCard("QQ");
 
 		expect(
@@ -1077,33 +1131,7 @@ describe("AdminExternalAuthPage", () => {
 		).toBeInTheDocument();
 	});
 
-	it("ignores stale provider kind results after closing the create dialog", async () => {
-		let resolveStaleKinds:
-			| ((value: Awaited<ReturnType<typeof mockState.listKinds>>) => void)
-			| undefined;
-		mockState.listKinds
-			.mockResolvedValueOnce([])
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveStaleKinds = resolve;
-					}),
-			)
-			.mockResolvedValueOnce([
-				providerKind({
-					authorization_url_required: true,
-					description: "Generic OAuth2 authorization-code sign-in.",
-					display_name: "Generic OAuth2",
-					issuer_url_required: false,
-					kind: "generic_oauth2",
-					manual_endpoint_configuration_supported: true,
-					protocol: "oauth2",
-					supports_discovery: false,
-					token_url_required: true,
-					userinfo_url_required: true,
-				}),
-			]);
-
+	it("navigates straight to the create page without opening a provider dialog", async () => {
 		render(
 			<MemoryRouter initialEntries={["/admin/external-auth"]}>
 				<AdminExternalAuthPage />
@@ -1116,21 +1144,32 @@ describe("AdminExternalAuthPage", () => {
 		});
 		fireEvent.click(createButtons[createButtons.length - 1]);
 		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalledTimes(2));
-		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+		expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+			"external_auth_provider_create",
+		);
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+	});
 
-		resolveStaleKinds?.([providerKind()]);
-		await Promise.resolve();
+	it("confirms before leaving a changed provider creation page", async () => {
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth/new"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
 
-		fireEvent.click(createButtons[createButtons.length - 1]);
-		await screen.findByText("Generic OAuth2");
-		clickProviderKindCard("Generic OAuth2");
+		await screen.findAllByText("OpenID Connect");
+		mockState.blocker.state = "blocked";
+		clickProviderKindCard();
 
 		expect(
-			screen.getByLabelText("external_auth_provider_authorization_url"),
+			await screen.findByText("external_auth_provider_discard_title"),
 		).toBeInTheDocument();
-		expect(
-			screen.getByLabelText("external_auth_provider_issuer_url"),
-		).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "external_auth_provider_discard_confirm",
+			}),
+		);
+		expect(mockState.blocker.proceed).toHaveBeenCalledTimes(1);
 	});
 
 	it("tests provider draft parameters while creating", async () => {
@@ -1195,7 +1234,9 @@ describe("AdminExternalAuthPage", () => {
 
 		await screen.findByText("Example IDP");
 		fireEvent.click(screen.getByText("Example IDP"));
-		fireEvent.click(screen.getByRole("button", { name: "test_connection" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "test_connection" }),
+		);
 
 		await waitFor(() => expect(mockState.test).toHaveBeenCalledWith(1));
 		expect(mockState.testParams).not.toHaveBeenCalled();
@@ -1241,17 +1282,17 @@ describe("AdminExternalAuthPage", () => {
 				supports_email_verified_claim: false,
 			}),
 		]);
+		const microsoftProvider = savedProvider({
+			display_name: "Microsoft",
+			issuer_url: "https://login.microsoftonline.com/common/v2.0",
+			key: "microsoft",
+			provider_kind: "microsoft",
+			require_email_verified: false,
+			scopes: "openid profile email",
+		});
+		mockState.get.mockResolvedValue(microsoftProvider);
 		mockState.list.mockResolvedValue({
-			items: [
-				savedProvider({
-					display_name: "Microsoft",
-					issuer_url: "https://login.microsoftonline.com/common/v2.0",
-					key: "microsoft",
-					provider_kind: "microsoft",
-					require_email_verified: false,
-					scopes: "openid profile email",
-				}),
-			],
+			items: [microsoftProvider],
 			limit: 20,
 			offset: 0,
 			total: 1,
@@ -1267,7 +1308,7 @@ describe("AdminExternalAuthPage", () => {
 		fireEvent.click(microsoftLabels[0]);
 
 		expect(
-			screen.getByLabelText("external_auth_provider_microsoft_tenant"),
+			await screen.findByLabelText("external_auth_provider_microsoft_tenant"),
 		).toHaveValue("common");
 		expect(
 			screen.queryByLabelText("external_auth_provider_issuer_url"),
@@ -1296,7 +1337,7 @@ describe("AdminExternalAuthPage", () => {
 		await screen.findByText("Example IDP");
 		fireEvent.click(screen.getByText("Example IDP"));
 		fireEvent.change(
-			screen.getByLabelText("external_auth_provider_issuer_url"),
+			await screen.findByLabelText("external_auth_provider_issuer_url"),
 			{
 				target: { value: "https://changed.example.com" },
 			},
@@ -1450,7 +1491,7 @@ describe("AdminExternalAuthPage", () => {
 		fireEvent.click(screen.getByText("Example IDP"));
 
 		expect(
-			screen.getByLabelText("external_auth_provider_subject_claim"),
+			await screen.findByLabelText("external_auth_provider_subject_claim"),
 		).toBeInTheDocument();
 		expect(
 			screen.getByLabelText("external_auth_provider_email_verified_claim"),
@@ -1515,7 +1556,7 @@ describe("AdminExternalAuthPage", () => {
 		});
 	});
 
-	it("updates an existing provider and closes the edit dialog", async () => {
+	it("updates an existing provider and keeps the detail page current", async () => {
 		mockState.list.mockResolvedValue({
 			items: [savedProvider()],
 			limit: 20,
@@ -1538,7 +1579,7 @@ describe("AdminExternalAuthPage", () => {
 		await screen.findByText("Example IDP");
 		fireEvent.click(screen.getByText("Example IDP"));
 		fireEvent.change(
-			screen.getByLabelText("external_auth_provider_display_name"),
+			await screen.findByLabelText("external_auth_provider_display_name"),
 			{
 				target: { value: "Updated IDP" },
 			},
@@ -1560,12 +1601,12 @@ describe("AdminExternalAuthPage", () => {
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"external_auth_provider_updated",
 		);
-		expect(
-			screen.queryByText("external_auth_provider_edit"),
-		).not.toBeInTheDocument();
+		expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+			"Updated IDP",
+		);
 	});
 
-	it("keeps the edit dialog open and reports update failures", async () => {
+	it("keeps the detail page open and reports update failures", async () => {
 		const updateError = new Error("update failed");
 		mockState.list.mockResolvedValue({
 			items: [savedProvider()],
@@ -1584,7 +1625,7 @@ describe("AdminExternalAuthPage", () => {
 		await screen.findByText("Example IDP");
 		fireEvent.click(screen.getByText("Example IDP"));
 		fireEvent.change(
-			screen.getByLabelText("external_auth_provider_display_name"),
+			await screen.findByLabelText("external_auth_provider_display_name"),
 			{
 				target: { value: "Updated IDP" },
 			},
@@ -1594,7 +1635,9 @@ describe("AdminExternalAuthPage", () => {
 		await waitFor(() => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(updateError);
 		});
-		expect(screen.getByText("external_auth_provider_edit")).toBeInTheDocument();
+		expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+			"Example IDP",
+		);
 	});
 
 	it("handles test, update, delete, and list loading failures through the shared error handler", async () => {

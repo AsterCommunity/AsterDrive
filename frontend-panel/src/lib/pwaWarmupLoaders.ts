@@ -171,6 +171,16 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminExternalAuthPage"),
 	},
 	{
+		key: "route:admin-external-auth-create",
+		label: "AdminExternalAuthCreatePage",
+		load: () => import("@/pages/admin/AdminExternalAuthCreatePage"),
+	},
+	{
+		key: "route:admin-external-auth-detail",
+		label: "AdminExternalAuthDetailPage",
+		load: () => import("@/pages/admin/AdminExternalAuthDetailPage"),
+	},
+	{
 		key: "route:admin-policy-groups",
 		label: "AdminPolicyGroupsPage",
 		load: () => import("@/pages/admin/AdminPolicyGroupsPage"),

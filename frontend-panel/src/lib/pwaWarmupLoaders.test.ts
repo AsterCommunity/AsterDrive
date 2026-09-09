@@ -172,6 +172,8 @@ describe("pwaWarmupLoaders", () => {
 			"route:admin-policy-detail",
 			"route:admin-remote-nodes",
 			"route:admin-external-auth",
+			"route:admin-external-auth-create",
+			"route:admin-external-auth-detail",
 			"route:admin-policy-groups",
 			"route:admin-policy-group-edit",
 			"route:admin-tasks",

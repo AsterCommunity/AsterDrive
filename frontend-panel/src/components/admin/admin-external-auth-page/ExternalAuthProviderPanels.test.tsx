@@ -977,13 +977,11 @@ describe("ExternalAuthProviderPanels", () => {
 	});
 
 	it("renders provider kind choices and summary fallbacks", () => {
-		const onCreateStepChange = vi.fn();
 		const onProviderKindChange = vi.fn();
 		const providerKinds = [kind()];
 		const view = render(
 			<ExternalAuthProviderKindPanel
 				form={form({ providerKind: "oidc" })}
-				onCreateStepChange={onCreateStepChange}
 				onProviderKindChange={onProviderKindChange}
 				providerKinds={providerKinds}
 			/>,
@@ -993,7 +991,6 @@ describe("ExternalAuthProviderPanels", () => {
 		expect(kindButton).toHaveAttribute("aria-pressed", "true");
 		fireEvent.click(kindButton);
 		expect(onProviderKindChange).toHaveBeenCalledWith("oidc");
-		expect(onCreateStepChange).toHaveBeenCalledWith(1);
 
 		view.rerender(
 			<ExternalAuthSummaryPanel
