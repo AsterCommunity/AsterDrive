@@ -5,6 +5,7 @@ import { getStorageConnectorBadgePresentation } from "@/components/admin/admin-p
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
+import { AdminDetailPageShell } from "@/components/layout/AdminDetailPageShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -125,7 +126,8 @@ interface StoragePolicyDialogProps {
 	onCreateNext: () => void;
 	showCloseButton?: boolean;
 	forceDefaultPolicy?: boolean;
-	presentation?: "dialog" | "setup";
+	presentation?: "dialog" | "page" | "setup";
+	pageBackLabel?: string;
 	onSetupLogout?: () => void;
 }
 
@@ -187,6 +189,7 @@ export function StoragePolicyDialog({
 	showCloseButton = true,
 	forceDefaultPolicy = false,
 	presentation = "dialog",
+	pageBackLabel,
 	onSetupLogout,
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
@@ -199,6 +202,7 @@ export function StoragePolicyDialog({
 		);
 	const isCreateMode = mode === "create";
 	const isSetupPresentation = presentation === "setup";
+	const isPagePresentation = presentation === "page";
 	const customActions =
 		storageDriverDescriptor?.actions.filter(
 			(action) => action.kind === "custom",
@@ -283,39 +287,63 @@ export function StoragePolicyDialog({
 		remoteStorageTargets,
 		t,
 	);
+	const pageActions = !isCreateMode ? (
+		<>
+			{canRunConnectionTest ? (
+				<StoragePolicyTestConnectionButton
+					onTest={onRunConnectionTest}
+					disabled={submitting}
+				/>
+			) : null}
+			<Button
+				type="button"
+				className={ADMIN_CONTROL_HEIGHT_CLASS}
+				disabled={submitting || !storageDriverDescriptor}
+				onClick={onSubmit}
+			>
+				{submitting ? (
+					<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+				) : (
+					<Icon name="FloppyDisk" className="mr-1 size-4" />
+				)}
+				{t("save_changes")}
+			</Button>
+		</>
+	) : undefined;
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent
-				showCloseButton={showCloseButton}
-				overlayClassName={
-					isSetupPresentation
-						? "bg-background backdrop-blur-none dark:bg-background"
-						: undefined
-				}
-				className={cn(
-					"flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl",
-					isSetupPresentation && "shadow-xl",
-				)}
-			>
-				{isSetupPresentation ? (
-					<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
-						<AsterDriveWordmark
-							alt="AsterDrive"
-							className="h-8 w-auto max-w-44"
-						/>
-						{onSetupLogout ? (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={onSetupLogout}
-							>
-								{t("core:logout")}
-							</Button>
-						) : null}
-					</div>
-				) : null}
+		<StoragePolicyFrame
+			actions={isPagePresentation ? pageActions : undefined}
+			backLabel={pageBackLabel ?? t("policies")}
+			description={t("policies_intro")}
+			onBack={() => onOpenChange(false)}
+			onOpenChange={onOpenChange}
+			open={open}
+			presentation={presentation}
+			showCloseButton={showCloseButton}
+			title={
+				isCreateMode ? t("create_policy") : form.name.trim() || t("edit_policy")
+			}
+		>
+			{isSetupPresentation ? (
+				<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
+					<AsterDriveWordmark
+						alt="AsterDrive"
+						className="h-8 w-auto max-w-44"
+					/>
+					{onSetupLogout ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={onSetupLogout}
+						>
+							{t("core:logout")}
+						</Button>
+					) : null}
+				</div>
+			) : null}
+			{!isPagePresentation ? (
 				<DialogHeader
 					className={cn(
 						"shrink-0 px-6 pt-5 pb-0",
@@ -342,171 +370,177 @@ export function StoragePolicyDialog({
 						<DialogDescription>{t("policies_intro")}</DialogDescription>
 					)}
 				</DialogHeader>
-				<form
-					onSubmit={(event) => event.preventDefault()}
-					autoComplete="off"
-					className="flex min-h-0 flex-1 flex-col overflow-hidden"
+			) : null}
+			<form
+				onSubmit={(event) => event.preventDefault()}
+				autoComplete="off"
+				className={cn(
+					isPagePresentation
+						? "min-w-0"
+						: "flex min-h-0 flex-1 flex-col overflow-hidden",
+				)}
+			>
+				<div
+					className={cn(
+						"min-h-0 flex-1",
+						isPagePresentation ? "pb-5" : "overflow-y-auto px-6 pt-6 pb-5",
+					)}
 				>
-					<div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-5">
-						{isCreateMode ? (
-							<div className="space-y-6">
-								<WizardProgress
-									createStep={createStep}
-									steps={createSteps}
-									onStepChange={onCreateStepChange}
-								/>
-								<div>
-									<div className="relative overflow-hidden">
-										<div
-											key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
-											data-testid="policy-step-panel"
-											className={cn(
-												stepAnimationRef.current.direction !== "idle" &&
-													"animate-in fade-in duration-[360ms] motion-reduce:animate-none",
-												stepAnimationRef.current.direction === "forward" &&
-													"slide-in-from-right-6",
-												stepAnimationRef.current.direction === "backward" &&
-													"slide-in-from-left-6",
-											)}
-										>
-											{createStep === 0 ? (
-												<ConnectorSelection
-													descriptors={storageDriverDescriptors}
-													error={storageDriverDescriptorsError}
-													loading={storageDriverDescriptorsLoading}
-													selectedId={form.connector_id}
-													setup={isSetupPresentation}
-													onSelect={(connectorId) => {
-														onConnectorIdChange(connectorId);
-														onCreateStepChange(1);
-													}}
+					{isCreateMode ? (
+						<div className="space-y-6">
+							<WizardProgress
+								createStep={createStep}
+								steps={createSteps}
+								onStepChange={onCreateStepChange}
+							/>
+							<div>
+								<div className="relative overflow-hidden">
+									<div
+										key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
+										data-testid="policy-step-panel"
+										className={cn(
+											stepAnimationRef.current.direction !== "idle" &&
+												"animate-in fade-in duration-[360ms] motion-reduce:animate-none",
+											stepAnimationRef.current.direction === "forward" &&
+												"slide-in-from-right-6",
+											stepAnimationRef.current.direction === "backward" &&
+												"slide-in-from-left-6",
+										)}
+									>
+										{createStep === 0 ? (
+											<ConnectorSelection
+												descriptors={storageDriverDescriptors}
+												error={storageDriverDescriptorsError}
+												loading={storageDriverDescriptorsLoading}
+												selectedId={form.connector_id}
+												setup={isSetupPresentation}
+												onSelect={(connectorId) => {
+													onConnectorIdChange(connectorId);
+													onCreateStepChange(1);
+												}}
+											/>
+										) : createStep === 1 ? (
+											<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+												<div className="space-y-4">
+													<PolicyNameField
+														form={form}
+														showError={createStepTouched}
+														onChange={(value) => onFieldChange("name", value)}
+													/>
+													<StorageConnectorFieldsPanel
+														descriptor={storageDriverDescriptor}
+														form={form}
+														mode="create"
+														remoteNodes={remoteNodes}
+														remoteStorageTargets={remoteStorageTargets}
+														showRequiredErrors={createStepTouched}
+														t={t}
+														onFieldChange={onFieldChange}
+													/>
+													{endpointValidationMessage ? (
+														<p className="text-xs text-destructive">
+															{endpointValidationMessage}
+														</p>
+													) : null}
+													<StorageConnectorPromotionPanel
+														blocked={false}
+														candidates={connectorPromotionCandidates}
+														confirmKey={connectorPromotionConfirmKey}
+														mode="create"
+														submittingKey={connectorPromotionSubmittingKey}
+														t={t}
+														onApplyDraft={onApplyDraftConnectorPromotion}
+														onCancel={onCancelConnectorPromotion}
+														onConfirm={onConfirmConnectorPromotion}
+														onRequest={onRequestConnectorPromotion}
+													/>
+													{remoteNodeId ? (
+														<RemoteTargets
+															connectorDescriptors={
+																remoteStorageTargetConnectorDescriptors
+															}
+															driverError={
+																remoteStorageTargetConnectorDescriptorsError
+															}
+															driverLoading={
+																remoteStorageTargetConnectorDescriptorsLoading
+															}
+															targets={remoteStorageTargets}
+															targetsError={remoteStorageTargetsError}
+															targetsLoading={remoteStorageTargetsLoading}
+															onCreate={onCreateRemoteStorageTarget}
+														/>
+													) : null}
+												</div>
+												<ConnectorHelper descriptor={storageDriverDescriptor} />
+											</div>
+										) : (
+											<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+												<div className="space-y-4">
+													<PolicyRules
+														form={form}
+														forceDefault={forceDefaultPolicy}
+														connectorId={form.connector_id}
+														nativeThumbnailSupported={nativeThumbnailSupported}
+														nativeMediaMetadataSupported={
+															nativeMediaMetadataSupported
+														}
+														onFieldChange={onFieldChange}
+													/>
+													<StorageConnectorActionsPanel
+														actions={customActions}
+														remoteNodes={remoteNodes}
+														remoteStorageTargets={remoteStorageTargets}
+														connectorId={storageDriverDescriptor?.connector_id}
+														confirmActionId={connectorActionConfirmId}
+														submittingActionId={connectorActionSubmittingId}
+														t={t}
+														values={connectorActionValues}
+														onCancel={onCancelConnectorAction}
+														onConfirm={onConfirmConnectorAction}
+														onRequest={onRequestConnectorAction}
+														onValueChange={onConnectorActionValueChange}
+													/>
+												</div>
+												<PolicySummary
+													descriptor={storageDriverDescriptor}
+													name={form.name}
+													items={summaryItems}
 												/>
-											) : createStep === 1 ? (
-												<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-													<div className="space-y-4">
-														<PolicyNameField
-															form={form}
-															showError={createStepTouched}
-															onChange={(value) => onFieldChange("name", value)}
-														/>
-														<StorageConnectorFieldsPanel
-															descriptor={storageDriverDescriptor}
-															form={form}
-															mode="create"
-															remoteNodes={remoteNodes}
-															remoteStorageTargets={remoteStorageTargets}
-															showRequiredErrors={createStepTouched}
-															t={t}
-															onFieldChange={onFieldChange}
-														/>
-														{endpointValidationMessage ? (
-															<p className="text-xs text-destructive">
-																{endpointValidationMessage}
-															</p>
-														) : null}
-														<StorageConnectorPromotionPanel
-															blocked={false}
-															candidates={connectorPromotionCandidates}
-															confirmKey={connectorPromotionConfirmKey}
-															mode="create"
-															submittingKey={connectorPromotionSubmittingKey}
-															t={t}
-															onApplyDraft={onApplyDraftConnectorPromotion}
-															onCancel={onCancelConnectorPromotion}
-															onConfirm={onConfirmConnectorPromotion}
-															onRequest={onRequestConnectorPromotion}
-														/>
-														{remoteNodeId ? (
-															<RemoteTargets
-																connectorDescriptors={
-																	remoteStorageTargetConnectorDescriptors
-																}
-																driverError={
-																	remoteStorageTargetConnectorDescriptorsError
-																}
-																driverLoading={
-																	remoteStorageTargetConnectorDescriptorsLoading
-																}
-																targets={remoteStorageTargets}
-																targetsError={remoteStorageTargetsError}
-																targetsLoading={remoteStorageTargetsLoading}
-																onCreate={onCreateRemoteStorageTarget}
-															/>
-														) : null}
-													</div>
-													<ConnectorHelper
-														descriptor={storageDriverDescriptor}
-													/>
-												</div>
-											) : (
-												<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-													<div className="space-y-4">
-														<PolicyRules
-															form={form}
-															forceDefault={forceDefaultPolicy}
-															connectorId={form.connector_id}
-															nativeThumbnailSupported={
-																nativeThumbnailSupported
-															}
-															nativeMediaMetadataSupported={
-																nativeMediaMetadataSupported
-															}
-															onFieldChange={onFieldChange}
-														/>
-														<StorageConnectorActionsPanel
-															actions={customActions}
-															remoteNodes={remoteNodes}
-															remoteStorageTargets={remoteStorageTargets}
-															connectorId={
-																storageDriverDescriptor?.connector_id
-															}
-															confirmActionId={connectorActionConfirmId}
-															submittingActionId={connectorActionSubmittingId}
-															t={t}
-															values={connectorActionValues}
-															onCancel={onCancelConnectorAction}
-															onConfirm={onConfirmConnectorAction}
-															onRequest={onRequestConnectorAction}
-															onValueChange={onConnectorActionValueChange}
-														/>
-													</div>
-													<PolicySummary
-														descriptor={storageDriverDescriptor}
-														name={form.name}
-														items={summaryItems}
-													/>
-												</div>
-											)}
-										</div>
+											</div>
+										)}
 									</div>
 								</div>
 							</div>
-						) : (
-							<div data-testid="policy-edit-shell" className="space-y-4">
+						</div>
+					) : (
+						<div
+							data-testid="policy-edit-shell"
+							className={cn(
+								"space-y-4",
+								isPagePresentation &&
+									"grid gap-8 space-y-0 lg:grid-cols-[300px_minmax(0,1fr)]",
+							)}
+						>
+							<div
+								className={cn(
+									"space-y-4",
+									isPagePresentation &&
+										"animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none lg:sticky lg:top-6 lg:self-start [&>section]:rounded-xl [&>section]:bg-muted/30 [&>section]:p-4",
+								)}
+							>
 								<PolicyEditContextBar
 									capacity={policyCapacity}
 									descriptor={storageDriverDescriptor}
 									form={form}
 									loading={policyCapacityLoading}
 								/>
-								<StorageConnectorPromotionPanel
-									blocked={connectorPromotionBlocked}
-									candidates={connectorPromotionCandidates}
-									confirmKey={connectorPromotionConfirmKey}
-									mode="edit"
-									submittingKey={connectorPromotionSubmittingKey}
-									t={t}
-									onApplyDraft={onApplyDraftConnectorPromotion}
-									onCancel={onCancelConnectorPromotion}
-									onConfirm={onConfirmConnectorPromotion}
-									onRequest={onRequestConnectorPromotion}
-								/>
 								<section>
 									<SectionTitle
 										title={t("policy_editor_overview_title")}
 										description={t("policy_editor_overview_desc")}
 									/>
-									<div className="mt-5 grid gap-5 md:grid-cols-2">
+									<div className="mt-5 space-y-5">
 										<PolicyNameField
 											form={form}
 											showError={false}
@@ -527,6 +561,26 @@ export function StoragePolicyDialog({
 										) : null}
 									</div>
 								</section>
+							</div>
+							<div
+								className={cn(
+									"space-y-4",
+									isPagePresentation &&
+										"min-w-0 space-y-8 animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards delay-75 motion-reduce:animate-none [&>section]:rounded-xl [&>section]:bg-muted/30 [&>section]:p-5",
+								)}
+							>
+								<StorageConnectorPromotionPanel
+									blocked={connectorPromotionBlocked}
+									candidates={connectorPromotionCandidates}
+									confirmKey={connectorPromotionConfirmKey}
+									mode="edit"
+									submittingKey={connectorPromotionSubmittingKey}
+									t={t}
+									onApplyDraft={onApplyDraftConnectorPromotion}
+									onCancel={onCancelConnectorPromotion}
+									onConfirm={onConfirmConnectorPromotion}
+									onRequest={onRequestConnectorPromotion}
+								/>
 								{connectionFields.length > 0 || remoteNodeId ? (
 									<section>
 										<SectionTitle
@@ -645,91 +699,61 @@ export function StoragePolicyDialog({
 									</section>
 								) : null}
 							</div>
+						</div>
+					)}
+				</div>
+				{saveAnywayConfirmOpen ? (
+					<div
+						className={cn(
+							"shrink-0",
+							isPagePresentation ? "pb-3" : "px-6 pb-3",
 						)}
-					</div>
-					{saveAnywayConfirmOpen ? (
-						<div className="shrink-0 px-6 pb-3">
-							<InlineConfirm>
-								<div className="flex items-center justify-between gap-3">
-									<p className="text-sm text-muted-foreground">
-										{t("connection_test_failed_save_prompt")}
-									</p>
-									<div className="flex gap-2">
-										<Button
-											type="button"
-											variant="outline"
-											onClick={onCancelSaveAnyway}
-										>
-											{t("core:cancel")}
-										</Button>
-										<Button type="button" onClick={onConfirmSaveAnyway}>
-											{t("save_anyway")}
-										</Button>
-									</div>
+					>
+						<InlineConfirm>
+							<div className="flex items-center justify-between gap-3">
+								<p className="text-sm text-muted-foreground">
+									{t("connection_test_failed_save_prompt")}
+								</p>
+								<div className="flex gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										onClick={onCancelSaveAnyway}
+									>
+										{t("core:cancel")}
+									</Button>
+									<Button type="button" onClick={onConfirmSaveAnyway}>
+										{t("save_anyway")}
+									</Button>
 								</div>
-							</InlineConfirm>
-						</div>
-					) : null}
-					<DialogFooter className="mx-0 mb-0 w-full shrink-0 flex-row items-center gap-2 rounded-b-xl px-6 py-3">
-						<div className="mr-auto flex shrink-0 gap-2">
-							{isCreateMode && createStep > 0 ? (
-								<Button
-									type="button"
-									variant="outline"
-									className={ADMIN_CONTROL_HEIGHT_CLASS}
-									disabled={submitting}
-									onClick={onCreateBack}
-								>
-									{t("core:back")}
-								</Button>
-							) : null}
-						</div>
-						<div className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-2">
-							{isCreateMode ? (
-								createStep === 0 ? null : createStep === createLastStep ? (
-									<>
-										{canRunConnectionTest ? (
-											<StoragePolicyTestConnectionButton
-												onTest={onRunConnectionTest}
-												disabled={submitting}
-											/>
-										) : null}
-										<Button
-											type="button"
-											className={ADMIN_CONTROL_HEIGHT_CLASS}
-											disabled={submitting || !storageDriverDescriptor}
-											onClick={onSubmit}
-										>
-											{submitting ? (
-												<Icon
-													name="Spinner"
-													className="mr-1 size-4 animate-spin"
-												/>
-											) : null}
-											{t("core:create")}
-										</Button>
-									</>
-								) : (
-									<>
-										{createStep === 1 && canRunDraftConnectionTest ? (
-											<StoragePolicyTestConnectionButton
-												onTest={onRunConnectionTest}
-												disabled={submitting}
-											/>
-										) : null}
-										<Button
-											type="button"
-											className={ADMIN_CONTROL_HEIGHT_CLASS}
-											disabled={submitting || !storageDriverDescriptor}
-											onClick={onCreateNext}
-										>
-											{createStep === createLastStep - 1
-												? t("policy_wizard_review")
-												: t("policy_wizard_next")}
-										</Button>
-									</>
-								)
-							) : (
+							</div>
+						</InlineConfirm>
+					</div>
+				) : null}
+				<DialogFooter
+					className={cn(
+						"mx-0 mb-0 w-full shrink-0 flex-row items-center gap-2",
+						isPagePresentation
+							? "mt-3 rounded-none bg-transparent px-0 py-5"
+							: "rounded-b-xl px-6 py-3",
+					)}
+				>
+					<div className="mr-auto flex shrink-0 gap-2">
+						{isCreateMode && createStep > 0 ? (
+							<Button
+								type="button"
+								variant="outline"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								disabled={submitting}
+								onClick={onCreateBack}
+							>
+								{t("core:back")}
+							</Button>
+						) : null}
+					</div>
+					<div className="ml-auto flex shrink-0 flex-nowrap items-center justify-end gap-2">
+						{isCreateMode ? (
+							createStep === 0 ? null : createStep === createLastStep ? (
 								<>
 									{canRunConnectionTest ? (
 										<StoragePolicyTestConnectionButton
@@ -749,13 +773,109 @@ export function StoragePolicyDialog({
 												className="mr-1 size-4 animate-spin"
 											/>
 										) : null}
-										{t("save_changes")}
+										{t("core:create")}
 									</Button>
 								</>
-							)}
-						</div>
-					</DialogFooter>
-				</form>
+							) : (
+								<>
+									{createStep === 1 && canRunDraftConnectionTest ? (
+										<StoragePolicyTestConnectionButton
+											onTest={onRunConnectionTest}
+											disabled={submitting}
+										/>
+									) : null}
+									<Button
+										type="button"
+										className={ADMIN_CONTROL_HEIGHT_CLASS}
+										disabled={submitting || !storageDriverDescriptor}
+										onClick={onCreateNext}
+									>
+										{createStep === createLastStep - 1
+											? t("policy_wizard_review")
+											: t("policy_wizard_next")}
+									</Button>
+								</>
+							)
+						) : (
+							<>
+								{canRunConnectionTest ? (
+									<StoragePolicyTestConnectionButton
+										onTest={onRunConnectionTest}
+										disabled={submitting}
+									/>
+								) : null}
+								<Button
+									type="button"
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									disabled={submitting || !storageDriverDescriptor}
+									onClick={onSubmit}
+								>
+									{submitting ? (
+										<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+									) : null}
+									{t("save_changes")}
+								</Button>
+							</>
+						)}
+					</div>
+				</DialogFooter>
+			</form>
+		</StoragePolicyFrame>
+	);
+}
+
+function StoragePolicyFrame({
+	actions,
+	backLabel,
+	children,
+	description,
+	onBack,
+	onOpenChange,
+	open,
+	presentation,
+	showCloseButton,
+	title,
+}: {
+	actions?: ReactNode;
+	backLabel: string;
+	children: ReactNode;
+	description: string;
+	onBack: () => void;
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+	presentation: "dialog" | "page" | "setup";
+	showCloseButton: boolean;
+	title: string;
+}) {
+	if (presentation === "page") {
+		return (
+			<AdminDetailPageShell
+				actions={actions}
+				backLabel={backLabel}
+				description={description}
+				onBack={onBack}
+				title={title}
+			>
+				{children}
+			</AdminDetailPageShell>
+		);
+	}
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent
+				showCloseButton={showCloseButton}
+				overlayClassName={
+					presentation === "setup"
+						? "bg-background backdrop-blur-none dark:bg-background"
+						: undefined
+				}
+				className={cn(
+					"flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl",
+					presentation === "setup" && "shadow-xl",
+				)}
+			>
+				{children}
 			</DialogContent>
 		</Dialog>
 	);
@@ -1228,7 +1348,7 @@ function PolicyEditContextBar({
 			data-testid="policy-edit-context-bar"
 			className="rounded-2xl bg-muted/30 p-4"
 		>
-			<div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)]">
+			<div className="space-y-4">
 				<div className="min-w-0">
 					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 						{t("policy_edit_context_title")}
@@ -1275,7 +1395,7 @@ function PolicyEditContextBar({
 				</div>
 				<div
 					data-testid="policy-edit-capacity-summary"
-					className="min-w-0 border-border/70 md:border-l md:pl-4"
+					className="min-w-0 border-t border-border/70 pt-4"
 				>
 					<PolicyCapacitySummary capacity={capacity} loading={loading} />
 				</div>

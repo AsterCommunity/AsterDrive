@@ -77,17 +77,37 @@ test.describe
 			await gotoAdminPage(page, "/admin/policies", "Storage Policies");
 
 			await page.getByRole("button", { name: "New Policy" }).click();
-			const createDialog = dialogByTitle(page, "Create Policy");
-			await expect(createDialog).toBeVisible();
-			await createDialog.getByRole("button", { name: "Local" }).click();
-			await expect(createDialog.locator("#name")).toBeVisible();
-			await createDialog.locator("#name").fill(policyName);
-			await createDialog.locator("#base_path").fill(initialBasePath);
-			await createDialog
-				.getByRole("button", { exact: true, name: "Review" })
+			await expect(page).toHaveURL(/\/admin\/policies\/new$/);
+			await page.getByRole("button", { name: "Local" }).click();
+			await page
+				.getByRole("button", { name: "Back to storage policies" })
 				.click();
-			await createDialog.getByRole("button", { name: "Create" }).click();
-			await expect(createDialog).toBeHidden();
+			const discardDialog = page.getByRole("alertdialog", {
+				name: "Discard this storage policy?",
+			});
+			await expect(discardDialog).toBeVisible();
+			await discardDialog.getByRole("button", { name: "Cancel" }).click();
+			await expect(page).toHaveURL(/\/admin\/policies\/new$/);
+			await page
+				.getByRole("button", { name: "Back to storage policies" })
+				.click();
+			await discardDialog
+				.getByRole("button", { name: "Discard and leave" })
+				.click();
+			await expect(page).toHaveURL(/\/admin\/policies$/);
+			await page.getByRole("button", { name: "New Policy" }).click();
+			await expect(page).toHaveURL(/\/admin\/policies\/new$/);
+			await page.getByRole("button", { name: "Local" }).click();
+			await expect(page.locator("#name")).toBeVisible();
+			await page.locator("#name").fill(policyName);
+			await page.locator("#base_path").fill(initialBasePath);
+			await page.getByRole("button", { exact: true, name: "Review" }).click();
+			await page.getByRole("button", { name: "Create" }).click();
+			await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);
+			await page
+				.getByRole("button", { name: "Back to storage policies" })
+				.click();
+			await expect(page).toHaveURL(/\/admin\/policies$/);
 
 			await expect(tableRowByCellText(page, policyName)).toBeVisible({
 				timeout: 30_000,
@@ -97,9 +117,8 @@ test.describe
 			);
 
 			await tableRowByCellText(page, policyName).click();
-			const editDialog = dialogByTitle(page, "Edit Policy");
-			await expect(editDialog).toBeVisible();
-			await editDialog.locator("#base_path").fill(updatedBasePath);
+			await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);
+			await page.locator("#base_path").fill(updatedBasePath);
 			await Promise.all([
 				page.waitForResponse(
 					(response) =>
@@ -107,10 +126,12 @@ test.describe
 						response.url().includes("/api/v1/admin/policies/") &&
 						response.ok(),
 				),
-				editDialog.getByRole("button", { name: "Save Changes" }).click(),
+				page.getByRole("button", { name: "Save Changes" }).first().click(),
 			]);
-			await expect(editDialog).toBeVisible();
-			await closeActiveDialog(page);
+			await page
+				.getByRole("button", { name: "Back to storage policies" })
+				.click();
+			await expect(page).toHaveURL(/\/admin\/policies$/);
 			await expect(tableRowByCellText(page, policyName)).toContainText(
 				updatedBasePath,
 			);

@@ -286,6 +286,53 @@ describe("StoragePolicyDialog", () => {
 		interactionMocks.toastSuccess.mockReset();
 	});
 
+	it("renders saved policies in the shared detail page shell", () => {
+		const props = dialogProps({
+			mode: "edit",
+			pageBackLabel: "Back to policies",
+			presentation: "page",
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(screen.getByTestId("policy-edit-shell")).toHaveClass(
+			"grid",
+			"gap-8",
+			"lg:grid-cols-[300px_minmax(0,1fr)]",
+		);
+		expect(
+			screen.getByTestId("policy-edit-context-bar").parentElement,
+		).toHaveClass("lg:sticky", "lg:top-6");
+		expect(screen.getByTestId("policy-edit-capacity-summary")).toHaveClass(
+			"border-t",
+			"pt-4",
+		);
+		expect(screen.getByTestId("policy-edit-capacity-summary")).not.toHaveClass(
+			"md:border-l",
+		);
+		fireEvent.click(screen.getByRole("button", { name: /back to policies/i }));
+		expect(props.onOpenChange).toHaveBeenCalledWith(false);
+		expect(
+			screen.getAllByRole("button", { name: /save_changes/i }).length,
+		).toBeGreaterThan(0);
+	});
+
+	it("renders the multi-step creator as a page without a dialog", () => {
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					mode: "create",
+					pageBackLabel: "Back to policies",
+					presentation: "page",
+				})}
+			/>,
+		);
+
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(screen.getByText("create_policy")).toBeInTheDocument();
+		expect(screen.getByTestId("policy-step-panel")).toBeInTheDocument();
+	});
+
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {
 		const available = descriptor("plugin.example", {
 			ui: {

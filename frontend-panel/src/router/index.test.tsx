@@ -239,6 +239,22 @@ describe("router", () => {
 		).toBe(true);
 	});
 
+	it("registers the dedicated storage policy detail route", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/policies/:policyId"),
+		).toBe(true);
+	});
+
+	it("registers the dedicated storage policy create route", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/policies/new"),
+		).toBe(true);
+	});
+
 	it("keeps settings routes outside workspace routes so they preserve the active workspace", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const protectedRoute = routes.find((route) => {

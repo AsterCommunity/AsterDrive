@@ -80,6 +80,12 @@ const AdminTeamDetailPage = localizedLazyPage(
 const AdminPoliciesPage = lazyPage(
 	() => import("@/pages/admin/AdminPoliciesPage"),
 );
+const AdminPolicyCreatePage = lazyPage(
+	() => import("@/pages/admin/AdminPolicyCreatePage"),
+);
+const AdminPolicyDetailPage = lazyPage(
+	() => import("@/pages/admin/AdminPolicyDetailPage"),
+);
 const AdminRemoteNodesPage = lazyPage(
 	() => import("@/pages/admin/AdminRemoteNodesPage"),
 );
@@ -281,6 +287,14 @@ export const router = createBrowserRouter([
 						element: <AdminTeamDetailPage />,
 					},
 					{ path: "/admin/policies", element: <AdminPoliciesPage /> },
+					{
+						path: "/admin/policies/new",
+						element: <AdminPolicyCreatePage />,
+					},
+					{
+						path: "/admin/policies/:policyId",
+						element: <AdminPolicyDetailPage />,
+					},
 					{ path: "/admin/remote-nodes", element: <AdminRemoteNodesPage /> },
 					{ path: "/admin/external-auth", element: <AdminExternalAuthPage /> },
 					{ path: "/admin/policy-groups", element: <AdminPolicyGroupsPage /> },

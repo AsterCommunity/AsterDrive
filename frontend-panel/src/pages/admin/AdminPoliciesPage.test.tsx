@@ -30,6 +30,12 @@ type TableProps = ComponentProps<typeof PoliciesTable>;
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
+	blocker: {
+		proceed: vi.fn(),
+		reset: vi.fn(),
+		state: "unblocked" as "blocked" | "proceeding" | "unblocked",
+	},
+	blockerPredicate: null as null | (() => boolean),
 	dialogProps: null as unknown,
 	executeDraftPolicyAction: vi.fn(),
 	executeSavedPolicyAction: vi.fn(),
@@ -45,6 +51,7 @@ const mockState = vi.hoisted(() => ({
 	listStorageTargets: vi.fn(),
 	logout: vi.fn(),
 	manageDescriptors: [] as unknown[],
+	navigate: vi.fn(),
 	createDescriptors: [] as unknown[],
 	setupDescriptors: [] as unknown[],
 	policies: [] as unknown[],
@@ -77,7 +84,12 @@ const testI18n = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router-dom", () => ({
-	useNavigate: () => vi.fn(),
+	Navigate: ({ to }: { to: string }) => <div>{to}</div>,
+	useBlocker: (predicate: () => boolean) => {
+		mockState.blockerPredicate = predicate;
+		return mockState.blocker;
+	},
+	useNavigate: () => mockState.navigate,
 	useSearchParams: () => [mockState.searchParams, mockState.setSearchParams],
 }));
 
@@ -550,10 +562,6 @@ function currentDialog(): DialogProps {
 	return mockState.dialogProps as DialogProps;
 }
 
-function currentTable(): TableProps {
-	return mockState.tableProps as TableProps;
-}
-
 async function waitForCatalog(connectorId?: string) {
 	await waitFor(() => {
 		expect(currentDialog().storageDriverDescriptorsLoading).toBe(false);
@@ -567,8 +575,20 @@ async function waitForCatalog(connectorId?: string) {
 	});
 }
 
-function openCreateDialog() {
-	fireEvent.click(screen.getByRole("button", { name: /new_policy/ }));
+function renderCreate() {
+	return render(<AdminPoliciesPage variant="create" />);
+}
+
+function renderDetail(policyId = 7) {
+	const selected = (mockState.policies as StoragePolicy[]).find(
+		(policy) => policy.id === policyId,
+	);
+	if (selected && mockState.getPolicy.getMockImplementation() == null) {
+		mockState.getPolicy.mockResolvedValue(selected);
+	}
+	return render(
+		<AdminPoliciesPage variant="detail" detailPolicyId={policyId} />,
+	);
 }
 
 async function setField<K extends keyof PolicyFormData>(
@@ -597,6 +617,10 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		testI18n.language = "en";
 		testI18n.resolvedLanguage = "en";
 		mockState.create.mockReset();
+		mockState.blocker.proceed.mockReset();
+		mockState.blocker.reset.mockReset();
+		mockState.blocker.state = "unblocked";
+		mockState.blockerPredicate = null;
 		mockState.dialogProps = null;
 		mockState.executeDraftPolicyAction.mockReset();
 		mockState.executeSavedPolicyAction.mockReset();
@@ -623,6 +647,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.validateStorageCredential.mockReset();
 
 		mockState.manageDescriptors = [];
+		mockState.navigate.mockReset();
 		mockState.createDescriptors = [];
 		mockState.setupDescriptors = [];
 		mockState.policies = [];
@@ -674,9 +699,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.manageDescriptors = [existingOnly, firstCreatable];
 		mockState.createDescriptors = [firstCreatable];
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.first");
-		openCreateDialog();
 
 		await waitFor(() => {
 			expect(currentDialog().form.connector_id).toBe("plugin.first");
@@ -693,6 +717,35 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
+	it("navigates existing policy rows to the dedicated detail page", async () => {
+		const connector = descriptor("plugin.existing");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [policy(connector.connector_id)];
+
+		render(<AdminPoliciesPage />);
+		await waitForCatalog(connector.connector_id);
+		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies/7", {
+			viewTransition: false,
+		});
+		expect(currentDialog().dialogOpen).toBe(false);
+	});
+
+	it("blocks page navigation only after the create wizard starts", async () => {
+		const connector = descriptor("plugin.create-page");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+
+		renderCreate();
+		await waitForCatalog(connector.connector_id);
+		expect(mockState.blockerPredicate?.()).toBe(false);
+
+		await act(async () => currentDialog().onCreateStepChange(1));
+		expect(mockState.blockerPredicate?.()).toBe(true);
+	});
+
 	it("initializes and submits supported thumbnail defaults without enabling native processing", async () => {
 		const connector = descriptor("plugin.native", {
 			capabilities: {
@@ -704,9 +757,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.createDescriptors = [connector];
 		mockState.create.mockResolvedValue(policy(connector.connector_id));
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog(connector.connector_id);
-		openCreateDialog();
 
 		await waitFor(() => {
 			expect(currentDialog().form).toMatchObject({
@@ -823,9 +875,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.manageDescriptors = [first, second];
 		mockState.createDescriptors = [first, second];
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.second");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_id).toBe("plugin.first"),
 		);
@@ -853,9 +904,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.manageDescriptors = [source, target];
 		mockState.createDescriptors = [source, target];
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog(source.connector_id);
-		openCreateDialog();
 		await setField("connector_config_values", {
 			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
 			bucket: "media-1250000000",
@@ -903,15 +953,13 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			},
 			{ updated_at: "2026-08-17T00:00:00Z" },
 		);
-		const untouched = policy(source.connector_id, {}, { id: 8, name: "Other" });
 		mockState.manageDescriptors = [source, target];
 		mockState.createDescriptors = [source, target];
-		mockState.policies = [saved, untouched];
+		mockState.policies = [saved];
 		mockState.promoteConnector.mockResolvedValue(promoted);
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog(source.connector_id);
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() =>
 			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
 		);
@@ -945,8 +993,6 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			}),
 		);
 		expect(currentDialog().form.connector_id).toBe(target.connector_id);
-		expect(currentTable().policies[0].connector_id).toBe(target.connector_id);
-		expect(currentTable().policies[1]).toEqual(untouched);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"policy_connector_promotion_success",
 		);
@@ -957,9 +1003,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.manageDescriptors = [source, target];
 		mockState.createDescriptors = [source];
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog(source.connector_id);
-		openCreateDialog();
 		await setField("connector_config_values", {
 			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
 			bucket: "media-1250000000",
@@ -982,9 +1027,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.createDescriptors = [source, target];
 		mockState.policies = [nonMatchingSaved];
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog(source.connector_id);
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await setField("connector_config_values", {
 			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
 			bucket: "archive",
@@ -1000,22 +1044,6 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			),
 		);
 		expect(currentDialog().connectorPromotionConfirmKey).toBeNull();
-
-		const matchingSaved = policy(source.connector_id, {
-			endpoint: "https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
-			bucket: "archive",
-			base_path: "",
-		});
-		await act(async () => currentTable().onEditPolicy(matchingSaved));
-		await setField("connector_config_values", {
-			endpoint: "https://s3.example.test",
-			bucket: "archive",
-			base_path: "",
-		});
-		await waitFor(() =>
-			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
-		);
-		expect(currentDialog().connectorPromotionBlocked).toBe(true);
 	});
 
 	it("keeps the source editor retryable when promotion fails", async () => {
@@ -1031,9 +1059,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.policies = [saved];
 		mockState.promoteConnector.mockRejectedValue(promotionError);
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog(source.connector_id);
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() =>
 			expect(currentDialog().connectorPromotionCandidates).toHaveLength(1),
 		);
@@ -1079,9 +1106,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			policy("plugin.static", { endpoint: "https://storage.example.com" }),
 		);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.static");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_id).toBe("plugin.static"),
 		);
@@ -1133,9 +1159,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.manageDescriptors = [connector];
 		mockState.createDescriptors = [connector];
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.required");
-		openCreateDialog();
 		await setField("name", "Incomplete");
 		await act(async () => currentDialog().onCreateStepChange(2));
 		await act(async () => currentDialog().onSubmit());
@@ -1157,9 +1182,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.testConnection.mockResolvedValue({ ok: true });
 		mockState.testParams.mockResolvedValue({ ok: true });
 
-		render(<AdminPoliciesPage />);
+		const listView = renderCreate();
 		await waitForCatalog("plugin.testable");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_id).toBe("plugin.testable"),
 		);
@@ -1176,7 +1200,9 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		);
 
 		await act(async () => currentDialog().onDialogOpenChange(false));
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		listView.unmount();
+		renderDetail();
+		await waitForCatalog("plugin.testable");
 		await waitFor(() => expect(currentDialog().editMode).toBe(true));
 		await act(async () => currentDialog().onRunConnectionTest());
 		expect(mockState.testConnection).toHaveBeenCalledWith(7);
@@ -1213,10 +1239,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			),
 		];
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog("plugin.envelope");
-		await waitFor(() => expect(currentTable().policies).toHaveLength(1));
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 
 		await waitFor(() => {
 			expect(currentDialog().form).toEqual({
@@ -1277,9 +1301,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.policies = [saved];
 		mockState.update.mockResolvedValue(saved);
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog("asterdrive.storage.tencent_cos");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() => expect(currentDialog().editMode).toBe(true));
 		expect(currentDialog().form).toMatchObject({
 			storage_native_thumbnail_enabled: false,
@@ -1339,9 +1362,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.policies = [saved];
 		mockState.update.mockResolvedValue(saved);
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog(connector.connector_id);
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() => expect(currentDialog().editMode).toBe(true));
 		expect(currentDialog().form).toMatchObject({
 			storage_native_thumbnail_enabled: false,
@@ -1401,9 +1423,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			nodeId === 1 ? first.promise : second.promise,
 		);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.remote");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_id).toBe("plugin.remote"),
 		);
@@ -1464,9 +1485,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			new Error("connector descriptors unavailable"),
 		);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.remote");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_id).toBe("plugin.remote"),
 		);
@@ -1516,9 +1536,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			(nodeId: number) => (nodeId === 1 ? first.promise : second.promise),
 		);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.remote");
-		openCreateDialog();
 		await setField("connector_config_values", { node: 1, target: "" });
 		await waitFor(() =>
 			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(1),
@@ -1572,9 +1591,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			(nodeId: number) => (nodeId === 1 ? first.promise : second.promise),
 		);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.remote");
-		openCreateDialog();
 		await setField("connector_config_values", { node: 1, target: "" });
 		await waitFor(() =>
 			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(1),
@@ -1617,9 +1635,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			authorization_url: "https://provider.example.com/authorize",
 		});
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog("plugin.oauth");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() => expect(currentDialog().editMode).toBe(true));
 		await act(async () => currentDialog().onStartStorageAuthorization());
 
@@ -1666,9 +1683,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			root_item_name: "Drive",
 		});
 
-		render(<AdminPoliciesPage />);
+		const firstView = renderDetail();
 		await waitForCatalog("plugin.oauth");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() => {
 			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(1);
 			expect(currentDialog().storageCredentials).toEqual([initiallyAuthorized]);
@@ -1680,8 +1696,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			expect(currentDialog().storageCredentials).toEqual([validated]);
 		});
 
-		await act(async () => currentDialog().onDialogOpenChange(false));
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		firstView.unmount();
+		renderDetail();
 		await waitFor(() => {
 			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(2);
 			expect(currentDialog().storageCredentials).toEqual([initiallyAuthorized]);
@@ -1707,14 +1723,13 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			.mockImplementationOnce(() => first.promise)
 			.mockImplementationOnce(() => second.promise);
 
-		render(<AdminPoliciesPage />);
+		const firstView = renderDetail();
 		await waitForCatalog("plugin.oauth");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() =>
 			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(1),
 		);
-		await act(async () => currentDialog().onDialogOpenChange(false));
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		firstView.unmount();
+		renderDetail();
 		await waitFor(() =>
 			expect(mockState.listStorageCredentials).toHaveBeenCalledTimes(2),
 		);
@@ -1754,9 +1769,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			() => validation.promise,
 		);
 
-		render(<AdminPoliciesPage />);
+		const firstView = renderDetail();
 		await waitForCatalog("plugin.oauth");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() =>
 			expect(currentDialog().storageCredentials).toEqual([initial]),
 		);
@@ -1765,8 +1779,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			expect(currentDialog().storageCredentialValidationSubmitting).toBe(true),
 		);
 
-		await act(async () => currentDialog().onDialogOpenChange(false));
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
+		firstView.unmount();
+		renderDetail();
 		await waitFor(() =>
 			expect(currentDialog().storageCredentials).toEqual([reopened]),
 		);
@@ -1803,9 +1817,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			.mockResolvedValueOnce([expired]);
 		mockState.validateStorageCredential.mockRejectedValue(validationError);
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog("plugin.oauth");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() =>
 			expect(currentDialog().storageCredentials).toEqual([initial]),
 		);
@@ -1853,9 +1866,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			output: { request_id: "draft-request-1", private_value: "ignored" },
 		});
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.actions");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_id).toBe("plugin.actions"),
 		);
@@ -1922,9 +1934,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			output: { request_id: "saved-request-1" },
 		});
 
-		render(<AdminPoliciesPage />);
+		renderDetail();
 		await waitForCatalog("plugin.actions");
-		fireEvent.click(screen.getByRole("button", { name: "edit:7" }));
 		await waitFor(() => expect(currentDialog().editMode).toBe(true));
 		await act(async () =>
 			currentDialog().onRequestConnectorAction("plugin.inspect_saved"),
@@ -1992,9 +2003,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			remoteTarget("action-target"),
 		]);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.actions");
-		openCreateDialog();
 		await waitFor(() =>
 			expect(currentDialog().form.connector_config_values).toEqual({
 				path: "policy-data",
@@ -2021,7 +2031,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
-	it("keeps a newly created authorization connector open with connector-owned guidance", async () => {
+	it("opens a newly created authorization connector page with connector-owned guidance", async () => {
 		const connector = descriptor("plugin.oauth", {
 			actions: [authorizationAction],
 			authorization_provider: "plugin_oauth",
@@ -2035,15 +2045,17 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		mockState.createDescriptors = [connector];
 		mockState.create.mockResolvedValue(created);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.oauth");
-		openCreateDialog();
 		await setField("name", "OAuth policy");
 		await act(async () => currentDialog().onCreateStepChange(2));
 		await act(async () => currentDialog().onSubmit());
 
 		await waitFor(() => expect(mockState.create).toHaveBeenCalledTimes(1));
-		expect(currentDialog().editMode).toBe(true);
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies/7", {
+			replace: true,
+			viewTransition: false,
+		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"plugin_created_authorize_next",
 		);
@@ -2061,9 +2073,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			policy("plugin.failing-test", { path: "data" }),
 		);
 
-		render(<AdminPoliciesPage />);
+		renderCreate();
 		await waitForCatalog("plugin.failing-test");
-		openCreateDialog();
 		await setField("name", "Fallback Policy");
 		await setField("connector_config_values", { path: "data" });
 		await act(async () => currentDialog().onCreateStepChange(2));
@@ -2106,7 +2117,7 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(mockState.setupRefresh).toHaveBeenCalledTimes(1);
 	});
 
-	it("consumes an authorization callback, reloads the policy, and opens it", async () => {
+	it("consumes an authorization callback and navigates to the policy page", async () => {
 		const connector = descriptor("plugin.oauth", {
 			actions: [authorizationAction],
 			credential_management: credentialManagement(),
@@ -2123,7 +2134,11 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		render(<AdminPoliciesPage />);
 		await waitForCatalog("plugin.oauth");
 
-		await waitFor(() => expect(mockState.getPolicy).toHaveBeenCalledWith(7));
+		await waitFor(() =>
+			expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies/7", {
+				viewTransition: false,
+			}),
+		);
 		expect(mockState.setSearchParams).toHaveBeenCalledWith(
 			new URLSearchParams("keep=value"),
 			{ replace: true },
@@ -2132,11 +2147,5 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			"storage_authorization_completed",
 			expect.any(Object),
 		);
-		await waitFor(() => {
-			expect(currentDialog().editMode).toBe(true);
-			expect(currentDialog().form.connector_config_values).toEqual({
-				drive: "authorized",
-			});
-		});
 	});
 });

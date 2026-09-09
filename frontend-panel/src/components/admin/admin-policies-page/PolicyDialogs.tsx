@@ -61,7 +61,8 @@ interface PolicyDialogsProps {
 	submitting: boolean;
 	showStorageDialogCloseButton?: boolean;
 	forceDefaultPolicy?: boolean;
-	storageDialogPresentation?: "dialog" | "setup";
+	storageDialogPresentation?: "dialog" | "page" | "setup";
+	storageDialogPageBackLabel?: string;
 	onStorageSetupLogout?: () => void;
 	onCancelConnectorAction: () => void;
 	onApplyDraftConnectorPromotion: (
@@ -142,6 +143,7 @@ export function PolicyDialogs({
 	showStorageDialogCloseButton = true,
 	forceDefaultPolicy = false,
 	storageDialogPresentation = "dialog",
+	storageDialogPageBackLabel,
 	onStorageSetupLogout,
 	onCancelConnectorAction,
 	onApplyDraftConnectorPromotion,
@@ -249,6 +251,7 @@ export function PolicyDialogs({
 				showCloseButton={showStorageDialogCloseButton}
 				forceDefaultPolicy={forceDefaultPolicy}
 				presentation={storageDialogPresentation}
+				pageBackLabel={storageDialogPageBackLabel}
 				onSetupLogout={onStorageSetupLogout}
 			/>
 		</>

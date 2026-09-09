@@ -151,6 +151,16 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminPoliciesPage"),
 	},
 	{
+		key: "route:admin-policy-create",
+		label: "AdminPolicyCreatePage",
+		load: () => import("@/pages/admin/AdminPolicyCreatePage"),
+	},
+	{
+		key: "route:admin-policy-detail",
+		label: "AdminPolicyDetailPage",
+		load: () => import("@/pages/admin/AdminPolicyDetailPage"),
+	},
+	{
 		key: "route:admin-remote-nodes",
 		label: "AdminRemoteNodesPage",
 		load: () => import("@/pages/admin/AdminRemoteNodesPage"),
