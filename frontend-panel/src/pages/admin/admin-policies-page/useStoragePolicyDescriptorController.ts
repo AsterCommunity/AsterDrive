@@ -15,7 +15,7 @@ import {
 	readAdminRemoteNodeLookup,
 } from "@/lib/adminRemoteNodeLookup";
 import {
-	installAdminStorageConnectorLocalizations,
+	installStorageConnectorLocalizations,
 	loadAdminStorageConnectorLocalizations,
 	translateStorageConnectorMessage,
 } from "@/lib/adminStorageConnectorLocalizations";
@@ -120,6 +120,12 @@ export function useStoragePolicyDescriptorController({
 	const remoteNodeFieldName = remoteNodeField?.name ?? null;
 	const remoteStorageTargetFieldName = remoteStorageTargetField?.name ?? null;
 	const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
+	const remoteStorageTargetsLoadFailedMessage = t(
+		"remote_storage_targets_load_failed",
+	);
+	const remoteStorageTargetConnectorsLoadFailedMessage = t(
+		"remote_storage_target_connectors_load_failed",
+	);
 
 	const loadConnectorLocalizations = useCallback(
 		async ({ force = false }: { force?: boolean } = {}) => {
@@ -144,7 +150,7 @@ export function useStoragePolicyDescriptorController({
 				return;
 			}
 			for (const catalog of catalogs) {
-				installAdminStorageConnectorLocalizations(catalog, language, i18n);
+				installStorageConnectorLocalizations(catalog, language, i18n);
 			}
 		},
 		[creationCatalogContext, i18n, language, primaryCatalogContext],
@@ -209,8 +215,7 @@ export function useStoragePolicyDescriptorController({
 					) {
 						return prev;
 					}
-					const fallbackTarget =
-						targets.find((target) => target.is_default) ?? targets[0];
+					const fallbackTarget = targets[0];
 					return {
 						...prev,
 						connector_config_values: updatedConnectorConfigValues(
@@ -225,7 +230,7 @@ export function useStoragePolicyDescriptorController({
 					return;
 				}
 				setRemoteStorageTargets([]);
-				setRemoteStorageTargetsError(t("remote_storage_targets_load_failed"));
+				setRemoteStorageTargetsError(remoteStorageTargetsLoadFailedMessage);
 				if (showErrorToast) {
 					handleApiError(error);
 				}
@@ -235,7 +240,12 @@ export function useStoragePolicyDescriptorController({
 				}
 			}
 		},
-		[remoteNodeFieldName, remoteStorageTargetFieldName, setForm, t],
+		[
+			remoteNodeFieldName,
+			remoteStorageTargetFieldName,
+			remoteStorageTargetsLoadFailedMessage,
+			setForm,
+		],
 	);
 
 	const loadRemoteStorageTargetConnectorDescriptorsForPolicy = useCallback(
@@ -249,17 +259,24 @@ export function useStoragePolicyDescriptorController({
 			setRemoteStorageTargetConnectorDescriptorsError(null);
 
 			try {
-				const descriptors =
+				const catalog =
 					await adminRemoteNodeService.listStorageTargetConnectors(
 						remoteNodeId,
+						language,
 					);
 				if (
 					requestSerial !==
-					remoteStorageTargetConnectorDescriptorsRequestSerial.current
+						remoteStorageTargetConnectorDescriptorsRequestSerial.current ||
+					(i18n.resolvedLanguage ?? i18n.language ?? "en") !== language
 				) {
 					return;
 				}
-				setRemoteStorageTargetConnectorDescriptors(descriptors);
+				installStorageConnectorLocalizations(
+					catalog.localizations,
+					language,
+					i18n,
+				);
+				setRemoteStorageTargetConnectorDescriptors(catalog.descriptors);
 				setRemoteStorageTargetConnectorDescriptorsError(null);
 			} catch (error) {
 				if (
@@ -270,7 +287,7 @@ export function useStoragePolicyDescriptorController({
 				}
 				setRemoteStorageTargetConnectorDescriptors([]);
 				setRemoteStorageTargetConnectorDescriptorsError(
-					t("remote_storage_target_connectors_load_failed"),
+					remoteStorageTargetConnectorsLoadFailedMessage,
 				);
 				if (showErrorToast) {
 					handleApiError(error);
@@ -284,7 +301,7 @@ export function useStoragePolicyDescriptorController({
 				}
 			}
 		},
-		[t],
+		[i18n, language, remoteStorageTargetConnectorsLoadFailedMessage],
 	);
 
 	const resetRemoteStorageTargets = useCallback(() => {

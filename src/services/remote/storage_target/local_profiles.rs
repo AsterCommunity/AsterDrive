@@ -2,9 +2,8 @@ use aster_forge_db::transaction;
 use chrono::Utc;
 use sea_orm::Set;
 
-use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::remote_storage_target_repo;
-use crate::errors::{AsterError, Result, precondition_failed_with_code};
+use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
@@ -37,8 +36,6 @@ pub async fn create<S: FollowerRuntimeState>(
     let connector_id = connection.connector_config.connector_id.clone();
     let connector_config = encode_connector_config(&connection.connector_config)?;
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
-        let should_set_default = normalized.is_default == Some(true)
-            || remote_storage_target_repo::count_by_binding(txn, binding.id).await? == 0;
         let now = Utc::now();
         let created = remote_storage_target_repo::create(
             txn,
@@ -54,7 +51,6 @@ pub async fn create<S: FollowerRuntimeState>(
                 access_key: Set(String::new()),
                 secret_key: Set(String::new()),
                 base_path: Set(String::new()),
-                is_default: Set(false),
                 desired_revision: Set(1),
                 applied_revision: Set(0),
                 last_error: Set(String::new()),
@@ -65,10 +61,6 @@ pub async fn create<S: FollowerRuntimeState>(
         )
         .await?;
         persist_credential(state, txn, created.id, &connection).await?;
-        if should_set_default {
-            remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, created.id)
-                .await?;
-        }
         Ok::<_, AsterError>(created.id)
     })
     .await?;
@@ -84,13 +76,6 @@ pub async fn update<S: FollowerRuntimeState>(
 ) -> Result<RemoteStorageTargetInfo> {
     let existing = find_target_or_err(state, binding.id, target_key).await?;
     let normalized = normalize_update_input(state, &existing, input).await?;
-
-    if existing.is_default && normalized.is_default == Some(false) {
-        return Err(precondition_failed_with_code(
-            ApiErrorCode::RemoteStorageTargetDefaultUpdateRequiresReplacement,
-            "cannot unset the default remote storage target directly; set another target as default first",
-        ));
-    }
 
     let target_id = transaction::with_transaction(state.writer_db(), async |txn| {
         let mut active: remote_storage_target::ActiveModel = existing.clone().into();
@@ -117,10 +102,6 @@ pub async fn update<S: FollowerRuntimeState>(
             }
             persist_credential(state, txn, updated.id, connection).await?;
         }
-        if normalized.is_default == Some(true) {
-            remote_storage_target_repo::set_only_default_for_binding(txn, binding.id, updated.id)
-                .await?;
-        }
         Ok::<_, AsterError>(updated.id)
     })
     .await?;
@@ -137,16 +118,8 @@ pub async fn delete<S: FollowerRuntimeState>(
     tracing::debug!(
         binding_id = binding.id,
         target_key = %existing.target_key,
-        is_default = existing.is_default,
         "deleting managed remote storage target"
     );
-    let count = remote_storage_target_repo::count_by_binding(state.writer_db(), binding.id).await?;
-    if existing.is_default && count > 1 {
-        return Err(precondition_failed_with_code(
-            ApiErrorCode::RemoteStorageTargetDefaultDeleteRequiresReplacement,
-            "cannot delete the default remote storage target while other targets still exist; set another target as default first",
-        ));
-    }
     remote_storage_target_repo::delete_by_binding_and_target_key(
         state.writer_db(),
         binding.id,

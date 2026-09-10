@@ -16,8 +16,12 @@ import type {
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string, options?: Record<string, unknown>) =>
-			options?.name ? `${key}:${options.name}` : key,
+		t: (key: string, options?: Record<string, unknown>) => {
+			if (options?.ns === "plugin.follower-only") {
+				return key === "follower_label" ? "Follower 专用存储" : "远端目录";
+			}
+			return options?.name ? `${key}:${options.name}` : key;
+		},
 	}),
 }));
 
@@ -160,7 +164,6 @@ const profile = (
 	applied_revision: 2,
 	created_at: "2026-05-01T00:00:00Z",
 	desired_revision: 2,
-	is_default: false,
 	last_error: "",
 	name: "Local ingress",
 	target_key: "local-default",
@@ -227,16 +230,6 @@ const localConnectorDescriptor: StorageConnectorDescriptor = {
 			scope: "connector_config",
 			placeholder: "tenant-a/incoming",
 			required: true,
-			secret: false,
-		},
-		{
-			help_key: "remote_node_ingress_profile_default_hint",
-			kind: "boolean",
-			label_key: "remote_node_ingress_profile_default_toggle",
-			name: "is_default",
-			scope: "connector_config",
-			placeholder: null,
-			required: false,
 			secret: false,
 		},
 	],
@@ -346,16 +339,6 @@ const s3ConnectorDescriptor: StorageConnectorDescriptor = {
 			name: "base_path",
 			scope: "connector_config",
 			placeholder: "prefix",
-			required: false,
-			secret: false,
-		},
-		{
-			help_key: "remote_node_ingress_profile_default_hint",
-			kind: "boolean",
-			label_key: "remote_node_ingress_profile_default_toggle",
-			name: "is_default",
-			scope: "connector_config",
-			placeholder: null,
 			required: false,
 			secret: false,
 		},
@@ -515,6 +498,43 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		expect(screen.getByText("Unknown target")).toBeInTheDocument();
 	});
 
+	it("renders follower-owned connector and field localizations", async () => {
+		const followerDescriptor = {
+			...localConnectorDescriptor,
+			connector_id: "plugin.follower-only",
+			fields: localConnectorDescriptor.fields.map((field) => ({
+				...field,
+				label_key: "follower_base_path",
+			})),
+			ui: {
+				...localConnectorDescriptor.ui,
+				label_key: "follower_label",
+			},
+		};
+		const user = userEvent.setup();
+		renderSection({
+			connectorDescriptors: [followerDescriptor],
+			readOnly: true,
+			targets: [
+				profile({
+					connector_config: {
+						...profile().connector_config,
+						connector_id: "plugin.follower-only",
+					},
+					connector_id: "plugin.follower-only",
+				}),
+			],
+		});
+
+		await user.click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_show",
+			}),
+		);
+
+		expect(screen.getByText("远端目录")).toBeInTheDocument();
+	});
+
 	it("allows quick creation in a read-only target list without exposing management actions", async () => {
 		const user = userEvent.setup();
 		const { onCreateTarget } = renderSection({
@@ -554,38 +574,25 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 							values: expect.objectContaining({ base_path: "policy/incoming" }),
 						}),
 					}),
-					is_default: false,
 					name: "Policy quick target",
 				}),
 			);
 		});
 	});
 
-	it("creates the first local profile as the default", async () => {
+	it("creates the first local profile", async () => {
 		const { onCreateTarget } = renderSection();
 
 		const createButton = screen.getByRole("button", {
 			name: /remote_node_ingress_profiles_create/,
 		});
 		fireEvent.click(createButton);
-		expect(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		).toBeChecked();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: " Local upload " },
 		});
 		fireEvent.change(screen.getByLabelText("base_path"), {
 			target: { value: "teams/incoming" },
 		});
-		fireEvent.click(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		);
-		expect(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		).not.toBeChecked();
-		fireEvent.click(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		);
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
@@ -597,7 +604,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 							values: expect.objectContaining({ base_path: "teams/incoming" }),
 						}),
 					}),
-					is_default: true,
 					name: "Local upload",
 				}),
 			);
@@ -752,16 +758,12 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 					endpoint: "https://s3.example.com",
 				},
 			},
-			is_default: true,
 			name: "S3 ingress",
 			target_key: "s3-default",
 		});
 		const { onUpdateTarget } = renderSection({ targets: [existing] });
 
 		fireEvent.click(screen.getByRole("button", { name: "core:edit" }));
-		expect(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		).toBeDisabled();
 		expect(screen.getByRole("button", { name: /save_changes/ })).toBeEnabled();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "S3 renamed" },
@@ -788,7 +790,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 							values: { s3_access_key_id: "rotated-access" },
 						},
 					},
-					is_default: true,
 					name: "S3 renamed",
 				}),
 			);

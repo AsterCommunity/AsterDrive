@@ -401,7 +401,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - primary 侧转发远端 target CRUD
 - remote storage target driver descriptor / field descriptor
 - local/S3 field normalization、path normalization、driver build / validation
-- 默认 target 选择、revision apply 状态、effective target resolution
+- 显式 target key 选择、revision apply 状态、target resolution
 
 应该保留：
 
@@ -426,7 +426,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 必须显式的副作用：
 
 - desired/applied revision 更新
-- default target 替换约束
+- 显式 target key 解析与可用性校验
 - driver registry reload / target validation
 - remote forwarding failure 的协议错误映射
 
@@ -446,7 +446,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - follower 对 primary 的信任关系
 - internal storage auth 和 presigned auth 的产品级授权
 - binding storage namespace 的路径隔离
-- 调用 `storage_target::resolve_effective_target` 取得授权后的 ingress driver
+- 调用 `storage_target::resolve_target_by_key`，按请求携带的显式 target key 取得授权后的 ingress driver
 
 不应该承担：
 

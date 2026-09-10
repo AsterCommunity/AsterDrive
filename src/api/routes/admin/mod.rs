@@ -16,9 +16,10 @@ pub use crate::api::dto::admin::{
     CreateUserInvitationReq, CreateUserReq, DeletePolicyQuery, DryRunStoragePolicyMigrationReq,
     ExecuteConfigActionReq, ExecuteConfigActionResp, MigratePolicyGroupAssignmentsReq,
     PatchPolicyGroupReq, PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq,
-    PromoteStoragePolicyConnectorReq, ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq,
-    StorageConnectorCatalogContext, StorageConnectorCatalogQuery,
-    StorageConnectorLocalizationCatalogQuery, TestPolicyParamsReq, TestRemoteNodeParamsReq,
+    PromoteStoragePolicyConnectorReq, RemoteStorageTargetConnectorCatalogQuery,
+    ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq, StorageConnectorCatalogContext,
+    StorageConnectorCatalogQuery, StorageConnectorLocalizationCatalogQuery, TestPolicyParamsReq,
+    TestRemoteNodeParamsReq,
 };
 
 pub(crate) mod audit_logs;

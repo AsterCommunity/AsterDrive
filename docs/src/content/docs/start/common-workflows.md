@@ -20,7 +20,7 @@ title: "常用流程"
 | 场景 | 一句话 | 权威页 |
 | --- | --- | --- |
 | 给不同用户或团队安排存储路线 | 先建存储策略，再在策略组里配大小分流规则，最后绑到用户或团队 | [存储策略与策略组](/admin/storage-policies/) |
-| 给远程节点准备存储 | enroll 之后还要创建默认远程存储目标，否则上传会被拒 | [Follower 存储节点](/deploy/follower-node/) |
+| 给远程节点准备存储 | enroll 后创建远程存储目标，并让 remote 策略显式绑定它 | [Follower 存储节点](/deploy/follower-node/) |
 | 大文件上传中断续传 | 回到原文件夹重新选同一个文件，会话未过期就会续传 | [上传与下载](/using/upload-download/) |
 | 上传失败排查 | 先查工作空间和策略组，再查大小上限、代理、CORS、配额 | [上传与下载](/using/upload-download/) |
 

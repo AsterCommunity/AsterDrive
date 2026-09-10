@@ -36,7 +36,6 @@ impl TryFrom<remote_storage_target::Model> for RemoteStorageTargetInfo {
             name: model.name,
             connector_id,
             connector_config,
-            is_default: model.is_default,
             desired_revision: model.desired_revision,
             applied_revision: model.applied_revision,
             last_error: model.last_error,

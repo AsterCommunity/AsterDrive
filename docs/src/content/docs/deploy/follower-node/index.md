@@ -20,7 +20,7 @@ title: "Follower 存储节点部署"
 - **主控节点（primary）**：负责登录、前端、管理后台、分享、WebDAV、存储策略和远程节点管理
 - **从节点（follower）**：只暴露 `/health`、`/health/ready` 和内部远程存储协议；接收主控签名后的对象请求，按主控下发的**远程存储目标**把对象落到本地目录或 S3
 
-当前内部远程存储协议版本是 `v5`，主控兼容 `v4` 到 `v5` 的 follower；`v2` / `v3` follower 需要先升级。
+当前内部远程存储协议版本和最低兼容版本都是 `v6`；主控与 follower 必须运行同一代协议。
 
 完整的概念边界（从节点能不能登录、远程存储目标能不能套 remote 等）见 [远程节点](/admin/follower-nodes/)。
 
@@ -67,13 +67,13 @@ flowchart LR
   CreateNode --> Transport["选择传输方式"]
   Transport --> Enroll["follower 完成 enroll<br/>Docker 自动 或 手动命令"]
   Enroll --> Connectivity["主控测试连通性"]
-  Connectivity --> Target["创建默认远程存储目标"]
+  Connectivity --> Target["创建远程存储目标"]
   Target --> Policy["创建 remote 存储策略"]
   Policy --> Assign["分配给用户或团队"]
 ```
 
 :::tip[最容易漏的一步]
-enroll 成功不等于可以上传。真正承接远程存储前，还要在主控节点给这个从节点创建默认远程存储目标。
+enroll 成功不等于可以上传。真正承接远程存储前，还要在主控节点给这个从节点创建远程存储目标，并在 remote 存储策略里显式选择它。
 :::
 
 ## 路径 A：Docker 自动 enroll（推荐）
@@ -259,7 +259,7 @@ aster_drive node enroll \
 
 enroll 前 `/health/ready` 返回 `503` 不代表服务故障，它本来就尚未进入 ready 状态。
 
-## 创建默认远程存储目标
+## 创建远程存储目标
 
 测试连接通过后，回到 `管理 -> 远程节点`，打开这台 follower，找到**远程存储目标**。这里决定主控写到 follower 的对象最后落在哪里。
 
@@ -268,12 +268,12 @@ enroll 前 `/health/ready` 返回 `503` 不代表服务故障，它本来就尚�
 - `local`：写入 follower 本地目录
 - `s3`：写入 follower 能访问的 S3 / MinIO / R2 这类对象存储
 
-第一次建议创建 `local`：名称填容易识别的名字（如 `default-local`），基础路径填相对路径（如 `default`），勾选"设为默认远程存储目标"。
+第一次建议创建 `local`：名称填容易识别的名字（如 `local-primary`），基础路径填相对路径（如 `primary`）。
 
 这里的本地路径**只能是相对路径**，始终被限制在 follower 的 `server.follower.remote_storage_target_local_root` 下面——`base_path = "default"` 最终会落到 follower 的 `data/remote-storage-targets/default` 这一类目录。如果你想让 follower 直接把对象写到 S3，也是在这里新建 `s3` 远程存储目标，填 endpoint、bucket、凭证和可选前缀。
 
-:::caution[没有默认远程存储目标，远程写入会被拒绝]
-enroll 成功只代表主从身份绑定成功。真正接收对象前，follower 还需要一个已应用的默认远程存储目标，否则远程策略上传时会返回"还没有默认远程存储目标"。
+:::caution[remote 策略必须显式选择目标]
+enroll 成功只代表主从身份绑定成功。真正接收对象前，需要先创建一个已应用的远程存储目标，并在每条 remote 策略中显式选择；没有 `target_key` 的请求会被拒绝。
 :::
 
 远程存储目标由主控节点通过 follower API 下发，前提：
@@ -289,7 +289,7 @@ enroll 成功只代表主从身份绑定成功。真正接收对象前，followe
 - 真正的网络传输、访问密钥和签名都由"远程节点"记录负责
 - 策略本身只负责远端路径前缀、上传限制，以及是否设为默认
 - 远程存储策略应绑定**已接入、已启用，并且当前传输方式可用**的远程节点
-- follower 真正写到哪里，由上一步绑定到策略的远程存储目标决定；没有显式选择时使用默认目标
+- follower 真正写到哪里，由策略显式绑定的远程存储目标决定；不存在 binding 级默认回退
 
 完整的策略组分流、测试用户绑定和上线验收步骤见 [远程节点存储策略教程](/admin/storage-backends/remote-follower/)。
 
@@ -315,7 +315,7 @@ enroll 成功只代表主从身份绑定成功。真正接收对象前，followe
 
 1. follower 的 `/health` 和 `/health/ready` 都返回 `200`
 2. 主控后台"测试连接"通过，能力摘要里协议版本范围与主控兼容
-3. 默认远程存储目标已创建并应用成功
+3. 策略选中的远程存储目标已创建并应用成功
 4. 用 remote 策略实际上传一个文件，确认对象落到 follower 的预期目录或 S3 bucket
 5. 实际下载一次，确认链路完整
 6. 如果选择了 `presigned`，用真实浏览器各验证一次上传和下载；`relay_stream` 正常但 `presigned` 失败时，优先查浏览器到 follower `base_url` 的 DNS、证书、路由、CORS 和代理响应头
@@ -323,7 +323,7 @@ enroll 成功只代表主从身份绑定成功。真正接收对象前，followe
 
 ## 日常维护
 
-- follower 的升级和备份与普通实例相同，按各自部署方式处理；主控和 follower 的版本协议兼容范围是 `v4` 到 `v5`
+- follower 的升级和备份与普通实例相同，按各自部署方式处理；当前主控和 follower 必须使用 V6 协议
 - 禁用远程节点会实际停止链路：主控的远程策略停止使用它，从节点也拒绝对应的签名入站请求
 - 日常容量和连接状态可以从主控后台远程节点详情查看
 

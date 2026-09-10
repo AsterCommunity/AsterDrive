@@ -20,8 +20,6 @@ import type {
 import { RemoteNodeRemoteStorageTargetForm } from "./RemoteNodeRemoteStorageTargetForm";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
 
-const IS_DEFAULT_FIELD = "is_default";
-
 interface RemoteNodeRemoteStorageTargetSectionProps {
 	allowCreate?: boolean;
 	createLabelKey?: string;
@@ -120,7 +118,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 		setForm({
 			...emptyRemoteStorageTargetForm,
 			connector_id: firstSupportedConnectorId,
-			is_default: targets.length === 0,
 		});
 	};
 
@@ -156,7 +153,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: t("remote_node_ingress_profile_name_required");
 	const missingRequiredField =
 		activeConnectorDescriptor?.fields.some((field) => {
-			if (!field.required || field.name === IS_DEFAULT_FIELD) return false;
+			if (!field.required) return false;
 			if (
 				field.scope !== "connector_config" &&
 				activeDraftMode === "edit" &&
@@ -171,8 +168,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 			const value = values[field.name];
 			return value == null || String(value).trim().length === 0;
 		}) ?? false;
-	const defaultToggleLocked =
-		activeDraftMode === "edit" && editingTarget?.is_default;
 	const submitDisabled =
 		submitting ||
 		Boolean(errorMessage) ||
@@ -325,7 +320,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 			{animateDraftClose ? (
 				<AnimatedCollapsible open={activeDraftMode != null}>
 					<RemoteNodeRemoteStorageTargetForm
-						defaultToggleLocked={Boolean(defaultToggleLocked)}
 						connectorDescriptors={supportedConnectorDescriptors}
 						connectorIdError={connectorIdError}
 						draftMode={draftModeForRender}

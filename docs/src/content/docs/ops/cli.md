@@ -301,7 +301,7 @@ ASTER_CLI_COPY_BATCH_SIZE=100
 - 用 token 向主控兑换本地绑定信息，并写入 follower 数据库
 - 输出当前监听地址、配置文件路径和下一步连通性检查提示
 
-命令本身不会替你创建主控节点的默认远程存储目标，也不会启动 HTTP 服务。执行成功后，重启 follower 进程，再回主控后台创建或应用默认远程存储目标。
+命令本身不会替你创建主控节点管理的远程存储目标，也不会启动 HTTP 服务。执行成功后，重启 follower 进程，再回主控后台创建目标，并在 remote 存储策略中显式选择它。
 
 Docker follower 更推荐用启动环境变量自动 enroll，不需要进容器手动跑这条命令，见 [Docker 部署从节点](/deploy/follower-node/)。
 

@@ -3,6 +3,8 @@
 //! The legacy storage_policy_group_items table remains as a compatibility
 //! projection until 0.6.0. This migration materializes each legacy item as a
 //! single rule with one target and preserves first-match size routing.
+//! The same unreleased topology migration also removes binding-wide remote
+//! target defaults now that remote policies persist an explicit target key.
 //!
 //! TODO(0.6.0): remove the legacy item projection, compatibility readers and
 //! the old policy-group-only migration path after all supported databases have
@@ -22,6 +24,7 @@ const DEFAULT_ADMISSION: &str = r#"{"format_version":1,"schema_version":1,"value
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        remove_remote_storage_target_default(manager).await?;
         report_legacy_allowed_types(manager).await?;
         add_profile_columns(manager).await?;
         create_rules(manager).await?;
@@ -46,10 +49,91 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+        restore_remote_storage_target_default(manager).await?;
         // TODO(0.6.0): remove this down migration once the legacy group
         // columns become part of the permanent placement schema.
         Ok(())
     }
+}
+
+async fn remove_remote_storage_target_default(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if !manager.has_table("remote_storage_targets").await? {
+        return Ok(());
+    }
+    aster_forge_db_migration::drop_index_if_exists(
+        manager.get_connection(),
+        "remote_storage_targets",
+        "idx_remote_storage_targets_binding_default",
+    )
+    .await?;
+    if manager
+        .has_column("remote_storage_targets", "is_default")
+        .await?
+    {
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(RemoteStorageTargets::Table)
+                    .drop_column(RemoteStorageTargets::IsDefault)
+                    .to_owned(),
+            )
+            .await?;
+    }
+    Ok(())
+}
+
+async fn restore_remote_storage_target_default(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if !manager.has_table("remote_storage_targets").await? {
+        return Ok(());
+    }
+    if !manager
+        .has_column("remote_storage_targets", "is_default")
+        .await?
+    {
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(RemoteStorageTargets::Table)
+                    .add_column(
+                        ColumnDef::new(RemoteStorageTargets::IsDefault)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+    }
+
+    let restore_default_sql = match manager.get_database_backend() {
+        DbBackend::MySql => {
+            "UPDATE remote_storage_targets AS target \
+             JOIN (SELECT master_binding_id, MIN(id) AS id \
+                   FROM remote_storage_targets GROUP BY master_binding_id) AS first_target \
+               ON first_target.id = target.id \
+             SET target.is_default = TRUE"
+        }
+        _ => {
+            "UPDATE remote_storage_targets SET is_default = TRUE \
+             WHERE id IN (SELECT MIN(id) FROM remote_storage_targets \
+                          GROUP BY master_binding_id)"
+        }
+    };
+    manager
+        .get_connection()
+        .execute_unprepared(restore_default_sql)
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_remote_storage_targets_binding_default")
+                .table(RemoteStorageTargets::Table)
+                .col(RemoteStorageTargets::MasterBindingId)
+                .col(RemoteStorageTargets::IsDefault)
+                .if_not_exists()
+                .to_owned(),
+        )
+        .await
 }
 
 async fn report_legacy_allowed_types(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
@@ -458,4 +542,77 @@ enum StoragePolicyGroupRuleTargets {
 enum StoragePolicies {
     Table,
     Id,
+}
+
+#[derive(DeriveIden)]
+enum RemoteStorageTargets {
+    Table,
+    MasterBindingId,
+    IsDefault,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{remove_remote_storage_target_default, restore_remote_storage_target_default};
+    use sea_orm_migration::SchemaManager;
+    use sea_orm_migration::sea_orm::{ConnectionTrait, Database, DbBackend, Statement};
+
+    #[tokio::test]
+    async fn sqlite_removes_and_restores_default_target_schema() {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        db.execute_unprepared(
+            "CREATE TABLE remote_storage_targets (\
+                id INTEGER PRIMARY KEY, \
+                master_binding_id INTEGER NOT NULL, \
+                is_default BOOLEAN NOT NULL DEFAULT 0\
+            ); \
+            CREATE INDEX idx_remote_storage_targets_binding_default \
+                ON remote_storage_targets(master_binding_id, is_default); \
+            INSERT INTO remote_storage_targets (id, master_binding_id, is_default) \
+                VALUES (1, 7, 0), (2, 7, 1);",
+        )
+        .await
+        .unwrap();
+        let manager = SchemaManager::new(&db);
+
+        remove_remote_storage_target_default(&manager)
+            .await
+            .unwrap();
+        assert!(
+            !manager
+                .has_column("remote_storage_targets", "is_default")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !manager
+                .has_index(
+                    "remote_storage_targets",
+                    "idx_remote_storage_targets_binding_default"
+                )
+                .await
+                .unwrap()
+        );
+
+        restore_remote_storage_target_default(&manager)
+            .await
+            .unwrap();
+        assert!(
+            manager
+                .has_column("remote_storage_targets", "is_default")
+                .await
+                .unwrap()
+        );
+        let row = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT id FROM remote_storage_targets \
+                 WHERE master_binding_id = 7 AND is_default = 1"
+                    .to_string(),
+            ))
+            .await
+            .unwrap()
+            .expect("rollback should restore one default target per binding");
+        assert_eq!(row.try_get::<i64>("", "id").unwrap(), 1);
+    }
 }

@@ -20,7 +20,7 @@ Find your scenario, read the summary, then jump to the authority page and follow
 | Scenario | In one sentence | Authority page |
 | --- | --- | --- |
 | Assign storage routes to users or teams | Create storage policies first, configure size-based routing rules in policy groups, then bind to users or teams | [Storage Policies and Groups](/en/admin/storage-policies/) |
-| Prepare storage for a follower node | After enroll, you still need a default remote storage target, or uploads are rejected | [Follower Storage Node](/en/deploy/follower-node/) |
+| Prepare storage for a follower node | After enrollment, create a remote storage target and bind it explicitly from the remote policy | [Follower Storage Node](/en/deploy/follower-node/) |
 | Resume an interrupted large upload | Go back to the original folder and pick the same file again; an unexpired session resumes | [Upload and Download](/en/using/upload-download/) |
 | Upload failure triage | Check workspace and policy group first, then size limits, proxy, CORS, and quota | [Upload and Download](/en/using/upload-download/) |
 

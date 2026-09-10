@@ -237,6 +237,16 @@ export function StoragePolicyDialog({
 	const connectionFields = descriptorFields.filter(
 		(field) => field !== basePathField,
 	);
+	const immutableLocationFields = descriptorFields.filter(
+		(field) => (field.update_behavior ?? "mutable") !== "mutable",
+	);
+	const hasUnboundSetOnceField = immutableLocationFields.some((field) => {
+		const value = connectorFormValue(form, field.name);
+		return (
+			field.update_behavior === "set_once" &&
+			(value === undefined || value === null || value === "")
+		);
+	});
 	const createSteps = [
 		{
 			title: t("policy_wizard_step_storage_title"),
@@ -661,6 +671,15 @@ export function StoragePolicyDialog({
 											}
 										/>
 										<div className="mt-5 space-y-4">
+											{!isCreateMode && immutableLocationFields.length > 0 ? (
+												<p className="rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+													{t(
+														hasUnboundSetOnceField
+															? "policy_editor_remote_legacy_target_required_desc"
+															: "policy_editor_remote_location_immutable_desc",
+													)}
+												</p>
+											) : null}
 											<StorageConnectorFieldsPanel
 												descriptor={storageDriverDescriptor}
 												fields={connectionFields}

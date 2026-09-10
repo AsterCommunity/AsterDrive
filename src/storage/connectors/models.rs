@@ -208,6 +208,8 @@ pub(crate) struct LocalFilesystemPolicyProjection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RemotePolicyBindingProjection {
     pub remote_node_id: Option<i64>,
+    pub remote_storage_target_key: Option<String>,
+    pub base_path: String,
     pub download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
     pub upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
 }

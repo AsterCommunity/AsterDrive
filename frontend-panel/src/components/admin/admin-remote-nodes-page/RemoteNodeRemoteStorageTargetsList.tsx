@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -109,6 +110,11 @@ function RemoteNodeRemoteStorageTargetCard({
 	const badgePresentation = getStorageConnectorBadgePresentation(
 		connectorDescriptor?.ui.badge_rgb,
 	);
+	const connectorT = (key: string) =>
+		translateStorageConnectorMessage(t, connectorDescriptor?.connector_id, key);
+	const connectorLabel = connectorDescriptor
+		? connectorT(connectorDescriptor.ui.label_key)
+		: (target.connector_id ?? "unknown");
 	useEffect(() => {
 		return () => {
 			if (removeTimer.current !== null) clearTimeout(removeTimer.current);
@@ -148,16 +154,8 @@ function RemoteNodeRemoteStorageTargetCard({
 								className={badgePresentation.className}
 								style={badgePresentation.style}
 							>
-								{target.connector_id ?? "unknown"}
+								{connectorLabel}
 							</Badge>
-							{target.is_default ? (
-								<Badge
-									variant="outline"
-									className="border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300"
-								>
-									{t("remote_node_ingress_profile_default")}
-								</Badge>
-							) : null}
 							<Badge variant="outline" className={status.toneClass}>
 								{t(status.labelKey)}
 							</Badge>
@@ -235,7 +233,7 @@ function RemoteNodeRemoteStorageTargetCard({
 							return (
 								<div key={field.name}>
 									<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-										{t(field.label_key)}
+										{connectorT(field.label_key)}
 									</dt>
 									<dd className="mt-1 break-all font-medium">
 										{String(value)}

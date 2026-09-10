@@ -72,7 +72,7 @@ Confirm that the target node meets these conditions:
 
 If `base_url` is empty, only `reverse_tunnel` or `auto` can carry remote traffic. A `direct` node must have an HTTP(S) address reachable by the primary. Before production, confirm that "Test Connection" passes with the current transport mode.
 
-## 2. Create the Default Remote Storage Target
+## 2. Create a Remote Storage Target
 
 Open the target follower node details and find:
 
@@ -86,10 +86,9 @@ Example:
 
 | Field | Recommendation |
 | --- | --- |
-| Name | `default-local` |
+| Name | `local-primary` |
 | Driver | `local` |
-| Base path | `default` |
-| Default remote storage target | Enabled |
+| Base path | `primary` |
 
 The base path of a `local` remote storage target can only be a relative path.
 
@@ -118,8 +117,8 @@ Objects are ultimately written to:
 /data/remote-storage-targets/default
 ```
 
-:::caution[Without a default remote storage target, a remote policy cannot actually write data]
-Successful enrollment only means the primary and follower identities are bound. Before receiving real objects, the follower node also needs an applied default remote storage target.
+:::caution[Remote policies must select a target explicitly]
+Successful enrollment only means the primary and follower identities are bound. Before receiving objects, create an applied remote storage target and select it explicitly in every remote policy.
 :::
 
 ## 3. Choose local or s3 for the Remote Storage Target
@@ -317,7 +316,7 @@ Check regularly:
 - Whether the remote node connection test succeeds
 - If reverse tunnel is used, whether the tunnel is online and has no recent errors
 - Whether the admin console reports a healthy follower state
-- Whether the default remote storage target is still applied
+- Whether the remote storage target bound to the policy is still applied
 - Whether the follower local target root directory has enough disk space
 - If the follower writes to S3, whether the S3 credentials are still valid
 - Whether the remote policy group is still enabled
@@ -348,7 +347,7 @@ Check in this order:
 
 1. Whether the remote node is enabled
 2. Whether enrollment is complete
-3. Whether an applied default remote storage target exists
+3. Whether the policy explicitly binds an applied remote storage target
 4. Whether the follower local target root directory is writable
 5. Whether policy group rules really match the remote policy
 6. Whether the user or team quota is already full
@@ -370,12 +369,14 @@ Check:
 
 ### Existing Files Suddenly Disappear
 
-First confirm whether anyone recently changed:
+A remote policy cannot change its remote node, storage target, or base path after creation. A referenced target also cannot be deleted or have its connector configuration changed. This keeps every existing blob on the physical location selected by its original policy.
 
-- the remote node bound by the remote policy
-- the follower remote storage target
-- `remote_storage_target_local_root`
-- the follower local directory
-- the S3 endpoint / bucket / prefix used by the follower remote storage target
+To move to another node, target, local path, or S3 bucket/prefix:
 
-All of these fields decide where old objects live. Do not directly edit a real target that is already in use.
+1. Create another remote storage target.
+2. Create another storage policy bound to that target.
+3. Use storage migration to move data from the old policy to the new policy.
+4. Remove the old policy's policy-group, upload-session, and blob references, then delete the old policy.
+5. Delete the old target only after no policy references it.
+
+If files are still missing, check whether someone bypassed AsterDrive and changed the follower's `remote_storage_target_local_root`, local directory, or underlying object-storage data.

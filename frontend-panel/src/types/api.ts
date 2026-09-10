@@ -335,6 +335,8 @@ export type RemoteEnrollmentCommandInfo =
 	components["schemas"]["RemoteEnrollmentCommandInfo"];
 export type RemoteStorageTargetInfo =
 	components["schemas"]["RemoteStorageTargetInfo"];
+export type RemoteStorageTargetConnectorCatalog =
+	OperationData<"list_remote_node_storage_target_connectors">;
 export type RemoteNodeEnrollmentStatus =
 	components["schemas"]["RemoteNodeEnrollmentStatus"];
 export type RemoteNodeInfo = components["schemas"]["RemoteNodeInfo"];

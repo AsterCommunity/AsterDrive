@@ -445,7 +445,7 @@ Should stay:
 - Follower trust relationship with the primary
 - Product-level internal storage and presigned authorization
 - Path isolation through binding storage namespaces
-- Calling `storage_target::resolve_effective_target` for the authorized ingress driver
+- Calling `storage_target::resolve_target_by_key` with the explicit request target key for the authorized ingress driver
 
 Should not own:
 

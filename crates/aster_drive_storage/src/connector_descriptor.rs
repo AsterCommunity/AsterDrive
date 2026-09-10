@@ -912,6 +912,22 @@ pub enum StorageConnectorObjectNamingMode {
     OriginalFilename,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorFieldUpdateBehavior {
+    #[default]
+    Mutable,
+    CreateOnly,
+    SetOnce,
+}
+
+impl StorageConnectorFieldUpdateBehavior {
+    fn is_mutable(&self) -> bool {
+        matches!(self, Self::Mutable)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorFieldDescriptor {
@@ -948,6 +964,12 @@ pub struct StorageConnectorFieldDescriptor {
     pub required: bool,
     /// 是否是敏感字段，前端应按 secret input 处理，后端不应明文回显。
     pub secret: bool,
+    /// 编辑已有策略时字段是否可改。`set_once` 只允许给历史空值补值一次。
+    #[serde(
+        default,
+        skip_serializing_if = "StorageConnectorFieldUpdateBehavior::is_mutable"
+    )]
+    pub update_behavior: StorageConnectorFieldUpdateBehavior,
     /// Select control contract. Present exactly when `kind` is `select`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub select: Option<StorageConnectorSelectDescriptor>,
@@ -2880,6 +2902,7 @@ pub fn storage_connector_field_with_display(
         trim_on_blur: input.trim_on_blur,
         required: semantics.required,
         secret: semantics.secret,
+        update_behavior: StorageConnectorFieldUpdateBehavior::Mutable,
         select: None,
         default_value: None,
         default_mode: StorageConnectorFieldDefaultMode::MissingOnly,

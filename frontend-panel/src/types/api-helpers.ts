@@ -119,19 +119,14 @@ export const ApiErrorCode = {
 	LockNotOwner: "lock.not_owner",
 	ShareScopeDenied: "share.scope_denied",
 	RemoteStorageTargetBindingMismatch: "remote_storage_target.binding_mismatch",
-	RemoteStorageTargetDefaultDeleteRequiresReplacement:
-		"remote_storage_target.default_delete_requires_replacement",
-	RemoteStorageTargetDefaultError: "remote_storage_target.default_error",
-	RemoteStorageTargetDefaultMissing: "remote_storage_target.default_missing",
-	RemoteStorageTargetDefaultNotApplied:
-		"remote_storage_target.default_not_applied",
-	RemoteStorageTargetDefaultUpdateRequiresReplacement:
-		"remote_storage_target.default_update_requires_replacement",
+	RemoteStorageTargetUnavailable: "remote_storage_target.unavailable",
+	RemoteStorageTargetNotApplied: "remote_storage_target.not_applied",
 	RemoteStorageTargetConnectorUnsupported:
 		"remote_storage_target.connector_unsupported",
 	RemoteStorageTargetLocalPathInvalid:
 		"remote_storage_target.local_path_invalid",
 	RemoteStorageTargetRequired: "remote_storage_target.required",
+	RemoteStorageTargetReferenced: "remote_storage_target.referenced",
 	RemoteStorageTargetNotFound: "remote_storage_target.not_found",
 	RemoteStorageTargetSinglePrimaryRequired:
 		"remote_storage_target.single_primary_required",
@@ -151,6 +146,8 @@ export const ApiErrorCode = {
 	PolicyRemoteNodeRequired: "policy.remote_node_required",
 	PolicyRemoteNodeUnexpected: "policy.remote_node_unexpected",
 	PolicyRemoteStorageTargetRequired: "policy.remote_storage_target_required",
+	PolicyRemoteStorageLocationImmutable:
+		"policy.remote_storage_location_immutable",
 	PolicyRemoteNodeDisabled: "policy.remote_node_disabled",
 	PolicyRemoteNodeBaseUrlRequired: "policy.remote_node_base_url_required",
 	PolicyRemoteNodeTransferStrategyUnsupported:

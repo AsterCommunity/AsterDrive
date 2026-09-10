@@ -73,6 +73,7 @@ binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，�
 | `GET` | `/capacity` | 读取 follower 当前远端存储目标的容量观测状态 |
 | `PUT` | `/binding` | 向未声明 binding control pull capability 的 legacy follower 推送绑定信息 |
 | `GET` | `/targets` | 列出当前绑定可用的远程存储目标 |
+| `GET` | `/target-connectors?locale=...` | 列出 follower 自有的远程 target connector descriptor 与 localization 资源 |
 | `POST` | `/targets` | 创建远程存储目标 |
 | `PATCH` | `/targets/{target_key}` | 更新远程存储目标 |
 | `DELETE` | `/targets/{target_key}` | 删除远程存储目标 |
@@ -109,7 +110,7 @@ binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，�
 - capability 缺失或为 `false`：primary 保留 legacy `PUT /binding` push。
 - 新 follower 对旧 primary 请求 binding-state 得到 `404` 时，保留本地 legacy push 状态并继续运行。
 
-`v6` 在能力响应中通过 `remote_storage_target.connector_ids` 声明远程存储目标 connector。primary 只展示 follower 声明且当前版本已注册 descriptor 的 connector；未知的未来 connector id 会被保留为协议数据，但不会自动变成可配置项。
+`v6` 在能力响应中通过 `remote_storage_target.connector_ids` 声明远程存储目标 connector。管理端随后通过签名的 `/api/v1/internal/storage/target-connectors?locale=...` 从 follower 获取同一份 descriptor 和 connector-owned localization catalog；primary 不需要注册这些 connector。未知的未来 connector id 会被保留为协议数据，但不会自动变成可配置项。
 
 主节点在加载远端策略或刷新绑定时会做能力协商：
 
@@ -178,8 +179,7 @@ legacy push 只在当前或切换前确实存在可用数据路径时尝试；�
       "values": { "base_path": "data/storage" }
     },
     "credential": { "mode": "none" }
-  },
-  "is_default": true
+  }
 }
 ```
 
@@ -203,12 +203,11 @@ legacy push 只在当前或切换前确实存在可用数据路径时尝试；�
       "mode": "static",
       "values": { "access_key": "AKIA...", "secret_key": "..." }
     }
-  },
-  "is_default": false
+  }
 }
 ```
 
-创建和更新接口使用共享的 `StorageConnectionInput` envelope，在 `name`、`is_default` 之外承载 connector 自己的配置和凭据；实际可选项受到 follower 的 `remote_storage_target.connector_ids` 能力声明约束。这些控制面接口只接受主节点签名头，不使用预签名 query。
+创建和更新接口使用共享的 `StorageConnectionInput` envelope，在 `name` 之外承载 connector 自己的配置和凭据；每条 remote policy 保存显式 target key，follower 会拒绝没有 `target_key` 的对象请求。实际可选项受到 follower 的 `remote_storage_target.connector_ids` 能力声明约束。这些控制面接口只接受主节点签名头，不使用预签名 query。
 
 ## `POST /compose`
 

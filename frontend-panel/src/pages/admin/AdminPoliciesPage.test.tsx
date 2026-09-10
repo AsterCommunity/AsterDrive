@@ -16,6 +16,7 @@ import { invalidateAdminStorageDriverDescriptors } from "@/lib/adminStorageDrive
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
 import type {
 	RemoteNodeInfo,
+	RemoteStorageTargetConnectorCatalog,
 	RemoteStorageTargetInfo,
 	StorageConnectorActionDescriptor,
 	StorageConnectorCredentialInfo,
@@ -608,6 +609,26 @@ function deferred<T>() {
 	return { promise, reject, resolve };
 }
 
+function remoteConnectorCatalog(
+	descriptors: StorageConnectorDescriptor[],
+	locale = "en",
+): RemoteStorageTargetConnectorCatalog {
+	return {
+		descriptors,
+		localizations: {
+			requested_locale: locale,
+			resources: descriptors.map((item) => ({
+				connector_id: item.connector_id,
+				messages: { [item.ui.label_key]: `${item.connector_id}:${locale}` },
+				namespace: item.connector_id,
+				requested_locale: locale,
+				resolved_locale: locale,
+				revision: `${item.connector_id}:${locale}:1`,
+			})),
+		},
+	};
+}
+
 describe("AdminPoliciesPage connector orchestration", () => {
 	beforeEach(() => {
 		invalidateAdminRemoteNodeLookup();
@@ -677,7 +698,9 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			items: mockState.remoteNodes,
 			total: mockState.remoteNodes.length,
 		}));
-		mockState.listStorageTargetConnectors.mockResolvedValue([]);
+		mockState.listStorageTargetConnectors.mockResolvedValue(
+			remoteConnectorCatalog([]),
+		);
 		mockState.listStorageTargets.mockResolvedValue([]);
 		mockState.listStorageCredentials.mockResolvedValue([]);
 		mockState.getCapacity.mockResolvedValue({
@@ -1525,8 +1548,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				}),
 			],
 		});
-		const first = deferred<StorageConnectorDescriptor[]>();
-		const second = deferred<StorageConnectorDescriptor[]>();
+		const first = deferred<RemoteStorageTargetConnectorCatalog>();
+		const second = deferred<RemoteStorageTargetConnectorCatalog>();
 		const firstDescriptor = descriptor("plugin.first");
 		const secondDescriptor = descriptor("plugin.second");
 		mockState.manageDescriptors = [connector];
@@ -1540,23 +1563,44 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		await waitForCatalog("plugin.remote");
 		await setField("connector_config_values", { node: 1, target: "" });
 		await waitFor(() =>
-			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(1),
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(
+				1,
+				"en",
+			),
 		);
 		await setField("connector_config_values", { node: 2, target: "" });
 		await waitFor(() =>
-			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(2),
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(
+				2,
+				"en",
+			),
 		);
 
-		await act(async () => second.resolve([secondDescriptor]));
+		await act(async () =>
+			second.resolve(remoteConnectorCatalog([secondDescriptor])),
+		);
 		await waitFor(() =>
 			expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
 				secondDescriptor,
 			]),
 		);
-		await act(async () => first.resolve([firstDescriptor]));
+		expect(testI18n.addResourceBundle).toHaveBeenCalledWith(
+			"en",
+			secondDescriptor.connector_id,
+			{
+				[secondDescriptor.ui.label_key]: `${secondDescriptor.connector_id}:en`,
+			},
+			true,
+			true,
+		);
+		testI18n.addResourceBundle.mockClear();
+		await act(async () =>
+			first.resolve(remoteConnectorCatalog([firstDescriptor])),
+		);
 		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
 			secondDescriptor,
 		]);
+		expect(testI18n.addResourceBundle).not.toHaveBeenCalled();
 	});
 
 	it("ignores stale remote target connector descriptor failures", async () => {
@@ -1581,8 +1625,8 @@ describe("AdminPoliciesPage connector orchestration", () => {
 				}),
 			],
 		});
-		const first = deferred<StorageConnectorDescriptor[]>();
-		const second = deferred<StorageConnectorDescriptor[]>();
+		const first = deferred<RemoteStorageTargetConnectorCatalog>();
+		const second = deferred<RemoteStorageTargetConnectorCatalog>();
 		const secondDescriptor = descriptor("plugin.second");
 		mockState.manageDescriptors = [connector];
 		mockState.createDescriptors = [connector];
@@ -1595,20 +1639,30 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		await waitForCatalog("plugin.remote");
 		await setField("connector_config_values", { node: 1, target: "" });
 		await waitFor(() =>
-			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(1),
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(
+				1,
+				"en",
+			),
 		);
 		await setField("connector_config_values", { node: 2, target: "" });
 		await waitFor(() =>
-			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(2),
+			expect(mockState.listStorageTargetConnectors).toHaveBeenCalledWith(
+				2,
+				"en",
+			),
 		);
 
-		await act(async () => second.resolve([secondDescriptor]));
+		await act(async () =>
+			second.resolve(remoteConnectorCatalog([secondDescriptor])),
+		);
 		await waitFor(() =>
 			expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
 				secondDescriptor,
 			]),
 		);
+		testI18n.addResourceBundle.mockClear();
 		await act(async () => first.reject(new Error("stale failure")));
+		expect(testI18n.addResourceBundle).not.toHaveBeenCalled();
 		expect(currentDialog().remoteStorageTargetConnectorDescriptors).toEqual([
 			secondDescriptor,
 		]);

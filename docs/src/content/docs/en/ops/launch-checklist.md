@@ -96,7 +96,7 @@ At minimum, confirm:
 - existing user and team policy group bindings do not point to deprecated policies
 - single-file size limits, chunk size, user quota, and team quota match real usage scenarios
 - S3 / MinIO / R2 CORS, endpoint, bucket, and secrets have been tested
-- follower nodes are enrolled, enabled, and have applied default remote storage targets
+- follower nodes are enrolled and enabled, and remote policies explicitly bind applied remote storage targets
 
 If you plan to move production traffic to a new storage backend, do not directly change an existing policy's `base_path`, `bucket`, `endpoint`, or bound follower node. A safer path is to create a new policy, migrate data, then switch policy groups.
 

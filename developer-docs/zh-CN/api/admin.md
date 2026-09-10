@@ -141,7 +141,7 @@
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
 - 新建 `driver_type = "remote"` 策略时必须同时提供 `remote_node_id` 和 `remote_storage_target_key`。target 必须属于所选节点的当前 binding、没有 `last_error`，并满足 `applied_revision >= desired_revision`
 - 策略创建 / 编辑 UI 会在选择节点后加载该节点的 target 列表和 driver descriptors；管理员可以在同一流程快速创建 target，成功后新 target 会被自动选中。字段和 capability 仍以后端 descriptor 为准
-- 旧 remote policy 若 target key 为空，且本次编辑没有改变 remote binding，可以暂时保留空值；运行时会回退 follower binding 的 default target。新建策略或改变 remote binding 时必须补齐显式 target key
+- 每条 remote policy 都必须提供显式 `remote_storage_target_key`。旧版本创建但没有 target key 的策略，必须重新编辑并选择 target 后才能读写或查询容量
 - 当前 `PATCH` 不能修改 `driver_type`
 - `GET /admin/policies` 支持 `limit`、`offset`、`sort_by`、`sort_order`
 - `GET /admin/policies/{id}/capacity` 返回 `StoragePolicyCapacityInfo`，其中 `capacity.status` 为 `supported` / `unsupported` / `unavailable`：
@@ -370,13 +370,15 @@ POST /api/v1/admin/policies/action
 | `POST` | `/admin/remote-nodes/{id}/test` | 测试已保存远端节点连接 |
 | `POST` | `/admin/remote-nodes/test` | 用临时参数测试远端节点连接 |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | 生成 follower enrollment 命令 |
-| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | 列出 follower 侧远程存储目标可用 connector descriptor |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | 列出 follower 侧远程存储目标可用 connector descriptor 与 localization catalog，可带 `locale` |
 | `GET` | `/admin/remote-nodes/{id}/storage-targets` | 列出 follower 侧远程存储目标 |
 | `POST` | `/admin/remote-nodes/{id}/storage-targets` | 创建 follower 侧远程存储目标 |
-| `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 更新 follower 侧远程存储目标 |
-| `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 删除 follower 侧远程存储目标 |
+| `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 更新 follower target；被策略引用时拒绝修改 connector config，但允许改显示名称和仅轮换凭据 |
+| `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 删除无引用 follower target；同一 node + target key 仍被任一策略绑定时拒绝 |
 
 远程 target API 与普通 storage policy 共用 connector descriptor 和 connection envelope。旧 `/ingress-profile-drivers`、`/ingress-profiles` 以及 `/storage-target-drivers` 路径都已移除；客户端必须使用 `/storage-target-connectors` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
+
+Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path` 在显式绑定后共同构成不可变物理落点。需要更换位置时必须创建新 policy，并走 policy-to-policy storage migration；传输策略等不改变位置的设置仍可编辑。0.5.1 遗留且 target key 为空的 policy 只允许在 node 和 base path 不变时补选一次已应用 target，之后同样锁定。Primary 使用 storage-topology lock 串行化 policy 创建/删除与 target mutation，避免 target 引用检查后并发出现新 policy。
 
 创建远端节点示例：
 

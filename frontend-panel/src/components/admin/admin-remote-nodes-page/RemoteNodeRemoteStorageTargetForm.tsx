@@ -12,7 +12,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	RemoteStorageTargetInfo,
@@ -23,10 +23,7 @@ import type {
 	RemoteNodeRemoteStorageTargetFieldChangeHandler,
 } from "./RemoteNodeRemoteStorageTargetTypes";
 
-const IS_DEFAULT_FIELD = "is_default";
-
 interface RemoteNodeRemoteStorageTargetFormProps {
-	defaultToggleLocked: boolean;
 	connectorDescriptors: StorageConnectorDescriptor[];
 	connectorIdError: string | null;
 	draftMode: RemoteNodeRemoteStorageTargetDraftMode;
@@ -41,7 +38,6 @@ interface RemoteNodeRemoteStorageTargetFormProps {
 }
 
 export function RemoteNodeRemoteStorageTargetForm({
-	defaultToggleLocked,
 	connectorDescriptors,
 	connectorIdError,
 	draftMode,
@@ -56,7 +52,11 @@ export function RemoteNodeRemoteStorageTargetForm({
 }: RemoteNodeRemoteStorageTargetFormProps) {
 	const { t } = useTranslation("admin");
 	const options = connectorDescriptors.map((descriptor) => ({
-		label: t(descriptor.ui.label_key),
+		label: translateStorageConnectorMessage(
+			t,
+			descriptor.connector_id,
+			descriptor.ui.label_key,
+		),
 		value: descriptor.connector_id,
 	}));
 	const descriptor =
@@ -127,9 +127,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 			<div className="mt-4">
 				<StorageConnectorFieldsPanel
 					descriptor={descriptor}
-					fields={descriptor?.fields.filter(
-						(field) => field.name !== IS_DEFAULT_FIELD,
-					)}
+					fields={descriptor?.fields}
 					form={form}
 					mode={draftMode}
 					remoteNodes={[]}
@@ -138,18 +136,6 @@ export function RemoteNodeRemoteStorageTargetForm({
 					t={t}
 					onFieldChange={onFieldChange}
 				/>
-			</div>
-
-			<div className="mt-4 flex items-center gap-2">
-				<Switch
-					id="remote-target-default"
-					checked={form.is_default}
-					onCheckedChange={(value) => onFieldChange("is_default", value)}
-					disabled={defaultToggleLocked}
-				/>
-				<Label htmlFor="remote-target-default">
-					{t("remote_node_ingress_profile_default_toggle")}
-				</Label>
 			</div>
 
 			<div className="mt-4 flex justify-end gap-2">

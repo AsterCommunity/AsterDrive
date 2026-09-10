@@ -100,5 +100,5 @@ The task center also follows the current workspace. Tasks you started in a team 
 5. If using direct-to-object-storage, is CORS configured correctly?
 6. If using OneDrive Graph direct upload, are browser extensions or the company network blocking access to Microsoft?
 7. If using SFTP, are the endpoint, SSH credentials, base path, and host key fingerprint correct?
-8. If using a follower node, is the node enabled, does the current transport pass the connection test, are protocol capabilities compatible, and is a default remote storage target applied?
+8. If using a follower node, is it enabled, does the transport pass the connection test, are protocol capabilities compatible, and is the explicitly selected remote storage target applied?
 9. Is the user or team quota full?

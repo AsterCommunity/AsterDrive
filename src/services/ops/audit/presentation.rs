@@ -519,11 +519,7 @@ fn detail_message(
         AuditAction::AdminCreateRemoteIngressProfile
         | AuditAction::AdminUpdateRemoteIngressProfile
         | AuditAction::AdminDeleteRemoteIngressProfile => {
-            copy_params(
-                details,
-                &mut params,
-                &["target_key", "driver_type", "is_default"],
-            );
+            copy_params(details, &mut params, &["target_key", "driver_type"]);
             Some(message("remote_ingress_profile_snapshot", params))
         }
         AuditAction::AdminCreateExternalAuthProvider
@@ -890,7 +886,7 @@ fn detail_message(
             copy_params(
                 details,
                 &mut params,
-                &["binding_id", "target_key", "driver_type", "is_default"],
+                &["binding_id", "target_key", "driver_type"],
             );
             Some(message("follower_ingress_profile_changed", params))
         }

@@ -127,7 +127,7 @@ pub async fn authorize_internal_request<S: FollowerRuntimeState>(
     req: &actix_web::HttpRequest,
 ) -> Result<AuthorizedMasterBinding> {
     let binding = authorize_binding_request(state, req, false).await?;
-    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?, 0).await
+    resolve_authorized_ingress(state, binding, required_remote_storage_target_key(req)?, 0).await
 }
 
 pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
@@ -138,7 +138,7 @@ pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
     resolve_authorized_ingress(
         state,
         binding,
-        remote_storage_target_key(req)?,
+        required_remote_storage_target_key(req)?,
         required_policy_max_file_size(req)?,
     )
     .await
@@ -172,7 +172,7 @@ pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
     resolve_authorized_ingress(
         state,
         binding,
-        remote_storage_target_key(req)?,
+        required_remote_storage_target_key(req)?,
         required_policy_max_file_size(req)?,
     )
     .await
@@ -189,7 +189,7 @@ pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
     }
 
     let binding = authorize_presigned_binding_request(state, req)?;
-    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?, 0).await
+    resolve_authorized_ingress(state, binding, required_remote_storage_target_key(req)?, 0).await
 }
 
 pub async fn sync_from_primary<S: FollowerRuntimeState>(
@@ -373,28 +373,18 @@ pub async fn assert_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result
         ));
     }
 
-    for binding in enabled_bindings {
-        let _ = storage_target::resolve_effective_target(state, &binding).await?;
-    }
+    // Bindings no longer require a default target. Each remote request must
+    // carry its policy-owned target_key and is validated at request time.
     Ok(())
 }
 
 async fn resolve_authorized_ingress<S: FollowerRuntimeState>(
     state: &S,
     binding: master_binding::Model,
-    target_key: Option<String>,
+    target_key: String,
     policy_max_file_size: i64,
 ) -> Result<AuthorizedMasterBinding> {
-    let target = match target_key.as_deref() {
-        Some(target_key) => {
-            storage_target::resolve_target_by_key(state, &binding, target_key).await?
-        }
-        // Compatibility only: policies created before remote_storage_target_key
-        // existed do not send target_key in signed internal/presigned requests.
-        // Keep them on the binding default target instead of guessing a target
-        // from primary-side state.
-        None => storage_target::resolve_effective_target(state, &binding).await?,
-    };
+    let target = storage_target::resolve_target_by_key(state, &binding, &target_key).await?;
 
     Ok(AuthorizedMasterBinding {
         binding,
@@ -530,8 +520,13 @@ fn optional_query_value(req: &actix_web::HttpRequest, name: &str) -> Result<Opti
     )
 }
 
-fn remote_storage_target_key(req: &actix_web::HttpRequest) -> Result<Option<String>> {
-    optional_query_value(req, REMOTE_STORAGE_TARGET_KEY_QUERY)
+fn required_remote_storage_target_key(req: &actix_web::HttpRequest) -> Result<String> {
+    optional_query_value(req, REMOTE_STORAGE_TARGET_KEY_QUERY)?.ok_or_else(|| {
+        precondition_failed_with_code(
+            ApiErrorCode::RemoteStorageTargetRequired,
+            "remote storage target key is required",
+        )
+    })
 }
 
 fn required_policy_max_file_size(req: &actix_web::HttpRequest) -> Result<i64> {
@@ -617,6 +612,31 @@ mod tests {
         assert_eq!(
             provider_storage_prefix(&binding(), "folder").unwrap(),
             "mb_test/folder"
+        );
+    }
+
+    #[test]
+    fn remote_storage_target_key_is_required_and_trimmed() {
+        let missing =
+            TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin").to_http_request();
+        let error = required_remote_storage_target_key(&missing).unwrap_err();
+        assert_eq!(
+            error.api_error_code_override(),
+            Some(ApiErrorCode::RemoteStorageTargetRequired)
+        );
+
+        let empty =
+            TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?target_key=%20%20")
+                .to_http_request();
+        assert!(required_remote_storage_target_key(&empty).is_err());
+
+        let present = TestRequest::with_uri(
+            "/api/v1/internal/storage/objects/file.bin?target_key=rst_explicit",
+        )
+        .to_http_request();
+        assert_eq!(
+            required_remote_storage_target_key(&present).unwrap(),
+            "rst_explicit"
         );
     }
 

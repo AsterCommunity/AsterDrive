@@ -234,6 +234,12 @@ function ConnectorField({
 	const serverError =
 		fieldErrors?.[storageConnectorFieldErrorKey(field.scope, field.name)] ??
 		null;
+	const updateBehavior = field.update_behavior ?? "mutable";
+	const hasValue = value !== undefined && value !== null && value !== "";
+	const disabled =
+		mode === "edit" &&
+		(updateBehavior === "create_only" ||
+			(updateBehavior === "set_once" && hasValue));
 
 	if (field.kind === "boolean") {
 		return (
@@ -246,6 +252,7 @@ function ConnectorField({
 						id={inputId}
 						checked={(value ?? resolvedDefault) === true}
 						aria-invalid={Boolean(serverError) || undefined}
+						disabled={disabled}
 						onCheckedChange={(checked) =>
 							setFieldValue(form, descriptor, field, checked, onFieldChange)
 						}
@@ -338,7 +345,7 @@ function ConnectorField({
 				<Select
 					items={renderedOptions}
 					value={selectedValue}
-					disabled={dependencyMissing}
+					disabled={disabled || dependencyMissing}
 					onValueChange={(nextValue) => {
 						if (nextValue === CONNECTOR_SELECT_AUTOMATIC_VALUE) {
 							setFieldValue(
@@ -399,6 +406,7 @@ function ConnectorField({
 								Boolean(serverError || customValueMissing) || undefined
 							}
 							autoComplete="off"
+							disabled={disabled}
 							className={ADMIN_CONTROL_HEIGHT_CLASS}
 							onChange={(event) =>
 								setFieldValue(
@@ -467,6 +475,7 @@ function ConnectorField({
 						: (field.placeholder ?? undefined)
 				}
 				autoComplete={field.secret ? "new-password" : "off"}
+				disabled={disabled}
 				className={ADMIN_CONTROL_HEIGHT_CLASS}
 				onChange={(event) => {
 					const nextValue =

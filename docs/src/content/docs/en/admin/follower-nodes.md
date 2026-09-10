@@ -41,7 +41,7 @@ The two enrollment paths differ only in how enroll completes:
 - **Docker auto-enroll**: the container reads one-time `ASTER_BOOTSTRAP_REMOTE_*` environment variables at startup and enrolls automatically — recommended
 - **Manual enroll**: run `aster_drive node enroll` in the follower's working directory, then restart the service
 
-Both paths end with the same shared sequence on the primary: "test connection -> default remote storage target -> remote storage policy".
+Both paths end with the same shared sequence on the primary: "test connection -> create a remote storage target -> select it explicitly in the remote storage policy".
 
 ## Common Judgment Questions
 

@@ -11,7 +11,6 @@ use aster_drive_storage::field_contract::normalize_required_storage_field;
 pub(in crate::services::remote::storage_target) struct NormalizedStorageTargetInput {
     pub name: String,
     pub connection: Option<StorageConnectionInput>,
-    pub is_default: Option<bool>,
 }
 
 pub(in crate::services::remote::storage_target) async fn normalize_create_input<
@@ -23,7 +22,6 @@ pub(in crate::services::remote::storage_target) async fn normalize_create_input<
     Ok(NormalizedStorageTargetInput {
         name: normalize_required_storage_field("name", &input.name)?,
         connection: Some(normalize_connection(state, input.connection).await?),
-        is_default: Some(input.is_default),
     })
 }
 
@@ -60,7 +58,6 @@ pub(in crate::services::remote::storage_target) async fn normalize_update_input<
             .transpose()?
             .unwrap_or_else(|| existing.name.clone()),
         connection,
-        is_default: input.is_default,
     })
 }
 

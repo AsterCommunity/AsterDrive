@@ -167,7 +167,7 @@ Passkey 相关错误：
 - `data/.uploads`、`data/.tmp` 或自定义临时目录所在分区是否满了
 - 当前用户 / 团队 / 策略配额是否满了
 - 对象存储 multipart 或 remote presigned 上传的浏览器直连地址是否可访问
-- 远程 follower 是否健康，默认远程存储目标是否已经应用
+- 远程 follower 是否健康，策略显式绑定的远程存储目标是否已经应用
 
 ### 存储策略、S3 和远程节点
 
@@ -197,11 +197,15 @@ Passkey 相关错误：
 - `remote_node.disabled`：远程节点被禁用。
 - `remote_node.enrollment_required`：follower 还没有完成接入。
 - `remote_node.unique_conflict`：远程节点绑定或唯一字段冲突。
-- `remote_storage_target.required`、`remote_storage_target.default_missing`、`remote_storage_target.default_not_applied`：follower 缺少可用的默认远程存储目标。
+- `remote_storage_target.required`：remote 请求或策略缺少显式 target key。
+- `remote_storage_target.referenced`：target 仍被 storage policy 引用，不能删除或改变 connector 配置；先创建新 policy 并迁移数据。
+- `remote_storage_target.not_found`：策略选中的 target 已不存在或不属于当前 binding。
+- `remote_storage_target.unavailable`、`remote_storage_target.not_applied`：策略选中的 target 存在错误或尚未完成应用。
 - `remote_storage_target.local_path_invalid`：follower 本地远程存储目标的路径不合法，常见于路径逃出允许根目录。
 - `remote_storage_target.connector_unsupported`：当前 follower 未声明支持该远程存储 connector。
 - `remote_storage_target.single_primary_required`：这台 follower 需要只绑定一个 primary。
 - `master_binding.disabled`：主从绑定被禁用。
+- `policy.remote_storage_location_immutable`：remote policy 创建后不能修改节点、target 或基础路径；需要创建新 policy 并执行 storage migration。
 
 如果 remote 策略使用浏览器直传，还要确认浏览器能访问 follower 的 `base_url`，并且 follower CORS 允许上传请求需要的 header。
 

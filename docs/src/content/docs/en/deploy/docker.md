@@ -205,7 +205,7 @@ First deployment checks worth doing:
 - If external Office / WOPI openers are enabled, whether at least one real Office file can be opened and saved.
 - If aria2 link import is enabled, whether `offline_download_aria2_rpc_url` points to the Docker-internal address `http://aria2:6800/jsonrpc` for full Docker deployments, whether `offline_download_temp_dir` is the same absolute path visible to both sides, or whether RPC points to `http://127.0.0.1:6800/jsonrpc` for host-side `cargo run` + Compose aria2 development; and whether the aria2 RPC port is not exposed publicly.
 - If you plan to use S3 / MinIO later, whether browser upload CORS rules and secret management for object storage have been planned.
-- If this instance should actually run as a `follower`, whether long-term `start_mode`, single-use bootstrap ENV, and the primary-side default remote storage target have been configured according to [Docker Follower Node Deployment](/en/deploy/follower-node/).
+- If this instance should run as a `follower`, whether long-term `start_mode`, single-use bootstrap ENV, a primary-side remote storage target, and an explicit remote-policy target binding have been configured according to [Docker Follower Node Deployment](/en/deploy/follower-node/).
 
 The full pre-launch list is in the [Production Launch Checklist](/en/ops/launch-checklist/).
 

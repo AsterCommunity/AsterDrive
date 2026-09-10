@@ -28,7 +28,6 @@ pub struct Model {
     #[serde(skip_serializing)]
     pub secret_key: String,
     pub base_path: String,
-    pub is_default: bool,
     pub desired_revision: i64,
     pub applied_revision: i64,
     pub last_error: String,
@@ -47,7 +46,6 @@ impl fmt::Debug for Model {
             .field("name", &self.name)
             .field("connector_id", &self.connector_id)
             .field("connector_config", &self.connector_config)
-            .field("is_default", &self.is_default)
             .field("desired_revision", &self.desired_revision)
             .field("applied_revision", &self.applied_revision)
             .field("last_error", &self.last_error)
@@ -97,7 +95,6 @@ mod tests {
             access_key: String::new(),
             secret_key: String::new(),
             base_path: String::new(),
-            is_default: false,
             desired_revision: 1,
             applied_revision: 1,
             last_error: String::new(),

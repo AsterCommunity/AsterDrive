@@ -668,13 +668,14 @@ fn build_remote_provider() -> BenchResult<ProviderBuild> {
         "ASTER_BENCH_REMOTE_BASE_URL",
         "ASTER_BENCH_REMOTE_ACCESS_KEY",
         "ASTER_BENCH_REMOTE_SECRET_KEY",
+        "ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY",
     ];
     if let Some(skipped) = missing_provider_env("remote", &required) {
         return Ok(skipped);
     }
     let base_url = env_required("ASTER_BENCH_REMOTE_BASE_URL")?;
     let base_path = env_string("ASTER_BENCH_REMOTE_BASE_PATH", "asterdrive-range-benchmark");
-    let target_key = env_optional("ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY");
+    let target_key = env_required("ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY")?;
     let capabilities = match env_optional("ASTER_BENCH_REMOTE_CAPABILITIES_JSON") {
         Some(raw) => serde_json::from_str::<RemoteStorageCapabilities>(&raw)?,
         None => RemoteStorageCapabilities::current(),
@@ -714,7 +715,7 @@ fn build_remote_provider() -> BenchResult<ProviderBuild> {
         config_summary: json!({
             "base_url_configured": !base_url.is_empty(),
             "base_path_kind": "benchmark_fixture",
-            "storage_target_selection": if target_key.is_some() { "explicit" } else { "default" },
+            "storage_target_selection": "explicit",
             "protocol_version": capabilities.protocol_version,
             "min_supported_protocol_version": capabilities.min_supported_protocol_version,
             "server_version": capabilities.server_version,

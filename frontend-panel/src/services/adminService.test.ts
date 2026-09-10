@@ -668,26 +668,27 @@ describe("adminService", () => {
 	});
 
 	it("uses the expected remote storage target endpoints", () => {
-		adminRemoteNodeService.listStorageTargetConnectors(6);
+		adminRemoteNodeService.listStorageTargetConnectors(6, "zh-CN");
 		adminRemoteNodeService.listStorageTargets(6);
 		adminRemoteNodeService.createStorageTarget(6, {
 			name: "Ingress A",
-			driver_type: "local" as never,
-			endpoint: "",
-			bucket: "",
-			access_key: "",
-			secret_key: "",
-			base_path: "tenant-a/incoming",
-			is_default: true,
+			connection: {
+				connector_config: {
+					format_version: 1,
+					connector_id: "asterdrive.storage.local",
+					schema_version: 1,
+					values: { base_path: "tenant-a/incoming" },
+				},
+				credential: { mode: "none" },
+			},
 		});
 		adminRemoteNodeService.updateStorageTarget(6, "igp_demo", {
 			name: "Ingress B",
-			is_default: false,
 		});
 		adminRemoteNodeService.deleteStorageTarget(6, "igp_demo");
 
 		expect(mockState.get).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/storage-target-connectors",
+			"/admin/remote-nodes/6/storage-target-connectors?locale=zh-CN",
 		);
 		expect(mockState.get).toHaveBeenCalledWith(
 			"/admin/remote-nodes/6/storage-targets",
@@ -696,21 +697,20 @@ describe("adminService", () => {
 			"/admin/remote-nodes/6/storage-targets",
 			{
 				name: "Ingress A",
-				driver_type: "local",
-				endpoint: "",
-				bucket: "",
-				access_key: "",
-				secret_key: "",
-				base_path: "tenant-a/incoming",
-				is_default: true,
+				connection: {
+					connector_config: {
+						format_version: 1,
+						connector_id: "asterdrive.storage.local",
+						schema_version: 1,
+						values: { base_path: "tenant-a/incoming" },
+					},
+					credential: { mode: "none" },
+				},
 			},
 		);
 		expect(mockState.patch).toHaveBeenCalledWith(
 			"/admin/remote-nodes/6/storage-targets/igp_demo",
-			{
-				name: "Ingress B",
-				is_default: false,
-			},
+			{ name: "Ingress B" },
 		);
 		expect(mockState.delete).toHaveBeenCalledWith(
 			"/admin/remote-nodes/6/storage-targets/igp_demo",

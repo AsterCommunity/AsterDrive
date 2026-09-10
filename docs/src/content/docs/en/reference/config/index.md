@@ -15,7 +15,7 @@ First identify which layer you need to change, then open the corresponding page.
 - **`Admin -> External Authentication`** - External identity providers: OIDC / Generic OAuth2 / SSO login entries, redirect URIs, account binding, and auto-create policies
 - **`Admin -> Storage Policies`** - Where files are actually stored, and which upload method is used
 - **`Admin -> Policy Groups`** - Which storage route different users, teams, or file sizes use
-- **`Admin -> Follower Nodes`** - How the primary connects to followers, and where the follower receives objects by default
+- **`Admin -> Follower Nodes`** - How the primary connects to followers and which follower-side targets remote policies can select explicitly
 - **Reverse proxy / object storage configuration** - HTTPS, large uploads, WebDAV passthrough, and direct S3 / Azure Blob / COS uploads
 
 The earlier layers are managed by AsterDrive itself. The last layer belongs to the reverse proxy, object storage, and external network environment.
@@ -48,7 +48,7 @@ Anything the service must know before startup usually belongs in `config.toml`. 
 | Decide where files are stored and how uploads/downloads work | [Storage Policies](/en/admin/storage-policies/) |
 | Follow a tutorial for S3 / MinIO / R2 / Azure Blob / Tencent COS / OneDrive / SFTP backends | [Storage Policy Backends](/en/admin/storage-backends/) |
 | Decide which storage route different users/teams use | [Storage Policies](/en/admin/storage-policies/) |
-| Connect a follower node and configure the default remote storage target | [Follower Nodes](/en/admin/follower-nodes/) |
+| Connect a follower, create a remote storage target, and bind it explicitly from a policy | [Follower Nodes](/en/admin/follower-nodes/) |
 | Change the WebDAV path or hard WebDAV upload limit | [WebDAV](/en/reference/config/webdav/) |
 | Add rate limiting to the public entry point | [Rate Limiting](/en/reference/config/rate-limit/) |
 | Change cache or log output behavior | [Cache](/en/reference/config/cache/) / [Logging](/en/reference/config/logging/) |
@@ -135,7 +135,7 @@ One-time bootstrap inputs such as enrollment tokens can be removed after success
 - If thumbnails do not behave as expected, check `File Processing -> Media Processing`
 - If you need archive manifest preview, check `File Processing -> Archive Preview`
 - If you need online preview such as OnlyOffice, adjust `Site Configuration -> Preview Apps`
-- When connecting follower nodes, after enrollment succeeds, create the default remote storage target in the follower node details
+- After follower enrollment succeeds, create a remote storage target and select it explicitly in the remote policy
 :::
 
 See [runtime system settings](/en/reference/config/runtime/) and [mail](/en/admin/mail/) for details.

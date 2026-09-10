@@ -72,7 +72,7 @@ flowchart TD
 
 如果 `base_url` 为空，只有 `reverse_tunnel` 或 `auto` 才能承接远程流量；`direct` 节点必须补上主控能访问的 HTTP(S) 地址。生产前先确认“测试连接”按当前传输方式通过。
 
-## 2. 创建默认远程存储目标
+## 2. 创建远程存储目标
 
 打开目标远程节点详情，找到：
 
@@ -86,10 +86,9 @@ flowchart TD
 
 | 字段 | 建议 |
 | --- | --- |
-| 名称 | `default-local` |
+| 名称 | `local-primary` |
 | 驱动 | `local` |
-| 基础路径 | `default` |
-| 默认远程存储目标 | 开启 |
+| 基础路径 | `primary` |
 
 `local` 远程存储目标的基础路径只能填相对路径。  
 最终会落在从节点自己的：
@@ -117,8 +116,8 @@ default
 /data/remote-storage-targets/default
 ```
 
-:::caution[没有默认远程存储目标，remote 策略不能真正写入]
-enroll 成功只代表主从身份绑定成功。真正接收对象前，从节点还需要一个已应用的默认远程存储目标。
+:::caution[remote 策略必须显式选择目标]
+enroll 成功只代表主从身份绑定成功。真正接收对象前，需要创建一个已应用的远程存储目标，并在每条 remote 策略中显式选择它。
 :::
 
 ## 3. 远程存储目标选 local 还是 s3
@@ -316,7 +315,7 @@ flowchart TD
 - 远程节点测试连接是否成功
 - 如果使用反向通道，通道状态是否在线且最近没有错误
 - 后台显示的从节点健康状态是否正常
-- 默认远程存储目标是否仍然已应用
+- remote 策略绑定的远程存储目标是否仍然已应用
 - 从节点接收根目录磁盘是否充足
 - 从节点如果再写 S3，S3 凭证是否仍然有效
 - 远程策略组是否仍然启用
@@ -346,7 +345,7 @@ flowchart TD
 
 1. 远程节点是否启用
 2. 是否完成 enroll
-3. 是否有已应用的默认远程存储目标
+3. 策略是否显式绑定了一个已应用的远程存储目标
 4. 从节点 `remote_storage_target_local_root` 是否可写
 5. 策略组规则是否真的命中 remote 策略
 6. 用户或团队配额是否已满
@@ -368,12 +367,14 @@ flowchart TD
 
 ### 已有文件突然找不到
 
-优先确认最近是否改过：
+Remote policy 创建后，其远程节点、存储目标和基础路径不可修改；被 policy 引用的 target 也不能删除或改变 connector 配置。这个保护用于确保已有 blob 始终通过原 policy 找到同一物理落点。
 
-- remote 策略绑定的远程节点
-- 从节点远程存储目标
-- `remote_storage_target_local_root`
-- 从节点本地目录
-- 从节点远程存储目标的 S3 endpoint / bucket / prefix
+确实需要换节点、target、Local 路径或 S3 bucket/prefix 时：
 
-这些字段都决定旧对象在哪里。不要直接改正在使用的真实落点。
+1. 创建新的远程存储目标；
+2. 创建绑定新目标的新 storage policy；
+3. 使用 storage migration 把旧 policy 的数据迁移到新 policy；
+4. 清除旧 policy 的 policy-group、upload session 和 blob 引用后删除旧 policy；
+5. 旧 target 不再被任何 policy 引用后再删除。
+
+如果文件仍然找不到，检查是否有人绕过 AsterDrive 修改了 follower 的 `remote_storage_target_local_root`、本地目录或对象存储中的数据。

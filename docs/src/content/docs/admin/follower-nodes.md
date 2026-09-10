@@ -41,7 +41,7 @@ AsterDrive 的远程节点能力，本质上是让**另一台 AsterDrive** 充�
 - **Docker 自动 enroll**：容器启动时读取一次性 `ASTER_BOOTSTRAP_REMOTE_*` 环境变量自动完成，推荐
 - **手动 enroll**：在从节点工作目录执行 `aster_drive node enroll`，然后重启服务
 
-两种方式最后都要回主控完成"测试连接 → 默认远程存储目标 → remote 存储策略"这条共同路径。
+两种方式最后都要回主控完成"测试连接 → 创建远程存储目标 → 在 remote 存储策略中显式选择目标"这条共同路径。
 
 ## 常见判断题
 

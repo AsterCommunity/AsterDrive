@@ -355,7 +355,6 @@ pub struct RemoteStorageTargetInfo {
     pub name: String,
     pub connector_id: String,
     pub connector_config: aster_drive_storage::ConnectorConfigEnvelope,
-    pub is_default: bool,
     pub desired_revision: i64,
     pub applied_revision: i64,
     pub last_error: String,
@@ -365,13 +364,18 @@ pub struct RemoteStorageTargetInfo {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteStorageTargetConnectorCatalog {
+    pub descriptors: Vec<aster_drive_storage::StorageConnectorDescriptor>,
+    pub localizations: aster_drive_storage::StorageConnectorLocalizationCatalog,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteCreateStorageTargetRequest {
     pub name: String,
     pub connection: StorageConnectionInput,
-    #[serde(default)]
-    pub is_default: bool,
 }
 
 impl RemoteCreateStorageTargetRequest {
@@ -386,7 +390,6 @@ pub struct RemoteUpdateStorageTargetRequest {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connection: Option<StorageConnectionInput>,
-    pub is_default: Option<bool>,
 }
 
 impl fmt::Debug for RemoteUpdateStorageTargetRequest {
@@ -397,7 +400,6 @@ impl fmt::Debug for RemoteUpdateStorageTargetRequest {
                 "connection",
                 &self.connection.as_ref().map(|_| "<redacted>"),
             )
-            .field("is_default", &self.is_default)
             .finish()
     }
 }

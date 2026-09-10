@@ -18,12 +18,12 @@ use aster_drive_model::types::{
 use aster_drive_storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorBadgeRgb, StorageConnectorCapabilities,
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, object_multipart_upload_capabilities,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    storage_connector_dynamic_select_field, storage_connector_field,
-    storage_connector_ui_descriptor,
+    StorageConnectorFieldScope, StorageConnectorFieldUpdateBehavior,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    object_multipart_upload_capabilities, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, storage_connector_dynamic_select_field,
+    storage_connector_field, storage_connector_ui_descriptor,
 };
 use aster_drive_storage::{
     StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
@@ -68,6 +68,7 @@ aster_drive_storage::storage_connector_schema! {
             );
             field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field.update_behavior = StorageConnectorFieldUpdateBehavior::CreateOnly;
             field
         },
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +80,7 @@ aster_drive_storage::storage_connector_schema! {
                 None,
             );
             field.required_message_key = Some("policy_wizard_remote_node_required".to_string());
+            field.update_behavior = StorageConnectorFieldUpdateBehavior::CreateOnly;
             field
         },
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +93,7 @@ aster_drive_storage::storage_connector_schema! {
             );
             field.required_message_key =
                 Some("policy_wizard_remote_storage_target_required".to_string());
+            field.update_behavior = StorageConnectorFieldUpdateBehavior::SetOnce;
             field
         },
         pub remote_download_strategy: RemoteDownloadStrategy => transfer_strategy_field(
@@ -112,12 +115,40 @@ impl RemoteConnector {
             .map(|(config, _behavior)| config)
     }
 
-    fn driver_config(max_file_size: i64, config: &RemoteConnectorConfigV1) -> RemoteDriverConfig {
-        RemoteDriverConfig {
+    pub(crate) fn binding_projection_from_config(
+        connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<RemotePolicyBindingProjection> {
+        let config: RemoteConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(connector_config)?;
+        Ok(RemotePolicyBindingProjection {
+            remote_node_id: config.remote_node_id,
+            remote_storage_target_key: config.remote_storage_target_key,
+            base_path: config.base_path,
+            download_strategy: config.remote_download_strategy,
+            upload_strategy: config.remote_upload_strategy,
+        })
+    }
+
+    fn driver_config(
+        max_file_size: i64,
+        config: &RemoteConnectorConfigV1,
+    ) -> Result<RemoteDriverConfig> {
+        let remote_storage_target_key = config
+            .remote_storage_target_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                validation_error_with_code(
+                    ApiErrorCode::PolicyRemoteStorageTargetRequired,
+                    "remote storage policy requires remote_storage_target_key",
+                )
+            })?;
+        Ok(RemoteDriverConfig {
             base_path: config.base_path.clone(),
-            remote_storage_target_key: config.remote_storage_target_key.clone(),
+            remote_storage_target_key: remote_storage_target_key.to_string(),
             max_file_size,
-        }
+        })
     }
 }
 
@@ -267,7 +298,7 @@ impl StorageConnector for RemoteConnector {
         let remote_node =
             managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
         Ok(Box::new(context.remote_protocol()?.driver_for_config(
-            &Self::driver_config(0, &config),
+            &Self::driver_config(0, &config)?,
             &remote_node,
         )?))
     }
@@ -313,7 +344,7 @@ impl StorageConnector for RemoteConnector {
             );
             return Err(error);
         }
-        let driver_config = Self::driver_config(policy.max_file_size, &config);
+        let driver_config = Self::driver_config(policy.max_file_size, &config)?;
         let driver = if let Some(remote_protocol) = registry.remote_protocol() {
             Arc::new(remote_protocol.driver_for_config(&driver_config, &remote_node)?)
         } else {
@@ -337,6 +368,8 @@ impl StorageConnector for RemoteConnector {
         let config = Self::decode_config(policy)?;
         Ok(Some(RemotePolicyBindingProjection {
             remote_node_id: config.remote_node_id,
+            remote_storage_target_key: config.remote_storage_target_key,
+            base_path: config.base_path,
             download_strategy: config.remote_download_strategy,
             upload_strategy: config.remote_upload_strategy,
         }))
@@ -433,7 +466,7 @@ impl StorageConnector for RemoteConnector {
         };
         let config = Self::decode_config(policy)?;
         Ok(Arc::new(context.remote_protocol()?.driver_for_config(
-            &Self::driver_config(policy.max_file_size, &config),
+            &Self::driver_config(policy.max_file_size, &config)?,
             &follower,
         )?))
     }

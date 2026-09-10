@@ -577,6 +577,15 @@ pub(crate) fn resolve_remote_policy_binding(
         .remote_binding_projection(policy)
 }
 
+pub(crate) fn resolve_remote_policy_binding_from_config(
+    connector_config: &aster_drive_storage::ConnectorConfigEnvelope,
+) -> Result<Option<RemotePolicyBindingProjection>> {
+    if connector_config.connector_id.as_str() != RemoteConnector::ID {
+        return Ok(None);
+    }
+    RemoteConnector::binding_projection_from_config(connector_config).map(Some)
+}
+
 pub(crate) fn resolve_policy_object_naming(
     registry: &StorageConnectorRegistry,
     policy: &storage_policy::Model,

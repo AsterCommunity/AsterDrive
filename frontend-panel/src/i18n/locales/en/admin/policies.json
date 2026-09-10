@@ -180,6 +180,8 @@
 	"policy_editor_overview_desc": "Update the policy name, storage path, and review the active storage driver.",
 	"policy_editor_connection_title": "Connection",
 	"policy_editor_connection_desc": "Adjust the endpoint, bucket, and credentials. Leaving secret fields empty keeps the current values.",
+	"policy_editor_remote_location_immutable_desc": "The remote node, storage target, and base path are fixed after creation. Create another policy and migrate data to change the storage location.",
+	"policy_editor_remote_legacy_target_required_desc": "This legacy policy has no explicit target yet. Its node and base path remain fixed; select its target once to complete the binding.",
 	"policy_editor_credentials_keep_placeholder": "Leave blank to keep unchanged",
 	"policy_connector_configuration": "Configuration",
 	"policy_editor_remote_title": "Remote Binding",

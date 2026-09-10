@@ -33,7 +33,7 @@ impl TestHttpServer {
 fn build_config(base_path: &str) -> RemoteDriverConfig {
     RemoteDriverConfig {
         base_path: base_path.to_string(),
-        remote_storage_target_key: None,
+        remote_storage_target_key: "rst-test".to_string(),
         max_file_size: 0,
     }
 }
@@ -84,7 +84,7 @@ fn build_driver(base_url: &str, base_path: &str) -> RemoteDriver {
 
 fn build_target_scoped_driver(base_url: &str, base_path: &str, target_key: &str) -> RemoteDriver {
     let mut config = build_config(base_path);
-    config.remote_storage_target_key = Some(target_key.to_string());
+    config.remote_storage_target_key = target_key.to_string();
     RemoteDriver::new(&config, &build_follower(base_url)).expect("remote driver should build")
 }
 

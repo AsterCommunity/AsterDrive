@@ -390,10 +390,10 @@ Required:
 ASTER_BENCH_REMOTE_BASE_URL
 ASTER_BENCH_REMOTE_ACCESS_KEY
 ASTER_BENCH_REMOTE_SECRET_KEY
+ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY
 ```
 
-Optional: `ASTER_BENCH_REMOTE_BASE_PATH` and
-`ASTER_BENCH_REMOTE_STORAGE_TARGET_KEY`. Set
+Optional: `ASTER_BENCH_REMOTE_BASE_PATH`. Set
 `ASTER_BENCH_REMOTE_CAPABILITIES_JSON` to the follower's stored discovery
 document when benchmarking an older compatible protocol revision; otherwise
 the runner uses the current protocol capability model.

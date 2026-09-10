@@ -1471,6 +1471,10 @@ describe("StoragePolicyDialog", () => {
 
 	it("renders descriptor fallbacks, remote summaries, capacity, actions, and submitting states", () => {
 		const plugin = descriptor("plugin.example", {
+			capabilities: {
+				...descriptor("plugin.example").capabilities,
+				remote_node_binding: true,
+			},
 			actions: [
 				action({
 					action_id: "test_saved_connection",
@@ -1484,10 +1488,14 @@ describe("StoragePolicyDialog", () => {
 				}),
 			],
 			fields: [
-				field("base_path", { default_value: "" }),
+				field("base_path", {
+					default_value: "",
+					update_behavior: "create_only",
+				}),
 				field("remote_node_id", {
 					kind: "select",
 					select: { data_source: "remote_nodes", value_kind: "integer" },
+					update_behavior: "create_only",
 				}),
 				field("remote_storage_target_key", {
 					kind: "select",
@@ -1495,6 +1503,7 @@ describe("StoragePolicyDialog", () => {
 						data_source: "remote_storage_targets",
 						value_kind: "string",
 					},
+					update_behavior: "set_once",
 				}),
 				field("mode", {
 					kind: "select",
@@ -1538,7 +1547,7 @@ describe("StoragePolicyDialog", () => {
 			storageDriverDescriptors: [plugin],
 			submitting: true,
 		});
-		render(<StoragePolicyDialog {...props} />);
+		const view = render(<StoragePolicyDialog {...props} />);
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Edited policy" },
@@ -1552,6 +1561,43 @@ describe("StoragePolicyDialog", () => {
 			screen.getByRole("button", { name: "plugin.repair" }),
 		).toBeDisabled();
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
+		expect(
+			screen.getByText("policy_editor_remote_location_immutable_desc"),
+		).toBeVisible();
+		expect(screen.getByLabelText("base_path")).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_node_id" }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_storage_target_key" }),
+		).toBeDisabled();
+		expect(screen.getByRole("combobox", { name: "mode" })).toBeEnabled();
 		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Edited policy");
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					...props,
+					form: policyForm({
+						connector_config_values: {
+							base_path: "",
+							mode: "relay",
+							remote_node_id: 7,
+							remote_storage_target_key: "",
+						},
+					}),
+				})}
+			/>,
+		);
+		expect(
+			screen.getByText("policy_editor_remote_legacy_target_required_desc"),
+		).toBeVisible();
+		expect(screen.getByLabelText("base_path")).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_node_id" }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_storage_target_key" }),
+		).toBeEnabled();
 	});
 });

@@ -9,6 +9,7 @@ use tokio::io::AsyncRead;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
+use aster_drive_model::types::LocaleTag;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
 use aster_drive_storage::traits::driver::{BlobMetadata, DirectDownloadOptions};
@@ -18,7 +19,7 @@ use super::models::{
     ApiEnvelope, RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest,
     RemoteStorageCapabilities, RemoteStorageCapacityResponse, RemoteStorageComposeRequest,
     RemoteStorageComposeResponse, RemoteStorageListResponse, RemoteStorageObjectMetadata,
-    RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
+    RemoteStorageTargetConnectorCatalog, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 use super::transport::{
     DirectHttpTransport, RemoteRequestBody, RemoteTransport, RemoteTransportRequest,
@@ -74,16 +75,12 @@ impl RemoteStorageClient {
         })
     }
 
-    pub fn with_policy_context(&self, target_key: Option<&str>, max_file_size: i64) -> Self {
+    pub fn with_policy_context(&self, target_key: &str, max_file_size: i64) -> Self {
         Self {
             transport: self.transport.clone(),
-            // None is preserved for legacy remote policies that rely on the
-            // follower binding default. New policy flows should pass an
-            // explicit target key so the signed request pins the target.
-            storage_target_key: target_key
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string),
+            // The base client is used for control-plane calls. Object-plane
+            // requests must carry this explicit policy-owned target key.
+            storage_target_key: Some(target_key.trim().to_string()),
             policy_max_file_size: max_file_size.max(0),
         }
     }
@@ -384,6 +381,45 @@ impl RemoteStorageClient {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "list remote storage targets response missing data",
+            )
+        })
+    }
+
+    pub async fn list_storage_target_connector_catalog(
+        &self,
+        locale: &LocaleTag,
+    ) -> Result<RemoteStorageTargetConnectorCatalog> {
+        let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/target-connectors");
+        append_query_pairs(&mut path, [("locale", locale.as_str())]);
+        let response = self
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "list remote storage target connector catalog",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
+        let envelope: ApiEnvelope<RemoteStorageTargetConnectorCatalog> =
+            serde_json::from_slice(&body).map_err(|error| {
+                crate::errors::storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("decode remote storage target connector catalog: {error}"),
+                )
+            })?;
+        if envelope.code != ApiErrorCode::Success {
+            return Err(crate::errors::storage_driver_error(
+                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
+                format!(
+                    "remote storage target connector catalog failed: {}",
+                    envelope.msg
+                ),
+            ));
+        }
+        envelope.data.ok_or_else(|| {
+            crate::errors::storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "remote storage target connector catalog response missing data",
             )
         })
     }

@@ -58,7 +58,6 @@ describe("remoteStorageTargetDialogShared", () => {
 				schema_version: 1,
 				values: { base_path: "cache/inbox" },
 			},
-			is_default: true,
 			desired_revision: 3,
 			applied_revision: 3,
 			last_error: "",
@@ -69,7 +68,6 @@ describe("remoteStorageTargetDialogShared", () => {
 		expect(form.connector_id).toBe("asterdrive.storage.local");
 		expect(form.connector_config_values).toEqual({ base_path: "cache/inbox" });
 		expect(form.credential_values).toEqual({});
-		expect(form.is_default).toBe(true);
 	});
 
 	it("drops non-primitive connector values and tolerates missing connector data", () => {
@@ -90,7 +88,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					nothing: null,
 				},
 			},
-			is_default: false,
 			desired_revision: 1,
 			applied_revision: 1,
 			last_error: "",
@@ -144,7 +141,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					},
 				},
 			},
-			is_default: false,
 		});
 	});
 
@@ -160,7 +156,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					base_path: "tenant-a/incoming",
 				},
 				credential_values: {},
-				is_default: true,
 			},
 			s3Descriptor,
 			{
@@ -185,7 +180,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					endpoint: "https://unused.example.com",
 				},
 				credential_values: { token: "unused" },
-				is_default: true,
 			},
 			localDescriptor,
 		);

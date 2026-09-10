@@ -448,7 +448,6 @@ pub struct RemoteNodeAuditDetails<'a> {
 pub struct RemoteIngressProfileAuditDetails<'a> {
     pub target_key: &'a str,
     pub driver_type: &'a str,
-    pub is_default: bool,
 }
 
 #[derive(Serialize)]
@@ -500,7 +499,6 @@ pub struct FollowerIngressProfileAuditDetails<'a> {
     pub binding_id: i64,
     pub target_key: &'a str,
     pub driver_type: &'a str,
-    pub is_default: bool,
 }
 
 #[derive(Serialize)]

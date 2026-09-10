@@ -180,6 +180,8 @@
 	"policy_editor_overview_desc": "更新策略名称、存储路径，并查看当前使用的存储驱动。",
 	"policy_editor_connection_title": "连接配置",
 	"policy_editor_connection_desc": "调整 endpoint、bucket 与访问凭证。留空密钥字段会保留现有值。",
+	"policy_editor_remote_location_immutable_desc": "远程节点、存储目标和基础路径在创建后固定不变；如需更换存储位置，请创建新策略并迁移数据。",
+	"policy_editor_remote_legacy_target_required_desc": "这个旧策略尚未显式绑定 target；节点和基础路径仍保持锁定，请选择一次 target 完成绑定。",
 	"policy_editor_credentials_keep_placeholder": "留空表示不更改",
 	"policy_connector_configuration": "连接器配置",
 	"policy_editor_remote_title": "远程绑定",

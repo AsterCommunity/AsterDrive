@@ -11,6 +11,7 @@ import {
 } from "@/components/admin/remoteNodePageShared";
 import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
+import { installStorageConnectorLocalizations } from "@/lib/adminStorageConnectorLocalizations";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { logger } from "@/lib/logger";
 import { adminRemoteNodeService } from "@/services/adminService";
@@ -27,7 +28,7 @@ export function useAdminRemoteNodeDetailController(
 	remoteNodeId: number,
 	pageTab: "overview" | "storage-targets" = "overview",
 ) {
-	const { t } = useTranslation("admin");
+	const { i18n, t } = useTranslation("admin");
 	const navigate = useNavigate();
 	const copyToClipboard = async (value: string) => {
 		try {
@@ -70,6 +71,10 @@ export function useAdminRemoteNodeDetailController(
 	] = useState<string | null>(null);
 	const targetsRequestId = useRef(0);
 	const descriptorsRequestId = useRef(0);
+	const language = i18n.resolvedLanguage ?? i18n.language ?? "en";
+	const remoteTargetBaseUrlRequiredMessage = t(
+		"remote_node_ingress_profiles_base_url_required",
+	);
 
 	const loadTargets = useCallback(async () => {
 		if (
@@ -111,10 +116,20 @@ export function useAdminRemoteNodeDetailController(
 		setRemoteStorageTargetConnectorDescriptorsLoading(true);
 		setRemoteStorageTargetConnectorDescriptorsError(null);
 		try {
-			const descriptors =
-				await adminRemoteNodeService.listStorageTargetConnectors(remoteNodeId);
-			if (requestId === descriptorsRequestId.current) {
-				setRemoteStorageTargetConnectorDescriptors(descriptors);
+			const catalog = await adminRemoteNodeService.listStorageTargetConnectors(
+				remoteNodeId,
+				language,
+			);
+			if (
+				requestId === descriptorsRequestId.current &&
+				(i18n.resolvedLanguage ?? i18n.language ?? "en") === language
+			) {
+				installStorageConnectorLocalizations(
+					catalog.localizations,
+					language,
+					i18n,
+				);
+				setRemoteStorageTargetConnectorDescriptors(catalog.descriptors);
 			}
 		} catch (error) {
 			if (requestId === descriptorsRequestId.current) {
@@ -129,7 +144,7 @@ export function useAdminRemoteNodeDetailController(
 				setRemoteStorageTargetConnectorDescriptorsLoading(false);
 			}
 		}
-	}, [node, pageTab, remoteNodeId]);
+	}, [i18n, language, node, pageTab, remoteNodeId]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -173,14 +188,18 @@ export function useAdminRemoteNodeDetailController(
 			(node.transport_mode ?? "direct") === "direct" &&
 			!node.base_url.trim()
 		) {
-			setRemoteStorageTargetsError(
-				t("remote_node_ingress_profiles_base_url_required"),
-			);
+			setRemoteStorageTargetsError(remoteTargetBaseUrlRequiredMessage);
 			return;
 		}
 		void loadTargets();
 		void loadDescriptors();
-	}, [loadDescriptors, loadTargets, node, pageTab, t]);
+	}, [
+		loadDescriptors,
+		loadTargets,
+		node,
+		pageTab,
+		remoteTargetBaseUrlRequiredMessage,
+	]);
 
 	const setField = <K extends keyof RemoteNodeFormData>(
 		key: K,
