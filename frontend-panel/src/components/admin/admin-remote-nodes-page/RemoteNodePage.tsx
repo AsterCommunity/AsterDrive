@@ -165,7 +165,7 @@ export function RemoteNodePage({
 						<Icon name="Cloud" className="mr-1 size-4" />
 						{t("remote_node_create_and_deploy")}
 					</Button>
-				) : (
+				) : pageTab === "storage-targets" ? null : (
 					<>
 						<TestConnectionButton
 							onTest={onRunConnectionTest}

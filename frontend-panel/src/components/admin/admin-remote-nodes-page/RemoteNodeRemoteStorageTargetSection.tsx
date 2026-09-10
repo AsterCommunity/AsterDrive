@@ -17,7 +17,7 @@ import type {
 	RemoteUpdateStorageTargetRequest,
 	StorageConnectorDescriptor,
 } from "@/types/api";
-import { RemoteNodeRemoteStorageTargetForm } from "./RemoteNodeRemoteStorageTargetForm";
+import { RemoteNodeRemoteStorageTargetDialog } from "./RemoteNodeRemoteStorageTargetDialog";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
 
 interface RemoteNodeRemoteStorageTargetSectionProps {
@@ -67,15 +67,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 		string | null
 	>(null);
 	const [readOnlyOpen, setReadOnlyOpen] = useState(false);
-	const [animateDraftClose, setAnimateDraftClose] = useState(true);
-	const draftCloseResetTimer = useRef<number | null>(null);
-	useEffect(() => {
-		return () => {
-			if (draftCloseResetTimer.current !== null) {
-				window.clearTimeout(draftCloseResetTimer.current);
-			}
-		};
-	}, []);
+	const [dialogOpen, setDialogOpen] = useState(false);
+	const dialogCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const clearDialogCloseTimer = () => {
+		if (dialogCloseTimer.current !== null) {
+			clearTimeout(dialogCloseTimer.current);
+			dialogCloseTimer.current = null;
+		}
+	};
 	const editingTarget =
 		draftMode === "edit"
 			? (targets.find((target) => target.target_key === editingTargetKey) ??
@@ -112,7 +111,9 @@ export function RemoteNodeRemoteStorageTargetSection({
 		if (!canCreateTargets || !firstSupportedConnectorId) {
 			return;
 		}
+		clearDialogCloseTimer();
 		setDraftMode("create");
+		setDialogOpen(true);
 		setEditingTargetKey(null);
 		setReadOnlyOpen(true);
 		setForm({
@@ -122,26 +123,50 @@ export function RemoteNodeRemoteStorageTargetSection({
 	};
 
 	const startEdit = (target: RemoteStorageTargetInfo) => {
+		clearDialogCloseTimer();
 		setDraftMode("edit");
+		setDialogOpen(true);
 		setEditingTargetKey(target.target_key);
 		setForm(getRemoteStorageTargetForm(target));
 	};
 
-	const resetDraft = (options?: { immediate?: boolean }) => {
-		if (options?.immediate) {
-			setAnimateDraftClose(false);
-			if (draftCloseResetTimer.current !== null) {
-				window.clearTimeout(draftCloseResetTimer.current);
-			}
-			draftCloseResetTimer.current = window.setTimeout(() => {
-				draftCloseResetTimer.current = null;
-				setAnimateDraftClose(true);
-			}, 0);
-		}
+	const resetDraft = () => {
+		clearDialogCloseTimer();
+		setDialogOpen(false);
 		setDraftMode(null);
 		setEditingTargetKey(null);
 		setForm(emptyRemoteStorageTargetForm);
 	};
+	const closeDraft = () => {
+		if (submitting) return;
+		setDialogOpen(false);
+		clearDialogCloseTimer();
+		dialogCloseTimer.current = setTimeout(() => {
+			dialogCloseTimer.current = null;
+			resetDraft();
+		}, 120);
+	};
+	useEffect(() => {
+		return () => {
+			if (dialogCloseTimer.current !== null) {
+				clearTimeout(dialogCloseTimer.current);
+			}
+		};
+	}, []);
+	useEffect(() => {
+		if (draftMode === "edit" && editingTarget == null) {
+			setDialogOpen(false);
+			if (dialogCloseTimer.current !== null) {
+				clearTimeout(dialogCloseTimer.current);
+			}
+			dialogCloseTimer.current = setTimeout(() => {
+				dialogCloseTimer.current = null;
+				setDraftMode(null);
+				setEditingTargetKey(null);
+				setForm(emptyRemoteStorageTargetForm);
+			}, 120);
+		}
+	}, [draftMode, editingTarget]);
 
 	const setField = <K extends keyof RemoteStorageTargetFormData>(
 		key: K,
@@ -183,6 +208,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		}
 
 		setSubmitting(true);
+		let succeeded = false;
 		try {
 			if (activeDraftMode === "create" && onCreateTarget) {
 				await onCreateTarget(
@@ -201,11 +227,12 @@ export function RemoteNodeRemoteStorageTargetSection({
 					),
 				);
 			}
-			resetDraft({ immediate: true });
+			succeeded = true;
 		} catch {
 			// Parent handlers surface API errors; keep the draft open on failure.
 		} finally {
 			setSubmitting(false);
+			if (succeeded) closeDraft();
 		}
 	};
 	const draftModeForRender = activeDraftMode ?? "create";
@@ -242,8 +269,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 
 	return (
 		<Root className={rootClassName}>
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<div>
+			<div className="flex items-start justify-between gap-3">
+				<div className="min-w-0 flex-1">
 					<h3 className="text-base font-semibold text-foreground">
 						{t(titleKey)}
 					</h3>
@@ -252,8 +279,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 					</p>
 				</div>
 				{readOnly ? (
-					<div className="flex flex-wrap items-center gap-2">
-						{allowCreate && activeDraftMode == null ? (
+					<div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+						{allowCreate ? (
 							<Button
 								type="button"
 								size="sm"
@@ -292,7 +319,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 							)}
 						</Button>
 					</div>
-				) : activeDraftMode == null ? (
+				) : (
 					<Button
 						type="button"
 						size="sm"
@@ -308,7 +335,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 						<Icon name="Plus" aria-hidden className="mr-1 size-4" />
 						{t(createLabelKey)}
 					</Button>
-				) : null}
+				)}
 			</div>
 
 			{errorMessage ? (
@@ -317,23 +344,24 @@ export function RemoteNodeRemoteStorageTargetSection({
 				</div>
 			) : null}
 
-			{animateDraftClose ? (
-				<AnimatedCollapsible open={activeDraftMode != null}>
-					<RemoteNodeRemoteStorageTargetForm
-						connectorDescriptors={supportedConnectorDescriptors}
-						connectorIdError={connectorIdError}
-						draftMode={draftModeForRender}
-						form={form}
-						nameError={nameError}
-						onCancel={() => resetDraft()}
-						onFieldChange={setField}
-						onSubmit={() => void handleSubmit()}
-						submitDisabled={submitDisabled}
-						submitting={submitting}
-						targets={targets}
-					/>
-				</AnimatedCollapsible>
-			) : null}
+			<RemoteNodeRemoteStorageTargetDialog
+				connectorDescriptors={supportedConnectorDescriptors}
+				connectorIdError={connectorIdError}
+				draftMode={draftModeForRender}
+				editingTarget={editingTarget}
+				form={form}
+				nameError={nameError}
+				open={dialogOpen}
+				onOpenChange={(open) => {
+					if (!open) closeDraft();
+				}}
+				onCancel={closeDraft}
+				onFieldChange={setField}
+				onSubmit={() => void handleSubmit()}
+				submitDisabled={submitDisabled}
+				submitting={submitting}
+				targets={targets}
+			/>
 
 			{readOnly ? (
 				<AnimatedCollapsible

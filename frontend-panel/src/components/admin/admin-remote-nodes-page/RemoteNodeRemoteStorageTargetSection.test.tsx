@@ -404,7 +404,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			/>,
 		);
 
-		expect(screen.getByText("core:loading")).toBeInTheDocument();
+		expect(screen.getAllByRole("row")).toHaveLength(6);
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
@@ -463,7 +463,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			}),
 		).toHaveAttribute("aria-expanded", "true");
 		expect(screen.getByText("Local ingress")).toBeInTheDocument();
-		expect(screen.queryByText("local-default")).not.toBeInTheDocument();
+		expect(screen.getByText("local-default")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", {
 				name: "remote_node_ingress_profiles_create",
@@ -530,7 +530,9 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				name: "policy_remote_storage_targets_show",
 			}),
 		);
-		expect(screen.getByText("远端目录")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(screen.getByText(/远端目录/)).toBeInTheDocument(),
+		);
 	});
 
 	it("allows quick creation in a read-only target list without exposing management actions", async () => {
@@ -606,9 +608,24 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				}),
 			);
 		});
+		await waitFor(() =>
+			expect(
+				screen.queryByText("remote_node_ingress_profile_form_create_title"),
+			).not.toBeInTheDocument(),
+		);
+	});
+
+	it("opens target editing from the table row", () => {
+		renderSection({ targets: [profile()] });
+
+		fireEvent.click(screen.getByText("Local ingress"));
+
 		expect(
-			screen.queryByText("remote_node_ingress_profile_form_create_title"),
-		).not.toBeInTheDocument();
+			screen.getByText("remote_node_ingress_profile_form_edit_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("remote_node_ingress_profiles_create"),
+		).toBeInTheDocument();
 	});
 
 	it("rejects connector selections that are not valid connector identifiers", () => {
@@ -826,9 +843,11 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			/>,
 		);
 
-		expect(
-			screen.queryByText("remote_node_ingress_profile_form_edit_title"),
-		).not.toBeInTheDocument();
+		await waitFor(() =>
+			expect(
+				screen.queryByText("remote_node_ingress_profile_form_edit_title"),
+			).not.toBeInTheDocument(),
+		);
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection

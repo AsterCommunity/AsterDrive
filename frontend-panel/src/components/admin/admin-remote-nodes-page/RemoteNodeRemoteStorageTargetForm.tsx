@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import type {
 	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
@@ -32,6 +33,7 @@ interface RemoteNodeRemoteStorageTargetFormProps {
 	onCancel: () => void;
 	onFieldChange: RemoteNodeRemoteStorageTargetFieldChangeHandler;
 	onSubmit: () => void;
+	presentation?: "inline" | "dialog";
 	submitDisabled: boolean;
 	submitting: boolean;
 	targets: RemoteStorageTargetInfo[];
@@ -46,6 +48,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 	onCancel,
 	onFieldChange,
 	onSubmit,
+	presentation = "inline",
 	submitDisabled,
 	submitting,
 	targets,
@@ -65,27 +68,40 @@ export function RemoteNodeRemoteStorageTargetForm({
 		) ?? null;
 
 	return (
-		<div className="mt-4 rounded-xl border border-border/70 bg-muted/10 p-4">
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<div>
-					<h4 className="text-sm font-semibold text-foreground">
-						{draftMode === "create"
-							? t("remote_node_ingress_profile_form_create_title")
-							: t("remote_node_ingress_profile_form_edit_title")}
-					</h4>
+		<div
+			className={cn(
+				presentation === "inline"
+					? "mt-4 rounded-xl border border-border/70 bg-muted/10 p-4"
+					: "min-w-0",
+			)}
+		>
+			{presentation === "inline" ? (
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div>
+						<h4 className="text-sm font-semibold text-foreground">
+							{draftMode === "create"
+								? t("remote_node_ingress_profile_form_create_title")
+								: t("remote_node_ingress_profile_form_edit_title")}
+						</h4>
+					</div>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={onCancel}
+						disabled={submitting}
+					>
+						{t("core:cancel")}
+					</Button>
 				</div>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					onClick={onCancel}
-					disabled={submitting}
-				>
-					{t("core:cancel")}
-				</Button>
-			</div>
+			) : null}
 
-			<div className="mt-4 grid gap-4 md:grid-cols-2">
+			<div
+				className={cn(
+					"grid gap-4 md:grid-cols-2",
+					presentation === "inline" && "mt-4",
+				)}
+			>
 				<div className="space-y-2">
 					<Label htmlFor="remote-target-name">{t("core:name")}</Label>
 					<Input

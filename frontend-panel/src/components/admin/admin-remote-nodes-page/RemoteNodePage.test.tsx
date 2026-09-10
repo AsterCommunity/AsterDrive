@@ -165,4 +165,25 @@ describe("RemoteNodePage", () => {
 		fireEvent.click(testButton);
 		expect(onRunConnectionTest).toHaveBeenCalledTimes(1);
 	});
+
+	it("removes remote-node save actions from the storage-targets tab", () => {
+		render(
+			<RemoteNodePage
+				{...baseProps}
+				editingNode={node({ enrollment_status: "completed" })}
+				form={{
+					...baseProps.form,
+					name: "Edge Alpha",
+					base_url: "https://edge.example.com",
+				}}
+				mode="edit"
+				pageTab="storage-targets"
+			/>,
+		);
+
+		expect(
+			screen.queryByRole("button", { name: "test_connection" }),
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "save_changes" })).toBeNull();
+	});
 });
