@@ -511,7 +511,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				label_key: "follower_label",
 			},
 		};
-		const user = userEvent.setup();
 		renderSection({
 			connectorDescriptors: [followerDescriptor],
 			readOnly: true,
@@ -526,12 +525,11 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			],
 		});
 
-		await user.click(
+		await userEvent.setup().click(
 			screen.getByRole("button", {
 				name: "policy_remote_storage_targets_show",
 			}),
 		);
-
 		expect(screen.getByText("远端目录")).toBeInTheDocument();
 	});
 

@@ -700,23 +700,6 @@ export function StoragePolicyDialog({
 													{endpointValidationMessage}
 												</p>
 											) : null}
-											{remoteNodeId ? (
-												<RemoteTargets
-													connectorDescriptors={
-														remoteStorageTargetConnectorDescriptors
-													}
-													driverError={
-														remoteStorageTargetConnectorDescriptorsError
-													}
-													driverLoading={
-														remoteStorageTargetConnectorDescriptorsLoading
-													}
-													targets={remoteStorageTargets}
-													targetsError={remoteStorageTargetsError}
-													targetsLoading={remoteStorageTargetsLoading}
-													onCreate={onCreateRemoteStorageTarget}
-												/>
-											) : null}
 											<ConnectorManagement
 												management={
 													storageDriverDescriptor?.credential_management ?? null
@@ -1398,7 +1381,7 @@ function RemoteTargets({
 	targets: RemoteStorageTargetInfo[];
 	targetsError: string | null;
 	targetsLoading: boolean;
-	onCreate: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
+	onCreate?: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
 }) {
 	return (
 		<RemoteNodeRemoteStorageTargetSection

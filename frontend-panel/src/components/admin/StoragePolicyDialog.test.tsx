@@ -59,16 +59,22 @@ vi.mock(
 	"@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection",
 	() => ({
 		RemoteNodeRemoteStorageTargetSection: (props: {
+			allowCreate?: boolean;
 			errorMessage?: string | null;
 			loading?: boolean;
 			onCreateTarget?: () => void;
 		}) => (
-			<div data-testid="remote-targets">
+			<div
+				data-testid="remote-targets"
+				data-allow-create={String(props.allowCreate ?? false)}
+			>
 				<span>{props.errorMessage}</span>
 				<span>{String(props.loading)}</span>
-				<button type="button" onClick={props.onCreateTarget}>
-					create-target
-				</button>
+				{props.allowCreate && props.onCreateTarget ? (
+					<button type="button" onClick={props.onCreateTarget}>
+						create-target
+					</button>
+				) : null}
 			</div>
 		),
 	}),
@@ -339,6 +345,37 @@ describe("StoragePolicyDialog", () => {
 			"after:content-['*']",
 		);
 		expect(document.querySelector('[data-slot="dialog-footer"]')).toBeNull();
+	});
+
+	it("keeps remote target creation in the policy creation flow", () => {
+		const remotePlugin = descriptor("plugin.remote", {
+			fields: [
+				field("remote_node_id", {
+					kind: "select",
+					select: { data_source: "remote_nodes", value_kind: "integer" },
+				}),
+			],
+		});
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 1,
+					form: policyForm({
+						connector_id: "plugin.remote",
+						connector_config_values: { remote_node_id: 7 },
+					}),
+					remoteNodes: [{ id: 7, name: "Node seven" } as never],
+					storageDriverDescriptor: remotePlugin,
+					storageDriverDescriptors: [remotePlugin],
+				})}
+			/>,
+		);
+
+		expect(screen.getByTestId("remote-targets")).toHaveAttribute(
+			"data-allow-create",
+			"true",
+		);
+		expect(screen.getByRole("button", { name: "create-target" })).toBeVisible();
 	});
 
 	it("keeps the page connector catalog compact, searchable, and explicitly advanced", () => {
@@ -1552,10 +1589,7 @@ describe("StoragePolicyDialog", () => {
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Edited policy" },
 		});
-		expect(screen.getByTestId("remote-targets")).toHaveTextContent(
-			"targets failed",
-		);
-		expect(screen.getByTestId("remote-targets")).toHaveTextContent("true");
+		expect(screen.queryByTestId("remote-targets")).not.toBeInTheDocument();
 		expect(screen.getByText("policy_capacity_status_supported")).toBeVisible();
 		expect(
 			screen.getByRole("button", { name: "plugin.repair" }),
