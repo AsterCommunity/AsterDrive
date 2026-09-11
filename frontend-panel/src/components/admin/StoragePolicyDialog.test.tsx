@@ -1634,4 +1634,106 @@ describe("StoragePolicyDialog", () => {
 			screen.getByRole("combobox", { name: "remote_storage_target_key" }),
 		).toBeEnabled();
 	});
+
+	it("covers submitting create actions and blank edit-title fallbacks", () => {
+		const plugin = descriptor("plugin.example");
+		const view = render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 2,
+					form: policyForm(),
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					submitting: true,
+				})}
+			/>,
+		);
+		expect(screen.getByRole("button", { name: "core:create" })).toBeDisabled();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 0,
+					form: policyForm({ connector_id: "missing.connector" }),
+					storageDriverDescriptor: null,
+					storageDriverDescriptors: [plugin],
+				})}
+			/>,
+		);
+		expect(screen.getAllByText("plugin_label").length).toBeGreaterThan(0);
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					form: policyForm({ name: "" }),
+					mode: "edit",
+				})}
+			/>,
+		);
+		expect(screen.getByRole("heading", { name: "edit_policy" })).toBeVisible();
+	});
+
+	it("covers setup logout, non-page save prompts, and summary framing", () => {
+		const onSetupLogout = vi.fn();
+		const props = dialogProps({
+			createStep: 1,
+			onSetupLogout,
+			presentation: "setup",
+			saveAnywayConfirmOpen: true,
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "core:logout" }));
+		expect(onSetupLogout).toHaveBeenCalledOnce();
+		const prompt = screen.getByText("connection_test_failed_save_prompt");
+		expect(prompt.closest("div")?.parentElement?.parentElement).toHaveClass(
+			"px-6",
+		);
+
+		view.rerender(<StoragePolicyDialog {...props} createStep={2} />);
+		expect(screen.getByTestId("policy-summary-card")).toHaveClass(
+			"rounded-2xl",
+			"bg-muted/30",
+		);
+	});
+
+	it("covers empty page catalogs and unmatched connector searches", () => {
+		const props = dialogProps({
+			form: policyForm({ connector_id: "" }),
+			storageDriverDescriptor: null,
+			storageDriverDescriptors: [],
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+		expect(screen.getByText("policy_connector_search_empty")).toBeVisible();
+
+		const plugin = descriptor("plugin.example");
+		view.rerender(
+			<StoragePolicyDialog
+				{...props}
+				storageDriverDescriptor={plugin}
+				storageDriverDescriptors={[plugin]}
+			/>,
+		);
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "policy_connector_search" }),
+			{ target: { value: "no matching connector" } },
+		);
+		expect(screen.getByText("policy_connector_search_empty")).toBeVisible();
+	});
+
+	it("does not duplicate edit endpoint errors already attached to a field", () => {
+		const props = dialogProps({
+			connectionFieldErrors: {},
+			endpointValidationMessage: "endpoint invalid",
+			mode: "edit",
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+		expect(screen.getByText("endpoint invalid")).toBeVisible();
+		view.rerender(
+			<StoragePolicyDialog
+				{...props}
+				connectionFieldErrors={{ unrelated: "endpoint invalid" }}
+			/>,
+		);
+		expect(screen.queryByText("endpoint invalid")).not.toBeInTheDocument();
+	});
 });

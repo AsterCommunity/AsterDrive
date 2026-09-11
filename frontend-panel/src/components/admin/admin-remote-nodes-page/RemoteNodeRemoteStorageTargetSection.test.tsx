@@ -1,5 +1,6 @@
 import {
 	act,
+	cleanup,
 	fireEvent,
 	render,
 	screen,
@@ -965,5 +966,37 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		);
 		act(() => vi.advanceTimersByTime(120));
 		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
+	});
+
+	it("opens editable rows from keyboard without activating read-only or deleting rows", () => {
+		const existing = profile();
+		renderSection({ targets: [existing] });
+		const editableRow = screen.getByText("Local ingress").closest("tr");
+		expect(editableRow).not.toBeNull();
+		if (editableRow) {
+			fireEvent.keyDown(editableRow, { key: "Escape" });
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+			fireEvent.keyDown(editableRow, { key: "Enter" });
+		}
+		expect(screen.getByRole("dialog")).toHaveAttribute("data-open", "");
+		cleanup();
+
+		renderSection({ readOnly: true, targets: [existing] });
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_show",
+			}),
+		);
+		const readOnlyRow = screen.getByText("Local ingress").closest("tr");
+		expect(readOnlyRow).not.toHaveAttribute("tabindex");
+		if (readOnlyRow) fireEvent.keyDown(readOnlyRow, { key: " " });
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		cleanup();
+
+		renderSection({ targets: [existing] });
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+		const deletingRow = screen.getByText("Local ingress").closest("tr");
+		if (deletingRow) fireEvent.keyDown(deletingRow, { key: "Enter" });
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
 });

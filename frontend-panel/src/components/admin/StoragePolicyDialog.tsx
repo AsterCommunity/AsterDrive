@@ -1094,13 +1094,11 @@ function ConnectorSelection({
 					<div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain">
 						{filteredDescriptors.map((descriptor) => {
 							const selected = descriptor.connector_id === selectedId;
-							const disabled = setup && !descriptor.supports_initial_setup;
 							return (
 								<button
 									type="button"
 									key={descriptor.connector_id}
 									aria-pressed={selected}
-									disabled={disabled}
 									onClick={() => onSelect(descriptor.connector_id)}
 									className={cn(
 										"flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60",

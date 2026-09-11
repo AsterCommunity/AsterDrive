@@ -803,6 +803,21 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies");
 	});
 
+	it("ignores detail loads that settle after the page unmounts", async () => {
+		const loaded = deferred<StoragePolicy>();
+		mockState.getPolicy.mockReturnValueOnce(loaded.promise);
+		const loadedView = renderDetail();
+		loadedView.unmount();
+		await act(async () => loaded.resolve(policy("plugin.late")));
+
+		const failed = deferred<StoragePolicy>();
+		mockState.getPolicy.mockReturnValueOnce(failed.promise);
+		const failedView = renderDetail();
+		failedView.unmount();
+		await act(async () => failed.reject(new Error("late failure")));
+		expect(mockState.navigate).not.toHaveBeenCalled();
+	});
+
 	it("navigates back when create and detail editors request closing", async () => {
 		const connector = descriptor("plugin.close");
 		mockState.manageDescriptors = [connector];
@@ -2209,6 +2224,29 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		);
 	});
 
+	it("uses the generic created message when credential guidance has no next key", async () => {
+		const connector = descriptor("plugin.oauth-generic", {
+			actions: [authorizationAction],
+			authorization_provider: "plugin_oauth",
+			credential_management: {
+				...credentialManagement(),
+				created_authorize_next_key: "",
+			},
+			credential_mode: "oauth_delegated",
+			requires_authorization: true,
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.create.mockResolvedValue(policy(connector.connector_id));
+		renderCreate();
+		await waitForCatalog(connector.connector_id);
+		await setField("name", "OAuth without guidance");
+		await act(async () => currentDialog().onCreateStepChange(2));
+		await act(async () => currentDialog().onSubmit());
+		await waitFor(() => expect(mockState.create).toHaveBeenCalledOnce());
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
+	});
+
 	it("offers save-anyway after a draft connection test fails", async () => {
 		const connector = descriptor("plugin.failing-test", {
 			actions: [draftTestAction],
@@ -2262,6 +2300,45 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(currentDialog().connectionFieldErrors).toEqual({
 			"connector_config:endpoint": "policy_connector_field_invalid:endpoint",
 		});
+	});
+
+	it("maps descriptor endpoint validation and generic connection failures", async () => {
+		const connector = descriptor("plugin.endpoint", {
+			actions: [draftTestAction],
+			fields: [
+				field("endpoint", {
+					allowed_endpoint_protocols: ["https:"],
+					invalid_protocol_message_key: "endpoint_invalid",
+				}),
+			],
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		renderCreate();
+		await waitForCatalog(connector.connector_id);
+		await setField("connector_config_values", { endpoint: "ftp://invalid" });
+		let passed = true;
+		await act(async () => {
+			passed = await currentDialog().onRunConnectionTest();
+		});
+		expect(passed).toBe(false);
+		await waitFor(() =>
+			expect(currentDialog().connectionFieldErrors).toEqual({
+				"connector_config:endpoint": "endpoint_invalid",
+			}),
+		);
+		expect(mockState.testParams).not.toHaveBeenCalled();
+
+		await setField("connector_config_values", {
+			endpoint: "https://valid.example.test",
+		});
+		const failure = new Error("connection failed");
+		mockState.testParams.mockRejectedValueOnce(failure);
+		await act(async () => {
+			passed = await currentDialog().onRunConnectionTest();
+		});
+		expect(passed).toBe(false);
+		expect(mockState.handleApiError).toHaveBeenCalledWith(failure);
 	});
 
 	it("forces setup policies to default and refreshes setup state", async () => {
