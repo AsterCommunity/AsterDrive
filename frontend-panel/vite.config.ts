@@ -203,6 +203,8 @@ export default defineConfig(({ command }) => {
 		},
 		build: {
 			target: "esnext",
+			// PDF.js is one indivisible lazy module; postbuild enforces its own raw/gzip budget.
+			chunkSizeWarningLimit: 650,
 			modulePreload: false,
 			outDir: "dist",
 			emptyOutDir: true,

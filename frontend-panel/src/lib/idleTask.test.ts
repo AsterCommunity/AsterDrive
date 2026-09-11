@@ -5,24 +5,15 @@ describe("runWhenIdle", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
-		delete (window as unknown as { requestIdleCallback?: unknown })
-			.requestIdleCallback;
-		delete (window as unknown as { cancelIdleCallback?: unknown })
-			.cancelIdleCallback;
+		vi.unstubAllGlobals();
 	});
 
 	it("uses requestIdleCallback when available and cancels it", () => {
 		const task = vi.fn();
 		const cancelIdleCallback = vi.fn();
 		const requestIdleCallback = vi.fn().mockReturnValue(42);
-		Object.defineProperty(window, "requestIdleCallback", {
-			configurable: true,
-			value: requestIdleCallback,
-		});
-		Object.defineProperty(window, "cancelIdleCallback", {
-			configurable: true,
-			value: cancelIdleCallback,
-		});
+		vi.stubGlobal("requestIdleCallback", requestIdleCallback);
+		vi.stubGlobal("cancelIdleCallback", cancelIdleCallback);
 
 		const cancel = runWhenIdle(task, { timeoutMs: 500 });
 		cancel();
@@ -34,6 +25,8 @@ describe("runWhenIdle", () => {
 
 	it("falls back to setTimeout and clears the timeout", () => {
 		vi.useFakeTimers();
+		vi.stubGlobal("requestIdleCallback", undefined);
+		vi.stubGlobal("cancelIdleCallback", undefined);
 		const task = vi.fn();
 
 		const cancel = runWhenIdle(task, { fallbackDelayMs: 25 });

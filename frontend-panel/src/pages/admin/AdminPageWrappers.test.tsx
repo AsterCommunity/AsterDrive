@@ -133,7 +133,7 @@ describe("admin detail/create route wrappers", () => {
 		state.submit.mockReset();
 	});
 
-	it("passes create and valid detail routes to their page controllers", () => {
+	it("passes create and valid detail routes to their page controllers", async () => {
 		const { unmount } = render(<AdminPolicyCreatePage />);
 		expect(screen.getByTestId("policies-page")).toHaveTextContent("create:");
 		unmount();
@@ -156,9 +156,9 @@ describe("admin detail/create route wrappers", () => {
 
 		render(<AdminRemoteNodeCreatePage />);
 		expect(screen.getByTestId("remote-node-page")).toBeInTheDocument();
-		expect(state.remoteNodePageProps?.onRunConnectionTest()).resolves.toBe(
-			false,
-		);
+		await expect(
+			state.remoteNodePageProps?.onRunConnectionTest(),
+		).resolves.toBe(false);
 		state.remoteNodePageProps?.onSubmit();
 		expect(state.submit).toHaveBeenCalledOnce();
 	});

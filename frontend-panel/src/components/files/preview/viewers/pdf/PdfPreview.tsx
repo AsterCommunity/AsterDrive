@@ -1,7 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+	Component,
 	type ComponentProps,
 	type KeyboardEvent,
+	type ReactNode,
+	Suspense,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -73,6 +76,14 @@ interface PdfScrollAnchor {
 	offset: number;
 }
 
+function PdfPageLoadingState({ text }: { text: string }) {
+	return (
+		<div className="flex h-[250px] w-[200px] items-center justify-center bg-white">
+			<span className="text-sm text-muted-foreground">{text}</span>
+		</div>
+	);
+}
+
 async function loadPdfPageSizes(
 	pdf: LoadedDocument,
 	shouldCancel: () => boolean,
@@ -113,8 +124,53 @@ interface PdfPreviewProps {
 	fileName?: string;
 }
 
+interface PdfPreviewErrorBoundaryProps {
+	children: ReactNode;
+	onRetry: () => void;
+}
+
+interface PdfPreviewErrorBoundaryState {
+	hasError: boolean;
+}
+
+class PdfPreviewErrorBoundary extends Component<
+	PdfPreviewErrorBoundaryProps,
+	PdfPreviewErrorBoundaryState
+> {
+	state: PdfPreviewErrorBoundaryState = { hasError: false };
+
+	static getDerivedStateFromError(): PdfPreviewErrorBoundaryState {
+		return { hasError: true };
+	}
+
+	render() {
+		if (this.state.hasError) {
+			return (
+				<PreviewSurface>
+					<PreviewSurfaceContent>
+						<PreviewError onRetry={this.props.onRetry} />
+					</PreviewSurfaceContent>
+				</PreviewSurface>
+			);
+		}
+
+		return this.props.children;
+	}
+}
+
+type PdfDocumentFile = NonNullable<ComponentProps<typeof Document>["file"]>;
+
+interface PdfDocumentPreviewProps {
+	documentFile: PdfDocumentFile | null;
+	documentLoadError: boolean;
+	documentLoading: boolean;
+	documentUrl: string | null;
+	downloadPath: string;
+	fileName?: string;
+	retryDocumentLoad: () => void;
+}
+
 export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
-	const { t } = useTranslation("files");
 	const {
 		blob: documentBlob,
 		blobUrl: documentUrl,
@@ -128,8 +184,40 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		[documentBlob, documentUrl],
 	);
 	const [reloadKey, setReloadKey] = useState(0);
+	const handlePdfRetry = useCallback(() => {
+		retryDocumentLoad();
+		setReloadKey((currentKey) => currentKey + 1);
+	}, [retryDocumentLoad]);
+
+	return (
+		<PdfPreviewErrorBoundary
+			key={`${documentUrl ?? "pending"}:${reloadKey}`}
+			onRetry={handlePdfRetry}
+		>
+			<PdfDocumentPreview
+				documentFile={documentFile}
+				documentLoadError={documentLoadError}
+				documentLoading={documentLoading}
+				documentUrl={documentUrl}
+				downloadPath={downloadPath}
+				fileName={fileName}
+				retryDocumentLoad={retryDocumentLoad}
+			/>
+		</PdfPreviewErrorBoundary>
+	);
+}
+
+function PdfDocumentPreview({
+	documentFile,
+	documentLoadError,
+	documentLoading,
+	documentUrl,
+	downloadPath,
+	fileName,
+	retryDocumentLoad,
+}: PdfDocumentPreviewProps) {
+	const { t } = useTranslation("files");
 	const [numPages, setNumPages] = useState<number | null>(null);
-	const [pdfError, setPdfError] = useState(false);
 	const [currentPage, setCurrentPage] = useState(1);
 	const [pageInputValue, setPageInputValue] = useState("1");
 	const [zoomPercent, setZoomPercent] = useState(100);
@@ -215,7 +303,6 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 			const n = pdf.numPages;
 			setNumPages(n);
 			setPageSizes(null);
-			setPdfError(false);
 			setCurrentPage(1);
 			setPageInputValue("1");
 			if (scrollContainerRef.current) {
@@ -240,19 +327,6 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		},
 		[virtualizer],
 	);
-
-	const onDocumentLoadError = useCallback(() => {
-		pageSizeLoadVersionRef.current += 1;
-		setNumPages(null);
-		setPageSizes(null);
-		setPdfError(true);
-	}, []);
-
-	const handlePdfRetry = useCallback(() => {
-		setPdfError(false);
-		setReloadKey((currentKey) => currentKey + 1);
-		retryDocumentLoad();
-	}, [retryDocumentLoad]);
 
 	const onPageLoadSuccess = useCallback((page: LoadedPage) => {
 		setPageSize((currentSize) => {
@@ -421,26 +495,6 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		link.click();
 	}, [documentUrl, downloadPath, fileName]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: documentUrl intentionally resets viewer state when the PDF source changes
-	useEffect(() => {
-		setNumPages(null);
-		setPdfError(false);
-		setCurrentPage(1);
-		setPageInputValue("1");
-		setZoomPercent(100);
-		setFitWidth(true);
-		setRotation(0);
-		setPageSize(null);
-		setPageSizes(null);
-		setReloadKey(0);
-		rotationScrollAnchorRef.current = null;
-		pageSizeLoadVersionRef.current += 1;
-		if (scrollContainerRef.current) {
-			setViewerWidth(scrollContainerRef.current.clientWidth);
-			scrollContainerRef.current.scrollTop = 0;
-		}
-	}, [documentUrl]);
-
 	useEffect(() => {
 		const container = scrollContainerRef.current;
 		if (!container) return;
@@ -502,21 +556,12 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	useEffect(() => {
 		const scrollFrame = scrollFrameRef;
 		return () => {
+			pageSizeLoadVersionRef.current += 1;
 			if (scrollFrame.current !== null) {
 				window.cancelAnimationFrame(scrollFrame.current);
 			}
 		};
 	}, []);
-
-	if (pdfError) {
-		return (
-			<PreviewSurface>
-				<PreviewSurfaceContent>
-					<PreviewError onRetry={handlePdfRetry} />
-				</PreviewSurfaceContent>
-			</PreviewSurface>
-		);
-	}
 
 	const virtualPages = numPages !== null ? virtualizer.getVirtualItems() : [];
 	const firstVirtualPage = virtualPages[0];
@@ -725,11 +770,10 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 						/>
 					) : (
 						<Document
-							key={`${documentUrl}:${reloadKey}`}
 							file={documentFile}
 							options={pdfDocumentOptions}
+							suspense
 							onLoadSuccess={onDocumentLoadSuccess}
-							onLoadError={onDocumentLoadError}
 							loading={
 								<div className="p-6 text-sm text-muted-foreground">
 									{t("loading_preview")}
@@ -761,19 +805,26 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 												}}
 											>
 												<div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/5">
-													<Page
-														pageNumber={pageNumber}
-														width={renderedPageWidth}
-														rotate={rotation}
-														onLoadSuccess={onPageLoadSuccess}
-														loading={
-															<div className="flex h-[250px] w-[200px] items-center justify-center bg-white">
-																<span className="text-sm text-muted-foreground">
-																	{t("loading_preview")}
-																</span>
-															</div>
+													<Suspense
+														fallback={
+															<PdfPageLoadingState
+																text={t("loading_preview")}
+															/>
 														}
-													/>
+													>
+														<Page
+															pageNumber={pageNumber}
+															width={renderedPageWidth}
+															rotate={rotation}
+															suspense
+															onLoadSuccess={onPageLoadSuccess}
+															loading={
+																<PdfPageLoadingState
+																	text={t("loading_preview")}
+																/>
+															}
+														/>
+													</Suspense>
 												</div>
 											</div>
 										);

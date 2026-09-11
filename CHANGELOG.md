@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.0] - 2026-09-12
+
+### Release Highlights
+
+**AsterDrive `0.6.0` official release.** This release converges the storage data plane and the admin console onto their final contracts: policy groups become versioned placement profiles with ordered matchers, target selection, and backend dry-run simulation; every non-empty upload flows through a single session protocol that pins the plan at init and commits stream bodies atomically; and follower remote storage targets now share the exact same connector contract as regular policies. On top of that, connectors can declare direct download delivery URLs, deleting a policy that still holds blobs opens a fenced disaster-recovery workflow, and the admin console moves its records onto dedicated, directly addressable detail pages.
+
+- **Storage placement policy engine** — policy groups are now versioned placement profiles: ordered matchers, `first_available` / `weighted_random` target selection, per-target intake control, unavailable fallback, and backend dry-run simulation with stable reason codes
+- **Unified upload session protocol** — init pins filename, MIME, size, policy, and transport; single-request streams commit through `PUT /files/upload/{upload_id}/body` in one database transaction; sessions switch to UUIDv7; the legacy single multipart entry point is removed
+- **Connector-defined download delivery** — connectors declare descriptor-driven download domains (Tencent COS `download_base_url` first), with signed URLs, browser credential policy, and same-origin streaming fallback
+- **Storage policy disaster recovery** — deleting a referenced policy opens bounded read-only probes, fenced migration of recoverable content, and an exact-phrase forced purge path
+- **Unified remote target contract** — follower targets and regular policies share `StorageConnectionInput`, descriptors, and credential retention; a remote policy's node, target, and base path become immutable after creation
+- **Admin detail workflows** — users, teams, storage policies, external providers, and remote nodes open dedicated, directly addressable pages with staged editors and D9 line tabs
+- **Connector-owned assets and metadata** — connector icons ship from a versioned same-origin backend endpoint; WebP EXIF extraction lands in the built-in image metadata handler
 
 ### Added
 
@@ -37,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Storage connector validation feedback** — Connection-test errors now expose the connector configuration or static-credential field that failed validation; the admin policy form localizes the message from connector metadata and highlights the matching input instead of showing raw provider diagnostics.
 
 - **File browser navigation and deleted-folder recovery** — Route navigation now takes priority over concurrent SSE and mutation-completion refreshes, keeping the URL, current folder, breadcrumb, and visible contents aligned. Empty-trash completion uses a scoped aggregate event instead of a full reconciliation signal, while personal and team folder routes recover to the nearest available ancestor (or workspace root) when the current folder is trashed or permanently removed; folder list, info, and ancestor APIs consistently return `folder.not_found` with a readable lifecycle message.
+
+### Statistics
+
+- 565 files changed, 49,077 insertions(+), 22,445 deletions(-)
+- 14 commits
+- 5 database migrations
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.5.1] - 2026-08-24
 
@@ -6177,7 +6196,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...HEAD
+[v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...v0.5.0
 [v0.5.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...v0.5.0-rc.1

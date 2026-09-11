@@ -1,11 +1,22 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PdfPreview } from "@/components/files/preview/viewers/pdf/PdfPreview";
 import { derivedFileResource } from "@/lib/fileResource";
 
 const mockState = vi.hoisted(() => ({
 	documentBlob: new Blob(["%PDF"]),
+	documentLoadOnCommit: null as ReturnType<typeof createLoadedDocument> | null,
+	documentRenderError: null as Error | null,
 	documentProps: null as Record<string, unknown> | null,
+	pageSuspends: new Set<number>(),
+	pageSuspensePromise: new Promise<never>(() => undefined),
 	pageProps: [] as Record<string, unknown>[],
 	startAuthenticatedDownload: vi.fn(),
 	useBlobUrl: vi.fn(),
@@ -79,10 +90,12 @@ vi.mock("@tanstack/react-virtual", () => ({
 	},
 }));
 
-vi.mock("react-pdf", () => {
+vi.mock("react-pdf", async () => {
+	const { useLayoutEffect } =
+		await vi.importActual<typeof import("react")>("react");
 	const pdfjs = {
 		GlobalWorkerOptions: {},
-		version: "5.4.296",
+		version: "6.3.289",
 	};
 
 	return {
@@ -91,10 +104,23 @@ vi.mock("react-pdf", () => {
 			...props
 		}: Record<string, unknown> & { children?: React.ReactNode }) => {
 			mockState.documentProps = props;
+			useLayoutEffect(() => {
+				const loadedDocument = mockState.documentLoadOnCommit;
+				const onLoadSuccess = props.onLoadSuccess;
+				if (loadedDocument && typeof onLoadSuccess === "function") {
+					void onLoadSuccess(loadedDocument);
+				}
+			}, [props.onLoadSuccess]);
+			if (mockState.documentRenderError) {
+				throw mockState.documentRenderError;
+			}
 			return <div data-testid="pdf-document">{children}</div>;
 		},
 		Page: (props: Record<string, unknown>) => {
 			mockState.pageProps.push(props);
+			if (mockState.pageSuspends.has(Number(props.pageNumber))) {
+				throw mockState.pageSuspensePromise;
+			}
 			return <div data-testid={`pdf-page-${props.pageNumber}`} />;
 		},
 		pdfjs,
@@ -182,7 +208,10 @@ async function loadDocument(pageSizes: MockPdfPageSize[]) {
 
 describe("PdfPreview", () => {
 	beforeEach(() => {
+		mockState.documentLoadOnCommit = null;
+		mockState.documentRenderError = null;
 		mockState.documentProps = null;
+		mockState.pageSuspends.clear();
 		mockState.pageProps = [];
 		mockState.startAuthenticatedDownload.mockReset();
 		mockState.startAuthenticatedDownload.mockResolvedValue(undefined);
@@ -216,15 +245,29 @@ describe("PdfPreview", () => {
 			lane: "preview",
 		});
 		expect(mockState.documentProps).toMatchObject({
+			suspense: true,
 			options: {
 				cMapPacked: true,
-				cMapUrl: "/pdfjs/5.4.296/cmaps/",
+				cMapUrl: "/pdfjs/6.3.289/cmaps/",
 				disableRange: false,
 				disableStream: false,
 				withCredentials: true,
 			},
 		});
 		expect(mockState.documentProps?.file).toBe(mockState.documentBlob);
+	});
+
+	it("keeps document state when Suspense resolves during the commit phase", async () => {
+		mockState.documentLoadOnCommit = createLoadedDocument([
+			{ width: 600, height: 800 },
+		]);
+
+		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
+
+		await waitFor(() => {
+			expect(screen.getByText("/ 1")).toBeInTheDocument();
+		});
+		expect(screen.getByTestId("pdf-page-1")).toBeInTheDocument();
 	});
 
 	it("uses ordinary workspace download paths as the blob fetch key", () => {
@@ -252,6 +295,7 @@ describe("PdfPreview", () => {
 		expect(mockState.pageProps).toHaveLength(7);
 		expect(mockState.pageProps[0]).toMatchObject({
 			pageNumber: 1,
+			suspense: true,
 			width: 800,
 		});
 		expect(
@@ -259,6 +303,27 @@ describe("PdfPreview", () => {
 		).toHaveStyle({
 			minWidth: "800px",
 		});
+	});
+
+	it("keeps the preview visible while an individual page suspends", async () => {
+		mockState.pageSuspends.add(2);
+		render(
+			<Suspense fallback={<div data-testid="global-pdf-loading" />}>
+				<PdfPreview resource={apiResource} fileName="manual.pdf" />
+			</Suspense>,
+		);
+
+		await loadDocument([
+			{ width: 600, height: 800 },
+			{ width: 600, height: 800 },
+			{ width: 600, height: 800 },
+		]);
+
+		expect(screen.queryByTestId("global-pdf-loading")).not.toBeInTheDocument();
+		expect(screen.getByTestId("pdf-page-1")).toBeInTheDocument();
+		expect(screen.queryByTestId("pdf-page-2")).not.toBeInTheDocument();
+		expect(screen.getByText("loading_preview")).toBeInTheDocument();
+		expect(screen.getByLabelText("pdf_download")).toBeInTheDocument();
 	});
 
 	it("uses every page size before exposing the virtual scrollbar", async () => {
@@ -396,6 +461,7 @@ describe("PdfPreview", () => {
 		let retried = false;
 		const retry = vi.fn(() => {
 			retried = true;
+			mockState.documentRenderError = null;
 		});
 		const freshBlob = new Blob(["%PDF fresh"]);
 		mockState.useBlobUrl.mockImplementation(() => ({
@@ -408,14 +474,8 @@ describe("PdfPreview", () => {
 		const { rerender } = render(
 			<PdfPreview resource={workspaceResource} fileName="manual.pdf" />,
 		);
-
-		const onLoadError = mockState.documentProps?.onLoadError;
-		if (typeof onLoadError !== "function") {
-			throw new Error("document error handler was not registered");
-		}
-		act(() => {
-			onLoadError(new Error("stale blob"));
-		});
+		mockState.documentRenderError = new Error("stale blob");
+		rerender(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
 		const callsBeforeRetry = mockState.useBlobUrl.mock.calls.length;
 
 		fireEvent.click(screen.getByTestId("preview-retry"));
@@ -437,15 +497,8 @@ describe("PdfPreview", () => {
 			loading: false,
 			retry,
 		});
+		mockState.documentRenderError = new Error("stale blob");
 		render(<PdfPreview resource={workspaceResource} fileName="manual.pdf" />);
-
-		const onLoadError = mockState.documentProps?.onLoadError;
-		if (typeof onLoadError !== "function") {
-			throw new Error("document error handler was not registered");
-		}
-		act(() => {
-			onLoadError(new Error("stale blob"));
-		});
 
 		fireEvent.click(screen.getByTestId("preview-retry"));
 

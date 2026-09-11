@@ -12,6 +12,8 @@ const BUDGETS = {
 	entryGzipBytes: 8 * 1024,
 	loginRawBytes: 65 * 1024,
 	loginGzipBytes: 20 * 1024,
+	pdfPreviewRawBytes: 650 * 1024,
+	pdfPreviewGzipBytes: 200 * 1024,
 	precacheEntries: 450,
 	precacheRawBytes: 5 * 1024 * 1024,
 };
@@ -260,6 +262,22 @@ function auditStartupGraphs() {
 	return { entry, entryGraph, login, loginGraph };
 }
 
+function auditLazyPreviewBudgets() {
+	const pdfPreview = findAsset("PdfPreview-");
+	assertBudget(
+		"PDF preview chunk raw size",
+		fileSize(pdfPreview),
+		BUDGETS.pdfPreviewRawBytes,
+	);
+	assertBudget(
+		"PDF preview chunk gzip size",
+		gzipSize(pdfPreview),
+		BUDGETS.pdfPreviewGzipBytes,
+	);
+
+	return { pdfPreview };
+}
+
 function auditWarmupCoverage() {
 	const routerSource = readSourceFile(ROUTER_SOURCE);
 	const warmupSource = readSourceFile(WARMUP_SOURCE);
@@ -290,6 +308,7 @@ function main() {
 
 	const precache = auditPrecache();
 	const startup = auditStartupGraphs();
+	const lazyPreviews = auditLazyPreviewBudgets();
 	const warmup = auditWarmupCoverage();
 
 	console.log("[startup-audit] ok");
@@ -311,6 +330,11 @@ function main() {
 		)} raw, ${formatBytes(gzipSize(startup.login))} gzip), graph ${
 			startup.loginGraph.size
 		} files`,
+	);
+	console.log(
+		`[startup-audit] PDF preview: ${lazyPreviews.pdfPreview} (${formatBytes(
+			fileSize(lazyPreviews.pdfPreview),
+		)} raw, ${formatBytes(gzipSize(lazyPreviews.pdfPreview))} gzip)`,
 	);
 	console.log(
 		`[startup-audit] warmup coverage: ${warmup.routeCount}/${warmup.warmupRouteCount} route pages covered`,

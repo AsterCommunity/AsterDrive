@@ -6,7 +6,7 @@ use std::{
 };
 
 use nom_exif::{
-    EntryValue, Exif, ExifDateTime, ExifTag, IfdIndex, ImageFormatMetadata, MediaParser,
+    EntryValue, Exif, ExifDateTime, ExifTag, IfdIndex, IfdKind, ImageFormatMetadata, MediaParser,
     MediaSource,
 };
 use tiff::decoder::Decoder as TiffDecoder;
@@ -195,16 +195,19 @@ fn enrich_image_metadata_from_nom_exif(
 
 fn exif_entry(exif: &Exif, tag: ExifTag) -> Option<&EntryValue> {
     exif.get(tag).or_else(|| {
-        exif.iter()
-            .find_map(|entry| (entry.tag.tag() == Some(tag)).then_some(entry.value))
+        exif.entries()
+            .find_map(|entry| (entry.tag().tag() == Some(tag)).then_some(entry.value()))
     })
 }
 
 fn exif_entry_by_code(exif: &Exif, code: u16) -> Option<&EntryValue> {
-    exif.get_by_code(IfdIndex::MAIN, code).or_else(|| {
-        exif.iter()
-            .find_map(|entry| (entry.tag.code() == code).then_some(entry.value))
-    })
+    exif.get_by_code_in(IfdIndex::MAIN, IfdKind::Tiff, code)
+        .or_else(|| {
+            exif.entries().find_map(|entry| {
+                (entry.ifd_kind() == IfdKind::Tiff && entry.tag().code() == code)
+                    .then_some(entry.value())
+            })
+        })
 }
 
 fn clean_metadata_string(value: Option<&str>) -> Option<String> {
@@ -256,19 +259,19 @@ where
 
 fn exif_dimensions(exif: &Exif) -> Option<(u32, u32)> {
     let mut by_ifd = BTreeMap::<IfdIndex, (Option<u32>, Option<u32>)>::new();
-    for entry in exif.iter() {
-        let Some(tag) = entry.tag.tag() else {
+    for entry in exif.entries() {
+        let Some(tag) = entry.tag().tag() else {
             continue;
         };
-        let Some(value) = entry_u32(entry.value) else {
+        let Some(value) = entry_u32(entry.value()) else {
             continue;
         };
         match tag {
             ExifTag::ExifImageWidth | ExifTag::ImageWidth => {
-                by_ifd.entry(entry.ifd).or_default().0 = Some(value);
+                by_ifd.entry(entry.ifd()).or_default().0 = Some(value);
             }
             ExifTag::ExifImageHeight | ExifTag::ImageHeight => {
-                by_ifd.entry(entry.ifd).or_default().1 = Some(value);
+                by_ifd.entry(entry.ifd()).or_default().1 = Some(value);
             }
             _ => {}
         }

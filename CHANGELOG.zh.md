@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.0] - 2026-09-12
+
+### Release Highlights
+
+**AsterDrive `0.6.0` 正式版。** 本版本将存储数据面与管理后台收敛到最终契约：策略组升级为带 ordered matcher、目标选择与后端 dry-run 模拟的版本化 placement profile；所有非空上传统一经过单一 session 协议，init 时固化上传计划并原子提交 stream body；follower 远程存储目标与普通策略共享同一份 connector 契约。在此之上，connector 可以声明直连下载交付域，删除仍持有 blob 的策略会进入带 fencing 的灾害恢复流程，管理后台各条目迁移到独立、可直接访问的详情页。
+
+- **存储放置策略引擎** — 策略组升级为版本化 placement profile：ordered matcher、`first_available` / `weighted_random` 目标选择、按目标 intake 控制、不可用回退，以及带稳定 reason code 的后端 dry-run 模拟
+- **统一上传 session 协议** — init 固化 filename、MIME、大小、策略和 transport；单请求 stream 通过 `PUT /files/upload/{upload_id}/body` 在同一数据库事务内提交；session 切换为 UUIDv7；移除旧的单次 multipart 上传入口
+- **Connector 定义的下载交付** — connector 通过 descriptor 声明下载域（首个支持 Tencent COS `download_base_url`），提供签名 URL、浏览器凭据策略与同源流式回退
+- **存储策略灾害恢复** — 删除仍被引用的策略会打开有界只读探测、可恢复内容的带 fencing 迁移，以及逐字确认的强制清除路径
+- **统一远程目标契约** — follower target 与普通策略共享 `StorageConnectionInput`、descriptor 和凭据保留语义；remote policy 的节点、target 和基础路径创建后不可变
+- **管理端详情工作流** — 用户、团队、存储策略、外部认证提供商和远程节点改为独立、可直接访问的详情页，提供分段编辑器与 D9 线型标签页
+- **Connector 自有资产与元数据** — connector 图标通过版本化同源后端端点提供；内置图片元数据处理器新增 WebP EXIF 提取
 
 ### Added
 
@@ -31,6 +43,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **单次 multipart 上传入口** — 删除个人与团队的 `POST /files/upload` 兼容入口以及服务端 staged multipart fallback；客户端必须先初始化 upload session，再使用协商出的数据面提交内容。
+
+### Fixed
+
+- **存储 connector 校验反馈** — 连接测试错误现在会暴露校验失败的 connector 配置或静态凭据字段；管理端策略表单根据 connector 元数据本地化错误信息并高亮对应输入框，不再展示原始 provider 诊断。
+
+- **文件浏览器导航与已删除目录恢复** — 路由导航现在优先于并发的 SSE 与 mutation 完成刷新，保持 URL、当前目录、面包屑和可见内容一致。清空回收站完成时使用作用域聚合事件替代全量 reconciliation 信号；当前目录被移入回收站或永久删除时，个人与团队目录路由会恢复到最近的可用祖先（或工作区根）；目录列表、信息和祖先 API 统一返回 `folder.not_found` 与可读生命周期信息。
+
+### Statistics
+
+- 565 files changed, 49,077 insertions(+), 22,445 deletions(-)
+- 14 commits
+- 5 个数据库 migration
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.5.1] - 2026-08-24
 
@@ -6173,7 +6198,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...HEAD
+[v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...v0.5.0
 [v0.5.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...v0.5.0-rc.1
