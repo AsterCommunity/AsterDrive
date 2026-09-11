@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -16,12 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
 	ADMIN_ICON_BUTTON_CLASS,
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
@@ -35,22 +30,19 @@ import {
 	getRemoteNodeEnrollmentStatusTone,
 	getRemoteNodeStatusLabel,
 	getRemoteNodeStatusTone,
-	getRemoteNodeTransportBadge,
 	getRemoteNodeTransportLabel,
 	getRemoteNodeTransportTone,
 	getRemoteNodeTunnelLabel,
 	getRemoteNodeTunnelTone,
-	hasCompletedRemoteNodeEnrollment,
 } from "./shared";
 
 interface RemoteNodesTableProps {
 	deletingRemoteNodeId: number | null;
-	generatingEnrollmentId: number | null;
 	items: RemoteNodeInfo[];
 	loading: boolean;
 	onEdit: (node: RemoteNodeInfo) => void;
-	onGenerateEnrollmentCommand: (node: RemoteNodeInfo) => void;
 	onRequestDelete: (id: number) => void;
+	pagination?: ReactNode;
 	sortBy: AdminRemoteNodeSortBy;
 	sortOrder: SortOrder;
 	onSortChange: (sortBy: AdminRemoteNodeSortBy, sortOrder: SortOrder) => void;
@@ -58,12 +50,11 @@ interface RemoteNodesTableProps {
 
 export function RemoteNodesTable({
 	deletingRemoteNodeId,
-	generatingEnrollmentId,
 	items,
 	loading,
 	onEdit,
-	onGenerateEnrollmentCommand,
 	onRequestDelete,
+	pagination,
 	onSortChange,
 	sortBy,
 	sortOrder,
@@ -121,26 +112,18 @@ export function RemoteNodesTable({
 			frameless
 			loading={loading}
 			items={items}
-			columns={6}
+			columns={5}
 			rows={6}
 			emptyTitle={t("no_remote_nodes")}
 			emptyDescription={t("no_remote_nodes_desc")}
 			headerRow={headerRow}
+			pagination={pagination}
 			renderRow={(node) => {
 				const isDeleting = deletingRemoteNodeId === node.id;
-				const enrollmentCompleted = hasCompletedRemoteNodeEnrollment(node);
-				const generateEnrollmentDisabled =
-					generatingEnrollmentId === node.id ||
-					enrollmentCompleted ||
-					isDeleting;
-				const generateEnrollmentLabel = enrollmentCompleted
-					? t("remote_node_enrollment_completed_action_disabled")
-					: t("remote_node_generate_enrollment_command");
 				const deleteLabel = isDeleting
 					? t("remote_node_deleting")
 					: t("delete_remote_node");
 				const transportMode = node.transport_mode ?? "direct";
-				const transportBadge = getRemoteNodeTransportBadge(t, transportMode);
 
 				return (
 					<TableRow
@@ -187,11 +170,6 @@ export function RemoteNodesTable({
 											className={getRemoteNodeTransportTone(transportMode)}
 										>
 											{getRemoteNodeTransportLabel(t, transportMode)}
-											{transportBadge ? (
-												<span className="ml-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-													{transportBadge}
-												</span>
-											) : null}
 										</Badge>
 										<Badge
 											variant="outline"
@@ -245,39 +223,6 @@ export function RemoteNodesTable({
 							onKeyDown={(event) => event.stopPropagation()}
 						>
 							<div className="flex w-full justify-end gap-1">
-								<TooltipProvider>
-									<Tooltip>
-										<TooltipTrigger
-											render={<span className="inline-flex size-8 shrink-0" />}
-										>
-											<Button
-												variant="ghost"
-												size="icon"
-												className={ADMIN_ICON_BUTTON_CLASS}
-												onClick={() => onGenerateEnrollmentCommand(node)}
-												disabled={generateEnrollmentDisabled}
-												aria-label={generateEnrollmentLabel}
-												title={generateEnrollmentLabel}
-											>
-												<Icon
-													name={
-														generatingEnrollmentId === node.id
-															? "Spinner"
-															: "ClipboardText"
-													}
-													className={cn(
-														"size-3.5",
-														generatingEnrollmentId === node.id &&
-															"animate-spin",
-													)}
-												/>
-											</Button>
-										</TooltipTrigger>
-										{enrollmentCompleted ? (
-											<TooltipContent>{generateEnrollmentLabel}</TooltipContent>
-										) : null}
-									</Tooltip>
-								</TooltipProvider>
 								<Button
 									variant="ghost"
 									size="icon"

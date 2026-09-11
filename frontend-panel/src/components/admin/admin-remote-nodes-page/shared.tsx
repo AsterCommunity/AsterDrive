@@ -6,7 +6,7 @@ import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatDateTime } from "@/lib/format";
 import type { RemoteNodeEnrollmentStatus, RemoteNodeInfo } from "@/types/api";
-import type { RemoteNodeTransportMode } from "../remoteNodeDialogShared";
+import type { RemoteNodeTransportMode } from "../remoteNodePageShared";
 
 export function TestConnectionButton({
 	disabled = false,
@@ -110,15 +110,6 @@ export function getRemoteNodeTransportLabel(
 
 	const _exhaustive: never = mode;
 	return _exhaustive;
-}
-
-export function getRemoteNodeTransportBadge(
-	t: TFunction,
-	mode: RemoteNodeTransportMode,
-) {
-	return mode === "reverse_tunnel"
-		? t("remote_node_transport_test_badge")
-		: null;
 }
 
 export function getRemoteNodeTunnelTone(node: RemoteNodeInfo) {

@@ -226,7 +226,7 @@ pub(crate) fn remote_policy(
         RemoteConnectorConfigV1 {
             base_path: base_path.into(),
             remote_node_id,
-            remote_storage_target_key: None,
+            remote_storage_target_key: Some("rst-test".to_string()),
             remote_download_strategy: download_strategy,
             remote_upload_strategy: upload_strategy,
         },

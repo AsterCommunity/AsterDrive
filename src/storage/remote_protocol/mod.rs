@@ -27,7 +27,7 @@ pub use models::{
     RemoteStorageCapabilities, RemoteStorageCapacityResponse, RemoteStorageComposeRequest,
     RemoteStorageComposeResponse, RemoteStorageFeatureFlags, RemoteStorageListResponse,
     RemoteStorageObjectMetadata, RemoteStorageProtocolLimits, RemoteStorageTargetCapabilities,
-    RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
+    RemoteStorageTargetConnectorCatalog, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 pub(crate) use primary_auth::authorize_remote_node_request;
 pub use runtime::RemoteProtocolRuntime;

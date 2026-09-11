@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	installAdminStorageConnectorLocalizations,
+	installStorageConnectorLocalizations,
 	invalidateAdminStorageConnectorLocalizations,
 	loadAdminStorageConnectorLocalizations,
 	translateStorageConnectorMessage,
@@ -108,7 +108,7 @@ describe("adminStorageConnectorLocalizations", () => {
 	});
 
 	it("installs resolved plugin messages under the requested frontend language", () => {
-		installAdminStorageConnectorLocalizations(catalog, "zh-CN", {
+		installStorageConnectorLocalizations(catalog, "zh-CN", {
 			addResourceBundle: mocks.addResourceBundle,
 		} as never);
 

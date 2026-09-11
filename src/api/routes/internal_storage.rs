@@ -32,6 +32,10 @@ pub fn routes() -> impl HttpServiceFactory {
         .route("/capabilities", web::get().to(get_capabilities))
         .route("/capacity", web::get().to(get_capacity))
         .route("/binding", web::put().to(sync_binding))
+        .route(
+            "/target-connectors",
+            web::get().to(list_storage_target_connectors),
+        )
         .route("/targets", web::get().to(list_storage_targets))
         .route("/targets", web::post().to(create_storage_target))
         .route(
@@ -107,6 +111,12 @@ struct ObjectQuery {
     response_content_disposition: Option<String>,
     #[serde(rename = "response-content-type")]
     response_content_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct StorageTargetConnectorCatalogQuery {
+    #[serde(default)]
+    locale: aster_drive_model::types::LocaleTag,
 }
 
 async fn metadata_or_not_found(
@@ -813,6 +823,25 @@ async fn list_storage_targets(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
 }
 
+async fn list_storage_target_connectors(
+    state: web::Data<FollowerAppState>,
+    req: HttpRequest,
+    query: web::Query<StorageTargetConnectorCatalogQuery>,
+) -> Result<HttpResponse> {
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let catalog = storage_target::remote_storage_target_connector_catalog(
+        state.driver_registry().connectors(),
+        &query.locale,
+    )?;
+    tracing::debug!(
+        binding_id = binding.id,
+        connector_count = catalog.descriptors.len(),
+        locale = query.locale.as_str(),
+        "follower remote storage target connector catalog listed"
+    );
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(catalog)))
+}
+
 async fn create_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -824,7 +853,6 @@ async fn create_storage_target(
         binding_id = binding.id,
         target_key = %target.target_key,
         connector_id = %target.connector_id,
-        is_default = target.is_default,
         "follower remote storage target created"
     );
     audit::log_with_details(
@@ -839,7 +867,6 @@ async fn create_storage_target(
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: &target.connector_id,
-                is_default: target.is_default,
             })
         },
     )
@@ -861,7 +888,6 @@ async fn update_storage_target(
         binding_id = binding.id,
         target_key = %target.target_key,
         connector_id = %target.connector_id,
-        is_default = target.is_default,
         "follower remote storage target updated"
     );
     audit::log_with_details(
@@ -876,7 +902,6 @@ async fn update_storage_target(
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: &target.connector_id,
-                is_default: target.is_default,
             })
         },
     )
@@ -909,7 +934,6 @@ async fn delete_storage_target(
                 binding_id: binding.id,
                 target_key: &deleted_target.target_key,
                 driver_type: &deleted_target.connector_id,
-                is_default: deleted_target.is_default,
             })
         },
     )

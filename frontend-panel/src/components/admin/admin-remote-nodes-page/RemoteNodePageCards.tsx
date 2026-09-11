@@ -5,13 +5,12 @@ import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { RemoteNodeInfo } from "@/types/api";
-import type { RemoteNodeFormData } from "../remoteNodeDialogShared";
-import type { RemoteNodeSummaryItem } from "./RemoteNodeDialogTypes";
+import type { RemoteNodeFormData } from "../remoteNodePageShared";
+import type { RemoteNodeSummaryItem } from "./RemoteNodePageTypes";
 import {
 	formatLastChecked,
 	getRemoteNodeEnrollmentStatusLabel,
 	getRemoteNodeEnrollmentStatusTone,
-	getRemoteNodeTransportBadge,
 	getRemoteNodeTransportLabel,
 	getRemoteNodeTransportTone,
 	getRemoteNodeTunnelLabel,
@@ -27,18 +26,7 @@ function RemoteNodeTransportBadgeContent({
 	mode: NonNullable<RemoteNodeInfo["transport_mode"]>;
 }) {
 	const { t } = useTranslation("admin");
-	const badge = getRemoteNodeTransportBadge(t, mode);
-
-	return (
-		<>
-			{getRemoteNodeTransportLabel(t, mode)}
-			{badge ? (
-				<span className="ml-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-					{badge}
-				</span>
-			) : null}
-		</>
-	);
+	return <>{getRemoteNodeTransportLabel(t, mode)}</>;
 }
 
 export function RemoteNodeSectionIntro({
@@ -76,7 +64,7 @@ export function RemoteNodeSummaryCard({
 	const { t } = useTranslation("admin");
 
 	return (
-		<section className="rounded-3xl border border-border/70 bg-muted/20 p-5">
+		<section className="animate-in fade-in slide-in-from-top-1 rounded-xl bg-muted/30 p-5 duration-200 fill-mode-backwards motion-reduce:animate-none">
 			<div className="flex items-center gap-3">
 				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
 					<img
@@ -146,7 +134,7 @@ export function RemoteNodeDocsCard() {
 	const { t } = useTranslation("admin");
 
 	return (
-		<section className="rounded-3xl border border-border/70 bg-background/85 p-5">
+		<section className="rounded-xl bg-muted/30 p-5">
 			<div className="flex items-start gap-3">
 				<div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted/20 text-primary">
 					<Icon name="Docker" className="size-5" />
@@ -190,7 +178,7 @@ export function RemoteNodeDiagnosticsCard({
 	const { t } = useTranslation("admin");
 
 	return (
-		<section className="rounded-3xl border border-border/70 bg-background/85 p-5">
+		<section className="animate-in fade-in slide-in-from-top-1 rounded-xl bg-muted/30 p-5 duration-200 fill-mode-backwards delay-75 motion-reduce:animate-none">
 			<h3 className="text-sm font-semibold">
 				{t("remote_node_diagnostics_title")}
 			</h3>

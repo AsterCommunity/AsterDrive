@@ -30,8 +30,8 @@ export function UserDetailSidebar({
 		displayName !== user.username;
 
 	return (
-		<aside className="border-b lg:min-h-0 lg:w-80 lg:flex-none lg:overflow-y-auto lg:border-b-0">
-			<div className="space-y-5 p-6 max-lg:space-y-4 max-lg:p-4">
+		<aside className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none rounded-xl bg-muted/30 p-4 lg:sticky lg:top-6 lg:self-start">
+			<div className="space-y-5">
 				<div className="flex flex-col gap-y-3 max-lg:flex-row max-lg:items-start max-lg:gap-3">
 					<UserAvatarImage
 						avatar={user.profile.avatar}

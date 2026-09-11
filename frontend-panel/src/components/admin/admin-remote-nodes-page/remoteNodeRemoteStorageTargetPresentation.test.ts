@@ -15,7 +15,6 @@ const profile = (
 	connector_id: "asterdrive.storage.local",
 	created_at: "2026-05-01T00:00:00Z",
 	desired_revision: 3,
-	is_default: false,
 	last_error: "",
 	name: "Default",
 	target_key: "default",

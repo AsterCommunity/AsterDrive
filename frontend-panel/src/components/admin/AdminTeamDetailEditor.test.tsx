@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AdminTeamDetailDialog } from "@/components/admin/AdminTeamDetailDialog";
+import { AdminTeamDetailEditor } from "@/components/admin/AdminTeamDetailEditor";
 import { formatStorageQuotaDraft } from "@/lib/storageQuota";
 import type { UserSummary } from "@/types/api";
 
@@ -59,7 +59,7 @@ vi.mock("@/services/adminService", () => ({
 	adminTeamService: adminTeamServiceMocks,
 }));
 
-describe("AdminTeamDetailDialog", () => {
+describe("AdminTeamDetailEditor", () => {
 	beforeEach(() => {
 		mockState.handleApiError.mockReset();
 		mockState.toastError.mockReset();
@@ -101,13 +101,10 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("uses a fixed shell and a native scrollable detail column in page layout", async () => {
 		const { container } = render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -151,17 +148,17 @@ describe("AdminTeamDetailDialog", () => {
 		).not.toBeNull();
 		expect(
 			container.querySelector(
-				".flex.min-h-full.flex-col.lg\\:h-full.lg\\:min-h-0.lg\\:flex-1.lg\\:flex-row",
+				".grid.min-h-full.gap-8.lg\\:h-full.lg\\:min-h-0.lg\\:flex-1",
 			),
 		).not.toBeNull();
 		expect(
 			container.querySelector(
-				".border-b.lg\\:min-h-0.lg\\:w-80.lg\\:flex-none.lg\\:overflow-y-auto.lg\\:border-b-0",
+				"aside.rounded-xl.bg-muted\\/30.lg\\:overflow-y-auto",
 			),
 		).not.toBeNull();
 		expect(
 			container.querySelector(
-				".min-h-0.min-w-0.lg\\:flex-1.lg\\:flex.lg\\:h-full.lg\\:flex-col.lg\\:overflow-hidden",
+				".min-h-0.min-w-0.lg\\:flex.lg\\:h-full.lg\\:flex-col.lg\\:overflow-hidden",
 			),
 		).not.toBeNull();
 		expect(
@@ -187,13 +184,10 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("keeps the overview name input mounted while editing in page layout", async () => {
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -253,13 +247,10 @@ describe("AdminTeamDetailDialog", () => {
 		});
 
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -329,13 +320,10 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("sends zero quota when the overview quota field is set to zero", async () => {
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -398,13 +386,10 @@ describe("AdminTeamDetailDialog", () => {
 		});
 
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -460,13 +445,10 @@ describe("AdminTeamDetailDialog", () => {
 		});
 
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{
@@ -522,13 +504,10 @@ describe("AdminTeamDetailDialog", () => {
 
 	it("rejects overflowing overview quota values before saving", async () => {
 		render(
-			<AdminTeamDetailDialog
-				layout="page"
-				onListChange={async () => undefined}
-				onOpenChange={vi.fn()}
+			<AdminTeamDetailEditor
+				onBack={vi.fn()}
 				onPageTabChange={vi.fn()}
 				onRefreshPolicyGroups={async () => undefined}
-				open
 				pageTab="overview"
 				policyGroups={[
 					{

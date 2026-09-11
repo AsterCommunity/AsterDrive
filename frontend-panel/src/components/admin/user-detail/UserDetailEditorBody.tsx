@@ -1,9 +1,9 @@
-import { type ReactNode, useReducer } from "react";
+import { useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminStorageQuotaInput } from "@/components/admin/AdminStorageQuotaInput";
+import { AdminDetailPageShell } from "@/components/layout/AdminDetailPageShell";
 import { Button } from "@/components/ui/button";
-import { DialogFooter } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import {
@@ -69,82 +69,46 @@ type UserDetailDraftAction =
 	| { type: "set_quota_unit"; value: StorageQuotaUnit }
 	| { type: "set_quota_value"; value: string };
 
-interface UserDetailDialogBodyProps {
-	onClose: () => void;
+interface UserDetailEditorBodyProps {
+	onBack: () => void;
 	onRefreshPolicyGroups: () => Promise<void>;
-	onUpdate: (id: number, data: UpdateUserRequest) => Promise<void>;
+	onUpdate: (id: number, data: UpdateUserRequest) => Promise<UserInfo>;
 	policyGroups: StoragePolicyGroup[];
 	policyGroupsLoading: boolean;
 	user: UserInfo;
 }
 
-interface UserDetailDialogContentProps {
-	children: ReactNode;
-	quota: number;
-	usagePercentage: number;
-	used: number;
-	user: UserInfo;
-}
-
-function UserDetailDialogContent({
-	children,
-	quota,
-	usagePercentage,
-	used,
-	user,
-}: UserDetailDialogContentProps) {
-	return (
-		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
-			<div className="flex min-h-full flex-col lg:h-full lg:min-h-0 lg:flex-1 lg:flex-row">
-				<UserDetailSidebar
-					quota={quota}
-					usagePercentage={usagePercentage}
-					used={used}
-					user={user}
-				/>
-
-				<div className="min-h-0 min-w-0 lg:flex-1 lg:overflow-y-auto">
-					<div className="space-y-8 p-6 max-lg:p-4">{children}</div>
-				</div>
-			</div>
-		</div>
-	);
-}
-
-interface UserDetailDialogFooterProps {
+interface UserDetailActionsProps {
 	hasProfileChanges: boolean;
-	onClose: () => void;
+	onBack: () => void;
 	onSave: () => void;
 	savingProfile: boolean;
 }
 
-function UserDetailDialogFooter({
+function UserDetailActions({
 	hasProfileChanges,
-	onClose,
+	onBack,
 	onSave,
 	savingProfile,
-}: UserDetailDialogFooterProps) {
+}: UserDetailActionsProps) {
 	const { t } = useTranslation(["admin", "core"]);
 
 	return (
-		<DialogFooter className="mx-0 mb-0 w-full shrink-0 border-t bg-muted/10 px-6 py-4 max-lg:px-4 max-lg:py-3 sm:flex-row sm:items-center sm:justify-between">
-			<p className="text-xs text-muted-foreground">
-				{t("user_details_footer_hint")}
-			</p>
-			<div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
-				<Button variant="outline" onClick={onClose}>
-					{t("core:close")}
+		<>
+			<Button type="button" variant="outline" onClick={onBack}>
+				{t("core:cancel")}
+			</Button>
+			{hasProfileChanges ? (
+				<Button type="button" onClick={onSave} disabled={savingProfile}>
+					{savingProfile ? (
+						<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+					) : (
+						<Icon name="FloppyDisk" className="mr-1 size-4" />
+					)}
+					{t("save_changes")}
 				</Button>
-				{hasProfileChanges ? (
-					<Button onClick={onSave} disabled={savingProfile}>
-						{savingProfile ? (
-							<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
-						) : null}
-						{t("save_changes")}
-					</Button>
-				) : null}
-			</div>
-		</DialogFooter>
+			) : null}
+		</>
 	);
 }
 
@@ -374,14 +338,14 @@ function userDetailDraftReducer(
 	}
 }
 
-export function UserDetailDialogBody({
-	onClose,
+export function UserDetailEditorBody({
+	onBack,
 	onRefreshPolicyGroups,
 	onUpdate,
 	policyGroups,
 	policyGroupsLoading,
 	user,
-}: UserDetailDialogBodyProps) {
+}: UserDetailEditorBodyProps) {
 	const { t } = useTranslation(["admin", "core"]);
 	const [state, dispatch] = useReducer(
 		userDetailDraftReducer,
@@ -454,7 +418,7 @@ export function UserDetailDialogBody({
 		value: "verified" | "unverified";
 	}>;
 
-	const runDialogAction = async (
+	const runUserAction = async (
 		field: BusyField,
 		action: () => Promise<void>,
 		successMessage: string,
@@ -515,7 +479,7 @@ export function UserDetailDialogBody({
 		dispatch({ type: "set_password_errors", errors: nextErrors });
 		if (Object.keys(nextErrors).length > 0) return;
 
-		await runDialogAction(
+		await runUserAction(
 			"savingPassword",
 			async () => {
 				await adminUserService.resetPassword(user.id, {
@@ -528,7 +492,7 @@ export function UserDetailDialogBody({
 	};
 
 	const handleSessionRevoke = async () => {
-		await runDialogAction(
+		await runUserAction(
 			"revokingSessions",
 			async () => {
 				await adminUserService.revokeSessions(user.id);
@@ -538,7 +502,7 @@ export function UserDetailDialogBody({
 	};
 
 	const handleMfaReset = async () => {
-		await runDialogAction(
+		await runUserAction(
 			"resettingMfa",
 			async () => {
 				await adminUserService.resetMfa(user.id);
@@ -547,100 +511,125 @@ export function UserDetailDialogBody({
 		);
 	};
 
+	const actions = (
+		<UserDetailActions
+			hasProfileChanges={hasProfileChanges}
+			onBack={onBack}
+			onSave={() => void handleProfileSave()}
+			savingProfile={savingProfile}
+		/>
+	);
+
 	return (
-		<>
-			<UserDetailDialogContent
-				quota={quota}
-				usagePercentage={pct}
-				used={used}
-				user={user}
-			>
-				<UserDetailProfileEditor
-					draftEmailVerified={draftEmailVerified}
-					draftRole={draftRole}
-					draftStatus={draftStatus}
-					emailVerificationOptions={emailVerificationOptions}
-					isInitialAdmin={isInitialAdmin}
-					onDraftEmailVerifiedChange={(value) =>
-						dispatch({
-							type: "set_draft_email_verified",
-							value,
-						})
-					}
-					onDraftRoleChange={(value) =>
-						dispatch({ type: "set_draft_role", value })
-					}
-					onDraftStatusChange={(value) =>
-						dispatch({ type: "set_draft_status", value })
-					}
-					roleOptions={roleOptions}
-					savingProfile={savingProfile}
-					statusOptions={statusOptions}
+		<AdminDetailPageShell
+			actions={actions}
+			backLabel={t("back_to_users")}
+			description={t("user_details_page_desc")}
+			onBack={onBack}
+			title={user.profile.display_name?.trim() || user.username}
+		>
+			<div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
+				<UserDetailSidebar
+					quota={quota}
+					usagePercentage={pct}
+					used={used}
 					user={user}
-					quotaHasError={quotaHasError}
-					quotaUnit={quotaUnit}
-					quotaValue={quotaValue}
-					onQuotaValueChange={(value) =>
-						dispatch({ type: "set_quota_value", value })
-					}
-					onQuotaUnitChange={(value) =>
-						dispatch({ type: "set_quota_unit", value })
-					}
 				/>
-				<UserPolicyGroupSection
-					assignedPolicyGroupIsInvalid={assignedPolicyGroupIsInvalid}
-					draftPolicyGroupId={draftPolicyGroupId}
-					onDraftPolicyGroupIdChange={(value) =>
-						dispatch({
-							type: "set_draft_policy_group_id",
-							value,
-						})
-					}
-					onRefreshPolicyGroups={onRefreshPolicyGroups}
-					policyGroupOptions={policyGroupOptions}
-					policyGroupsLoading={policyGroupsLoading}
-					savingProfile={savingProfile}
-				/>
-				<UserDetailSecurityEditor
-					confirmPasswordValue={confirmPasswordValue}
-					mustChangePassword={draftMustChangePassword}
-					onConfirmPasswordValueChange={(value) => {
-						dispatch({ type: "set_confirm_password_value", value });
-						dispatch({
-							type: "clear_password_error",
-							field: "confirm",
-						});
-					}}
-					onPasswordReset={handlePasswordReset}
-					onPasswordValueChange={(value) => {
-						dispatch({ type: "set_password_value", value });
-						dispatch({
-							type: "clear_password_error",
-							field: "password",
-						});
-					}}
-					onMustChangePasswordChange={(value) =>
-						dispatch({
-							type: "set_draft_must_change_password",
-							value,
-						})
-					}
-					onMfaReset={handleMfaReset}
-					onSessionRevoke={handleSessionRevoke}
-					passwordErrors={passwordErrors}
-					passwordValue={passwordValue}
-					resettingMfa={resettingMfa}
-					revokingSessions={revokingSessions}
-					savingPassword={savingPassword}
-					savingProfile={savingProfile}
-				/>
-			</UserDetailDialogContent>
-			<UserDetailDialogFooter
-				hasProfileChanges={hasProfileChanges}
-				onClose={onClose}
-				onSave={() => void handleProfileSave()}
-				savingProfile={savingProfile}
-			/>
-		</>
+				<div className="min-w-0 space-y-8">
+					<div className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none delay-75 rounded-xl bg-muted/30 p-5 max-sm:p-4">
+						<UserDetailProfileEditor
+							draftEmailVerified={draftEmailVerified}
+							draftRole={draftRole}
+							draftStatus={draftStatus}
+							emailVerificationOptions={emailVerificationOptions}
+							isInitialAdmin={isInitialAdmin}
+							onDraftEmailVerifiedChange={(value) =>
+								dispatch({
+									type: "set_draft_email_verified",
+									value,
+								})
+							}
+							onDraftRoleChange={(value) =>
+								dispatch({ type: "set_draft_role", value })
+							}
+							onDraftStatusChange={(value) =>
+								dispatch({ type: "set_draft_status", value })
+							}
+							roleOptions={roleOptions}
+							savingProfile={savingProfile}
+							statusOptions={statusOptions}
+							user={user}
+							quotaHasError={quotaHasError}
+							quotaUnit={quotaUnit}
+							quotaValue={quotaValue}
+							onQuotaValueChange={(value) =>
+								dispatch({ type: "set_quota_value", value })
+							}
+							onQuotaUnitChange={(value) =>
+								dispatch({ type: "set_quota_unit", value })
+							}
+						/>
+					</div>
+					<div className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none delay-150 rounded-xl bg-muted/30 p-5 max-sm:p-4">
+						<UserPolicyGroupSection
+							assignedPolicyGroupIsInvalid={assignedPolicyGroupIsInvalid}
+							draftPolicyGroupId={draftPolicyGroupId}
+							onDraftPolicyGroupIdChange={(value) =>
+								dispatch({
+									type: "set_draft_policy_group_id",
+									value,
+								})
+							}
+							onRefreshPolicyGroups={onRefreshPolicyGroups}
+							policyGroupOptions={policyGroupOptions}
+							policyGroupsLoading={policyGroupsLoading}
+							savingProfile={savingProfile}
+						/>
+					</div>
+					<div className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none delay-150">
+						<UserDetailSecurityEditor
+							confirmPasswordValue={confirmPasswordValue}
+							mustChangePassword={draftMustChangePassword}
+							onConfirmPasswordValueChange={(value) => {
+								dispatch({ type: "set_confirm_password_value", value });
+								dispatch({
+									type: "clear_password_error",
+									field: "confirm",
+								});
+							}}
+							onPasswordReset={handlePasswordReset}
+							onPasswordValueChange={(value) => {
+								dispatch({ type: "set_password_value", value });
+								dispatch({
+									type: "clear_password_error",
+									field: "password",
+								});
+							}}
+							onMustChangePasswordChange={(value) =>
+								dispatch({
+									type: "set_draft_must_change_password",
+									value,
+								})
+							}
+							onMfaReset={handleMfaReset}
+							onSessionRevoke={handleSessionRevoke}
+							passwordErrors={passwordErrors}
+							passwordValue={passwordValue}
+							resettingMfa={resettingMfa}
+							revokingSessions={revokingSessions}
+							savingPassword={savingPassword}
+							savingProfile={savingProfile}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div className="mt-8 flex items-center justify-between gap-4 border-t pt-5">
+				<p className="text-xs text-muted-foreground">
+					{t("user_details_footer_hint")}
+				</p>
+				<div className="flex shrink-0 gap-2">{actions}</div>
+			</div>
+		</AdminDetailPageShell>
 	);
 }

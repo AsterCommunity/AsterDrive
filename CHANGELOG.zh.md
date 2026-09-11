@@ -19,9 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **管理端详情工作流** — 用户、团队、存储策略、外部认证提供商与远程节点条目改为打开可直接访问的独立详情页，统一返回导航、页面标题、响应式概览和兼容减少动态效果的入场动画；用户资料、策略组、安全设置与远程节点设置采用分段两栏编辑布局，远程节点详情进一步拆成 URL 驱动的“基础信息 / 远程存储目标”子页面，使用 D9 线型标签页和新增、删除时的局部动效；团队概览、成员、审计与危险操作继续使用 URL 驱动的标签页和独立滚动，已有存储策略将当前策略、上下排列的容量信息与基础字段收进 sticky 左栏，右侧继续提供 descriptor 驱动的连接配置、凭据、授权、action、promotion 与上传规则控制，并统一标记 schema 必填字段。存储策略创建器仍在 `/admin/policies/new` 使用多步骤流程；外部认证提供商和远程节点创建器分别使用 `/admin/external-auth/new` 与 `/admin/remote-nodes/new` 的页面级流程，并在创建后进入创建出的详情页，其中远程节点会先交接一次性 enrollment 命令。策略组编辑已有记录保存后留在当前详情页且不会重播本地规则动效，外部认证与远程节点详情保留摘要、诊断和可编辑配置；存储策略创建器的 connector 选择提供紧凑搜索和有界滚动，目录扩展后不会把页面无限拉长。新建用户、邀请用户和新建团队等短操作仍保留在列表页弹窗中。
+
 - **Connector 自有图标资产** — Storage connector 现在自行编译并通过版本化同源后端端点提供图标字节；descriptor 客户端消费结构化 URL、媒体类型和 revision 元数据，不再依赖前端静态路径或核心图标库名称。带版本请求使用 immutable 缓存，无版本请求会在复用前重新验证。
 
-- **统一存储连接与远程目标 RPC** — 普通 storage policy 与 follower remote storage target 共享同一个 `StorageConnectionInput`、connector config/credential normalization、descriptor、credential 保留语义和直接 driver factory；remote target 只额外负责 binding、target key、default、revision、reconciliation 与签名 RPC，不再维护 driver enum、扁平 provider 字段、旧请求 adapter 或伪造 policy 的 driver 构造路径。Local、S3、SFTP、腾讯云 COS、阿里云 OSS、七牛 Kodo、Azure Blob 和 Huawei OBS 均由同一个运行时 connector registry 接入，管理端复用普通 storage 的 descriptor-driven 字段表单。内部协议 V6 仅通过 `remote_storage_target.connector_ids` 协商能力；启动前的一次性 0.5.0 转换会把旧 Local/S3 扁平配置写入 connector envelope 并加密旧 S3 凭据，旧物理列和转换代码保留 `TODO(remote-storage-target-0.7.0)` 清理标记。
+- **统一存储连接与远程目标 RPC** — 普通 storage policy 与 follower remote storage target 共享同一个 `StorageConnectionInput`、connector config/credential normalization、descriptor、credential 保留语义和直接 driver factory；remote target 只额外负责 binding、target key、revision、reconciliation 与签名 RPC，每条 remote policy 都必须显式选择 target，follower 会拒绝缺少 target key 的请求。Remote policy 的节点、target 和基础路径创建后不可变，更换物理位置必须创建新 policy 并走 policy-to-policy storage migration；同一 node + target key 仍被任一 policy 引用时，primary 会拒绝删除 target 或修改其 connector config，但仍允许修改显示名称、仅轮换凭据以及调整 policy 传输策略。目标编辑保持 connector 类型不可变，但允许在不破坏引用一致性的边界内调整同类型 connector 配置和凭据。字段 descriptor 新增 `mutable`、`create_only` 与 `set_once` 更新行为，使通用客户端无需 connector 或字段名矩阵即可呈现边界，后端 service 仍独立校验以阻止直接 API 绕过。Local、S3、SFTP、腾讯云 COS、阿里云 OSS、七牛 Kodo、Azure Blob 和 Huawei OBS 均由同一个运行时 connector registry 接入，管理端复用普通 storage 的 descriptor-driven 字段表单；策略创建流程可选择并快捷新增目标，已保存策略详情不再重复展示远程节点目标列表，目标管理统一回到远程节点详情页，并采用与策略列表一致的 frameless 表格和独立目标操作，不再与远程节点保存/测试动作混用；目标表单复用 descriptor 的条件必填与默认值规则，列表加载不会阻塞已经打开的新增流程。内部协议 V6 继续通过 `remote_storage_target.connector_ids` 协商能力，并通过签名控制面返回 follower 自己拥有的 descriptor 与 localization catalog，因此 primary 可以管理自身未注册、但 follower 已提供的 connector；本次未发布的 schema 清理同时移除了 binding 级默认 target 状态及其索引。
 
 - **统一上传 session 协议** — 非空文件统一先 init：init 固化 filename、MIME、大小、存储策略、placement profile/rule/revision 和 `stream` / `chunked` / `presigned` / `presigned_multipart` / `provider_resumable` transport。单请求 stream 改用 `PUT /files/upload/{upload_id}/body` 的 `application/octet-stream` 原始 body，并在同一数据库事务内创建 file/blob、更新 quota 和完成 session；其他 transport 继续由 `/complete` 幂等发布。重复或过期 stream body 在写入前通过原子 session claim 拒绝。目标存储可报告容量时，init 会执行 advisory 容量预检；实际写入仍以 driver 结果为准，不提供并发容量预占。0 字节文件统一使用 `/files/new`。
 - **上传 session schema 与 ID** — 新 migration 为 `upload_sessions` 增加 init 时解析并固化的 `mime_type`，续传、恢复和完成不再从后续 body 或默认文件名重新推断上传计划。新建 upload session 使用内嵌毫秒时间戳的标准 UUIDv7，保持现有 36 字符 UUID、URL、数据库和旧 UUIDv4 session 兼容性。
@@ -55,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **跨数据库迁移边界** — `database-migrate` 只复制当前 policy envelope 与 connector credential；带有未迁移 legacy credential 的 source database 会在复制前拒绝，空的历史 legacy stores 不再进入目标库。
 
 ### Fixed
+
+- **存储连接器校验反馈** — 连接测试错误现在会返回校验失败的连接器配置字段或静态凭证字段；管理端存储策略表单会根据连接器元数据生成本地化提示并标红对应输入框，不再直接显示原始服务商诊断文本。
 
 - **目录上传并发初始化事务** — 并发初始化同一新目录下的多个文件时，父目录创建现在使用数据库原生冲突忽略和胜者回读，避免 PostgreSQL 唯一键竞争后复用 aborted transaction 导致第二个文件返回 500；不串行化无关 workspace 的目录创建，并补充并发初始化和多级路径回归覆盖。
 - **认证 flow 过期与重放边界** — contact verification token 的消费现在要求 `consumed_at IS NULL AND expires_at > now`，避免并发窗口消费已过期 token；external callback 在原子消费前验证 active flow，Passkey challenge 使用带 identity、revision 和 expiry 的单次消费 envelope，session refresh 拒绝 expired/revoked session，非法 transition 不再产生部分认证副作用。

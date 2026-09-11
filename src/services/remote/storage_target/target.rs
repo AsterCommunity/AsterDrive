@@ -7,36 +7,6 @@ use aster_drive_model::entities::master_binding;
 use super::driver::build_driver_from_target;
 use super::models::ResolvedRemoteStorageTarget;
 
-pub async fn resolve_effective_target<S: FollowerRuntimeState>(
-    state: &S,
-    binding: &master_binding::Model,
-) -> Result<ResolvedRemoteStorageTarget> {
-    // TODO(remote-storage-target): legacy primary policies without
-    // remote_storage_target_key still fall back to the binding default target.
-    // This is intentionally follower-local because the primary cannot backfill
-    // target intent from its own schema. New remote policies should call
-    // resolve_target_by_key through signed requests that include target_key.
-    // Remove this compatibility path after policy-level target migration.
-    let targets =
-        remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id).await?;
-    if targets.is_empty() {
-        return Err(precondition_failed_with_code(
-            ApiErrorCode::RemoteStorageTargetRequired,
-            "remote storage target is required before follower can accept remote writes",
-        ));
-    }
-
-    let target = remote_storage_target_repo::find_default_by_binding(state.writer_db(), binding.id)
-        .await?
-        .ok_or_else(|| {
-            precondition_failed_with_code(
-                ApiErrorCode::RemoteStorageTargetDefaultMissing,
-                "remote storage targets exist but no default target is configured",
-            )
-        })?;
-    build_resolved_target(state, target).await
-}
-
 pub async fn resolve_target_by_key<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
@@ -63,7 +33,7 @@ async fn build_resolved_target<S: FollowerRuntimeState>(
 ) -> Result<ResolvedRemoteStorageTarget> {
     if !target.last_error.trim().is_empty() {
         return Err(precondition_failed_with_code(
-            ApiErrorCode::RemoteStorageTargetDefaultError,
+            ApiErrorCode::RemoteStorageTargetUnavailable,
             format!(
                 "remote storage target '{}' is not ready: {}",
                 target.target_key, target.last_error
@@ -72,7 +42,7 @@ async fn build_resolved_target<S: FollowerRuntimeState>(
     }
     if target.applied_revision < target.desired_revision {
         return Err(precondition_failed_with_code(
-            ApiErrorCode::RemoteStorageTargetDefaultNotApplied,
+            ApiErrorCode::RemoteStorageTargetNotApplied,
             format!(
                 "remote storage target '{}' is pending apply",
                 target.target_key

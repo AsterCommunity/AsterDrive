@@ -76,7 +76,7 @@ export async function loadAdminStorageConnectorLocalizations(options: {
 	return request;
 }
 
-export function installAdminStorageConnectorLocalizations(
+export function installStorageConnectorLocalizations(
 	catalog: StorageConnectorLocalizationCatalog,
 	language: string,
 	i18n: Pick<I18n, "addResourceBundle">,

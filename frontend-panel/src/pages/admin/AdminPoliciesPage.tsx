@@ -1,6 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type RefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import {
+	Navigate,
+	useBlocker,
+	useNavigate,
+	useSearchParams,
+} from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
 import { PoliciesTable } from "@/components/admin/admin-policies-page/PoliciesTable";
@@ -20,6 +31,7 @@ import {
 	applyPolicyConnectorTransition,
 	applyPolicyFormFieldChange,
 } from "@/components/admin/storage-policy-dialog/policyFormTransition";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -100,12 +112,17 @@ function storageAuthorizationFailureI18nKey(reason: string | null) {
 	}
 }
 
-export type AdminPoliciesPageVariant = "admin" | "setup";
+export type AdminPoliciesPageVariant = "admin" | "create" | "detail" | "setup";
 
-function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
+function useAdminPoliciesPageContent(
+	variant: AdminPoliciesPageVariant,
+	detailPolicyId?: number,
+) {
 	const { t } = useTranslation("admin");
 	const setupMode = variant === "setup";
-	usePageTitle(setupMode ? t("auth:storage_setup_page_title") : t("policies"));
+	const createMode = variant === "create";
+	const detailMode = variant === "detail";
+	const navigate = useNavigate();
 	const logout = useAuthStore((state) => state.logout);
 	const refreshSetupState = useSystemSetupStore((state) => state.refresh);
 	const [searchParams, setSearchParams] = useSearchParams();
@@ -114,11 +131,27 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		onBlobReferencesBlocked: recoveryController.openForPolicy,
 	});
 	const migrationController = useStoragePolicyMigrationController();
-	const [dialogOpen, setDialogOpen] = useState(setupMode);
-	const [editingId, setEditingId] = useState<number | null>(null);
+	const [dialogOpen, setDialogOpen] = useState(
+		setupMode || createMode || detailMode,
+	);
+	const allowCreateNavigationRef = useRef(false);
+	const [editingId, setEditingId] = useState<number | null>(
+		detailMode ? (detailPolicyId ?? null) : null,
+	);
 	const [editingPolicy, setEditingPolicy] = useState<StoragePolicy | null>(
 		null,
 	);
+	usePageTitle(
+		setupMode
+			? t("auth:storage_setup_page_title")
+			: createMode
+				? t("create_policy")
+				: detailMode
+					? (editingPolicy?.name ?? t("edit_policy"))
+					: t("policies"),
+	);
+	const [detailLoading, setDetailLoading] = useState(detailMode);
+	const [detailNotFound, setDetailNotFound] = useState(false);
 	const [policyCapacity, setPolicyCapacity] =
 		useState<StoragePolicyCapacityInfo | null>(null);
 	const [policyCapacityLoading, setPolicyCapacityLoading] = useState(false);
@@ -279,7 +312,16 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			? async () => {
 					await refreshSetupState().catch(handleApiError);
 				}
-			: undefined,
+			: createMode
+				? (created) => {
+						allowCreateNavigationRef.current = true;
+						navigate(`/admin/policies/${created.id}`, {
+							replace: true,
+							viewTransition: false,
+						});
+						return true;
+					}
+				: undefined,
 		setCreateStep,
 		setCreateStepTouched,
 		setEditingId,
@@ -317,6 +359,40 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 				: descriptorController.creatableStorageDriverDescriptors,
 	});
 
+	useEffect(() => {
+		if (!detailMode || detailPolicyId == null) return;
+
+		let cancelled = false;
+		setDetailLoading(true);
+		setDetailNotFound(false);
+		setEditingId(detailPolicyId);
+		setDialogOpen(true);
+		void adminPolicyService
+			.get(detailPolicyId)
+			.then((policy) => {
+				if (cancelled) return;
+				setEditingPolicy(policy);
+				setForm(getPolicyForm(policy));
+				loadPolicyCapacity(policy.id);
+				void descriptorController.refreshRemoteNodeLookup();
+			})
+			.catch(() => {
+				if (!cancelled) setDetailNotFound(true);
+			})
+			.finally(() => {
+				if (!cancelled) setDetailLoading(false);
+			});
+
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		detailMode,
+		detailPolicyId,
+		descriptorController.refreshRemoteNodeLookup,
+		loadPolicyCapacity,
+	]);
+
 	const resetDialogState = useCallback(() => {
 		policyCapacityRequestSerial.current += 1;
 		setSaveAnywayConfirmOpen(false);
@@ -336,6 +412,10 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	]);
 
 	const openCreate = () => {
+		if (!setupMode && !createMode) {
+			navigate("/admin/policies/new", { viewTransition: false });
+			return;
+		}
 		setEditingId(null);
 		setEditingPolicy(null);
 		resetDialogState();
@@ -346,6 +426,10 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 
 	const openEdit = useCallback(
 		(policy: StoragePolicy) => {
+			if (!setupMode && !detailMode) {
+				navigate(`/admin/policies/${policy.id}`, { viewTransition: false });
+				return;
+			}
 			setEditingId(policy.id);
 			setEditingPolicy(policy);
 			resetDialogState();
@@ -354,7 +438,14 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			loadPolicyCapacity(policy.id);
 			setDialogOpen(true);
 		},
-		[descriptorController, loadPolicyCapacity, resetDialogState],
+		[
+			descriptorController,
+			detailMode,
+			loadPolicyCapacity,
+			navigate,
+			resetDialogState,
+			setupMode,
+		],
 	);
 
 	const openPolicyById = useCallback(
@@ -396,16 +487,39 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			void policyList.reload().catch(handleApiError);
 			const policyId = Number(callback.policyId);
 			if (Number.isSafeInteger(policyId) && policyId > 0) {
-				void openPolicyById(policyId).catch(handleApiError);
+				if (detailMode && policyId === detailPolicyId) {
+					void openPolicyById(policyId).catch(handleApiError);
+				} else {
+					navigate(`/admin/policies/${policyId}`, {
+						viewTransition: false,
+					});
+				}
 			}
 			return;
 		}
 
 		toast.error(t(storageAuthorizationFailureI18nKey(callback.reason)));
-	}, [openPolicyById, policyList, searchParams, setSearchParams, t]);
+	}, [
+		detailMode,
+		detailPolicyId,
+		navigate,
+		openPolicyById,
+		policyList,
+		searchParams,
+		setSearchParams,
+		t,
+	]);
 
 	const handleDialogOpenChange = (open: boolean) => {
 		if (setupMode && !open) return;
+		if (createMode && !open) {
+			navigate("/admin/policies", { viewTransition: false });
+			return;
+		}
+		if (detailMode && !open) {
+			navigate("/admin/policies", { viewTransition: false });
+			return;
+		}
 		setDialogOpen(open);
 		if (!open) {
 			resetDialogState();
@@ -416,6 +530,7 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 		key: K,
 		value: PolicyFormData[K],
 	) => {
+		actionController.clearConnectionFieldErrors();
 		setSaveAnywayConfirmOpen(false);
 		actionController.clearActionConfirms();
 		setForm((prev) => {
@@ -541,10 +656,13 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 			createStep={createStep}
 			createStepTouched={createStepTouched}
 			endpointValidationMessage={endpointValidationMessage}
+			connectionFieldErrors={actionController.connectionFieldErrors}
 			saveAnywayConfirmOpen={saveAnywayConfirmOpen}
-			showStorageDialogCloseButton={!setupMode}
 			forceDefaultPolicy={setupMode}
-			storageDialogPresentation={setupMode ? "setup" : "dialog"}
+			storageDialogPresentation={
+				setupMode ? "setup" : createMode || detailMode ? "page" : undefined
+			}
+			storageDialogPageBackLabel={t("back_to_policies")}
 			onStorageSetupLogout={setupMode ? () => void logout() : undefined}
 			onCancelConnectorAction={actionController.cancelConnectorAction}
 			onApplyDraftConnectorPromotion={promotionController.applyDraft}
@@ -584,6 +702,52 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 
 	if (setupMode) {
 		return policyDialogs;
+	}
+	if (createMode) {
+		const hasCreateDraft = createStep > 0 || form.name.trim().length > 0;
+		return (
+			<AdminLayout>
+				<AdminPageShell>
+					{policyDialogs}
+					<PolicyCreateNavigationGuard
+						allowNavigationRef={allowCreateNavigationRef}
+						dirty={hasCreateDraft}
+					/>
+				</AdminPageShell>
+			</AdminLayout>
+		);
+	}
+	if (detailMode) {
+		if (detailPolicyId == null) {
+			return <Navigate to="/admin/policies" replace />;
+		}
+		return (
+			<AdminLayout>
+				<AdminPageShell>
+					{detailLoading ? (
+						<div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+							<Icon name="Spinner" className="size-4 animate-spin" />
+							{t("core:loading")}
+						</div>
+					) : detailNotFound || !editingPolicy ? (
+						<div className="flex flex-col items-center gap-4 py-16 text-center">
+							<p className="text-sm text-muted-foreground">
+								{t("policy_not_found")}
+							</p>
+							<Button
+								variant="outline"
+								onClick={() => navigate("/admin/policies")}
+							>
+								<Icon name="ArrowLeft" className="mr-1 size-4" />
+								{t("back_to_policies")}
+							</Button>
+						</div>
+					) : (
+						policyDialogs
+					)}
+				</AdminPageShell>
+			</AdminLayout>
+		);
 	}
 
 	return (
@@ -704,10 +868,67 @@ function useAdminPoliciesPageContent(variant: AdminPoliciesPageVariant) {
 	);
 }
 
+function PolicyCreateNavigationGuard({
+	allowNavigationRef,
+	dirty,
+}: {
+	allowNavigationRef: RefObject<boolean>;
+	dirty: boolean;
+}) {
+	const { t } = useTranslation("admin");
+	const blocker = useBlocker(() => dirty && !allowNavigationRef.current);
+	const resetTimerRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (resetTimerRef.current !== null) {
+				window.clearTimeout(resetTimerRef.current);
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!dirty || allowNavigationRef.current) return;
+		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+			event.preventDefault();
+		};
+		window.addEventListener("beforeunload", handleBeforeUnload);
+		return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+	}, [allowNavigationRef, dirty]);
+
+	return (
+		<ConfirmDialog
+			open={blocker.state === "blocked"}
+			onOpenChange={(open) => {
+				if (open || blocker.state !== "blocked") return;
+				if (resetTimerRef.current !== null) {
+					window.clearTimeout(resetTimerRef.current);
+				}
+				resetTimerRef.current = window.setTimeout(() => {
+					resetTimerRef.current = null;
+					if (!allowNavigationRef.current && blocker.state === "blocked") {
+						blocker.reset();
+					}
+				}, 0);
+			}}
+			title={t("policy_create_discard_title")}
+			description={t("policy_create_discard_desc")}
+			confirmLabel={t("policy_create_discard_confirm")}
+			variant="destructive"
+			onConfirm={() => {
+				allowNavigationRef.current = true;
+				if (blocker.state === "blocked") blocker.proceed();
+			}}
+		/>
+	);
+}
+
 export default function AdminPoliciesPage({
 	variant = "admin",
+	detailPolicyId,
 }: {
 	variant?: AdminPoliciesPageVariant;
+	detailPolicyId?: number;
 }) {
-	return useAdminPoliciesPageContent(variant);
+	return useAdminPoliciesPageContent(variant, detailPolicyId);
 }

@@ -25,7 +25,6 @@ struct LoggedRequest {
 fn remote_local_target(
     name: impl Into<String>,
     base_path: impl Into<String>,
-    is_default: bool,
 ) -> RemoteCreateStorageTargetRequest {
     RemoteCreateStorageTargetRequest {
         name: name.into(),
@@ -39,7 +38,6 @@ fn remote_local_target(
             ),
             credential: crate::storage::StorageConnectorCredentialInput::None,
         },
-        is_default,
     }
 }
 
@@ -98,7 +96,6 @@ fn profile_json(target_key: &str) -> serde_json::Value {
             "schema_version": 1,
             "values": { "base_path": "ingress-base" }
         },
-        "is_default": true,
         "desired_revision": 3,
         "applied_revision": 2,
         "last_error": "",
@@ -225,6 +222,29 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
         }))
     }
 
+    async fn connector_catalog(
+        req: HttpRequest,
+        query: web::Query<HashMap<String, String>>,
+        log: web::Data<Arc<ProtocolLog>>,
+    ) -> HttpResponse {
+        log_request(&req, &[], &log);
+        let locale = aster_drive_model::types::LocaleTag::parse(
+            query.get("locale").map(String::as_str).unwrap_or("en"),
+        )
+        .unwrap();
+        let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
+        let catalog =
+            crate::services::remote::storage_target::remote_storage_target_connector_catalog(
+                &registry, &locale,
+            )
+            .unwrap();
+        HttpResponse::Ok().json(serde_json::json!({
+            "code": "success",
+            "msg": "",
+            "data": catalog,
+        }))
+    }
+
     async fn create_profile(
         req: HttpRequest,
         body: web::Bytes,
@@ -310,6 +330,10 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
             )
             .route("/api/v1/internal/storage/binding", web::put().to(binding))
             .route(
+                "/api/v1/internal/storage/target-connectors",
+                web::get().to(connector_catalog),
+            )
+            .route(
                 "/api/v1/internal/storage/targets",
                 web::get().to(list_profiles),
             )
@@ -373,6 +397,10 @@ fn remote_api_error_kind_maps_unsupported_driver() {
         remote_api_error_kind(ApiErrorCode::StorageOperationUnsupported),
         Some(StorageErrorKind::Unsupported)
     );
+    assert_eq!(
+        remote_api_error_kind(ApiErrorCode::RemoteStorageTargetConnectorUnsupported),
+        Some(StorageErrorKind::Unsupported)
+    );
 }
 
 #[test]
@@ -388,6 +416,18 @@ fn remote_api_error_kind_maps_storage_and_http_error_codes() {
     assert_eq!(
         remote_api_error_kind(ApiErrorCode::RemoteStorageTargetNotFound),
         Some(StorageErrorKind::NotFound)
+    );
+    assert_eq!(
+        remote_api_error_kind(ApiErrorCode::RemoteStorageTargetRequired),
+        Some(StorageErrorKind::Precondition)
+    );
+    assert_eq!(
+        remote_api_error_kind(ApiErrorCode::RemoteStorageTargetUnavailable),
+        Some(StorageErrorKind::Precondition)
+    );
+    assert_eq!(
+        remote_api_error_kind(ApiErrorCode::RemoteStorageTargetNotApplied),
+        Some(StorageErrorKind::Precondition)
     );
     assert_eq!(
         remote_api_error_kind(ApiErrorCode::StorageRateLimited),
@@ -487,7 +527,6 @@ fn remote_target_create_debug_redacts_credentials() {
                 }),
             ),
         },
-        is_default: true,
     };
 
     let rendered = format!("{request:?}");
@@ -513,7 +552,6 @@ fn ingress_profile_update_debug_redacts_optional_credentials() {
             ),
         }),
         name: Some("s3".to_string()),
-        is_default: Some(true),
     };
 
     let rendered = format!("{request:?}");
@@ -585,7 +623,7 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
     assert!(query.contains_key("aster_signature"));
 
     let target_url = client
-        .with_policy_context(Some("rst-primary"), 4096)
+        .with_policy_context("rst-primary", 4096)
         .presigned_put_url("object.bin", Duration::from_secs(60))
         .expect("target-scoped presigned URL should build");
     let target_query = reqwest::Url::parse(&target_url)
@@ -609,7 +647,7 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
 
     for max_file_size in [0, -1] {
         let url = client
-            .with_policy_context(Some("rst-primary"), max_file_size)
+            .with_policy_context("rst-primary", max_file_size)
             .presigned_put_url("object.bin", Duration::from_secs(60))
             .expect("non-positive policy max should not block URL signing");
         let query = reqwest::Url::parse(&url)
@@ -835,8 +873,33 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     assert_eq!(profiles.len(), 1);
     assert_eq!(profiles[0].target_key, "profile-a");
 
+    let connector_catalog = client
+        .list_storage_target_connector_catalog(
+            &aster_drive_model::types::LocaleTag::parse("zh-CN").unwrap(),
+        )
+        .await
+        .expect("connector catalog should load from the follower");
+    assert_eq!(connector_catalog.descriptors.len(), 8);
+    assert_eq!(
+        connector_catalog.localizations.requested_locale.as_str(),
+        "zh-CN"
+    );
+    assert!(
+        connector_catalog
+            .localizations
+            .resources
+            .iter()
+            .all(|resource| {
+                resource.resolved_locale.as_str() == "zh"
+                    && connector_catalog
+                        .descriptors
+                        .iter()
+                        .any(|descriptor| descriptor.connector_id == resource.connector_id)
+            })
+    );
+
     let created = client
-        .create_storage_target(&remote_local_target("Managed local", "ingress-base", true))
+        .create_storage_target(&remote_local_target("Managed local", "ingress-base"))
         .await
         .expect("profile create should succeed");
     assert_eq!(created.target_key, "created-profile");
@@ -847,7 +910,6 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
             &RemoteUpdateStorageTargetRequest {
                 connection: None,
                 name: Some("Updated".to_string()),
-                ..Default::default()
             },
         )
         .await
@@ -910,6 +972,10 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     }));
     assert!(requests.iter().any(|request| {
         request.method == "GET" && request.path_and_query == "/api/v1/internal/storage/capacity"
+    }));
+    assert!(requests.iter().any(|request| {
+        request.method == "GET"
+            && request.path_and_query == "/api/v1/internal/storage/target-connectors?locale=zh-CN"
     }));
     let list_requests = requests
         .iter()
@@ -1323,7 +1389,6 @@ fn v6_target_info_contains_only_connector_owned_configuration() {
             .into_iter()
             .collect(),
         ),
-        is_default: true,
         desired_revision: 1,
         applied_revision: 1,
         last_error: String::new(),

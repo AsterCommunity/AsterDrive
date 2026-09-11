@@ -205,6 +205,16 @@ pub struct StorageConnectorLocalizationCatalogQuery {
     pub locale: aster_drive_model::types::LocaleTag,
 }
 
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct RemoteStorageTargetConnectorCatalogQuery {
+    #[serde(default)]
+    pub locale: aster_drive_model::types::LocaleTag,
+}
+
 impl From<StorageConnectorCatalogContext>
     for crate::services::storage_policy::connector_catalog::StorageConnectorCatalogContext
 {

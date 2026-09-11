@@ -1,12 +1,11 @@
 //! 仓储模块：`remote_storage_target_repo`。
 
-use crate::api::api_error_code::ApiErrorCode;
-use crate::errors::{AsterError, Result, validation_error_with_code};
+use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::remote_storage_target::{self, Entity as RemoteStorageTarget};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(
@@ -39,24 +38,9 @@ pub async fn find_all_by_binding<C: ConnectionTrait>(
 ) -> Result<Vec<remote_storage_target::Model>> {
     RemoteStorageTarget::find()
         .filter(remote_storage_target::Column::MasterBindingId.eq(master_binding_id))
-        .order_by_desc(remote_storage_target::Column::IsDefault)
         .order_by_desc(remote_storage_target::Column::CreatedAt)
         .order_by_desc(remote_storage_target::Column::Id)
         .all(db)
-        .await
-        .map_err(AsterError::from)
-}
-
-pub async fn find_default_by_binding<C: ConnectionTrait>(
-    db: &C,
-    master_binding_id: i64,
-) -> Result<Option<remote_storage_target::Model>> {
-    RemoteStorageTarget::find()
-        .filter(remote_storage_target::Column::MasterBindingId.eq(master_binding_id))
-        .filter(remote_storage_target::Column::IsDefault.eq(true))
-        .order_by_desc(remote_storage_target::Column::UpdatedAt)
-        .order_by_desc(remote_storage_target::Column::Id)
-        .one(db)
         .await
         .map_err(AsterError::from)
 }
@@ -131,40 +115,5 @@ pub async fn delete_by_binding_and_target_key<C: ConnectionTrait>(
         .exec(db)
         .await
         .map_err(AsterError::from)?;
-    Ok(())
-}
-
-/// Must be called inside a transaction, for example through `with_transaction`.
-///
-/// This loads and validates the target via `find_by_id`, clears existing
-/// defaults with `update_many`, then marks the target with `update`; without
-/// transaction semantics, concurrent readers can observe a temporary no-default
-/// state and concurrent writers can create conflicting defaults.
-pub async fn set_only_default_for_binding(
-    db: &DatabaseTransaction,
-    master_binding_id: i64,
-    target_id: i64,
-) -> Result<()> {
-    let existing = find_by_id(db, target_id).await?;
-    if existing.master_binding_id != master_binding_id {
-        return Err(validation_error_with_code(
-            ApiErrorCode::RemoteStorageTargetBindingMismatch,
-            format!(
-                "remote storage target #{target_id} does not belong to master_binding #{master_binding_id}"
-            ),
-        ));
-    }
-
-    RemoteStorageTarget::update_many()
-        .filter(remote_storage_target::Column::MasterBindingId.eq(master_binding_id))
-        .col_expr(remote_storage_target::Column::IsDefault, Expr::value(false))
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-
-    let mut active: remote_storage_target::ActiveModel = existing.into();
-    active.is_default = Set(true);
-    active.updated_at = Set(chrono::Utc::now());
-    update(db, active).await?;
     Ok(())
 }

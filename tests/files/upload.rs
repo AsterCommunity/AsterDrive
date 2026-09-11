@@ -1053,8 +1053,13 @@ async fn provider_relay_claim_heartbeat_only_touches_active_claims() {
 async fn create_dead_remote_policy(
     state: &aster_drive::runtime::PrimaryAppState,
 ) -> aster_drive_model::entities::storage_policy::Model {
-    use aster_drive::db::repository::managed_follower_repo;
-    use aster_drive_model::entities::managed_follower;
+    use aster_drive::db::repository::{
+        follower_enrollment_session_repo, managed_follower_repo, policy_repo,
+    };
+    use aster_drive_model::entities::{
+        follower_enrollment_session, managed_follower, storage_policy,
+    };
+    use aster_drive_model::types::StoredStoragePolicyAllowedTypes;
     use sea_orm::Set;
 
     let now = chrono::Utc::now();
@@ -1080,34 +1085,75 @@ async fn create_dead_remote_policy(
     .await
     .unwrap();
 
-    let created = aster_drive::services::storage_policy::policy::create(
-        state,
-        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
-            name: format!("dead-remote-policy-{}", uuid::Uuid::new_v4()),
-            connection: common::remote_connection(
-                "dead-remote",
-                Some(remote_node.id),
-                Some("dead-target".to_string()),
-                aster_drive_model::types::RemoteDownloadStrategy::RelayStream,
-                aster_drive_model::types::RemoteUploadStrategy::RelayStream,
-            ),
-            max_file_size: 0,
-            chunk_size: Some(5),
-            is_default: false,
-            allowed_types: None,
+    follower_enrollment_session_repo::create(
+        state.writer_db(),
+        follower_enrollment_session::ActiveModel {
+            managed_follower_id: Set(remote_node.id),
+            token_hash: Set(format!(
+                "test-token-{}-{}",
+                remote_node.id,
+                uuid::Uuid::new_v4()
+            )),
+            ack_token_hash: Set(format!(
+                "test-ack-token-{}-{}",
+                remote_node.id,
+                uuid::Uuid::new_v4()
+            )),
+            expires_at: Set(now + chrono::Duration::minutes(30)),
+            redeemed_at: Set(Some(now)),
+            acked_at: Set(Some(now)),
+            invalidated_at: Set(None),
+            created_at: Set(now),
+            ..Default::default()
         },
     )
     .await
     .unwrap();
-    let policy = policy_repo::find_by_id(state.writer_db(), created.id)
-        .await
-        .expect("created dead remote policy should be queryable");
+
+    let policy = policy_repo::create(
+        state.writer_db(),
+        storage_policy::ActiveModel {
+            name: Set(format!("dead-remote-policy-{}", uuid::Uuid::new_v4())),
+            connector_id: Set("asterdrive.storage.remote".to_string()),
+            storage_config: Set(common::encoded_policy_config(
+                "asterdrive.storage.remote",
+                common::TestRemoteConnectorConfigV1 {
+                    base_path: "dead-remote".to_string(),
+                    remote_node_id: Some(remote_node.id),
+                    remote_storage_target_key: Some("dead-target".to_string()),
+                    remote_download_strategy:
+                        aster_drive_model::types::RemoteDownloadStrategy::RelayStream,
+                    remote_upload_strategy:
+                        aster_drive_model::types::RemoteUploadStrategy::RelayStream,
+                },
+                aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+            )),
+            max_file_size: Set(0),
+            chunk_size: Set(5),
+            allowed_types: Set(StoredStoragePolicyAllowedTypes("[]".to_string())),
+            is_default: Set(false),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     state
         .driver_registry
         .reload_managed_followers(state.writer_db())
         .await
         .expect("driver registry should reload managed followers after creating dead remote node");
-    state.driver_registry.invalidate(policy.id);
+    state
+        .driver_registry
+        .reload_storage_policy_credentials(state.writer_db(), state.config())
+        .await
+        .expect("driver registry should reload storage policy credentials after creating dead remote policy");
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .expect("driver registry should reload policy snapshot after creating dead remote policy");
 
     policy
 }

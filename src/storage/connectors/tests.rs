@@ -8,7 +8,8 @@ use aster_drive_model::types::{
 };
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorBadgeRgb, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode, StorageConnectorSelectDataSource,
+    StorageConnectorFieldScope, StorageConnectorFieldUpdateBehavior,
+    StorageConnectorObjectNamingMode, StorageConnectorSelectDataSource,
     StorageConnectorSelectValueKind,
 };
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig};
@@ -370,6 +371,27 @@ fn builtin_bundles_keep_connector_owned_management_messages() {
             .and_then(|field| field.required_message_key.as_deref()),
         Some("policy_wizard_remote_storage_target_required")
     );
+    for (name, expected) in [
+        ("base_path", StorageConnectorFieldUpdateBehavior::CreateOnly),
+        (
+            "remote_node_id",
+            StorageConnectorFieldUpdateBehavior::CreateOnly,
+        ),
+        (
+            "remote_storage_target_key",
+            StorageConnectorFieldUpdateBehavior::SetOnce,
+        ),
+    ] {
+        assert_eq!(
+            remote_descriptor
+                .fields
+                .iter()
+                .find(|field| field.name == name)
+                .unwrap()
+                .update_behavior,
+            expected,
+        );
+    }
 }
 
 #[test]

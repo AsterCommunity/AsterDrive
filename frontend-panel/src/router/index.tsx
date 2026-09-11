@@ -66,6 +66,9 @@ const AdminOverviewPage = lazyPage(
 	() => import("@/pages/admin/AdminOverviewPage"),
 );
 const AdminUsersPage = lazyPage(() => import("@/pages/admin/AdminUsersPage"));
+const AdminUserDetailPage = lazyPage(
+	() => import("@/pages/admin/AdminUserDetailPage"),
+);
 const AdminUserInvitationsPage = lazyPage(
 	() => import("@/pages/admin/AdminUserInvitationsPage"),
 );
@@ -77,11 +80,31 @@ const AdminTeamDetailPage = localizedLazyPage(
 const AdminPoliciesPage = lazyPage(
 	() => import("@/pages/admin/AdminPoliciesPage"),
 );
+const AdminPolicyCreatePage = lazyPage(
+	() => import("@/pages/admin/AdminPolicyCreatePage"),
+);
+const AdminPolicyDetailPage = lazyPage(
+	() => import("@/pages/admin/AdminPolicyDetailPage"),
+);
 const AdminRemoteNodesPage = lazyPage(
 	() => import("@/pages/admin/AdminRemoteNodesPage"),
 );
+const AdminRemoteNodeCreatePage = localizedLazyPage(
+	["admin", "core", "errors"],
+	() => import("@/pages/admin/AdminRemoteNodeCreatePage"),
+);
+const AdminRemoteNodeDetailPage = localizedLazyPage(
+	["admin", "core", "errors"],
+	() => import("@/pages/admin/AdminRemoteNodeDetailPage"),
+);
 const AdminExternalAuthPage = lazyPage(
 	() => import("@/pages/admin/AdminExternalAuthPage"),
+);
+const AdminExternalAuthCreatePage = lazyPage(
+	() => import("@/pages/admin/AdminExternalAuthCreatePage"),
+);
+const AdminExternalAuthDetailPage = lazyPage(
+	() => import("@/pages/admin/AdminExternalAuthDetailPage"),
 );
 const AdminPolicyGroupsPage = lazyPage(
 	() => import("@/pages/admin/AdminPolicyGroupsPage"),
@@ -267,6 +290,10 @@ export const router = createBrowserRouter([
 						element: <AdminUserInvitationsPage />,
 					},
 					{ path: "/admin/users", element: <AdminUsersPage /> },
+					{
+						path: "/admin/users/:userId",
+						element: <AdminUserDetailPage />,
+					},
 					{ path: "/admin/teams", element: <AdminTeamsPage /> },
 					{ path: "/admin/teams/:teamId", element: <AdminTeamDetailPage /> },
 					{
@@ -274,8 +301,36 @@ export const router = createBrowserRouter([
 						element: <AdminTeamDetailPage />,
 					},
 					{ path: "/admin/policies", element: <AdminPoliciesPage /> },
+					{
+						path: "/admin/policies/new",
+						element: <AdminPolicyCreatePage />,
+					},
+					{
+						path: "/admin/policies/:policyId",
+						element: <AdminPolicyDetailPage />,
+					},
 					{ path: "/admin/remote-nodes", element: <AdminRemoteNodesPage /> },
+					{
+						path: "/admin/remote-nodes/new",
+						element: <AdminRemoteNodeCreatePage />,
+					},
+					{
+						path: "/admin/remote-nodes/:nodeId",
+						element: <AdminRemoteNodeDetailPage />,
+					},
+					{
+						path: "/admin/remote-nodes/:nodeId/:section",
+						element: <AdminRemoteNodeDetailPage />,
+					},
 					{ path: "/admin/external-auth", element: <AdminExternalAuthPage /> },
+					{
+						path: "/admin/external-auth/new",
+						element: <AdminExternalAuthCreatePage />,
+					},
+					{
+						path: "/admin/external-auth/:providerId",
+						element: <AdminExternalAuthDetailPage />,
+					},
 					{ path: "/admin/policy-groups", element: <AdminPolicyGroupsPage /> },
 					{
 						path: "/admin/policy-groups/:groupId",

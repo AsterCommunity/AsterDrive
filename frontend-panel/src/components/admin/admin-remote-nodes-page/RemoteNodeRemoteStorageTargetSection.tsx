@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	buildCreateRemoteStorageTargetPayload,
@@ -17,10 +17,13 @@ import type {
 	RemoteUpdateStorageTargetRequest,
 	StorageConnectorDescriptor,
 } from "@/types/api";
-import { RemoteNodeRemoteStorageTargetForm } from "./RemoteNodeRemoteStorageTargetForm";
+import {
+	isConnectorFieldRequired,
+	isConnectorFieldVisible,
+	resolvedConnectorFieldDefault,
+} from "../storage-policy-dialog/connectorFieldRules";
+import { RemoteNodeRemoteStorageTargetDialog } from "./RemoteNodeRemoteStorageTargetDialog";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
-
-const IS_DEFAULT_FIELD = "is_default";
 
 interface RemoteNodeRemoteStorageTargetSectionProps {
 	allowCreate?: boolean;
@@ -69,6 +72,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 		string | null
 	>(null);
 	const [readOnlyOpen, setReadOnlyOpen] = useState(false);
+	const [dialogOpen, setDialogOpen] = useState(false);
+	const dialogCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const clearDialogCloseTimer = () => {
+		if (dialogCloseTimer.current !== null) {
+			clearTimeout(dialogCloseTimer.current);
+			dialogCloseTimer.current = null;
+		}
+	};
 	const editingTarget =
 		draftMode === "edit"
 			? (targets.find((target) => target.target_key === editingTargetKey) ??
@@ -105,27 +116,62 @@ export function RemoteNodeRemoteStorageTargetSection({
 		if (!canCreateTargets || !firstSupportedConnectorId) {
 			return;
 		}
+		clearDialogCloseTimer();
 		setDraftMode("create");
+		setDialogOpen(true);
 		setEditingTargetKey(null);
 		setReadOnlyOpen(true);
 		setForm({
 			...emptyRemoteStorageTargetForm,
 			connector_id: firstSupportedConnectorId,
-			is_default: targets.length === 0,
 		});
 	};
 
 	const startEdit = (target: RemoteStorageTargetInfo) => {
+		clearDialogCloseTimer();
 		setDraftMode("edit");
+		setDialogOpen(true);
 		setEditingTargetKey(target.target_key);
 		setForm(getRemoteStorageTargetForm(target));
 	};
 
 	const resetDraft = () => {
+		clearDialogCloseTimer();
+		setDialogOpen(false);
 		setDraftMode(null);
 		setEditingTargetKey(null);
 		setForm(emptyRemoteStorageTargetForm);
 	};
+	const closeDraft = () => {
+		if (submitting) return;
+		setDialogOpen(false);
+		clearDialogCloseTimer();
+		dialogCloseTimer.current = setTimeout(() => {
+			dialogCloseTimer.current = null;
+			resetDraft();
+		}, 120);
+	};
+	useEffect(() => {
+		return () => {
+			if (dialogCloseTimer.current !== null) {
+				clearTimeout(dialogCloseTimer.current);
+			}
+		};
+	}, []);
+	useEffect(() => {
+		if (draftMode === "edit" && editingTarget == null) {
+			setDialogOpen(false);
+			if (dialogCloseTimer.current !== null) {
+				clearTimeout(dialogCloseTimer.current);
+			}
+			dialogCloseTimer.current = setTimeout(() => {
+				dialogCloseTimer.current = null;
+				setDraftMode(null);
+				setEditingTargetKey(null);
+				setForm(emptyRemoteStorageTargetForm);
+			}, 120);
+		}
+	}, [draftMode, editingTarget]);
 
 	const setField = <K extends keyof RemoteStorageTargetFormData>(
 		key: K,
@@ -137,7 +183,13 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: t("remote_node_ingress_profile_name_required");
 	const missingRequiredField =
 		activeConnectorDescriptor?.fields.some((field) => {
-			if (!field.required || field.name === IS_DEFAULT_FIELD) return false;
+			if (field.scope === "action_input") return false;
+			const values =
+				field.scope === "connector_config"
+					? form.connector_config_values
+					: form.credential_values;
+			if (!isConnectorFieldVisible(field, values)) return false;
+			if (!isConnectorFieldRequired(field, values)) return false;
 			if (
 				field.scope !== "connector_config" &&
 				activeDraftMode === "edit" &&
@@ -145,15 +197,11 @@ export function RemoteNodeRemoteStorageTargetSection({
 			) {
 				return false;
 			}
-			const values =
-				field.scope === "connector_config"
-					? form.connector_config_values
-					: form.credential_values;
 			const value = values[field.name];
-			return value == null || String(value).trim().length === 0;
+			const defaultValue = resolvedConnectorFieldDefault(field, values);
+			const resolvedValue = value ?? defaultValue;
+			return resolvedValue == null || String(resolvedValue).trim().length === 0;
 		}) ?? false;
-	const defaultToggleLocked =
-		activeDraftMode === "edit" && editingTarget?.is_default;
 	const submitDisabled =
 		submitting ||
 		Boolean(errorMessage) ||
@@ -169,6 +217,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		}
 
 		setSubmitting(true);
+		let succeeded = false;
 		try {
 			if (activeDraftMode === "create" && onCreateTarget) {
 				await onCreateTarget(
@@ -187,13 +236,15 @@ export function RemoteNodeRemoteStorageTargetSection({
 					),
 				);
 			}
-			resetDraft();
+			succeeded = true;
 		} catch {
 			// Parent handlers surface API errors; keep the draft open on failure.
 		} finally {
 			setSubmitting(false);
+			if (succeeded) closeDraft();
 		}
 	};
+	const draftModeForRender = activeDraftMode ?? "create";
 
 	const handleDeleteTarget = async (target: RemoteStorageTargetInfo) => {
 		if (!onDeleteTarget) {
@@ -210,14 +261,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const rootClassName =
 		surface === "card"
 			? "rounded-2xl border border-border/70 bg-background/70 p-5"
-			: "space-y-4 border-t border-border/70 pt-4";
+			: "space-y-6";
 	const listProps = {
 		errorMessage,
 		loading,
 		pendingDeleteTargetKey: activePendingDeleteTargetKey,
 		onCancelDelete: () => setPendingDeleteTargetKey(null),
 		onConfirmDeleteTarget: (target: RemoteStorageTargetInfo) =>
-			void handleDeleteTarget(target),
+			handleDeleteTarget(target),
 		onRequestDeleteTarget: (target: RemoteStorageTargetInfo) =>
 			setPendingDeleteTargetKey(target.target_key),
 		onEditTarget: startEdit,
@@ -227,8 +278,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 
 	return (
 		<Root className={rootClassName}>
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<div>
+			<div className="flex items-start justify-between gap-3">
+				<div className="min-w-0 flex-1">
 					<h3 className="text-base font-semibold text-foreground">
 						{t(titleKey)}
 					</h3>
@@ -237,15 +288,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 					</p>
 				</div>
 				{readOnly ? (
-					<div className="flex flex-wrap items-center gap-2">
-						{allowCreate && activeDraftMode == null ? (
+					<div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+						{allowCreate ? (
 							<Button
 								type="button"
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
 								onClick={startCreate}
 								disabled={
-									loading ||
 									Boolean(errorMessage) ||
 									firstSupportedConnectorId == null ||
 									!canCreateTargets
@@ -277,14 +327,13 @@ export function RemoteNodeRemoteStorageTargetSection({
 							)}
 						</Button>
 					</div>
-				) : activeDraftMode == null ? (
+				) : (
 					<Button
 						type="button"
 						size="sm"
 						className={ADMIN_CONTROL_HEIGHT_CLASS}
 						onClick={startCreate}
 						disabled={
-							loading ||
 							Boolean(errorMessage) ||
 							firstSupportedConnectorId == null ||
 							!canCreateTargets
@@ -293,31 +342,34 @@ export function RemoteNodeRemoteStorageTargetSection({
 						<Icon name="Plus" aria-hidden className="mr-1 size-4" />
 						{t(createLabelKey)}
 					</Button>
-				) : null}
+				)}
 			</div>
 
 			{errorMessage ? (
-				<div className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+				<div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
 					{errorMessage}
 				</div>
 			) : null}
 
-			{activeDraftMode != null ? (
-				<RemoteNodeRemoteStorageTargetForm
-					defaultToggleLocked={Boolean(defaultToggleLocked)}
-					connectorDescriptors={supportedConnectorDescriptors}
-					connectorIdError={connectorIdError}
-					draftMode={activeDraftMode}
-					form={form}
-					nameError={nameError}
-					onCancel={resetDraft}
-					onFieldChange={setField}
-					onSubmit={() => void handleSubmit()}
-					submitDisabled={submitDisabled}
-					submitting={submitting}
-					targets={targets}
-				/>
-			) : null}
+			<RemoteNodeRemoteStorageTargetDialog
+				connectorDescriptors={supportedConnectorDescriptors}
+				connectorIdError={connectorIdError}
+				connectorLocked={draftModeForRender === "edit"}
+				draftMode={draftModeForRender}
+				editingTarget={editingTarget}
+				form={form}
+				nameError={nameError}
+				open={dialogOpen}
+				onOpenChange={(open) => {
+					if (!open) closeDraft();
+				}}
+				onCancel={closeDraft}
+				onFieldChange={setField}
+				onSubmit={() => void handleSubmit()}
+				submitDisabled={submitDisabled}
+				submitting={submitting}
+				targets={targets}
+			/>
 
 			{readOnly ? (
 				<AnimatedCollapsible

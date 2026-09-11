@@ -126,6 +126,11 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminUsersPage"),
 	},
 	{
+		key: "route:admin-user-detail",
+		label: "AdminUserDetailPage",
+		load: () => import("@/pages/admin/AdminUserDetailPage"),
+	},
+	{
 		key: "route:admin-user-invitations",
 		label: "AdminUserInvitationsPage",
 		load: () => import("@/pages/admin/AdminUserInvitationsPage"),
@@ -146,14 +151,44 @@ export const adminRouteWarmupLoaders = [
 		load: () => import("@/pages/admin/AdminPoliciesPage"),
 	},
 	{
+		key: "route:admin-policy-create",
+		label: "AdminPolicyCreatePage",
+		load: () => import("@/pages/admin/AdminPolicyCreatePage"),
+	},
+	{
+		key: "route:admin-policy-detail",
+		label: "AdminPolicyDetailPage",
+		load: () => import("@/pages/admin/AdminPolicyDetailPage"),
+	},
+	{
 		key: "route:admin-remote-nodes",
 		label: "AdminRemoteNodesPage",
 		load: () => import("@/pages/admin/AdminRemoteNodesPage"),
 	},
 	{
+		key: "route:admin-remote-node-create",
+		label: "AdminRemoteNodeCreatePage",
+		load: () => import("@/pages/admin/AdminRemoteNodeCreatePage"),
+	},
+	{
+		key: "route:admin-remote-node-detail",
+		label: "AdminRemoteNodeDetailPage",
+		load: () => import("@/pages/admin/AdminRemoteNodeDetailPage"),
+	},
+	{
 		key: "route:admin-external-auth",
 		label: "AdminExternalAuthPage",
 		load: () => import("@/pages/admin/AdminExternalAuthPage"),
+	},
+	{
+		key: "route:admin-external-auth-create",
+		label: "AdminExternalAuthCreatePage",
+		load: () => import("@/pages/admin/AdminExternalAuthCreatePage"),
+	},
+	{
+		key: "route:admin-external-auth-detail",
+		label: "AdminExternalAuthDetailPage",
+		load: () => import("@/pages/admin/AdminExternalAuthDetailPage"),
 	},
 	{
 		key: "route:admin-policy-groups",

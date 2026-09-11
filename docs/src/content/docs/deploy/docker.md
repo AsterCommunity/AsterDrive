@@ -205,7 +205,7 @@ docker compose exec asterdrive /usr/local/bin/aster_drive \
 - 如果启用了外部 Office / WOPI 打开方式，至少用一个真实 Office 文件试开并保存一次
 - 如果启用了 aria2 链接导入，全 Docker 部署下 `offline_download_aria2_rpc_url` 是否指向 Docker 内网地址 `http://aria2:6800/jsonrpc`，`offline_download_temp_dir` 是否是双方都能访问的同一个绝对路径；宿主机 `cargo run` + Compose aria2 的开发模式下 RPC 是否指向 `http://127.0.0.1:6800/jsonrpc`；并且没有把 aria2 RPC 端口暴露到公网
 - 如果以后要走 S3 / MinIO，是否已经计划好对象存储浏览器上传放行规则和密钥管理
-- 如果这台实例实际要跑成 `follower`，是否已经按 [Docker 部署从节点](/deploy/follower-node/) 配好长期 `start_mode`、一次性 bootstrap ENV，并在主控节点创建默认远程存储目标
+- 如果这台实例实际要跑成 `follower`，是否已经按 [Docker 部署从节点](/deploy/follower-node/) 配好长期 `start_mode`、一次性 bootstrap ENV，并在主控节点创建远程存储目标、由 remote 策略显式绑定
 
 正式上线前的完整清单见 [生产上线检查清单](/ops/launch-checklist/)。
 

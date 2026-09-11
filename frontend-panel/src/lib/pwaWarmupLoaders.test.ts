@@ -43,6 +43,9 @@ vi.mock("@/pages/admin/AdminOverviewPage", () => ({
 	default: "AdminOverviewPage",
 }));
 vi.mock("@/pages/admin/AdminUsersPage", () => ({ default: "AdminUsersPage" }));
+vi.mock("@/pages/admin/AdminUserDetailPage", () => ({
+	default: "AdminUserDetailPage",
+}));
 vi.mock("@/pages/admin/AdminUserInvitationsPage", () => ({
 	default: "AdminUserInvitationsPage",
 }));
@@ -53,8 +56,20 @@ vi.mock("@/pages/admin/AdminTeamDetailPage", () => ({
 vi.mock("@/pages/admin/AdminPoliciesPage", () => ({
 	default: "AdminPoliciesPage",
 }));
+vi.mock("@/pages/admin/AdminPolicyCreatePage", () => ({
+	default: "AdminPolicyCreatePage",
+}));
+vi.mock("@/pages/admin/AdminPolicyDetailPage", () => ({
+	default: "AdminPolicyDetailPage",
+}));
 vi.mock("@/pages/admin/AdminRemoteNodesPage", () => ({
 	default: "AdminRemoteNodesPage",
+}));
+vi.mock("@/pages/admin/AdminRemoteNodeCreatePage", () => ({
+	default: "AdminRemoteNodeCreatePage",
+}));
+vi.mock("@/pages/admin/AdminRemoteNodeDetailPage", () => ({
+	default: "AdminRemoteNodeDetailPage",
 }));
 vi.mock("@/pages/admin/AdminExternalAuthPage", () => ({
 	default: "AdminExternalAuthPage",
@@ -154,12 +169,19 @@ describe("pwaWarmupLoaders", () => {
 			"route:storage-setup",
 			"route:admin-overview",
 			"route:admin-users",
+			"route:admin-user-detail",
 			"route:admin-user-invitations",
 			"route:admin-teams",
 			"route:admin-team-detail",
 			"route:admin-policies",
+			"route:admin-policy-create",
+			"route:admin-policy-detail",
 			"route:admin-remote-nodes",
+			"route:admin-remote-node-create",
+			"route:admin-remote-node-detail",
 			"route:admin-external-auth",
+			"route:admin-external-auth-create",
+			"route:admin-external-auth-detail",
 			"route:admin-policy-groups",
 			"route:admin-policy-group-edit",
 			"route:admin-tasks",

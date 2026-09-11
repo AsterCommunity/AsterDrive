@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { StoragePolicyDialog } from "@/components/admin/StoragePolicyDialog";
+import type { StorageConnectorFieldErrors } from "@/components/admin/storage-policy-dialog/connectionErrors";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
 import type { StorageConnectorPromotionCandidate } from "@/components/admin/storage-policy-dialog/policyPromotion";
 import type { StorageConnectorActionValues } from "@/components/admin/storage-policy-dialog/StorageConnectorActionsPanel";
@@ -31,6 +32,7 @@ interface PolicyDialogsProps {
 	dialogOpen: boolean;
 	editMode: boolean;
 	endpointValidationMessage: string | null;
+	connectionFieldErrors: StorageConnectorFieldErrors;
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
@@ -59,9 +61,9 @@ interface PolicyDialogsProps {
 	remoteStorageTargetsLoading: boolean;
 	saveAnywayConfirmOpen: boolean;
 	submitting: boolean;
-	showStorageDialogCloseButton?: boolean;
 	forceDefaultPolicy?: boolean;
-	storageDialogPresentation?: "dialog" | "setup";
+	storageDialogPresentation?: "page" | "setup";
+	storageDialogPageBackLabel?: string;
 	onStorageSetupLogout?: () => void;
 	onCancelConnectorAction: () => void;
 	onApplyDraftConnectorPromotion: (
@@ -111,6 +113,7 @@ export function PolicyDialogs({
 	dialogOpen,
 	editMode,
 	endpointValidationMessage,
+	connectionFieldErrors,
 	form,
 	storageDriverDescriptor,
 	storageDriverDescriptors,
@@ -139,9 +142,9 @@ export function PolicyDialogs({
 	remoteStorageTargetsLoading,
 	saveAnywayConfirmOpen,
 	submitting,
-	showStorageDialogCloseButton = true,
 	forceDefaultPolicy = false,
-	storageDialogPresentation = "dialog",
+	storageDialogPresentation,
+	storageDialogPageBackLabel,
 	onStorageSetupLogout,
 	onCancelConnectorAction,
 	onApplyDraftConnectorPromotion,
@@ -183,74 +186,77 @@ export function PolicyDialogs({
 				confirmLabel={t("force_delete_policy_confirm")}
 				variant="destructive"
 			/>
-			<StoragePolicyDialog
-				open={dialogOpen}
-				mode={editMode ? "edit" : "create"}
-				form={form}
-				storageDriverDescriptor={storageDriverDescriptor}
-				storageDriverDescriptors={storageDriverDescriptors}
-				storageDriverDescriptorsError={storageDriverDescriptorsError}
-				storageDriverDescriptorsLoading={storageDriverDescriptorsLoading}
-				policyCapacity={policyCapacity}
-				policyCapacityLoading={policyCapacityLoading}
-				storageCredentials={storageCredentials}
-				storageCredentialsLoading={storageCredentialsLoading}
-				storageAuthorizationSubmitting={storageAuthorizationSubmitting}
-				storageCredentialValidationSubmitting={
-					storageCredentialValidationSubmitting
-				}
-				storageAuthorizationRedirectUri={storageAuthorizationRedirectUri}
-				connectorActionConfirmId={connectorActionConfirmId}
-				connectorActionSubmittingId={connectorActionSubmittingId}
-				connectorActionValues={connectorActionValues}
-				connectorPromotionBlocked={connectorPromotionBlocked}
-				connectorPromotionCandidates={connectorPromotionCandidates}
-				connectorPromotionConfirmKey={connectorPromotionConfirmKey}
-				connectorPromotionSubmittingKey={connectorPromotionSubmittingKey}
-				remoteNodes={remoteNodes}
-				remoteStorageTargetConnectorDescriptors={
-					remoteStorageTargetConnectorDescriptors
-				}
-				remoteStorageTargetConnectorDescriptorsError={
-					remoteStorageTargetConnectorDescriptorsError
-				}
-				remoteStorageTargetConnectorDescriptorsLoading={
-					remoteStorageTargetConnectorDescriptorsLoading
-				}
-				remoteStorageTargets={remoteStorageTargets}
-				remoteStorageTargetsError={remoteStorageTargetsError}
-				remoteStorageTargetsLoading={remoteStorageTargetsLoading}
-				submitting={submitting}
-				createStep={createStep}
-				createStepTouched={createStepTouched}
-				endpointValidationMessage={endpointValidationMessage}
-				saveAnywayConfirmOpen={saveAnywayConfirmOpen}
-				onCancelConnectorAction={onCancelConnectorAction}
-				onApplyDraftConnectorPromotion={onApplyDraftConnectorPromotion}
-				onCancelConnectorPromotion={onCancelConnectorPromotion}
-				onOpenChange={onDialogOpenChange}
-				onCancelSaveAnyway={onCancelSaveAnyway}
-				onConfirmSaveAnyway={onConfirmSaveAnyway}
-				onConfirmConnectorAction={onConfirmConnectorAction}
-				onConfirmConnectorPromotion={onConfirmConnectorPromotion}
-				onStartStorageAuthorization={onStartStorageAuthorization}
-				onValidateStorageCredential={onValidateStorageCredential}
-				onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
-				onSubmit={onSubmit}
-				onRunConnectionTest={onRunConnectionTest}
-				onFieldChange={onFieldChange}
-				onConnectorActionValueChange={onConnectorActionValueChange}
-				onRequestConnectorAction={onRequestConnectorAction}
-				onRequestConnectorPromotion={onRequestConnectorPromotion}
-				onConnectorIdChange={onConnectorIdChange}
-				onCreateBack={onCreateBack}
-				onCreateStepChange={onCreateStepChange}
-				onCreateNext={onCreateNext}
-				showCloseButton={showStorageDialogCloseButton}
-				forceDefaultPolicy={forceDefaultPolicy}
-				presentation={storageDialogPresentation}
-				onSetupLogout={onStorageSetupLogout}
-			/>
+			{storageDialogPresentation ? (
+				<StoragePolicyDialog
+					open={dialogOpen}
+					mode={editMode ? "edit" : "create"}
+					form={form}
+					storageDriverDescriptor={storageDriverDescriptor}
+					storageDriverDescriptors={storageDriverDescriptors}
+					storageDriverDescriptorsError={storageDriverDescriptorsError}
+					storageDriverDescriptorsLoading={storageDriverDescriptorsLoading}
+					policyCapacity={policyCapacity}
+					policyCapacityLoading={policyCapacityLoading}
+					storageCredentials={storageCredentials}
+					storageCredentialsLoading={storageCredentialsLoading}
+					storageAuthorizationSubmitting={storageAuthorizationSubmitting}
+					storageCredentialValidationSubmitting={
+						storageCredentialValidationSubmitting
+					}
+					storageAuthorizationRedirectUri={storageAuthorizationRedirectUri}
+					connectorActionConfirmId={connectorActionConfirmId}
+					connectorActionSubmittingId={connectorActionSubmittingId}
+					connectorActionValues={connectorActionValues}
+					connectorPromotionBlocked={connectorPromotionBlocked}
+					connectorPromotionCandidates={connectorPromotionCandidates}
+					connectorPromotionConfirmKey={connectorPromotionConfirmKey}
+					connectorPromotionSubmittingKey={connectorPromotionSubmittingKey}
+					remoteNodes={remoteNodes}
+					remoteStorageTargetConnectorDescriptors={
+						remoteStorageTargetConnectorDescriptors
+					}
+					remoteStorageTargetConnectorDescriptorsError={
+						remoteStorageTargetConnectorDescriptorsError
+					}
+					remoteStorageTargetConnectorDescriptorsLoading={
+						remoteStorageTargetConnectorDescriptorsLoading
+					}
+					remoteStorageTargets={remoteStorageTargets}
+					remoteStorageTargetsError={remoteStorageTargetsError}
+					remoteStorageTargetsLoading={remoteStorageTargetsLoading}
+					submitting={submitting}
+					createStep={createStep}
+					createStepTouched={createStepTouched}
+					endpointValidationMessage={endpointValidationMessage}
+					connectionFieldErrors={connectionFieldErrors}
+					saveAnywayConfirmOpen={saveAnywayConfirmOpen}
+					onCancelConnectorAction={onCancelConnectorAction}
+					onApplyDraftConnectorPromotion={onApplyDraftConnectorPromotion}
+					onCancelConnectorPromotion={onCancelConnectorPromotion}
+					onOpenChange={onDialogOpenChange}
+					onCancelSaveAnyway={onCancelSaveAnyway}
+					onConfirmSaveAnyway={onConfirmSaveAnyway}
+					onConfirmConnectorAction={onConfirmConnectorAction}
+					onConfirmConnectorPromotion={onConfirmConnectorPromotion}
+					onStartStorageAuthorization={onStartStorageAuthorization}
+					onValidateStorageCredential={onValidateStorageCredential}
+					onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
+					onSubmit={onSubmit}
+					onRunConnectionTest={onRunConnectionTest}
+					onFieldChange={onFieldChange}
+					onConnectorActionValueChange={onConnectorActionValueChange}
+					onRequestConnectorAction={onRequestConnectorAction}
+					onRequestConnectorPromotion={onRequestConnectorPromotion}
+					onConnectorIdChange={onConnectorIdChange}
+					onCreateBack={onCreateBack}
+					onCreateStepChange={onCreateStepChange}
+					onCreateNext={onCreateNext}
+					forceDefaultPolicy={forceDefaultPolicy}
+					presentation={storageDialogPresentation}
+					pageBackLabel={storageDialogPageBackLabel}
+					onSetupLogout={onStorageSetupLogout}
+				/>
+			) : null}
 		</>
 	);
 }

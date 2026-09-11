@@ -1,9 +1,8 @@
 import { useId } from "react";
 import { cn } from "@/lib/utils";
-import type { RemoteNodeTransportMode } from "../remoteNodeDialogShared";
+import type { RemoteNodeTransportMode } from "../remoteNodePageShared";
 
 export interface TransportModeOption {
-	badge?: string;
 	description: string;
 	label: string;
 	value: RemoteNodeTransportMode;
@@ -57,11 +56,6 @@ export function TransportModeSelector({
 						>
 							<span className="flex items-center gap-2 text-sm font-semibold text-foreground">
 								<span>{option.label}</span>
-								{option.badge ? (
-									<span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-										{option.badge}
-									</span>
-								) : null}
 							</span>
 							<span className="mt-1 block text-xs leading-5 text-muted-foreground">
 								{option.description}

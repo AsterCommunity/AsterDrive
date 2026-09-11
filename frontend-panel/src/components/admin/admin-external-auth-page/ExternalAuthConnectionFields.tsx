@@ -11,7 +11,7 @@ import type {
 } from "./shared";
 
 interface ExternalAuthConnectionFieldsProps {
-	createStepTouched: boolean;
+	formTouched: boolean;
 	form: ExternalAuthProviderFormData;
 	onFieldChange: ExternalAuthProviderFieldChange;
 	provider: AdminExternalAuthProviderInfo | null;
@@ -21,7 +21,7 @@ interface ExternalAuthConnectionFieldsProps {
 }
 
 export function ExternalAuthConnectionFields({
-	createStepTouched,
+	formTouched,
 	form,
 	onFieldChange,
 	provider,
@@ -43,7 +43,7 @@ export function ExternalAuthConnectionFields({
 						value={form.issuerUrl}
 						placeholder="https://id.example.com/application/o/asterdrive/"
 						aria-invalid={
-							createStepTouched &&
+							formTouched &&
 							selectedKind?.issuer_url_required &&
 							!form.issuerUrl.trim()
 								? true
@@ -64,7 +64,7 @@ export function ExternalAuthConnectionFields({
 							value={form.authorizationUrl}
 							placeholder="https://id.example.com/oauth/authorize"
 							aria-invalid={
-								createStepTouched &&
+								formTouched &&
 								selectedKind?.authorization_url_required &&
 								!form.authorizationUrl.trim()
 									? true
@@ -84,7 +84,7 @@ export function ExternalAuthConnectionFields({
 							value={form.tokenUrl}
 							placeholder="https://id.example.com/oauth/token"
 							aria-invalid={
-								createStepTouched &&
+								formTouched &&
 								selectedKind?.token_url_required &&
 								!form.tokenUrl.trim()
 									? true
@@ -104,7 +104,7 @@ export function ExternalAuthConnectionFields({
 							value={form.userinfoUrl}
 							placeholder="https://id.example.com/oauth/userinfo"
 							aria-invalid={
-								createStepTouched &&
+								formTouched &&
 								selectedKind?.userinfo_url_required &&
 								!form.userinfoUrl.trim()
 									? true
@@ -124,9 +124,7 @@ export function ExternalAuthConnectionFields({
 				<Input
 					id="external-auth-provider-client-id"
 					value={form.clientId}
-					aria-invalid={
-						createStepTouched && !form.clientId.trim() ? true : undefined
-					}
+					aria-invalid={formTouched && !form.clientId.trim() ? true : undefined}
 					onChange={(event) => onFieldChange("clientId", event.target.value)}
 				/>
 			</div>

@@ -107,6 +107,7 @@ function renderPanel({
 	form = emptyForm,
 	mode = "create",
 	showRequiredErrors = false,
+	fieldErrors,
 	descriptorValue = descriptor(fields),
 	declaredFields,
 }: {
@@ -114,6 +115,7 @@ function renderPanel({
 	form?: PolicyFormData;
 	mode?: "create" | "edit";
 	showRequiredErrors?: boolean;
+	fieldErrors?: Record<string, string>;
 	descriptorValue?: StorageConnectorDescriptor | null;
 	declaredFields?: StorageConnectorFieldDescriptor[];
 }) {
@@ -142,6 +144,7 @@ function renderPanel({
 			}
 			remoteStorageTargets={[{ name: "", target_key: "archive" }] as never}
 			showRequiredErrors={showRequiredErrors}
+			fieldErrors={fieldErrors}
 			t={t}
 		/>,
 	);
@@ -208,6 +211,21 @@ describe("StorageConnectorFieldsPanel", () => {
 			],
 			showRequiredErrors: true,
 		});
+		expect(screen.getByText("Text field")).toHaveClass(
+			"gap-0",
+			"after:ml-0.5",
+			"after:text-destructive",
+			"after:content-['*']",
+		);
+		expect(screen.getByText("Base path")).toHaveClass(
+			"gap-0",
+			"after:ml-0.5",
+			"after:text-destructive",
+			"after:content-['*']",
+		);
+		expect(screen.getByText("Secret field")).not.toHaveClass(
+			"after:content-['*']",
+		);
 
 		expect(screen.getByLabelText("Text field")).toHaveAttribute(
 			"maxlength",
@@ -225,6 +243,35 @@ describe("StorageConnectorFieldsPanel", () => {
 		expect(screen.getByLabelText("Number field")).toHaveAttribute("min", "1");
 		expect(screen.getByLabelText("Number field")).toHaveAttribute("max", "10");
 		expect(screen.getByRole("switch")).toBeChecked();
+	});
+
+	it("renders server validation errors on the matching connector field", () => {
+		renderPanel({
+			fields: [field("text_field", "text")],
+			form: {
+				...emptyForm,
+				connector_config_values: { text_field: "value" },
+			},
+			fieldErrors: {
+				"connector_config:text_field": "Server says this is invalid",
+			},
+		});
+		expect(screen.getByLabelText("Text field")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByText("Server says this is invalid")).toBeVisible();
+	});
+
+	it("marks boolean controls invalid when the backend identifies them", () => {
+		renderPanel({
+			fields: [field("boolean_field", "boolean")],
+			fieldErrors: {
+				"connector_config:boolean_field": "Boolean value is invalid",
+			},
+		});
+		expect(screen.getByRole("switch")).toHaveAttribute("aria-invalid", "true");
+		expect(screen.getByText("Boolean value is invalid")).toBeVisible();
 	});
 
 	it("normalizes text and number changes while keeping credential and config channels separate", () => {

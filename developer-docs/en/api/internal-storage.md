@@ -73,6 +73,7 @@ Control-plane endpoints require signed headers. Object GET / PUT can support pre
 | `GET` | `/capacity` | Read capacity status for the current follower receiving target |
 | `PUT` | `/binding` | Push binding state to legacy followers without the binding control pull capability |
 | `GET` | `/targets` | List remote storage targets available to the current binding |
+| `GET` | `/target-connectors?locale=...` | List follower-owned remote target connector descriptors and localization resources |
 | `POST` | `/targets` | Create a remote storage target |
 | `PATCH` | `/targets/{target_key}` | Update a remote storage target |
 | `DELETE` | `/targets/{target_key}` | Delete a remote storage target |
@@ -109,7 +110,7 @@ Current followers explicitly advertise `features.binding_state_pull`. The capabi
 - When the capability is absent or `false`, the primary retains the legacy `PUT /binding` push.
 - When a new follower calls an old primary and receives `404` for binding-state, it keeps its locally persisted legacy push state.
 
-Protocol `v6` declares remote-storage-target connector capabilities through `remote_storage_target.connector_ids`. Capability resolution is descriptor-driven and does not expose a separate driver-type matrix.
+Protocol `v6` declares remote-storage-target connector capabilities through `remote_storage_target.connector_ids`. The signed `/api/v1/internal/storage/target-connectors?locale=...` control-plane endpoint then returns the follower-owned descriptor and connector localization catalog from the same registry snapshot; the primary does not need to register those connectors. Capability resolution is descriptor-driven and does not expose a separate driver-type matrix.
 
 The capability boundary is explicit:
 
@@ -174,8 +175,7 @@ Local target request:
       "values": { "base_path": "data/storage" }
     },
     "credential": { "mode": "none" }
-  },
-  "is_default": true
+  }
 }
 ```
 
@@ -199,12 +199,11 @@ S3 target request:
       "mode": "static",
       "values": { "access_key": "AKIA...", "secret_key": "..." }
     }
-  },
-  "is_default": false
+  }
 }
 ```
 
-Create and update requests use the shared `StorageConnectionInput` envelope. They carry connector-owned configuration and credentials alongside `name` and `is_default`; the actual choices are constrained by the follower's `remote_storage_target.connector_ids` capability declaration. These control-plane endpoints accept only signed primary headers, not presigned query access.
+Create and update requests use the shared `StorageConnectionInput` envelope. They carry connector-owned configuration and credentials alongside `name`; each remote policy stores an explicit target key, and follower object requests without `target_key` are rejected. Connector choices are constrained by the follower's `remote_storage_target.connector_ids` capability declaration. These control-plane endpoints accept only signed primary headers, not presigned query access.
 
 ## Object operations
 

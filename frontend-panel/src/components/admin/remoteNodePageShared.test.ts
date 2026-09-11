@@ -5,10 +5,10 @@ import {
 	getRemoteNodeBaseUrlValidationMessage,
 	getRemoteNodeForm,
 	hasRemoteConnectionFieldChanges,
-} from "@/components/admin/remoteNodeDialogShared";
+} from "@/components/admin/remoteNodePageShared";
 import type { RemoteNodeInfo } from "@/types/api";
 
-describe("remoteNodeDialogShared", () => {
+describe("remoteNodePageShared", () => {
 	it("maps an existing remote node into form state", () => {
 		expect(
 			getRemoteNodeForm({

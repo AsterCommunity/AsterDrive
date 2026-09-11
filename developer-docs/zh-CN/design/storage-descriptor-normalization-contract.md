@@ -22,6 +22,7 @@
 - 不支持的 driver 必须由后端返回稳定错误。remote storage target 只能暴露已注册且远端 capability 声明支持的 known driver；未知 driver id 可以在 wire model 中保留，但不能被前端当成本地可配置 driver。
 - descriptor 缺失、远端 capability 缺失或解析失败时，前端只能做保守兜底：隐藏高风险动作或显示不可用状态。不能在兜底路径里恢复本地 capability 矩阵。
 - action descriptor 用来声明入口是否需要 saved policy、授权 credential，以及是否会修改远端状态。路由和 service 仍要做最终校验，不能只靠前端隐藏按钮。
+- field descriptor 的 `update_behavior` 声明编辑生命周期：`mutable` 可持续修改，`create_only` 只在创建时可写，`set_once` 允许历史空值补写一次后锁定。通用前端按这项元数据禁用字段，不能从 connector ID、字段名或 data source 推断；后端 service 必须独立执行同一不变量，API 调用不能绕过。
 - action 返回的结构化 `output` 只允许按 descriptor 的 `output_fields` 临时展示；未声明字段、类型不匹配字段和其他 action 的结果一律忽略。输出不写回 policy config，也不跨 action 或对话框会话保存。
 - delegated credential 的状态文案、语义色、说明、需要管理员关注的提示、净化后的原因映射、生命周期标签、重新授权文案和 redirect URI 辅助信息都由 `credential_management` 描述。共享面板不得按 OneDrive、Microsoft Graph 或其他 provider ID 分支，也不得直接展示 wire `status_reason`。
 

@@ -26,6 +26,99 @@ use crate::storage::{
     StoragePolicyConnectionInput, TestDraftStorageConnectorConnectionInput,
 };
 
+async fn validate_remote_policy_target(
+    client: &crate::storage::remote_protocol::RemoteStorageClient,
+    binding: &crate::storage::connectors::RemotePolicyBindingProjection,
+) -> Result<()> {
+    let remote_node_id = binding.remote_node_id.ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::PolicyRemoteNodeRequired,
+            "remote storage policy requires remote_node_id",
+        )
+    })?;
+    let target_key = binding
+        .remote_storage_target_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            validation_error_with_code(
+                ApiErrorCode::PolicyRemoteStorageTargetRequired,
+                "remote storage policy requires remote_storage_target_key",
+            )
+        })?;
+    let target = client
+        .list_storage_targets()
+        .await?
+        .into_iter()
+        .find(|target| target.target_key == target_key)
+        .ok_or_else(|| {
+            validation_error_with_code(
+                ApiErrorCode::RemoteStorageTargetNotFound,
+                format!(
+                    "remote storage target '{target_key}' is not configured on remote node #{remote_node_id}"
+                ),
+            )
+        })?;
+    if !target.last_error.trim().is_empty() {
+        return Err(validation_error_with_code(
+            ApiErrorCode::RemoteStorageTargetUnavailable,
+            format!(
+                "remote storage target '{}' is not ready: {}",
+                target.target_key, target.last_error
+            ),
+        ));
+    }
+    if target.applied_revision < target.desired_revision {
+        return Err(validation_error_with_code(
+            ApiErrorCode::RemoteStorageTargetNotApplied,
+            format!(
+                "remote storage target '{}' is pending apply",
+                target.target_key
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_remote_policy_location_unchanged(
+    connectors: &crate::storage::connectors::StorageConnectorRegistry,
+    existing: &storage_policy::Model,
+    candidate: &ConnectorConfigEnvelope,
+) -> Result<bool> {
+    let Some(existing_binding) =
+        crate::storage::connectors::resolve_remote_policy_binding(connectors, existing)?
+    else {
+        return Ok(false);
+    };
+    let candidate_binding =
+        crate::storage::connectors::resolve_remote_policy_binding_from_config(candidate)?
+            .ok_or_else(|| {
+                AsterError::internal_error(
+                    "remote storage policy candidate has no remote binding projection",
+                )
+            })?;
+    if existing_binding.remote_node_id != candidate_binding.remote_node_id
+        || existing_binding.base_path != candidate_binding.base_path
+    {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyRemoteStorageLocationImmutable,
+            "remote storage policy location cannot be changed; create a new policy and migrate existing data",
+        ));
+    }
+    match (
+        existing_binding.remote_storage_target_key.as_deref(),
+        candidate_binding.remote_storage_target_key.as_deref(),
+    ) {
+        (current, candidate) if current == candidate => Ok(false),
+        (None, Some(_)) => Ok(true),
+        _ => Err(validation_error_with_code(
+            ApiErrorCode::PolicyRemoteStorageLocationImmutable,
+            "remote storage policy location cannot be changed; create a new policy and migrate existing data",
+        )),
+    }
+}
+
 pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
@@ -175,7 +268,32 @@ pub async fn create(
         && setup_state_at_admission
             == crate::services::system_setup::SystemSetupState::NeedsStorage;
 
+    let remote_binding =
+        crate::storage::connectors::resolve_remote_policy_binding_from_config(&connector_config)?;
+    let remote_client = if let Some(binding) = remote_binding.as_ref() {
+        let remote_node_id = binding.remote_node_id.ok_or_else(|| {
+            validation_error_with_code(
+                ApiErrorCode::PolicyRemoteNodeRequired,
+                "remote storage policy requires remote_node_id",
+            )
+        })?;
+        let node = crate::services::remote::remote_node::require_completed_enrollment(
+            state,
+            remote_node_id,
+        )
+        .await?;
+        Some(crate::services::remote::remote_node::remote_storage_client_for_node(state, &node)?)
+    } else {
+        None
+    };
+
     let txn = transaction::begin(state.writer_db()).await?;
+    if let (Some(remote_binding), Some(remote_client)) =
+        (remote_binding.as_ref(), remote_client.as_ref())
+    {
+        lock_default_group_assignment(&txn).await?;
+        validate_remote_policy_target(remote_client, remote_binding).await?;
+    }
     if creates_initial_default_policy {
         system_initialization_repo::acquire_setup_lock(&txn).await?;
         crate::services::system_setup::require_needs_storage(&txn).await?;
@@ -386,31 +504,37 @@ pub async fn update(
         )));
     }
     let connectors = state.driver_registry().connectors();
-    let connector_config = match connector_config {
+    let (connector_config, binds_legacy_remote_target) = match connector_config {
         Some(connector_config) => {
             if connector_config.connector_id.as_str() != existing.connector_id {
                 return Err(AsterError::validation_error(
                     "storage policy connector_id cannot be changed by patch",
                 ));
             }
-            crate::storage::connectors::normalize_connector_config(
+            let connector_config = crate::storage::connectors::normalize_connector_config(
                 connectors,
                 state.writer_db(),
                 connector_config,
             )
-            .await?
+            .await?;
+            let binds_legacy_remote_target =
+                ensure_remote_policy_location_unchanged(connectors, &existing, &connector_config)?;
+            (connector_config, binds_legacy_remote_target)
         }
-        None => ConnectorConfigEnvelope::new(
-            existing_storage_config.connector.connector_id.clone(),
-            existing_storage_config.connector.schema_version,
-            serde_json::from_value(existing_storage_config.connector.values.clone()).map_err(
-                |error| {
-                    AsterError::database_operation(format!(
-                        "storage policy {} connector config must be a JSON object: {error}",
-                        existing.id
-                    ))
-                },
-            )?,
+        None => (
+            ConnectorConfigEnvelope::new(
+                existing_storage_config.connector.connector_id.clone(),
+                existing_storage_config.connector.schema_version,
+                serde_json::from_value(existing_storage_config.connector.values.clone()).map_err(
+                    |error| {
+                        AsterError::database_operation(format!(
+                            "storage policy {} connector config must be a JSON object: {error}",
+                            existing.id
+                        ))
+                    },
+                )?,
+            ),
+            false,
         ),
     };
     let behavior = behavior
@@ -433,7 +557,36 @@ pub async fn update(
                 AsterError::internal_error(format!("serialize storage policy config: {error}"))
             })?;
 
+    let legacy_target_binding = if binds_legacy_remote_target {
+        crate::storage::connectors::resolve_remote_policy_binding_from_config(&connector_config)?
+    } else {
+        None
+    };
+    let legacy_target_client = if let Some(binding) = legacy_target_binding.as_ref() {
+        let remote_node_id = binding.remote_node_id.ok_or_else(|| {
+            validation_error_with_code(
+                ApiErrorCode::PolicyRemoteNodeRequired,
+                "remote storage policy requires remote_node_id",
+            )
+        })?;
+        let node = crate::services::remote::remote_node::require_completed_enrollment(
+            state,
+            remote_node_id,
+        )
+        .await?;
+        Some(crate::services::remote::remote_node::remote_storage_client_for_node(state, &node)?)
+    } else {
+        None
+    };
+
     let txn = transaction::begin(state.writer_db()).await?;
+    if let (Some(binding), Some(client)) = (
+        legacy_target_binding.as_ref(),
+        legacy_target_client.as_ref(),
+    ) {
+        lock_default_group_assignment(&txn).await?;
+        validate_remote_policy_target(client, binding).await?;
+    }
     if let Some(false) = is_default
         && existing.is_default
         && policy_repo::find_default(&txn).await?.is_some()

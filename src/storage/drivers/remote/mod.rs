@@ -17,7 +17,7 @@ use aster_drive_storage::object_key;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteDriverConfig {
     pub base_path: String,
-    pub remote_storage_target_key: Option<String>,
+    pub remote_storage_target_key: String,
     pub max_file_size: i64,
 }
 
@@ -58,10 +58,8 @@ impl RemoteDriver {
     ) -> Result<Self> {
         let resolver = RemoteCapabilityResolver::from_remote_node(follower);
         resolver.ensure_protocol_compatible("remote storage driver")?;
-        let client = client.with_policy_context(
-            config.remote_storage_target_key.as_deref(),
-            config.max_file_size,
-        );
+        let client =
+            client.with_policy_context(&config.remote_storage_target_key, config.max_file_size);
         Ok(Self {
             client,
             base_path: config.base_path.trim_matches('/').to_string(),

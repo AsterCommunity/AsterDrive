@@ -1,4 +1,6 @@
 import {
+	act,
+	cleanup,
 	fireEvent,
 	render,
 	screen,
@@ -16,8 +18,12 @@ import type {
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string, options?: Record<string, unknown>) =>
-			options?.name ? `${key}:${options.name}` : key,
+		t: (key: string, options?: Record<string, unknown>) => {
+			if (options?.ns === "plugin.follower-only") {
+				return key === "follower_label" ? "Follower 专用存储" : "远端目录";
+			}
+			return options?.name ? `${key}:${options.name}` : key;
+		},
 	}),
 }));
 
@@ -96,16 +102,19 @@ vi.mock("@/components/ui/label", () => ({
 vi.mock("@/components/ui/select", () => ({
 	Select: ({
 		children,
+		disabled,
 		onValueChange,
 		value,
 	}: {
 		children: ReactNode;
+		disabled?: boolean;
 		onValueChange?: (value: string) => void;
 		value: string;
 	}) => (
 		<div>
 			<select
 				aria-label={`select:${value}`}
+				disabled={disabled}
 				value={value}
 				onChange={(event) => onValueChange?.(event.currentTarget.value)}
 			>
@@ -160,7 +169,6 @@ const profile = (
 	applied_revision: 2,
 	created_at: "2026-05-01T00:00:00Z",
 	desired_revision: 2,
-	is_default: false,
 	last_error: "",
 	name: "Local ingress",
 	target_key: "local-default",
@@ -227,16 +235,6 @@ const localConnectorDescriptor: StorageConnectorDescriptor = {
 			scope: "connector_config",
 			placeholder: "tenant-a/incoming",
 			required: true,
-			secret: false,
-		},
-		{
-			help_key: "remote_node_ingress_profile_default_hint",
-			kind: "boolean",
-			label_key: "remote_node_ingress_profile_default_toggle",
-			name: "is_default",
-			scope: "connector_config",
-			placeholder: null,
-			required: false,
 			secret: false,
 		},
 	],
@@ -349,16 +347,6 @@ const s3ConnectorDescriptor: StorageConnectorDescriptor = {
 			required: false,
 			secret: false,
 		},
-		{
-			help_key: "remote_node_ingress_profile_default_hint",
-			kind: "boolean",
-			label_key: "remote_node_ingress_profile_default_toggle",
-			name: "is_default",
-			scope: "connector_config",
-			placeholder: null,
-			required: false,
-			secret: false,
-		},
 	],
 	actions: [],
 	promotions: [],
@@ -421,7 +409,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			/>,
 		);
 
-		expect(screen.getByText("core:loading")).toBeInTheDocument();
+		expect(screen.getAllByRole("row")).toHaveLength(6);
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
@@ -480,7 +468,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			}),
 		).toHaveAttribute("aria-expanded", "true");
 		expect(screen.getByText("Local ingress")).toBeInTheDocument();
-		expect(screen.queryByText("local-default")).not.toBeInTheDocument();
+		expect(screen.getByText("local-default")).toBeInTheDocument();
 		expect(
 			screen.queryByRole("button", {
 				name: "remote_node_ingress_profiles_create",
@@ -513,6 +501,43 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		);
 		expect(screen.getByText("unknown")).toBeInTheDocument();
 		expect(screen.getByText("Unknown target")).toBeInTheDocument();
+	});
+
+	it("renders follower-owned connector and field localizations", async () => {
+		const followerDescriptor = {
+			...localConnectorDescriptor,
+			connector_id: "plugin.follower-only",
+			fields: localConnectorDescriptor.fields.map((field) => ({
+				...field,
+				label_key: "follower_base_path",
+			})),
+			ui: {
+				...localConnectorDescriptor.ui,
+				label_key: "follower_label",
+			},
+		};
+		renderSection({
+			connectorDescriptors: [followerDescriptor],
+			readOnly: true,
+			targets: [
+				profile({
+					connector_config: {
+						...profile().connector_config,
+						connector_id: "plugin.follower-only",
+					},
+					connector_id: "plugin.follower-only",
+				}),
+			],
+		});
+
+		await userEvent.setup().click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_show",
+			}),
+		);
+		await waitFor(() =>
+			expect(screen.getByText(/远端目录/)).toBeInTheDocument(),
+		);
 	});
 
 	it("allows quick creation in a read-only target list without exposing management actions", async () => {
@@ -554,38 +579,25 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 							values: expect.objectContaining({ base_path: "policy/incoming" }),
 						}),
 					}),
-					is_default: false,
 					name: "Policy quick target",
 				}),
 			);
 		});
 	});
 
-	it("creates the first local profile as the default", async () => {
+	it("creates the first local profile", async () => {
 		const { onCreateTarget } = renderSection();
 
 		const createButton = screen.getByRole("button", {
 			name: /remote_node_ingress_profiles_create/,
 		});
 		fireEvent.click(createButton);
-		expect(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		).toBeChecked();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: " Local upload " },
 		});
 		fireEvent.change(screen.getByLabelText("base_path"), {
 			target: { value: "teams/incoming" },
 		});
-		fireEvent.click(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		);
-		expect(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		).not.toBeChecked();
-		fireEvent.click(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
-		);
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
@@ -597,14 +609,28 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 							values: expect.objectContaining({ base_path: "teams/incoming" }),
 						}),
 					}),
-					is_default: true,
 					name: "Local upload",
 				}),
 			);
 		});
+		await waitFor(() =>
+			expect(
+				screen.queryByText("remote_node_ingress_profile_form_create_title"),
+			).not.toBeInTheDocument(),
+		);
+	});
+
+	it("opens target editing from the table row", () => {
+		renderSection({ targets: [profile()] });
+
+		fireEvent.click(screen.getByText("Local ingress"));
+
 		expect(
-			screen.queryByText("remote_node_ingress_profile_form_create_title"),
-		).not.toBeInTheDocument();
+			screen.getByText("remote_node_ingress_profile_form_edit_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("remote_node_ingress_profiles_create"),
+		).toBeInTheDocument();
 	});
 
 	it("rejects connector selections that are not valid connector identifiers", () => {
@@ -712,6 +738,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.change(screen.getByLabelText("secret_key"), {
 			target: { value: " secret " },
 		});
+		expect(screen.getByRole("button", { name: /core:create/ })).toBeEnabled();
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
@@ -752,7 +779,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 					endpoint: "https://s3.example.com",
 				},
 			},
-			is_default: true,
 			name: "S3 ingress",
 			target_key: "s3-default",
 		});
@@ -760,8 +786,11 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "core:edit" }));
 		expect(
-			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
+			screen.getByLabelText("select:asterdrive.storage.s3"),
 		).toBeDisabled();
+		expect(
+			screen.getByText("remote_node_ingress_profile_connector_immutable"),
+		).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: /save_changes/ })).toBeEnabled();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "S3 renamed" },
@@ -788,7 +817,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 							values: { s3_access_key_id: "rotated-access" },
 						},
 					},
-					is_default: true,
 					name: "S3 renamed",
 				}),
 			);
@@ -827,9 +855,11 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			/>,
 		);
 
-		expect(
-			screen.queryByText("remote_node_ingress_profile_form_edit_title"),
-		).not.toBeInTheDocument();
+		await waitFor(() =>
+			expect(
+				screen.queryByText("remote_node_ingress_profile_form_edit_title"),
+			).not.toBeInTheDocument(),
+		);
 
 		rerender(
 			<RemoteNodeRemoteStorageTargetSection
@@ -886,5 +916,87 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				"remote_node_ingress_profile_delete_title:Local ingress",
 			),
 		).toBeInTheDocument();
+	});
+
+	it("finishes delayed draft cleanup after cancel and target removal", () => {
+		vi.useFakeTimers();
+		const existing = profile();
+		const view = render(
+			<RemoteNodeRemoteStorageTargetSection
+				connectorDescriptors={defaultConnectorDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
+			/>,
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /remote_node_ingress_profiles_create/,
+			}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+		act(() => vi.advanceTimersByTime(120));
+		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
+
+		view.rerender(
+			<RemoteNodeRemoteStorageTargetSection
+				connectorDescriptors={defaultConnectorDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:edit" }));
+		view.rerender(
+			<RemoteNodeRemoteStorageTargetSection
+				connectorDescriptors={defaultConnectorDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[]}
+			/>,
+		);
+		act(() => vi.advanceTimersByTime(120));
+		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
+	});
+
+	it("opens editable rows from keyboard without activating read-only or deleting rows", () => {
+		const existing = profile();
+		renderSection({ targets: [existing] });
+		const editableRow = screen.getByText("Local ingress").closest("tr");
+		expect(editableRow).not.toBeNull();
+		if (editableRow) {
+			fireEvent.keyDown(editableRow, { key: "Escape" });
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+			fireEvent.keyDown(editableRow, { key: "Enter" });
+		}
+		expect(screen.getByRole("dialog")).toHaveAttribute("data-open", "");
+		cleanup();
+
+		renderSection({ readOnly: true, targets: [existing] });
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_show",
+			}),
+		);
+		const readOnlyRow = screen.getByText("Local ingress").closest("tr");
+		expect(readOnlyRow).not.toHaveAttribute("tabindex");
+		if (readOnlyRow) fireEvent.keyDown(readOnlyRow, { key: " " });
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		cleanup();
+
+		renderSection({ targets: [existing] });
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+		const deletingRow = screen.getByText("Local ingress").closest("tr");
+		if (deletingRow) fireEvent.keyDown(deletingRow, { key: "Enter" });
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
 });

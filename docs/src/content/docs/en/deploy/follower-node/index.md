@@ -20,7 +20,7 @@ Run another AsterDrive instance as a `follower` to provide remote object storage
 - **Primary node**: handles login, frontend, admin console, shares, WebDAV, storage policies, and remote-node management
 - **Follower node**: only exposes `/health`, `/health/ready`, and the internal remote storage protocol; it accepts object requests signed by the primary and writes objects to a local directory or S3 according to the **remote storage target** pushed by the primary
 
-The current internal remote storage protocol version is `v5`, and the primary supports followers whose compatible range overlaps `v4` through `v5`. Followers limited to `v2` or `v3` must be upgraded first.
+The current internal remote storage protocol version and compatibility floor are both `v6`; the primary and follower must run the same protocol generation.
 
 For the complete concept boundaries (whether a follower allows user login, whether a remote storage target can wrap another remote policy, and so on), see [Follower Nodes](/en/admin/follower-nodes/).
 
@@ -67,13 +67,13 @@ flowchart LR
   CreateNode --> Transport["Choose transport mode"]
   Transport --> Enroll["Follower completes enroll<br/>Docker auto or manual command"]
   Enroll --> Connectivity["Test connectivity from primary"]
-  Connectivity --> Target["Create default remote storage target"]
+  Connectivity --> Target["Create remote storage target"]
   Target --> Policy["Create remote storage policy"]
   Policy --> Assign["Assign to users or teams"]
 ```
 
 :::tip[The easiest step to miss]
-Successful enroll does not mean uploads are ready. Before the follower can really handle remote storage, you still need to create a default remote storage target for it from the primary node.
+Successful enroll does not mean uploads are ready. Before the follower can handle remote storage, create a remote storage target from the primary and select it explicitly in the remote storage policy.
 :::
 
 ## Path A: Docker Auto-Enroll (Recommended)
@@ -259,7 +259,7 @@ One easy-to-misread detail:
 
 Before enroll, `/health/ready` returning `503` does not mean the service is broken; it is not ready before enrollment by design.
 
-## Create the Default Remote Storage Target
+## Create a Remote Storage Target
 
 After the connectivity test passes, return to `Admin -> Follower Nodes`, open the follower, and find **Remote Storage Targets**. This decides where objects written by the primary to the follower finally land.
 
@@ -268,12 +268,12 @@ Two remote storage target types are currently supported:
 - `local`: write to the follower's local directory
 - `s3`: write to S3 / MinIO / R2 or similar object storage reachable by the follower
 
-For the first attempt, create `local`: use an easy-to-recognize name (such as `default-local`), a relative base path (such as `default`), and check "Set as default remote storage target".
+For the first attempt, create `local`: use an easy-to-recognize name (such as `local-primary`) and a relative base path (such as `primary`).
 
 The local path here **can only be relative** and is always restricted under the follower's `server.follower.remote_storage_target_local_root` — `base_path = "default"` ultimately lands under a directory such as `data/remote-storage-targets/default` on the follower. If you want the follower to write objects directly to S3, create an `s3` remote storage target here and fill in the endpoint, bucket, credentials, and optional prefix.
 
-:::caution[Remote writes are rejected without a default remote storage target]
-Successful enroll only means the primary-follower identity binding succeeded. Before actually receiving objects, the follower still needs an applied default remote storage target; otherwise, remote policy uploads return "no default remote storage target yet".
+:::caution[Remote policies must select a target explicitly]
+Successful enrollment only means the primary-follower identity binding succeeded. Before receiving objects, create an applied remote storage target and select it explicitly in every remote policy; requests without `target_key` are rejected.
 :::
 
 Remote storage targets are pushed by the primary through the follower API, with these prerequisites:
@@ -289,7 +289,7 @@ Return to the primary's `Admin -> Storage Policies` and create a `Follower Node`
 - The real network transfer, access key, and signature are all handled by the "remote node" record
 - The policy itself only controls remote path prefix, upload limits, and whether it is the default
 - A remote storage policy should bind to a remote node that is **enrolled, enabled, and reachable through its current transport mode**
-- Where the follower actually writes is decided by the remote storage target bound to the policy; when none is selected explicitly, the default target is used
+- Where the follower actually writes is decided by the remote storage target explicitly bound to the policy; there is no binding-wide default fallback
 
 The complete policy group routing, test user binding, and launch validation steps are in the [Remote Follower Storage Policy Tutorial](/en/admin/storage-backends/remote-follower/).
 
@@ -315,7 +315,7 @@ Complete at least these checks:
 
 1. The follower's `/health` and `/health/ready` both return `200`.
 2. The primary's "Test connection" passes, and the capability summary shows a protocol range compatible with the primary.
-3. The default remote storage target has been created and applied successfully.
+3. The remote storage target selected by the policy has been created and applied successfully.
 4. Upload a real file through the remote policy and confirm the object lands in the expected follower directory or S3 bucket.
 5. Download it once to confirm the full path works.
 6. If you chose `presigned`, verify one upload and one download from a real browser; when `relay_stream` works but `presigned` fails, check browser-to-follower `base_url` DNS, certificate, routing, CORS, and proxy response headers first.
@@ -323,7 +323,7 @@ Complete at least these checks:
 
 ## Day-to-Day Maintenance
 
-- Follower upgrades and backups work the same as normal instances for their deployment method; the primary-follower protocol compatibility range is `v4` through `v5`.
+- Follower upgrades and backups work the same as normal instances for their deployment method; the current primary and follower must both use protocol V6.
 - Disabling a remote node actually stops the link: remote policies on the primary stop using it, and the follower rejects the corresponding signed inbound requests.
 - Day-to-day capacity and connectivity status are visible in the follower's remote node details in the primary admin panel.
 

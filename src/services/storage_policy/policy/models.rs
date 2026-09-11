@@ -24,6 +24,10 @@ pub struct StoragePolicyDiagnostic {
     pub kind: String,
     pub message: String,
     pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl StoragePolicyDiagnostic {
@@ -33,6 +37,8 @@ impl StoragePolicyDiagnostic {
             kind: diagnostic.kind,
             message: diagnostic.message,
             retryable: error.api_error_retryable(),
+            field: diagnostic.field,
+            scope: diagnostic.scope,
         })
     }
 }
@@ -42,6 +48,8 @@ impl From<StoragePolicyDiagnostic> for ApiErrorDiagnostic {
         Self {
             kind: value.kind,
             message: value.message,
+            field: value.field,
+            scope: value.scope,
         }
     }
 }

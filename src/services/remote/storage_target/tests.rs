@@ -1,10 +1,10 @@
 use super::{
     create, delete,
-    driver::list_registered_remote_storage_target_connector_descriptors,
+    driver::remote_storage_target_connector_catalog,
     list,
     normalization::{normalize_create_input, normalize_update_input},
     paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path},
-    resolve_effective_target, resolve_target_by_key, update,
+    resolve_target_by_key, update,
 };
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
@@ -142,7 +142,7 @@ async fn create_binding(state: &TestFollowerState, access_key: &str) -> master_b
     .unwrap()
 }
 
-fn local_create(name: &str, base_path: &str, is_default: bool) -> RemoteCreateStorageTargetRequest {
+fn local_create(name: &str, base_path: &str) -> RemoteCreateStorageTargetRequest {
     RemoteCreateStorageTargetRequest {
         name: name.to_string(),
         connection: crate::storage::StorageConnectionInput {
@@ -155,7 +155,6 @@ fn local_create(name: &str, base_path: &str, is_default: bool) -> RemoteCreateSt
             ),
             credential: crate::storage::StorageConnectorCredentialInput::None,
         },
-        is_default,
     }
 }
 
@@ -164,7 +163,6 @@ fn s3_create(
     endpoint: &str,
     bucket: &str,
     base_path: &str,
-    is_default: bool,
 ) -> RemoteCreateStorageTargetRequest {
     RemoteCreateStorageTargetRequest {
         name: name.to_string(),
@@ -187,7 +185,6 @@ fn s3_create(
                 }),
             ),
         },
-        is_default,
     }
 }
 
@@ -217,7 +214,6 @@ fn s3_model() -> remote_storage_target::Model {
         access_key: String::new(),
         secret_key: String::new(),
         base_path: String::new(),
-        is_default: true,
         desired_revision: 1,
         applied_revision: 1,
         last_error: String::new(),
@@ -335,11 +331,10 @@ fn resolve_remote_storage_target_local_path_rejects_empty_root() {
 #[tokio::test]
 async fn normalize_create_input_uses_connector_validation_and_envelope() {
     let state = setup_state().await;
-    let normalized = normalize_create_input(&state, local_create(" Local ", " ./dropbox/ ", true))
+    let normalized = normalize_create_input(&state, local_create(" Local ", " ./dropbox/ "))
         .await
         .unwrap();
     assert_eq!(normalized.name, "Local");
-    assert_eq!(normalized.is_default, Some(true));
     let connection = normalized.connection.unwrap();
     assert_eq!(
         connection.connector_config.connector_id.as_str(),
@@ -351,12 +346,9 @@ async fn normalize_create_input_uses_connector_validation_and_envelope() {
 #[tokio::test]
 async fn normalize_create_input_rejects_invalid_connector_values() {
     let state = setup_state().await;
-    let error = normalize_create_input(
-        &state,
-        s3_create("S3", "https://s3.example.com", "", "", false),
-    )
-    .await
-    .unwrap_err();
+    let error = normalize_create_input(&state, s3_create("S3", "https://s3.example.com", "", ""))
+        .await
+        .unwrap_err();
     assert!(error.message().contains("bucket"));
 }
 
@@ -370,14 +362,29 @@ async fn normalize_update_input_keeps_connection_opaque_when_omitted() {
         RemoteUpdateStorageTargetRequest {
             connection: None,
             name: Some(" Updated ".to_string()),
-            is_default: Some(true),
         },
     )
     .await
     .unwrap();
     assert_eq!(normalized.name, "Updated");
     assert!(normalized.connection.is_none());
-    assert_eq!(normalized.is_default, Some(true));
+}
+
+#[tokio::test]
+async fn normalize_update_input_rejects_connector_changes() {
+    let state = setup_state().await;
+    let existing = s3_model();
+    let error = normalize_update_input(
+        &state,
+        &existing,
+        RemoteUpdateStorageTargetRequest {
+            connection: Some(local_create("Local", "other").connection),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.message().contains("connector is immutable"));
 }
 
 #[tokio::test]
@@ -387,13 +394,7 @@ async fn normalize_update_input_merges_partial_static_credentials_from_saved_con
     let created = create(
         &state,
         &binding,
-        s3_create(
-            "Archive",
-            "https://s3.example.test",
-            "bucket",
-            "prefix",
-            true,
-        ),
+        s3_create("Archive", "https://s3.example.test", "bucket", "prefix"),
     )
     .await
     .unwrap();
@@ -439,13 +440,7 @@ async fn normalize_update_input_allows_complete_credentials_when_saved_ciphertex
     let created = create(
         &state,
         &binding,
-        s3_create(
-            "Archive",
-            "https://s3.example.test",
-            "bucket",
-            "prefix",
-            true,
-        ),
+        s3_create("Archive", "https://s3.example.test", "bucket", "prefix"),
     )
     .await
     .unwrap();
@@ -501,7 +496,7 @@ async fn normalize_update_input_allows_complete_credentials_when_saved_ciphertex
 async fn reconciliation_does_not_apply_stale_desired_revision_result() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-reconcile-stale").await;
-    let created = create(&state, &binding, local_create("Target", "target", true))
+    let created = create(&state, &binding, local_create("Target", "target"))
         .await
         .unwrap();
     let existing = remote_storage_target_repo::find_by_binding_and_target_key(
@@ -535,9 +530,15 @@ async fn reconciliation_does_not_apply_stale_desired_revision_result() {
 
 #[test]
 fn remote_storage_target_registry_contains_supported_builtin_connectors() {
+    let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
+    let catalog = remote_storage_target_connector_catalog(
+        &registry,
+        &aster_drive_model::types::LocaleTag::parse("en").unwrap(),
+    )
+    .unwrap();
     assert_eq!(
-        list_registered_remote_storage_target_connector_descriptors()
-            .unwrap()
+        catalog
+            .descriptors
             .into_iter()
             .map(|descriptor| descriptor.connector_id.to_string())
             .collect::<Vec<_>>(),
@@ -556,15 +557,39 @@ fn remote_storage_target_registry_contains_supported_builtin_connectors() {
 
 #[test]
 fn remote_storage_target_connector_descriptors_cover_builtin_fields() {
-    let descriptors = list_registered_remote_storage_target_connector_descriptors()
-        .expect("registered remote storage target descriptors should build");
+    let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
+    let catalog = remote_storage_target_connector_catalog(
+        &registry,
+        &aster_drive_model::types::LocaleTag::parse("zh-CN").unwrap(),
+    )
+    .expect("registered remote storage target catalog should build");
+    let descriptors = catalog.descriptors;
     assert_eq!(descriptors.len(), 8);
+    assert_eq!(catalog.localizations.requested_locale.as_str(), "zh-CN");
+    assert_eq!(catalog.localizations.resources.len(), descriptors.len());
+    assert!(catalog.localizations.resources.iter().all(|resource| {
+        resource.resolved_locale.as_str() == "zh"
+            && resource.namespace == resource.connector_id.as_str()
+            && descriptors
+                .iter()
+                .any(|descriptor| descriptor.connector_id == resource.connector_id)
+    }));
 
     let local = descriptors
         .iter()
         .find(|descriptor| descriptor.connector_id.as_str() == "asterdrive.storage.local")
         .expect("local remote storage target descriptor should be registered");
     assert!(local.fields.iter().any(|field| field.name == "base_path"));
+    let local_messages = catalog
+        .localizations
+        .resources
+        .iter()
+        .find(|resource| resource.connector_id == local.connector_id)
+        .expect("local connector localization should be returned");
+    assert_eq!(
+        local_messages.messages.get(&local.ui.label_key),
+        Some(&"本机".to_string())
+    );
     local
         .fields
         .iter()
@@ -610,7 +635,6 @@ async fn provider_target_registration_normalizes_through_the_same_contract() {
                     }),
                 ),
             },
-            is_default: false,
         },
     )
     .await
@@ -636,24 +660,19 @@ async fn connector_envelope_rejects_unknown_provider_without_s3_fallback() {
             ),
             credential: crate::storage::StorageConnectorCredentialInput::None,
         },
-        is_default: false,
     };
     let error = normalize_create_input(&state, request).await.unwrap_err();
     assert!(error.message().contains("com.example.future"));
 }
 
 #[tokio::test]
-async fn create_sets_first_profile_as_default_and_applies_local_driver() {
+async fn create_applies_local_target_without_binding_default_state() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-first").await;
 
-    let profile = create(
-        &state,
-        &binding,
-        local_create(" First ", " first/profile ", false),
-    )
-    .await
-    .unwrap();
+    let profile = create(&state, &binding, local_create(" First ", " first/profile "))
+        .await
+        .unwrap();
 
     assert!(profile.target_key.starts_with("rst_"));
     assert_eq!(profile.name, "First");
@@ -661,42 +680,34 @@ async fn create_sets_first_profile_as_default_and_applies_local_driver() {
         profile.connector_config.values["base_path"],
         "first/profile"
     );
-    assert!(profile.is_default);
     assert_eq!(profile.desired_revision, 1);
     assert_eq!(profile.applied_revision, 1);
     assert_eq!(profile.last_error, "");
-
-    let resolved = resolve_effective_target(&state, &binding).await.unwrap();
-    assert!(resolved.driver.exists(".").await.is_ok());
 }
 
 #[tokio::test]
-async fn update_can_promote_second_profile_to_default_and_increments_revision() {
+async fn update_changes_one_explicit_target_and_increments_revision() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-update").await;
-    let first = create(&state, &binding, local_create("First", "first", false))
+    let _first = create(&state, &binding, local_create("First", "first"))
         .await
         .unwrap();
-    let second = create(&state, &binding, local_create("Second", "second", false))
+    let second = create(&state, &binding, local_create("Second", "second"))
         .await
         .unwrap();
-    assert!(first.is_default);
-    assert!(!second.is_default);
 
     let updated = update(
         &state,
         &binding,
         &second.target_key,
         RemoteUpdateStorageTargetRequest {
-            connection: Some(local_create("Promoted", " promoted ", true).connection),
+            connection: Some(local_create("Promoted", " promoted ").connection),
             name: Some(" Promoted ".to_string()),
-            is_default: Some(true),
         },
     )
     .await
     .unwrap();
 
-    assert!(updated.is_default);
     assert_eq!(updated.name, "Promoted");
     assert_eq!(updated.connector_config.values["base_path"], "promoted");
     assert_eq!(updated.desired_revision, 2);
@@ -705,129 +716,24 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
     let profiles = list(&state, &binding).await.unwrap();
     assert_eq!(profiles.len(), 2);
     assert_eq!(profiles[0].target_key, updated.target_key);
-    assert!(profiles[0].is_default);
-    assert!(!profiles[1].is_default);
 }
 
 #[tokio::test]
-async fn update_rejects_unsetting_current_default_directly() {
-    let state = setup_state().await;
-    let binding = create_binding(&state, "ak-unset").await;
-    let profile = create(&state, &binding, local_create("Default", "default", true))
-        .await
-        .unwrap();
-
-    let error = update(
-        &state,
-        &binding,
-        &profile.target_key,
-        RemoteUpdateStorageTargetRequest {
-            connection: None,
-            is_default: Some(false),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap_err();
-
-    assert_eq!(
-        error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetDefaultUpdateRequiresReplacement)
-    );
-}
-
-#[tokio::test]
-async fn delete_protects_default_when_other_profiles_exist_then_allows_after_replacement() {
+async fn delete_removes_any_explicit_target_without_replacement() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-delete").await;
-    let first = create(&state, &binding, local_create("First", "first", true))
+    let first = create(&state, &binding, local_create("First", "first"))
         .await
         .unwrap();
-    let second = create(&state, &binding, local_create("Second", "second", false))
+    let second = create(&state, &binding, local_create("Second", "second"))
         .await
         .unwrap();
 
-    let error = delete(&state, &binding, &first.target_key)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetDefaultDeleteRequiresReplacement)
-    );
-
-    update(
-        &state,
-        &binding,
-        &second.target_key,
-        RemoteUpdateStorageTargetRequest {
-            connection: None,
-            is_default: Some(true),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
     delete(&state, &binding, &first.target_key).await.unwrap();
 
-    let profiles = list(&state, &binding).await.unwrap();
-    assert_eq!(profiles.len(), 1);
-    assert_eq!(profiles[0].target_key, second.target_key);
-    assert!(profiles[0].is_default);
-}
-
-#[tokio::test]
-async fn resolve_effective_target_reports_required_default_and_pending_states() {
-    let state = setup_state().await;
-    let binding = create_binding(&state, "ak-resolve").await;
-
-    let missing_error = expect_aster_err(resolve_effective_target(&state, &binding).await);
-    assert_eq!(
-        missing_error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetRequired)
-    );
-
-    let profile = create(&state, &binding, local_create("Default", "default", true))
-        .await
-        .unwrap();
-    let mut stored = remote_storage_target_repo::find_by_binding_and_target_key(
-        state.writer_db(),
-        binding.id,
-        &profile.target_key,
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    let mut active: remote_storage_target::ActiveModel = stored.clone().into();
-    active.last_error = Set("path failed".to_string());
-    remote_storage_target_repo::update(state.writer_db(), active)
-        .await
-        .unwrap();
-    let error = expect_aster_err(resolve_effective_target(&state, &binding).await);
-    assert_eq!(
-        error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetDefaultError)
-    );
-
-    stored = remote_storage_target_repo::find_by_binding_and_target_key(
-        state.writer_db(),
-        binding.id,
-        &profile.target_key,
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    let mut active: remote_storage_target::ActiveModel = stored.into();
-    active.last_error = Set(String::new());
-    active.applied_revision = Set(0);
-    active.desired_revision = Set(1);
-    remote_storage_target_repo::update(state.writer_db(), active)
-        .await
-        .unwrap();
-    let error = expect_aster_err(resolve_effective_target(&state, &binding).await);
-    assert_eq!(
-        error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetDefaultNotApplied)
-    );
+    let targets = list(&state, &binding).await.unwrap();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].target_key, second.target_key);
 }
 
 #[tokio::test]
@@ -842,7 +748,7 @@ async fn resolve_target_by_key_reports_missing_error_and_unready_states() {
         Some(ApiErrorCode::RemoteStorageTargetNotFound)
     );
 
-    let profile = create(&state, &binding, local_create("Keyed", "keyed", true))
+    let profile = create(&state, &binding, local_create("Keyed", "keyed"))
         .await
         .unwrap();
     let stored = remote_storage_target_repo::find_by_binding_and_target_key(
@@ -862,7 +768,7 @@ async fn resolve_target_by_key_reports_missing_error_and_unready_states() {
         expect_aster_err(resolve_target_by_key(&state, &binding, &profile.target_key).await);
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetDefaultError)
+        Some(ApiErrorCode::RemoteStorageTargetUnavailable)
     );
 
     let stored = remote_storage_target_repo::find_by_binding_and_target_key(
@@ -884,6 +790,6 @@ async fn resolve_target_by_key_reports_missing_error_and_unready_states() {
         expect_aster_err(resolve_target_by_key(&state, &binding, &profile.target_key).await);
     assert_eq!(
         error.api_error_code_override(),
-        Some(ApiErrorCode::RemoteStorageTargetDefaultNotApplied)
+        Some(ApiErrorCode::RemoteStorageTargetNotApplied)
     );
 }

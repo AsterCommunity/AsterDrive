@@ -125,7 +125,7 @@ Current notes:
 - `allowed_types` can be managed through REST
 - Creating a `driver_type = "remote"` policy requires both `remote_node_id` and `remote_storage_target_key`. The target must belong to that node's current binding, have no `last_error`, and satisfy `applied_revision >= desired_revision`.
 - After a node is selected, the policy create/edit UI loads its target list and driver descriptors. An admin can quick-create a target in the same flow, after which the new target is selected automatically. Fields and capabilities remain backend-descriptor driven.
-- A legacy remote policy with an empty target key may retain it only when an edit does not change the remote binding; runtime access then falls back to the follower binding's default target. New policies and remote-binding changes require an explicit target key.
+- Every remote policy requires an explicit `remote_storage_target_key`. Policies created by older builds without one must be edited and saved with a target before they can read, write, or report capacity.
 - `PATCH` cannot change `driver_type`
 - `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The body must include the target driver and current endpoint / bucket, for example `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the endpoint / bucket combination.
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
@@ -351,13 +351,15 @@ Remote nodes are follower storage nodes managed by the primary, mainly for `driv
 | `POST` | `/admin/remote-nodes/{id}/test` | Test saved remote-node connection |
 | `POST` | `/admin/remote-nodes/test` | Test draft remote-node connection |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | Generate follower enrollment command |
-| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | List follower remote storage target connector descriptors |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-connectors` | List follower-owned remote storage target connector descriptors and localization catalog; accepts `locale` |
 | `GET` | `/admin/remote-nodes/{id}/storage-targets` | List follower remote storage targets |
 | `POST` | `/admin/remote-nodes/{id}/storage-targets` | Create follower remote storage target |
-| `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Update follower remote storage target |
-| `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Delete follower remote storage target |
+| `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Update follower target; referenced targets reject connector-config changes but allow display-name and credential-only updates |
+| `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Delete an unreferenced follower target; rejected while any storage policy binds the same node and target key |
 
 The remote target API uses the same connector descriptors and connection envelope as storage policies. The legacy `/ingress-profile-drivers`, `/ingress-profiles`, and `/storage-target-drivers` paths are removed; clients must use `/storage-target-connectors` and `/storage-targets`. DTO field names use `target_key`.
+
+A remote policy's `remote_node_id`, `remote_storage_target_key`, and `base_path` form one immutable physical location after explicit binding. To move data, create another policy and use the policy-to-policy storage migration workflow; transport strategies and other non-location settings remain editable. As a narrow 0.5.1 upgrade exception, a legacy policy whose target key is empty may select one applied target while keeping its node and base path unchanged; it becomes immutable afterwards. The primary serializes policy creation/deletion and target mutation with the storage-topology lock so a concurrent policy cannot appear after a target reference check.
 
 Create example:
 

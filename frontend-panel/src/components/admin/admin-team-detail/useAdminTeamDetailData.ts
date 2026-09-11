@@ -13,7 +13,7 @@ import type {
 import {
 	ADMIN_TEAM_DETAIL_AUDIT_PAGE_SIZE,
 	ADMIN_TEAM_DETAIL_MEMBER_PAGE_SIZE,
-} from "./adminTeamDetailDialogState";
+} from "./adminTeamDetailState";
 
 interface AdminTeamMemberFilters {
 	keyword?: string;
@@ -27,8 +27,7 @@ interface UseAdminTeamDetailDataArgs {
 	memberOffset: number;
 	memberSortBy: AdminTeamMemberSortBy;
 	memberSortOrder: SortOrder;
-	open: boolean;
-	teamId: number | null;
+	teamId: number;
 }
 
 export function useAdminTeamDetailData({
@@ -37,7 +36,6 @@ export function useAdminTeamDetailData({
 	memberOffset,
 	memberSortBy,
 	memberSortOrder,
-	open,
 	teamId,
 }: UseAdminTeamDetailDataArgs) {
 	const [auditEntries, setAuditEntries] = useState<TeamAuditEntryInfo[]>([]);
@@ -152,40 +150,21 @@ export function useAdminTeamDetailData({
 	);
 
 	useEffect(() => {
-		if (!open || teamId == null) {
-			detailRequestIdRef.current += 1;
-			setDetailLoading(false);
-			setTeam(null);
-			return;
-		}
-
 		setTeam(null);
 		void loadTeamDetail(teamId);
-	}, [loadTeamDetail, open, teamId]);
+		return () => {
+			detailRequestIdRef.current += 1;
+		};
+	}, [loadTeamDetail, teamId]);
 
 	useEffect(() => {
-		if (!open || teamId == null) {
-			auditRequestIdRef.current += 1;
-			setAuditEntries([]);
-			setAuditLoading(false);
-			setAuditTotal(0);
-			return;
-		}
-
 		void loadAuditEntries(teamId, auditOffset);
-	}, [auditOffset, loadAuditEntries, open, teamId]);
+		return () => {
+			auditRequestIdRef.current += 1;
+		};
+	}, [auditOffset, loadAuditEntries, teamId]);
 
 	useEffect(() => {
-		if (!open || teamId == null) {
-			memberRequestIdRef.current += 1;
-			setMemberLoading(false);
-			setMemberTotal(0);
-			setMembers([]);
-			setManagerCount(0);
-			setOwnerCount(0);
-			return;
-		}
-
 		void loadMembers(
 			teamId,
 			memberOffset,
@@ -193,12 +172,14 @@ export function useAdminTeamDetailData({
 			memberSortBy,
 			memberSortOrder,
 		);
+		return () => {
+			memberRequestIdRef.current += 1;
+		};
 	}, [
 		memberFilters,
 		memberOffset,
 		memberSortBy,
 		memberSortOrder,
-		open,
 		teamId,
 		loadMembers,
 	]);

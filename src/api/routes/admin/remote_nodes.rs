@@ -1,7 +1,8 @@
 //! 管理员 API 路由：`remote_nodes`。
 
 use crate::api::dto::admin::{
-    AdminRemoteNodeListQuery, CreateRemoteNodeReq, PatchRemoteNodeReq, TestRemoteNodeParamsReq,
+    AdminRemoteNodeListQuery, CreateRemoteNodeReq, PatchRemoteNodeReq,
+    RemoteStorageTargetConnectorCatalogQuery, TestRemoteNodeParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::ApiResponse;
@@ -45,7 +46,6 @@ fn remote_storage_target_audit_details(
     audit::details(audit::RemoteIngressProfileAuditDetails {
         target_key: &target.target_key,
         driver_type: &target.connector_id,
-        is_default: target.is_default,
     })
 }
 
@@ -394,9 +394,12 @@ pub async fn list_remote_node_storage_targets(
     path = "/api/v1/admin/remote-nodes/{id}/storage-target-connectors",
     tag = "admin",
     operation_id = "list_remote_node_storage_target_connectors",
-    params(("id" = i64, Path, description = "Remote node ID")),
-    responses(
-        (status = 200, description = "List remote node storage target connector descriptors", body = inline(ApiResponse<Vec<aster_drive_storage::StorageConnectorDescriptor>>)),
+	params(
+		("id" = i64, Path, description = "Remote node ID"),
+		RemoteStorageTargetConnectorCatalogQuery
+	),
+	responses(
+		(status = 200, description = "List the follower-owned remote storage target connector catalog", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteStorageTargetConnectorCatalog>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
@@ -406,10 +409,12 @@ pub async fn list_remote_node_storage_targets(
 pub async fn list_remote_node_storage_target_connectors(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
+    query: web::Query<RemoteStorageTargetConnectorCatalogQuery>,
 ) -> Result<HttpResponse> {
-    let descriptors =
-        storage_target::list_remote_connector_descriptors(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(descriptors)))
+    let catalog =
+        storage_target::list_remote_connector_catalog(state.get_ref(), *path, &query.locale)
+            .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(catalog)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -465,7 +470,7 @@ pub async fn create_remote_node_storage_target(
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node or storage target not found"),
-        (status = 412, description = "Remote storage targets require a single primary binding"),
+        (status = 412, description = "Target is referenced by a policy or remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]
@@ -507,7 +512,7 @@ pub async fn update_remote_node_storage_target(
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node or storage target not found"),
-        (status = 412, description = "Remote storage targets require a single primary binding"),
+        (status = 412, description = "Target is referenced by a policy or remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]

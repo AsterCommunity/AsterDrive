@@ -12,8 +12,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import type {
 	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
@@ -23,40 +24,44 @@ import type {
 	RemoteNodeRemoteStorageTargetFieldChangeHandler,
 } from "./RemoteNodeRemoteStorageTargetTypes";
 
-const IS_DEFAULT_FIELD = "is_default";
-
 interface RemoteNodeRemoteStorageTargetFormProps {
-	defaultToggleLocked: boolean;
 	connectorDescriptors: StorageConnectorDescriptor[];
 	connectorIdError: string | null;
 	draftMode: RemoteNodeRemoteStorageTargetDraftMode;
 	form: RemoteStorageTargetFormData;
 	nameError: string | null;
+	connectorLocked?: boolean;
 	onCancel: () => void;
 	onFieldChange: RemoteNodeRemoteStorageTargetFieldChangeHandler;
 	onSubmit: () => void;
+	presentation?: "inline" | "dialog";
 	submitDisabled: boolean;
 	submitting: boolean;
 	targets: RemoteStorageTargetInfo[];
 }
 
 export function RemoteNodeRemoteStorageTargetForm({
-	defaultToggleLocked,
 	connectorDescriptors,
 	connectorIdError,
 	draftMode,
 	form,
 	nameError,
+	connectorLocked = false,
 	onCancel,
 	onFieldChange,
 	onSubmit,
+	presentation = "inline",
 	submitDisabled,
 	submitting,
 	targets,
 }: RemoteNodeRemoteStorageTargetFormProps) {
 	const { t } = useTranslation("admin");
 	const options = connectorDescriptors.map((descriptor) => ({
-		label: t(descriptor.ui.label_key),
+		label: translateStorageConnectorMessage(
+			t,
+			descriptor.connector_id,
+			descriptor.ui.label_key,
+		),
 		value: descriptor.connector_id,
 	}));
 	const descriptor =
@@ -65,27 +70,40 @@ export function RemoteNodeRemoteStorageTargetForm({
 		) ?? null;
 
 	return (
-		<div className="mt-4 rounded-2xl border border-border/70 bg-muted/10 p-4">
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<div>
-					<h4 className="text-sm font-semibold text-foreground">
-						{draftMode === "create"
-							? t("remote_node_ingress_profile_form_create_title")
-							: t("remote_node_ingress_profile_form_edit_title")}
-					</h4>
+		<div
+			className={cn(
+				presentation === "inline"
+					? "mt-4 rounded-xl border border-border/70 bg-muted/10 p-4"
+					: "min-w-0",
+			)}
+		>
+			{presentation === "inline" ? (
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div>
+						<h4 className="text-sm font-semibold text-foreground">
+							{draftMode === "create"
+								? t("remote_node_ingress_profile_form_create_title")
+								: t("remote_node_ingress_profile_form_edit_title")}
+						</h4>
+					</div>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={onCancel}
+						disabled={submitting}
+					>
+						{t("core:cancel")}
+					</Button>
 				</div>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					onClick={onCancel}
-					disabled={submitting}
-				>
-					{t("core:cancel")}
-				</Button>
-			</div>
+			) : null}
 
-			<div className="mt-4 grid gap-4 md:grid-cols-2">
+			<div
+				className={cn(
+					"grid gap-4 md:grid-cols-2",
+					presentation === "inline" && "mt-4",
+				)}
+			>
 				<div className="space-y-2">
 					<Label htmlFor="remote-target-name">{t("core:name")}</Label>
 					<Input
@@ -102,6 +120,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 					<Label htmlFor="remote-target-connector">{t("connector_type")}</Label>
 					<Select
 						items={options}
+						disabled={connectorLocked || submitting}
 						value={form.connector_id}
 						onValueChange={(value) => {
 							if (value != null) onFieldChange("connector_id", value);
@@ -121,15 +140,18 @@ export function RemoteNodeRemoteStorageTargetForm({
 					{connectorIdError ? (
 						<p className="text-xs text-destructive">{connectorIdError}</p>
 					) : null}
+					{connectorLocked ? (
+						<p className="text-xs text-muted-foreground">
+							{t("remote_node_ingress_profile_connector_immutable")}
+						</p>
+					) : null}
 				</div>
 			</div>
 
 			<div className="mt-4">
 				<StorageConnectorFieldsPanel
 					descriptor={descriptor}
-					fields={descriptor?.fields.filter(
-						(field) => field.name !== IS_DEFAULT_FIELD,
-					)}
+					fields={descriptor?.fields}
 					form={form}
 					mode={draftMode}
 					remoteNodes={[]}
@@ -138,18 +160,6 @@ export function RemoteNodeRemoteStorageTargetForm({
 					t={t}
 					onFieldChange={onFieldChange}
 				/>
-			</div>
-
-			<div className="mt-4 flex items-center gap-2">
-				<Switch
-					id="remote-target-default"
-					checked={form.is_default}
-					onCheckedChange={(value) => onFieldChange("is_default", value)}
-					disabled={defaultToggleLocked}
-				/>
-				<Label htmlFor="remote-target-default">
-					{t("remote_node_ingress_profile_default_toggle")}
-				</Label>
 			</div>
 
 			<div className="mt-4 flex justify-end gap-2">

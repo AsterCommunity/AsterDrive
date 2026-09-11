@@ -7,7 +7,8 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	listPolicyGroups: vi.fn(),
 	navigate: vi.fn(),
-	adminTeamDetailDialogProps: null as null | {
+	adminTeamDetailEditorProps: null as null | {
+		onBack?: () => void;
 		onPageTabChange?: (tab: string, options?: { replace?: boolean }) => void;
 	},
 }));
@@ -21,13 +22,14 @@ vi.mock("react-router-dom", () => ({
 	}),
 }));
 
-vi.mock("@/components/admin/AdminTeamDetailDialog", () => ({
-	AdminTeamDetailDialog: (props: {
+vi.mock("@/components/admin/AdminTeamDetailEditor", () => ({
+	AdminTeamDetailEditor: (props: {
+		onBack?: () => void;
 		onPageTabChange?: (tab: string, options?: { replace?: boolean }) => void;
 	}) => {
-		mockState.adminTeamDetailDialogProps = props;
+		mockState.adminTeamDetailEditorProps = props;
 		return (
-			<div data-testid="admin-team-detail-dialog">admin-team-detail-dialog</div>
+			<div data-testid="admin-team-detail-editor">admin-team-detail-editor</div>
 		);
 	},
 }));
@@ -64,7 +66,7 @@ describe("AdminTeamDetailPage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.listPolicyGroups.mockReset();
 		mockState.navigate.mockReset();
-		mockState.adminTeamDetailDialogProps = null;
+		mockState.adminTeamDetailEditorProps = null;
 
 		mockState.listPolicyGroups.mockResolvedValue([]);
 	});
@@ -79,7 +81,7 @@ describe("AdminTeamDetailPage", () => {
 		expect(screen.getByTestId("admin-page-shell")).toHaveClass(
 			"overflow-hidden",
 		);
-		expect(screen.getByTestId("admin-team-detail-dialog")).toBeInTheDocument();
+		expect(screen.getByTestId("admin-team-detail-editor")).toBeInTheDocument();
 	});
 
 	it("changes tabs without enabling a view transition", async () => {
@@ -87,16 +89,30 @@ describe("AdminTeamDetailPage", () => {
 
 		await waitFor(() => {
 			expect(
-				mockState.adminTeamDetailDialogProps?.onPageTabChange,
+				mockState.adminTeamDetailEditorProps?.onPageTabChange,
 			).toBeDefined();
 		});
 
-		mockState.adminTeamDetailDialogProps?.onPageTabChange?.("audit", {
+		mockState.adminTeamDetailEditorProps?.onPageTabChange?.("audit", {
 			replace: false,
 		});
 
 		expect(mockState.navigate).toHaveBeenCalledWith("/admin/teams/1/audit", {
 			replace: false,
+			viewTransition: false,
+		});
+	});
+
+	it("returns to the team list without enabling a view transition", async () => {
+		render(<AdminTeamDetailPage />);
+
+		await waitFor(() => {
+			expect(mockState.adminTeamDetailEditorProps?.onBack).toBeDefined();
+		});
+
+		mockState.adminTeamDetailEditorProps?.onBack?.();
+
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/teams", {
 			viewTransition: false,
 		});
 	});

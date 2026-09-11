@@ -1,9 +1,9 @@
 import { type ReactNode, useState } from "react";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
+import { FormFieldLabel } from "@/components/common/FormFieldLabel";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
 	Select,
 	SelectContent,
@@ -22,6 +22,10 @@ import type {
 	StorageConnectorFieldDescriptor,
 	StorageConnectorFieldValue,
 } from "@/types/api";
+import {
+	type StorageConnectorFieldErrors,
+	storageConnectorFieldErrorKey,
+} from "./connectionErrors";
 import { normalizeConnectorFieldValue } from "./connectionNormalization";
 import {
 	applyConnectorConfigFieldTransition,
@@ -44,6 +48,7 @@ interface StorageConnectorFieldsPanelProps {
 	remoteNodes: RemoteNodeInfo[];
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	showRequiredErrors: boolean;
+	fieldErrors?: StorageConnectorFieldErrors;
 	t: Translate;
 	onFieldChange: <K extends keyof PolicyFormData>(
 		key: K,
@@ -60,6 +65,7 @@ export function StorageConnectorFieldsPanel({
 	remoteNodes,
 	remoteStorageTargets,
 	showRequiredErrors,
+	fieldErrors,
 	t,
 	onFieldChange,
 }: StorageConnectorFieldsPanelProps) {
@@ -96,6 +102,7 @@ export function StorageConnectorFieldsPanel({
 				remoteNodes={remoteNodes}
 				remoteStorageTargets={remoteStorageTargets}
 				showRequiredErrors={showRequiredErrors}
+				fieldErrors={fieldErrors}
 				t={t}
 				onFieldChange={onFieldChange}
 			/>
@@ -114,6 +121,7 @@ export function StorageConnectorFieldsPanel({
 						remoteNodes={remoteNodes}
 						remoteStorageTargets={remoteStorageTargets}
 						showRequiredErrors={showRequiredErrors}
+						fieldErrors={fieldErrors}
 						t={t}
 						onFieldChange={onFieldChange}
 					/>
@@ -188,6 +196,7 @@ function ConnectorField({
 	remoteNodes,
 	remoteStorageTargets,
 	showRequiredErrors,
+	fieldErrors,
 	t,
 	onFieldChange,
 }: StorageConnectorFieldsPanelProps & {
@@ -222,21 +231,38 @@ function ConnectorField({
 					field: connectorT(field.label_key),
 				})
 		: null;
+	const serverError =
+		fieldErrors?.[storageConnectorFieldErrorKey(field.scope, field.name)] ??
+		null;
+	const updateBehavior = field.update_behavior ?? "mutable";
+	const hasValue = value !== undefined && value !== null && value !== "";
+	const disabled =
+		mode === "edit" &&
+		(updateBehavior === "create_only" ||
+			(updateBehavior === "set_once" && hasValue));
 
 	if (field.kind === "boolean") {
 		return (
 			<div className="space-y-2 md:col-span-2">
 				<div className="flex min-h-9 items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2">
-					<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
+					<FormFieldLabel htmlFor={inputId} required={required}>
+						{connectorT(field.label_key)}
+					</FormFieldLabel>
 					<Switch
 						id={inputId}
 						checked={(value ?? resolvedDefault) === true}
+						aria-invalid={Boolean(serverError) || undefined}
+						disabled={disabled}
 						onCheckedChange={(checked) =>
 							setFieldValue(form, descriptor, field, checked, onFieldChange)
 						}
 					/>
 				</div>
-				<FieldHelp field={field} t={connectorT} />
+				<FieldMessages
+					errorMessage={serverError ?? errorMessage}
+					field={field}
+					t={connectorT}
+				/>
 			</div>
 		);
 	}
@@ -302,20 +328,24 @@ function ConnectorField({
 			showRequiredErrors &&
 			customSelected &&
 			(typeof value !== "string" || value.trim() === "");
-		const selectErrorMessage = customValueMissing
-			? t("policy_connector_field_required", {
-					field: connectorT(
-						field.select?.custom_value_label_key ?? field.label_key,
-					),
-				})
-			: errorMessage;
+		const selectErrorMessage =
+			serverError ??
+			(customValueMissing
+				? t("policy_connector_field_required", {
+						field: connectorT(
+							field.select?.custom_value_label_key ?? field.label_key,
+						),
+					})
+				: errorMessage);
 		return (
 			<div className="space-y-2">
-				<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
+				<FormFieldLabel htmlFor={inputId} required={required}>
+					{connectorT(field.label_key)}
+				</FormFieldLabel>
 				<Select
 					items={renderedOptions}
 					value={selectedValue}
-					disabled={dependencyMissing}
+					disabled={disabled || dependencyMissing}
 					onValueChange={(nextValue) => {
 						if (nextValue === CONNECTOR_SELECT_AUTOMATIC_VALUE) {
 							setFieldValue(
@@ -345,7 +375,9 @@ function ConnectorField({
 				>
 					<SelectTrigger
 						id={inputId}
-						aria-invalid={missing || customValueMissing || undefined}
+						aria-invalid={
+							Boolean(serverError || missing || customValueMissing) || undefined
+						}
 					>
 						<SelectValue placeholder={field.placeholder ?? undefined} />
 					</SelectTrigger>
@@ -359,19 +391,22 @@ function ConnectorField({
 				</Select>
 				{customSelected ? (
 					<div className="space-y-2 pt-1">
-						<Label htmlFor={`${inputId}-custom`}>
+						<FormFieldLabel htmlFor={`${inputId}-custom`} required>
 							{connectorT(
 								field.select?.custom_value_label_key ?? field.label_key,
 							)}
-						</Label>
+						</FormFieldLabel>
 						<Input
 							id={`${inputId}-custom`}
 							value={typeof value === "string" ? value : ""}
 							placeholder={field.placeholder ?? undefined}
 							maxLength={field.validation?.max_length ?? undefined}
 							required
-							aria-invalid={customValueMissing || undefined}
+							aria-invalid={
+								Boolean(serverError || customValueMissing) || undefined
+							}
 							autoComplete="off"
+							disabled={disabled}
 							className={ADMIN_CONTROL_HEIGHT_CLASS}
 							onChange={(event) =>
 								setFieldValue(
@@ -411,7 +446,9 @@ function ConnectorField({
 	const displayedValue = value ?? resolvedDefault ?? "";
 	return (
 		<div className="space-y-2">
-			<Label htmlFor={inputId}>{connectorT(field.label_key)}</Label>
+			<FormFieldLabel htmlFor={inputId} required={required}>
+				{connectorT(field.label_key)}
+			</FormFieldLabel>
 			<Input
 				id={inputId}
 				type={
@@ -431,13 +468,14 @@ function ConnectorField({
 				max={field.validation?.max_integer ?? undefined}
 				maxLength={field.validation?.max_length ?? undefined}
 				required={required}
-				aria-invalid={missing || undefined}
+				aria-invalid={Boolean(serverError || missing) || undefined}
 				placeholder={
 					mode === "edit" && field.scope !== "connector_config"
 						? t("policy_editor_credentials_keep_placeholder")
 						: (field.placeholder ?? undefined)
 				}
 				autoComplete={field.secret ? "new-password" : "off"}
+				disabled={disabled}
 				className={ADMIN_CONTROL_HEIGHT_CLASS}
 				onChange={(event) => {
 					const nextValue =
@@ -461,7 +499,11 @@ function ConnectorField({
 					}
 				}}
 			/>
-			<FieldMessages errorMessage={errorMessage} field={field} t={connectorT} />
+			<FieldMessages
+				errorMessage={serverError ?? errorMessage}
+				field={field}
+				t={connectorT}
+			/>
 		</div>
 	);
 }

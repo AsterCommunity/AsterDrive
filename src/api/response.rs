@@ -20,6 +20,14 @@ pub struct ApiErrorInfo {
 pub struct ApiErrorDiagnostic {
     pub kind: String,
     pub message: String,
+    /// Connector-owned field that caused a configuration validation failure.
+    ///
+    /// This is intentionally optional so existing diagnostics remain wire-compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// Connector field scope, for example `connector_config` or `static_credential`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

@@ -16,8 +16,8 @@ import {
 	type PolicyGroupRuleForm,
 	validatePolicyGroupForm,
 } from "@/components/admin/policyGroupEditorShared";
+import { AdminDetailPageShell } from "@/components/layout/AdminDetailPageShell";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -350,14 +350,22 @@ export default function AdminPolicyGroupEditPage() {
 		try {
 			setSubmitting(true);
 			if (isCreate) {
-				await adminPolicyGroupService.create(payload);
+				const createdGroup = await adminPolicyGroupService.create(payload);
 				toast.success(t("policy_group_created"));
+				invalidateAdminPolicyGroupLookup();
+				navigate(`/admin/policy-groups/${createdGroup.id}`, {
+					replace: true,
+					viewTransition: false,
+				});
 			} else {
-				await adminPolicyGroupService.update(parsedGroupId, payload);
+				const updatedGroup = await adminPolicyGroupService.update(
+					parsedGroupId,
+					payload,
+				);
+				setGroup(updatedGroup);
 				toast.success(t("policy_group_updated"));
+				invalidateAdminPolicyGroupLookup();
 			}
-			invalidateAdminPolicyGroupLookup();
-			backToList();
 		} catch (e) {
 			handleApiError(e);
 		} finally {
@@ -406,22 +414,11 @@ export default function AdminPolicyGroupEditPage() {
 						void submitForm();
 					}}
 				>
-					<div className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none mb-2">
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							className="-ml-2 text-muted-foreground"
-							onClick={backToList}
-						>
-							<Icon name="ArrowLeft" className="mr-1 size-4" />
-							{t("policy_group_back_to_list")}
-						</Button>
-					</div>
-					<AdminPageHeader
-						className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none px-0 md:px-0"
+					<AdminDetailPageShell
 						title={pageTitle}
 						description={t("policy_group_page_desc")}
+						backLabel={t("policy_group_back_to_list")}
+						onBack={backToList}
 						actions={
 							<>
 								<Button
@@ -453,64 +450,64 @@ export default function AdminPolicyGroupEditPage() {
 								</Button>
 							</>
 						}
-					/>
-
-					{groupLoading ? (
-						<div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-							<Icon name="Spinner" className="size-4 animate-spin" />
-							{t("core:loading")}
-						</div>
-					) : (
-						<PolicyGroupEditorForm
-							mode={isCreate ? "create" : "edit"}
-							form={form}
-							formError={formError}
-							policies={policies}
-							policiesLoading={policiesLoading}
-							onAddRule={addRule}
-							onFieldChange={setField}
-							onMoveRule={moveRule}
-							onOpenSimulation={
-								isCreate
-									? undefined
-									: () => {
-											resetSimulationState();
-											setSimulationOpen(true);
-										}
-							}
-							onRefreshPolicies={loadPolicies}
-							onRemoveRule={removeRule}
-							onReorderRule={reorderRule}
-							onRuleFieldChange={setRuleField}
-						/>
-					)}
-
-					{!groupLoading && (
-						<div className="mt-8 flex justify-end gap-2 border-t pt-5">
-							<Button
-								type="button"
-								variant="outline"
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={backToList}
-							>
-								{t("core:cancel")}
-							</Button>
-							<Button
-								type="submit"
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								disabled={
-									submitting || policiesLoading || policies.length === 0
+					>
+						{groupLoading ? (
+							<div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+								<Icon name="Spinner" className="size-4 animate-spin" />
+								{t("core:loading")}
+							</div>
+						) : (
+							<PolicyGroupEditorForm
+								mode={isCreate ? "create" : "edit"}
+								form={form}
+								formError={formError}
+								policies={policies}
+								policiesLoading={policiesLoading}
+								onAddRule={addRule}
+								onFieldChange={setField}
+								onMoveRule={moveRule}
+								onOpenSimulation={
+									isCreate
+										? undefined
+										: () => {
+												resetSimulationState();
+												setSimulationOpen(true);
+											}
 								}
-							>
-								{submitting ? (
-									<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
-								) : (
-									<Icon name="FloppyDisk" className="mr-1 size-4" />
-								)}
-								{isCreate ? t("core:create") : t("save_changes")}
-							</Button>
-						</div>
-					)}
+								onRefreshPolicies={loadPolicies}
+								onRemoveRule={removeRule}
+								onReorderRule={reorderRule}
+								onRuleFieldChange={setRuleField}
+							/>
+						)}
+
+						{!groupLoading && (
+							<div className="mt-8 flex justify-end gap-2 border-t pt-5">
+								<Button
+									type="button"
+									variant="outline"
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									onClick={backToList}
+								>
+									{t("core:cancel")}
+								</Button>
+								<Button
+									type="submit"
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									disabled={
+										submitting || policiesLoading || policies.length === 0
+									}
+								>
+									{submitting ? (
+										<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+									) : (
+										<Icon name="FloppyDisk" className="mr-1 size-4" />
+									)}
+									{isCreate ? t("core:create") : t("save_changes")}
+								</Button>
+							</div>
+						)}
+					</AdminDetailPageShell>
 				</form>
 
 				<PolicyGroupSimulationDialog

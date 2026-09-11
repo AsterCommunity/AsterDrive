@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { TestConnectionButton } from "@/components/admin/TestConnectionButton";
 import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -56,7 +57,7 @@ export function ExternalAuthAccessPolicyPanel({
 	const { t } = useTranslation("admin");
 
 	return (
-		<section className="rounded-2xl border border-border/70 bg-muted/20 p-5">
+		<section>
 			<h3 className="text-sm font-semibold">
 				{t("external_auth_provider_access_title")}
 			</h3>
@@ -189,7 +190,7 @@ export function ExternalAuthSummaryPanel({
 	const isQq = isQqProviderKind(selectedKind ?? providerKind);
 
 	return (
-		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+		<section>
 			<h3 className="text-sm font-semibold">
 				{t("external_auth_provider_summary_title")}
 			</h3>
@@ -215,7 +216,7 @@ export function ExternalAuthSummaryPanel({
 					<dd className="mt-1 break-words text-xs">{summaryConnection}</dd>
 				</div>
 				{isGitHub ? (
-					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+					<div className="rounded-lg bg-background/60 p-3">
 						<dt className="text-xs font-medium">
 							{t("external_auth_provider_github_email_title")}
 						</dt>
@@ -225,7 +226,7 @@ export function ExternalAuthSummaryPanel({
 					</div>
 				) : null}
 				{isGoogle ? (
-					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+					<div className="rounded-lg bg-background/60 p-3">
 						<dt className="text-xs font-medium">
 							{t("external_auth_provider_google_email_title")}
 						</dt>
@@ -235,7 +236,7 @@ export function ExternalAuthSummaryPanel({
 					</div>
 				) : null}
 				{isMicrosoft ? (
-					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+					<div className="rounded-lg bg-background/60 p-3">
 						<dt className="text-xs font-medium">
 							{t("external_auth_provider_microsoft_email_title")}
 						</dt>
@@ -245,7 +246,7 @@ export function ExternalAuthSummaryPanel({
 					</div>
 				) : null}
 				{isQq ? (
-					<div className="rounded-lg border border-border/70 bg-muted/30 p-3">
+					<div className="rounded-lg bg-background/60 p-3">
 						<dt className="text-xs font-medium">
 							{t("external_auth_provider_qq_email_title")}
 						</dt>
@@ -294,64 +295,129 @@ export function ExternalAuthSummaryPanel({
 
 interface ExternalAuthProviderKindPanelProps {
 	form: ExternalAuthProviderFormData;
-	onCreateStepChange: (step: number) => void;
 	onProviderKindChange: (kind: ExternalAuthProviderKind) => void;
 	providerKinds: AdminExternalAuthProviderKindInfo[];
 }
 
 export function ExternalAuthProviderKindPanel({
 	form,
-	onCreateStepChange,
 	onProviderKindChange,
 	providerKinds,
 }: ExternalAuthProviderKindPanelProps) {
 	const { t } = useTranslation("admin");
+	const selectedKind =
+		providerKinds.find((kind) => kind.kind === form.providerKind) ??
+		providerKinds[0] ??
+		null;
 
 	return (
-		<div>
-			<div className="grid gap-3 md:grid-cols-2">
+		<div className="grid gap-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
+			<div className="space-y-1 rounded-xl bg-muted/30 p-2">
 				{providerKinds.map((kind) => (
 					<button
 						type="button"
 						key={kind.kind}
 						aria-pressed={form.providerKind === kind.kind}
-						onClick={() => {
-							onProviderKindChange(kind.kind);
-							onCreateStepChange(1);
-						}}
+						onClick={() => onProviderKindChange(kind.kind)}
 						className={cn(
-							"rounded-2xl border border-border p-4 text-left transition hover:border-primary/40 hover:bg-muted/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
-							form.providerKind === kind.kind ? "bg-muted/15" : "bg-background",
+							"flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
+							form.providerKind === kind.kind
+								? "bg-background text-foreground shadow-xs"
+								: "text-muted-foreground",
 						)}
 					>
-						<div className="flex items-start gap-4">
-							<div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
-								<ExternalAuthProviderIcon
-									kind={kind.kind}
-									className="max-h-9 max-w-9"
-								/>
-							</div>
-							<div className="min-w-0 flex-1">
-								<div className="flex flex-wrap items-center gap-2">
-									<p className="text-base font-semibold">
-										{kindDisplayName(t, kind.kind, providerKinds)}
-									</p>
-								</div>
-								<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-									{kindDescription(t, kind)}
-								</p>
-							</div>
+						<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-xs ring-1 ring-black/5">
+							<ExternalAuthProviderIcon
+								kind={kind.kind}
+								className="max-h-6 max-w-6"
+							/>
 						</div>
+						<span className="min-w-0 flex-1 truncate text-sm font-medium">
+							{kindDisplayName(t, kind.kind, providerKinds)}
+						</span>
+						{form.providerKind === kind.kind ? (
+							<Icon name="Check" className="size-4 shrink-0 text-primary" />
+						) : null}
 					</button>
 				))}
 			</div>
+
+			{selectedKind ? (
+				<section
+					key={selectedKind.kind}
+					className="animate-in fade-in slide-in-from-right-2 flex min-h-72 flex-col justify-center px-1 py-4 duration-200 motion-reduce:animate-none sm:px-4"
+				>
+					<div className="flex items-start gap-5">
+						<div className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+							<ExternalAuthProviderIcon
+								kind={selectedKind.kind}
+								className="max-h-10 max-w-10"
+							/>
+						</div>
+						<div className="min-w-0 space-y-2">
+							<div className="flex flex-wrap items-center gap-2">
+								<h3 className="text-lg font-semibold">
+									{kindDisplayName(t, selectedKind.kind, providerKinds)}
+								</h3>
+								<Badge variant="secondary">
+									{selectedKind.protocol.toUpperCase()}
+								</Badge>
+							</div>
+							<p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+								{kindDescription(t, selectedKind)}
+							</p>
+						</div>
+					</div>
+					<div className="mt-7 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+						<ProviderKindCapability
+							enabled={selectedKind.supports_discovery}
+							label={t("external_auth_provider_capability_discovery")}
+						/>
+						<ProviderKindCapability
+							enabled={selectedKind.supports_pkce}
+							label={t("external_auth_provider_capability_pkce")}
+						/>
+						<ProviderKindCapability
+							enabled={selectedKind.manual_endpoint_configuration_supported}
+							label={t("external_auth_provider_capability_manual_endpoints")}
+						/>
+						<ProviderKindCapability
+							enabled={selectedKind.supports_email_verified_claim}
+							label={t("external_auth_provider_capability_verified_email")}
+						/>
+					</div>
+				</section>
+			) : null}
+		</div>
+	);
+}
+
+function ProviderKindCapability({
+	enabled,
+	label,
+}: {
+	enabled: boolean;
+	label: string;
+}) {
+	return (
+		<div className="flex items-center gap-2 text-sm">
+			<Icon
+				name={enabled ? "Check" : "Minus"}
+				className={cn(
+					"size-4 shrink-0",
+					enabled ? "text-emerald-600" : "text-muted-foreground/60",
+				)}
+			/>
+			<span className={enabled ? "text-foreground" : "text-muted-foreground"}>
+				{label}
+			</span>
 		</div>
 	);
 }
 
 interface ExternalAuthProviderIdentityPanelProps {
 	connectionMissing: boolean;
-	createStepTouched: boolean;
+	formTouched: boolean;
 	currentCallbackUrl: string;
 	form: ExternalAuthProviderFormData;
 	identityMissing: boolean;
@@ -370,7 +436,7 @@ interface ExternalAuthProviderIdentityPanelProps {
 
 export function ExternalAuthProviderIdentityPanel({
 	connectionMissing,
-	createStepTouched,
+	formTouched,
 	currentCallbackUrl,
 	form,
 	identityMissing,
@@ -402,7 +468,7 @@ export function ExternalAuthProviderIdentityPanel({
 		: [];
 
 	return (
-		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+		<section className="rounded-xl bg-muted/30 p-5">
 			<div className="space-y-1">
 				<h3 className="text-sm font-semibold">
 					{t("external_auth_provider_identity_title")}
@@ -432,7 +498,7 @@ export function ExternalAuthProviderIdentityPanel({
 						maxLength={128}
 						placeholder="Authentik"
 						aria-invalid={
-							createStepTouched && !form.displayName.trim() ? true : undefined
+							formTouched && !form.displayName.trim() ? true : undefined
 						}
 						onChange={(event) =>
 							onFieldChange("displayName", event.target.value)
@@ -499,9 +565,7 @@ export function ExternalAuthProviderIdentityPanel({
 							placeholder="11111111-2222-3333-4444-555555555555"
 							maxLength={256}
 							aria-invalid={
-								createStepTouched && !form.microsoftTenant.trim()
-									? true
-									: undefined
+								formTouched && !form.microsoftTenant.trim() ? true : undefined
 							}
 							onChange={(event) =>
 								onFieldChange("microsoftTenant", event.target.value)
@@ -513,7 +577,7 @@ export function ExternalAuthProviderIdentityPanel({
 					</div>
 				) : null}
 				<ExternalAuthConnectionFields
-					createStepTouched={createStepTouched}
+					formTouched={formTouched}
 					form={form}
 					onFieldChange={onFieldChange}
 					provider={provider}
@@ -526,11 +590,9 @@ export function ExternalAuthProviderIdentityPanel({
 					onTestConnection={onTestConnection}
 					testResult={testResult}
 				/>
-				{isCreate &&
-				createStepTouched &&
-				(identityMissing || connectionMissing) ? (
+				{isCreate && formTouched && (identityMissing || connectionMissing) ? (
 					<p className="text-xs text-destructive md:col-span-2">
-						{t("external_auth_provider_wizard_required")}
+						{t("external_auth_provider_required")}
 					</p>
 				) : null}
 				{isCreate ? null : (
@@ -554,7 +616,7 @@ function GitHubClaimInfoPanel() {
 	const { t } = useTranslation("admin");
 
 	return (
-		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+		<div className="md:col-span-2 rounded-lg bg-background/60 p-4">
 			<p className="text-sm font-medium">
 				{t("external_auth_provider_github_claims_title")}
 			</p>
@@ -595,7 +657,7 @@ function GoogleClaimInfoPanel() {
 	const { t } = useTranslation("admin");
 
 	return (
-		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+		<div className="md:col-span-2 rounded-lg bg-background/60 p-4">
 			<p className="text-sm font-medium">
 				{t("external_auth_provider_google_claims_title")}
 			</p>
@@ -642,7 +704,7 @@ function MicrosoftClaimInfoPanel() {
 	const { t } = useTranslation("admin");
 
 	return (
-		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+		<div className="md:col-span-2 rounded-lg bg-background/60 p-4">
 			<p className="text-sm font-medium">
 				{t("external_auth_provider_microsoft_claims_title")}
 			</p>
@@ -677,7 +739,7 @@ function QqClaimInfoPanel() {
 	const { t } = useTranslation("admin");
 
 	return (
-		<div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/25 p-4">
+		<div className="md:col-span-2 rounded-lg bg-background/60 p-4">
 			<p className="text-sm font-medium">
 				{t("external_auth_provider_qq_claims_title")}
 			</p>
@@ -726,7 +788,7 @@ export function ExternalAuthProviderRulesPanel({
 	const isQq = isQqProviderKind(selectedKind);
 
 	return (
-		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+		<section className="rounded-xl bg-muted/30 p-5">
 			<div className="space-y-1">
 				<h3 className="text-sm font-semibold">
 					{t("external_auth_provider_rules_title")}

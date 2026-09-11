@@ -4,8 +4,11 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::connectors::LocalConnector;
 use aster_drive_model::entities::remote_storage_target;
+use aster_drive_model::types::LocaleTag;
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId};
-use aster_drive_storage::{StorageConnectorDescriptor, StorageDriver};
+use aster_drive_storage::{
+    StorageConnectorDescriptor, StorageConnectorLocalizationCatalog, StorageDriver,
+};
 
 pub(crate) fn remote_storage_target_descriptor_from_connector(
     connector: &dyn crate::storage::connectors::StorageConnector,
@@ -19,14 +22,33 @@ pub(crate) fn remote_storage_target_descriptor_from_connector(
     Ok(connector.descriptor())
 }
 
-#[cfg(test)]
-pub(crate) fn list_registered_remote_storage_target_connector_descriptors()
--> Result<Vec<StorageConnectorDescriptor>> {
-    crate::storage::connectors::builtin_storage_connector_registry()?
+pub(crate) fn remote_storage_target_connector_catalog(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
+    requested_locale: &LocaleTag,
+) -> Result<crate::storage::remote_protocol::RemoteStorageTargetConnectorCatalog> {
+    let descriptors = registry
         .remote_target_connectors()
         .into_iter()
         .map(remote_storage_target_descriptor_from_connector)
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    let resources = descriptors
+        .iter()
+        .map(|descriptor| {
+            registry
+                .require_localization(&descriptor.connector_id)
+                .map(|localization| localization.bundle(requested_locale))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(
+        crate::storage::remote_protocol::RemoteStorageTargetConnectorCatalog {
+            descriptors,
+            localizations: StorageConnectorLocalizationCatalog {
+                requested_locale: requested_locale.clone(),
+                resources,
+            },
+        },
+    )
 }
 pub(in crate::services::remote::storage_target) async fn validate_driver_from_target<
     S: FollowerRuntimeState,

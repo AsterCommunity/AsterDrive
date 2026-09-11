@@ -20,7 +20,7 @@ title: "常见问题速查"
 | --- | --- | --- |
 | 小文件能传，大文件失败 | [上传与大文件](/using/upload-download/) | 反向代理大小限制、超时、分片大小、临时目录空间 |
 | 对象存储直传失败 | [存储策略](/admin/storage-policies/) / [上传与大文件](/using/upload-download/) | S3 CORS、`ETag` 暴露、浏览器来源没放行 |
-| 远程节点策略上传失败 | [远程节点](/admin/follower-nodes/) | 传输方式不通、直连地址错误、默认远程存储目标未应用 |
+| 远程节点策略上传失败 | [远程节点](/admin/follower-nodes/) | 传输方式不通、直连地址错误、策略未显式绑定已应用的远程存储目标 |
 | 容量显示不对 | [运维 CLI：doctor](/ops/cli/#部署检查doctor) | 存储用量计数漂移，需要深度检查 |
 
 ## 分享、WebDAV 和在线编辑

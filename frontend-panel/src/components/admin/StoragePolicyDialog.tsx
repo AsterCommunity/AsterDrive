@@ -1,10 +1,12 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { getStorageConnectorBadgePresentation } from "@/components/admin/admin-policies-page/policyPresentation";
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
+import { FormFieldLabel } from "@/components/common/FormFieldLabel";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
+import { AdminDetailPageShell } from "@/components/layout/AdminDetailPageShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +37,7 @@ import type {
 	StorageConnectorFieldValue,
 	StoragePolicyCapacityInfo,
 } from "@/types/api";
+import type { StorageConnectorFieldErrors } from "./storage-policy-dialog/connectionErrors";
 import {
 	findConnectorFieldByDataSource,
 	supportsDraftConnectionTest,
@@ -79,6 +82,7 @@ interface StoragePolicyDialogProps {
 	createStep: number;
 	createStepTouched: boolean;
 	endpointValidationMessage: string | null;
+	connectionFieldErrors?: StorageConnectorFieldErrors;
 	connectorActionConfirmId: string | null;
 	connectorActionSubmittingId: string | null;
 	connectorActionValues: StorageConnectorActionValues;
@@ -123,9 +127,9 @@ interface StoragePolicyDialogProps {
 	onCreateBack: () => void;
 	onCreateStepChange: (step: number) => void;
 	onCreateNext: () => void;
-	showCloseButton?: boolean;
 	forceDefaultPolicy?: boolean;
-	presentation?: "dialog" | "setup";
+	presentation?: "page" | "setup";
+	pageBackLabel?: string;
 	onSetupLogout?: () => void;
 }
 
@@ -155,6 +159,7 @@ export function StoragePolicyDialog({
 	createStep,
 	createStepTouched,
 	endpointValidationMessage,
+	connectionFieldErrors = {},
 	connectorActionConfirmId,
 	connectorActionSubmittingId,
 	connectorActionValues,
@@ -184,9 +189,9 @@ export function StoragePolicyDialog({
 	onCreateBack,
 	onCreateStepChange,
 	onCreateNext,
-	showCloseButton = true,
 	forceDefaultPolicy = false,
-	presentation = "dialog",
+	presentation = "page",
+	pageBackLabel,
 	onSetupLogout,
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
@@ -199,6 +204,7 @@ export function StoragePolicyDialog({
 		);
 	const isCreateMode = mode === "create";
 	const isSetupPresentation = presentation === "setup";
+	const isPagePresentation = presentation === "page";
 	const customActions =
 		storageDriverDescriptor?.actions.filter(
 			(action) => action.kind === "custom",
@@ -231,6 +237,16 @@ export function StoragePolicyDialog({
 	const connectionFields = descriptorFields.filter(
 		(field) => field !== basePathField,
 	);
+	const immutableLocationFields = descriptorFields.filter(
+		(field) => (field.update_behavior ?? "mutable") !== "mutable",
+	);
+	const hasUnboundSetOnceField = immutableLocationFields.some((field) => {
+		const value = connectorFormValue(form, field.name);
+		return (
+			field.update_behavior === "set_once" &&
+			(value === undefined || value === null || value === "")
+		);
+	});
 	const createSteps = [
 		{
 			title: t("policy_wizard_step_storage_title"),
@@ -283,45 +299,110 @@ export function StoragePolicyDialog({
 		remoteStorageTargets,
 		t,
 	);
+	const createPageActions = (
+		<>
+			{createStep > 0 ? (
+				<Button
+					type="button"
+					variant="outline"
+					className={ADMIN_CONTROL_HEIGHT_CLASS}
+					disabled={submitting}
+					onClick={onCreateBack}
+				>
+					{t("core:back")}
+				</Button>
+			) : null}
+			{createStep === 1 && canRunDraftConnectionTest ? (
+				<StoragePolicyTestConnectionButton
+					onTest={onRunConnectionTest}
+					disabled={submitting}
+				/>
+			) : null}
+			{createStep < createLastStep ? (
+				<Button
+					type="button"
+					className={ADMIN_CONTROL_HEIGHT_CLASS}
+					disabled={submitting || !storageDriverDescriptor}
+					onClick={onCreateNext}
+				>
+					{createStep === createLastStep - 1
+						? t("policy_wizard_review")
+						: t("policy_wizard_next")}
+				</Button>
+			) : (
+				<Button
+					type="button"
+					className={ADMIN_CONTROL_HEIGHT_CLASS}
+					disabled={submitting || !storageDriverDescriptor}
+					onClick={onSubmit}
+				>
+					<Icon
+						name={submitting ? "Spinner" : "Plus"}
+						className={cn("mr-1 size-4", submitting && "animate-spin")}
+					/>
+					{t("core:create")}
+				</Button>
+			)}
+		</>
+	);
+	const editPageActions = (
+		<>
+			{canRunConnectionTest ? (
+				<StoragePolicyTestConnectionButton
+					onTest={onRunConnectionTest}
+					disabled={submitting}
+				/>
+			) : null}
+			<Button
+				type="button"
+				className={ADMIN_CONTROL_HEIGHT_CLASS}
+				disabled={submitting || !storageDriverDescriptor}
+				onClick={onSubmit}
+			>
+				{submitting ? (
+					<Icon name="Spinner" className="mr-1 size-4 animate-spin" />
+				) : (
+					<Icon name="FloppyDisk" className="mr-1 size-4" />
+				)}
+				{t("save_changes")}
+			</Button>
+		</>
+	);
+	const pageActions = isCreateMode ? createPageActions : editPageActions;
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent
-				showCloseButton={showCloseButton}
-				overlayClassName={
-					isSetupPresentation
-						? "bg-background backdrop-blur-none dark:bg-background"
-						: undefined
-				}
-				className={cn(
-					"flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl",
-					isSetupPresentation && "shadow-xl",
-				)}
-			>
-				{isSetupPresentation ? (
-					<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
-						<AsterDriveWordmark
-							alt="AsterDrive"
-							className="h-8 w-auto max-w-44"
-						/>
-						{onSetupLogout ? (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={onSetupLogout}
-							>
-								{t("core:logout")}
-							</Button>
-						) : null}
-					</div>
-				) : null}
-				<DialogHeader
-					className={cn(
-						"shrink-0 px-6 pt-5 pb-0",
-						showCloseButton ? "pr-14" : "pr-6",
-					)}
-				>
+		<StoragePolicyFrame
+			actions={isPagePresentation ? pageActions : undefined}
+			backLabel={pageBackLabel ?? t("policies")}
+			description={t("policies_intro")}
+			onBack={() => onOpenChange(false)}
+			onOpenChange={onOpenChange}
+			open={open}
+			presentation={presentation}
+			title={
+				isCreateMode ? t("create_policy") : form.name.trim() || t("edit_policy")
+			}
+		>
+			{isSetupPresentation ? (
+				<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
+					<AsterDriveWordmark
+						alt="AsterDrive"
+						className="h-8 w-auto max-w-44"
+					/>
+					{onSetupLogout ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={onSetupLogout}
+						>
+							{t("core:logout")}
+						</Button>
+					) : null}
+				</div>
+			) : null}
+			{isSetupPresentation ? (
+				<DialogHeader className="shrink-0 px-6 pt-5 pb-0 pr-6">
 					{isSetupPresentation ? (
 						<p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
 							{t("auth:storage_setup_eyebrow")}
@@ -342,171 +423,193 @@ export function StoragePolicyDialog({
 						<DialogDescription>{t("policies_intro")}</DialogDescription>
 					)}
 				</DialogHeader>
-				<form
-					onSubmit={(event) => event.preventDefault()}
-					autoComplete="off"
-					className="flex min-h-0 flex-1 flex-col overflow-hidden"
+			) : null}
+			<form
+				id="storage-policy-form"
+				onSubmit={(event) => event.preventDefault()}
+				autoComplete="off"
+				className={cn(
+					isPagePresentation
+						? "min-w-0"
+						: "flex min-h-0 flex-1 flex-col overflow-hidden",
+				)}
+			>
+				<div
+					className={cn(
+						"min-h-0 flex-1",
+						isPagePresentation ? "pb-5" : "overflow-y-auto px-6 pt-6 pb-5",
+					)}
 				>
-					<div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6 pb-5">
-						{isCreateMode ? (
-							<div className="space-y-6">
-								<WizardProgress
-									createStep={createStep}
-									steps={createSteps}
-									onStepChange={onCreateStepChange}
-								/>
-								<div>
-									<div className="relative overflow-hidden">
-										<div
-											key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
-											data-testid="policy-step-panel"
-											className={cn(
-												stepAnimationRef.current.direction !== "idle" &&
-													"animate-in fade-in duration-[360ms] motion-reduce:animate-none",
-												stepAnimationRef.current.direction === "forward" &&
-													"slide-in-from-right-6",
-												stepAnimationRef.current.direction === "backward" &&
-													"slide-in-from-left-6",
-											)}
-										>
-											{createStep === 0 ? (
-												<ConnectorSelection
-													descriptors={storageDriverDescriptors}
-													error={storageDriverDescriptorsError}
-													loading={storageDriverDescriptorsLoading}
-													selectedId={form.connector_id}
-													setup={isSetupPresentation}
-													onSelect={(connectorId) => {
-														onConnectorIdChange(connectorId);
+					{isCreateMode ? (
+						<div className="space-y-6">
+							<WizardProgress
+								createStep={createStep}
+								steps={createSteps}
+								onStepChange={onCreateStepChange}
+							/>
+							<div>
+								<div className="relative overflow-hidden">
+									<div
+										key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
+										data-testid="policy-step-panel"
+										className={cn(
+											stepAnimationRef.current.direction !== "idle" &&
+												"animate-in fade-in duration-[360ms] motion-reduce:animate-none",
+											stepAnimationRef.current.direction === "forward" &&
+												"slide-in-from-right-6",
+											stepAnimationRef.current.direction === "backward" &&
+												"slide-in-from-left-6",
+										)}
+									>
+										{createStep === 0 ? (
+											<ConnectorSelection
+												descriptors={storageDriverDescriptors}
+												error={storageDriverDescriptorsError}
+												loading={storageDriverDescriptorsLoading}
+												selectedId={form.connector_id}
+												setup={isSetupPresentation}
+												onSelect={(connectorId) => {
+													onConnectorIdChange(connectorId);
+													if (!isPagePresentation) {
 														onCreateStepChange(1);
-													}}
-												/>
-											) : createStep === 1 ? (
-												<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-													<div className="space-y-4">
-														<PolicyNameField
-															form={form}
-															showError={createStepTouched}
-															onChange={(value) => onFieldChange("name", value)}
+													}
+												}}
+												page={isPagePresentation}
+											/>
+										) : createStep === 1 ? (
+											<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+												<div className="space-y-4">
+													<PolicyNameField
+														form={form}
+														showError={createStepTouched}
+														onChange={(value) => onFieldChange("name", value)}
+													/>
+													<StorageConnectorFieldsPanel
+														descriptor={storageDriverDescriptor}
+														form={form}
+														mode="create"
+														remoteNodes={remoteNodes}
+														remoteStorageTargets={remoteStorageTargets}
+														showRequiredErrors={createStepTouched}
+														fieldErrors={connectionFieldErrors}
+														t={t}
+														onFieldChange={onFieldChange}
+													/>
+													{endpointValidationMessage &&
+													!Object.values(connectionFieldErrors).includes(
+														endpointValidationMessage,
+													) ? (
+														<p className="text-xs text-destructive">
+															{endpointValidationMessage}
+														</p>
+													) : null}
+													<StorageConnectorPromotionPanel
+														blocked={false}
+														candidates={connectorPromotionCandidates}
+														confirmKey={connectorPromotionConfirmKey}
+														mode="create"
+														submittingKey={connectorPromotionSubmittingKey}
+														t={t}
+														onApplyDraft={onApplyDraftConnectorPromotion}
+														onCancel={onCancelConnectorPromotion}
+														onConfirm={onConfirmConnectorPromotion}
+														onRequest={onRequestConnectorPromotion}
+													/>
+													{remoteNodeId ? (
+														<RemoteTargets
+															connectorDescriptors={
+																remoteStorageTargetConnectorDescriptors
+															}
+															driverError={
+																remoteStorageTargetConnectorDescriptorsError
+															}
+															driverLoading={
+																remoteStorageTargetConnectorDescriptorsLoading
+															}
+															targets={remoteStorageTargets}
+															targetsError={remoteStorageTargetsError}
+															targetsLoading={remoteStorageTargetsLoading}
+															onCreate={onCreateRemoteStorageTarget}
 														/>
-														<StorageConnectorFieldsPanel
-															descriptor={storageDriverDescriptor}
-															form={form}
-															mode="create"
-															remoteNodes={remoteNodes}
-															remoteStorageTargets={remoteStorageTargets}
-															showRequiredErrors={createStepTouched}
-															t={t}
-															onFieldChange={onFieldChange}
-														/>
-														{endpointValidationMessage ? (
-															<p className="text-xs text-destructive">
-																{endpointValidationMessage}
-															</p>
-														) : null}
-														<StorageConnectorPromotionPanel
-															blocked={false}
-															candidates={connectorPromotionCandidates}
-															confirmKey={connectorPromotionConfirmKey}
-															mode="create"
-															submittingKey={connectorPromotionSubmittingKey}
-															t={t}
-															onApplyDraft={onApplyDraftConnectorPromotion}
-															onCancel={onCancelConnectorPromotion}
-															onConfirm={onConfirmConnectorPromotion}
-															onRequest={onRequestConnectorPromotion}
-														/>
-														{remoteNodeId ? (
-															<RemoteTargets
-																connectorDescriptors={
-																	remoteStorageTargetConnectorDescriptors
-																}
-																driverError={
-																	remoteStorageTargetConnectorDescriptorsError
-																}
-																driverLoading={
-																	remoteStorageTargetConnectorDescriptorsLoading
-																}
-																targets={remoteStorageTargets}
-																targetsError={remoteStorageTargetsError}
-																targetsLoading={remoteStorageTargetsLoading}
-																onCreate={onCreateRemoteStorageTarget}
-															/>
-														) : null}
-													</div>
+													) : null}
+												</div>
+												<aside className="min-w-0 lg:sticky lg:top-0 lg:self-start">
 													<ConnectorHelper
 														descriptor={storageDriverDescriptor}
+														plain={isPagePresentation}
+													/>
+												</aside>
+											</div>
+										) : (
+											<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+												<div className="space-y-4">
+													<PolicyRules
+														form={form}
+														forceDefault={forceDefaultPolicy}
+														connectorId={form.connector_id}
+														nativeThumbnailSupported={nativeThumbnailSupported}
+														nativeMediaMetadataSupported={
+															nativeMediaMetadataSupported
+														}
+														onFieldChange={onFieldChange}
+													/>
+													<StorageConnectorActionsPanel
+														actions={customActions}
+														remoteNodes={remoteNodes}
+														remoteStorageTargets={remoteStorageTargets}
+														connectorId={storageDriverDescriptor?.connector_id}
+														confirmActionId={connectorActionConfirmId}
+														submittingActionId={connectorActionSubmittingId}
+														t={t}
+														values={connectorActionValues}
+														onCancel={onCancelConnectorAction}
+														onConfirm={onConfirmConnectorAction}
+														onRequest={onRequestConnectorAction}
+														onValueChange={onConnectorActionValueChange}
 													/>
 												</div>
-											) : (
-												<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-													<div className="space-y-4">
-														<PolicyRules
-															form={form}
-															forceDefault={forceDefaultPolicy}
-															connectorId={form.connector_id}
-															nativeThumbnailSupported={
-																nativeThumbnailSupported
-															}
-															nativeMediaMetadataSupported={
-																nativeMediaMetadataSupported
-															}
-															onFieldChange={onFieldChange}
-														/>
-														<StorageConnectorActionsPanel
-															actions={customActions}
-															remoteNodes={remoteNodes}
-															remoteStorageTargets={remoteStorageTargets}
-															connectorId={
-																storageDriverDescriptor?.connector_id
-															}
-															confirmActionId={connectorActionConfirmId}
-															submittingActionId={connectorActionSubmittingId}
-															t={t}
-															values={connectorActionValues}
-															onCancel={onCancelConnectorAction}
-															onConfirm={onConfirmConnectorAction}
-															onRequest={onRequestConnectorAction}
-															onValueChange={onConnectorActionValueChange}
-														/>
-													</div>
+												<aside className="min-w-0 lg:sticky lg:top-0 lg:self-start">
 													<PolicySummary
 														descriptor={storageDriverDescriptor}
 														name={form.name}
 														items={summaryItems}
+														plain={isPagePresentation}
 													/>
-												</div>
-											)}
-										</div>
+												</aside>
+											</div>
+										)}
 									</div>
 								</div>
 							</div>
-						) : (
-							<div data-testid="policy-edit-shell" className="space-y-4">
+						</div>
+					) : (
+						<div
+							data-testid="policy-edit-shell"
+							className={cn(
+								"space-y-4",
+								isPagePresentation &&
+									"grid gap-8 space-y-0 lg:grid-cols-[300px_minmax(0,1fr)]",
+							)}
+						>
+							<div
+								className={cn(
+									"space-y-4",
+									isPagePresentation &&
+										"animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none lg:sticky lg:top-6 lg:self-start [&>section]:rounded-xl [&>section]:bg-muted/30 [&>section]:p-4",
+								)}
+							>
 								<PolicyEditContextBar
 									capacity={policyCapacity}
 									descriptor={storageDriverDescriptor}
 									form={form}
 									loading={policyCapacityLoading}
 								/>
-								<StorageConnectorPromotionPanel
-									blocked={connectorPromotionBlocked}
-									candidates={connectorPromotionCandidates}
-									confirmKey={connectorPromotionConfirmKey}
-									mode="edit"
-									submittingKey={connectorPromotionSubmittingKey}
-									t={t}
-									onApplyDraft={onApplyDraftConnectorPromotion}
-									onCancel={onCancelConnectorPromotion}
-									onConfirm={onConfirmConnectorPromotion}
-									onRequest={onRequestConnectorPromotion}
-								/>
 								<section>
 									<SectionTitle
 										title={t("policy_editor_overview_title")}
 										description={t("policy_editor_overview_desc")}
 									/>
-									<div className="mt-5 grid gap-5 md:grid-cols-2">
+									<div className="mt-5 space-y-5">
 										<PolicyNameField
 											form={form}
 											showError={false}
@@ -521,12 +624,33 @@ export function StoragePolicyDialog({
 												remoteNodes={remoteNodes}
 												remoteStorageTargets={remoteStorageTargets}
 												showRequiredErrors={false}
+												fieldErrors={connectionFieldErrors}
 												t={t}
 												onFieldChange={onFieldChange}
 											/>
 										) : null}
 									</div>
 								</section>
+							</div>
+							<div
+								className={cn(
+									"space-y-4",
+									isPagePresentation &&
+										"min-w-0 space-y-8 animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards delay-75 motion-reduce:animate-none [&>section]:rounded-xl [&>section]:bg-muted/30 [&>section]:p-5",
+								)}
+							>
+								<StorageConnectorPromotionPanel
+									blocked={connectorPromotionBlocked}
+									candidates={connectorPromotionCandidates}
+									confirmKey={connectorPromotionConfirmKey}
+									mode="edit"
+									submittingKey={connectorPromotionSubmittingKey}
+									t={t}
+									onApplyDraft={onApplyDraftConnectorPromotion}
+									onCancel={onCancelConnectorPromotion}
+									onConfirm={onConfirmConnectorPromotion}
+									onRequest={onRequestConnectorPromotion}
+								/>
 								{connectionFields.length > 0 || remoteNodeId ? (
 									<section>
 										<SectionTitle
@@ -547,6 +671,15 @@ export function StoragePolicyDialog({
 											}
 										/>
 										<div className="mt-5 space-y-4">
+											{!isCreateMode && immutableLocationFields.length > 0 ? (
+												<p className="rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+													{t(
+														hasUnboundSetOnceField
+															? "policy_editor_remote_legacy_target_required_desc"
+															: "policy_editor_remote_location_immutable_desc",
+													)}
+												</p>
+											) : null}
 											<StorageConnectorFieldsPanel
 												descriptor={storageDriverDescriptor}
 												fields={connectionFields}
@@ -555,30 +688,17 @@ export function StoragePolicyDialog({
 												remoteNodes={remoteNodes}
 												remoteStorageTargets={remoteStorageTargets}
 												showRequiredErrors={false}
+												fieldErrors={connectionFieldErrors}
 												t={t}
 												onFieldChange={onFieldChange}
 											/>
-											{endpointValidationMessage ? (
+											{endpointValidationMessage &&
+											!Object.values(connectionFieldErrors).includes(
+												endpointValidationMessage,
+											) ? (
 												<p className="text-xs text-destructive">
 													{endpointValidationMessage}
 												</p>
-											) : null}
-											{remoteNodeId ? (
-												<RemoteTargets
-													connectorDescriptors={
-														remoteStorageTargetConnectorDescriptors
-													}
-													driverError={
-														remoteStorageTargetConnectorDescriptorsError
-													}
-													driverLoading={
-														remoteStorageTargetConnectorDescriptorsLoading
-													}
-													targets={remoteStorageTargets}
-													targetsError={remoteStorageTargetsError}
-													targetsLoading={remoteStorageTargetsLoading}
-													onCreate={onCreateRemoteStorageTarget}
-												/>
 											) : null}
 											<ConnectorManagement
 												management={
@@ -645,32 +765,44 @@ export function StoragePolicyDialog({
 									</section>
 								) : null}
 							</div>
-						)}
-					</div>
-					{saveAnywayConfirmOpen ? (
-						<div className="shrink-0 px-6 pb-3">
-							<InlineConfirm>
-								<div className="flex items-center justify-between gap-3">
-									<p className="text-sm text-muted-foreground">
-										{t("connection_test_failed_save_prompt")}
-									</p>
-									<div className="flex gap-2">
-										<Button
-											type="button"
-											variant="outline"
-											onClick={onCancelSaveAnyway}
-										>
-											{t("core:cancel")}
-										</Button>
-										<Button type="button" onClick={onConfirmSaveAnyway}>
-											{t("save_anyway")}
-										</Button>
-									</div>
-								</div>
-							</InlineConfirm>
 						</div>
-					) : null}
-					<DialogFooter className="mx-0 mb-0 w-full shrink-0 flex-row items-center gap-2 rounded-b-xl px-6 py-3">
+					)}
+				</div>
+				{saveAnywayConfirmOpen ? (
+					<div
+						className={cn(
+							"shrink-0",
+							isPagePresentation ? "pb-3" : "px-6 pb-3",
+						)}
+					>
+						<InlineConfirm>
+							<div className="flex items-center justify-between gap-3">
+								<p className="text-sm text-muted-foreground">
+									{t("connection_test_failed_save_prompt")}
+								</p>
+								<div className="flex gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										onClick={onCancelSaveAnyway}
+									>
+										{t("core:cancel")}
+									</Button>
+									<Button type="button" onClick={onConfirmSaveAnyway}>
+										{t("save_anyway")}
+									</Button>
+								</div>
+							</div>
+						</InlineConfirm>
+					</div>
+				) : null}
+				{!isPagePresentation ? (
+					<DialogFooter
+						className={cn(
+							"mx-0 mb-0 w-full shrink-0 flex-row items-center gap-2",
+							"rounded-b-xl px-6 py-3",
+						)}
+					>
 						<div className="mr-auto flex shrink-0 gap-2">
 							{isCreateMode && createStep > 0 ? (
 								<Button
@@ -755,7 +887,55 @@ export function StoragePolicyDialog({
 							)}
 						</div>
 					</DialogFooter>
-				</form>
+				) : null}
+			</form>
+		</StoragePolicyFrame>
+	);
+}
+
+function StoragePolicyFrame({
+	actions,
+	backLabel,
+	children,
+	description,
+	onBack,
+	onOpenChange,
+	open,
+	presentation,
+	title,
+}: {
+	actions?: ReactNode;
+	backLabel: string;
+	children: ReactNode;
+	description: string;
+	onBack: () => void;
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+	presentation: "page" | "setup";
+	title: string;
+}) {
+	if (presentation === "page") {
+		return (
+			<AdminDetailPageShell
+				actions={actions}
+				backLabel={backLabel}
+				description={description}
+				onBack={onBack}
+				title={title}
+			>
+				{children}
+			</AdminDetailPageShell>
+		);
+	}
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent
+				showCloseButton={false}
+				overlayClassName="bg-background backdrop-blur-none dark:bg-background"
+				className="flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 shadow-xl sm:max-w-[calc(100%-2rem)] lg:max-w-4xl"
+			>
+				{children}
 			</DialogContent>
 		</Dialog>
 	);
@@ -774,7 +954,7 @@ function WizardProgress({
 	const currentStep = steps[Math.min(createStep, steps.length - 1)];
 	return (
 		<div className="space-y-3">
-			<div className="rounded-2xl bg-muted/30 p-3 sm:p-4">
+			<div className="rounded-xl bg-muted/30 p-3 sm:p-4">
 				<div className="flex items-start justify-between gap-3">
 					<div className="space-y-1">
 						<p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
@@ -794,9 +974,9 @@ function WizardProgress({
 						{String(createStep + 1).padStart(2, "0")}
 					</div>
 				</div>
-				<div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+				<div className="mt-4 h-1.5 overflow-hidden rounded-full bg-background/80">
 					<div
-						className="h-full rounded-full bg-primary transition-all"
+						className="h-full rounded-full bg-primary transition-[width] duration-300"
 						style={{ width: `${((createStep + 1) / steps.length) * 100}%` }}
 					/>
 				</div>
@@ -809,22 +989,18 @@ function WizardProgress({
 						disabled={index > createStep}
 						onClick={() => onStepChange(index)}
 						className={cn(
-							"rounded-xl border px-3 py-2.5 text-left transition",
+							"flex items-center gap-3 rounded-xl p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
 							index === createStep
-								? "border-primary bg-primary/5 shadow-sm"
+								? "bg-primary/10 text-foreground"
 								: index < createStep
-									? "border-border bg-background hover:border-primary/40"
-									: "border-border/60 bg-muted/20 text-muted-foreground",
+									? "bg-muted/50 hover:bg-muted/70"
+									: "bg-muted/20 text-muted-foreground",
 						)}
 					>
-						<div className="flex items-center gap-2">
-							<span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/80 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground">
-								{index + 1}
-							</span>
-							<span className="text-sm font-medium leading-5">
-								{step.title}
-							</span>
-						</div>
+						<span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background/80 text-[10px] font-semibold tracking-[0.16em] text-muted-foreground shadow-xs">
+							{index + 1}
+						</span>
+						<span className="text-sm font-medium leading-5">{step.title}</span>
 					</button>
 				))}
 			</div>
@@ -839,6 +1015,7 @@ function ConnectorSelection({
 	selectedId,
 	setup,
 	onSelect,
+	page,
 }: {
 	descriptors: StorageConnectorDescriptor[];
 	error: string | null;
@@ -846,8 +1023,32 @@ function ConnectorSelection({
 	selectedId: string;
 	setup: boolean;
 	onSelect: (connectorId: string) => void;
+	page: boolean;
 }) {
 	const { t } = useTranslation("admin");
+	const [query, setQuery] = useState("");
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+	const descriptorLabel = (descriptor: StorageConnectorDescriptor) =>
+		translateStorageConnectorMessage(
+			t,
+			descriptor.connector_id,
+			descriptor.ui.label_key,
+		);
+	const descriptorDescription = (descriptor: StorageConnectorDescriptor) =>
+		translateStorageConnectorMessage(
+			t,
+			descriptor.connector_id,
+			descriptor.ui.description_key,
+		);
+	const filteredDescriptors = normalizedQuery
+		? descriptors.filter((descriptor) =>
+				[
+					descriptorLabel(descriptor),
+					descriptorDescription(descriptor),
+					descriptor.connector_id,
+				].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)),
+			)
+		: descriptors;
 	if (loading && descriptors.length === 0) {
 		return (
 			<div className="flex min-h-32 items-center justify-center gap-2 rounded-lg bg-muted/30 text-sm text-muted-foreground">
@@ -860,6 +1061,132 @@ function ConnectorSelection({
 		return (
 			<div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
 				{error}
+			</div>
+		);
+	}
+	if (page) {
+		const selectedDescriptor =
+			descriptors.find(
+				(descriptor) => descriptor.connector_id === selectedId,
+			) ??
+			descriptors[0] ??
+			null;
+		return (
+			<div
+				data-testid="storage-driver-options"
+				className="grid items-start gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]"
+			>
+				<div className="flex max-h-[26rem] min-h-0 flex-col rounded-xl bg-muted/30 p-2 lg:max-h-[min(56vh,34rem)]">
+					<div className="relative mb-1 shrink-0">
+						<Icon
+							name="MagnifyingGlass"
+							className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							type="search"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							aria-label={t("policy_connector_search")}
+							placeholder={t("policy_connector_search")}
+							className="bg-background/75 pl-9"
+						/>
+					</div>
+					<div className="min-h-0 space-y-1 overflow-y-auto overscroll-contain">
+						{filteredDescriptors.map((descriptor) => {
+							const selected = descriptor.connector_id === selectedId;
+							return (
+								<button
+									type="button"
+									key={descriptor.connector_id}
+									aria-pressed={selected}
+									onClick={() => onSelect(descriptor.connector_id)}
+									className={cn(
+										"flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60",
+										selected
+											? "bg-background text-foreground shadow-xs"
+											: "text-muted-foreground",
+									)}
+								>
+									<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white shadow-xs ring-1 ring-black/5">
+										<ConnectorVisual
+											descriptor={descriptor}
+											className="max-h-6 max-w-6"
+										/>
+									</div>
+									<span className="min-w-0 flex-1 truncate text-sm font-medium">
+										{descriptorLabel(descriptor)}
+									</span>
+									{selected ? (
+										<Icon
+											name="Check"
+											className="size-4 shrink-0 text-primary"
+										/>
+									) : null}
+								</button>
+							);
+						})}
+						{filteredDescriptors.length === 0 ? (
+							<p className="px-3 py-8 text-center text-sm text-muted-foreground">
+								{t("policy_connector_search_empty")}
+							</p>
+						) : null}
+					</div>
+				</div>
+				{selectedDescriptor ? (
+					<section
+						key={selectedDescriptor.connector_id}
+						className="animate-in fade-in slide-in-from-right-2 px-1 py-3 duration-200 motion-reduce:animate-none sm:px-4"
+					>
+						<div className="flex items-start gap-5">
+							<div className="flex size-16 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+								<ConnectorVisual
+									descriptor={selectedDescriptor}
+									className="max-h-10 max-w-10"
+								/>
+							</div>
+							<div className="min-w-0 space-y-2">
+								<h3 className="text-lg font-semibold">
+									{descriptorLabel(selectedDescriptor)}
+								</h3>
+								<p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+									{descriptorDescription(selectedDescriptor)}
+								</p>
+							</div>
+						</div>
+						<p className="mt-7 max-w-2xl text-sm leading-6 text-muted-foreground">
+							{translateStorageConnectorMessage(
+								t,
+								selectedDescriptor.connector_id,
+								selectedDescriptor.ui.helper_key,
+							)}
+						</p>
+						<div className="mt-7 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+							<ConnectorCapability
+								enabled={
+									selectedDescriptor.upload_workflows.presigned_upload ||
+									selectedDescriptor.upload_workflows
+										.frontend_direct_provider_resumable_upload
+								}
+								label={t("policy_connector_capability_direct_upload")}
+							/>
+							<ConnectorCapability
+								enabled={selectedDescriptor.capabilities.efficient_range}
+								label={t("policy_connector_capability_range_read")}
+							/>
+							<ConnectorCapability
+								enabled={selectedDescriptor.capabilities.capacity}
+								label={t("policy_connector_capability_capacity")}
+							/>
+							<ConnectorCapability
+								enabled={
+									selectedDescriptor.capabilities.storage_native_thumbnail ||
+									selectedDescriptor.capabilities.storage_native_media_metadata
+								}
+								label={t("policy_connector_capability_native_processing")}
+							/>
+						</div>
+					</section>
+				) : null}
 			</div>
 		);
 	}
@@ -916,6 +1243,29 @@ function ConnectorSelection({
 	);
 }
 
+function ConnectorCapability({
+	enabled,
+	label,
+}: {
+	enabled: boolean;
+	label: string;
+}) {
+	return (
+		<div className="flex items-center gap-2 text-sm">
+			<Icon
+				name={enabled ? "Check" : "Minus"}
+				className={cn(
+					"size-4 shrink-0",
+					enabled ? "text-emerald-600" : "text-muted-foreground/60",
+				)}
+			/>
+			<span className={enabled ? "text-foreground" : "text-muted-foreground"}>
+				{label}
+			</span>
+		</div>
+	);
+}
+
 function ConnectorVisual({
 	descriptor,
 	className,
@@ -953,7 +1303,9 @@ function PolicyNameField({
 	const invalid = showError && !form.name.trim();
 	return (
 		<div className="space-y-2">
-			<Label htmlFor="name">{t("core:name")}</Label>
+			<FormFieldLabel htmlFor="name" required>
+				{t("core:name")}
+			</FormFieldLabel>
 			<Input
 				id="name"
 				value={form.name}
@@ -973,14 +1325,16 @@ function PolicyNameField({
 
 function ConnectorHelper({
 	descriptor,
+	plain = false,
 }: {
 	descriptor: StorageConnectorDescriptor | null;
+	plain?: boolean;
 }) {
 	const { t } = useTranslation("admin");
 	const connectorT = (key: string) =>
 		translateStorageConnectorMessage(t, descriptor?.connector_id, key);
 	return (
-		<div className="rounded-3xl bg-muted/30 p-5">
+		<div className={cn(plain ? "px-1 py-2" : "rounded-2xl bg-muted/30 p-5")}>
 			<div className="flex items-center gap-3">
 				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
 					<ConnectorVisual descriptor={descriptor} />
@@ -1025,7 +1379,7 @@ function RemoteTargets({
 	targets: RemoteStorageTargetInfo[];
 	targetsError: string | null;
 	targetsLoading: boolean;
-	onCreate: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
+	onCreate?: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
 }) {
 	return (
 		<RemoteNodeRemoteStorageTargetSection
@@ -1155,16 +1509,18 @@ function PolicySummary({
 	descriptor,
 	name,
 	items,
+	plain = false,
 }: {
 	descriptor: StorageConnectorDescriptor | null;
 	name: string;
 	items: Array<{ label: string; value: string }>;
+	plain?: boolean;
 }) {
 	const { t } = useTranslation("admin");
 	return (
 		<div
 			data-testid="policy-summary-card"
-			className="rounded-3xl bg-muted/30 p-5 lg:sticky lg:top-0 lg:self-start"
+			className={cn(plain ? "px-1 py-2" : "rounded-2xl bg-muted/30 p-5")}
 		>
 			<div className="flex items-center gap-3">
 				<div className="flex size-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
@@ -1182,7 +1538,12 @@ function PolicySummary({
 			<p className="mt-4 text-sm leading-6 text-muted-foreground">
 				{t("policy_wizard_summary_desc")}
 			</p>
-			<div className="mt-4 overflow-hidden rounded-2xl bg-background">
+			<div
+				className={cn(
+					"mt-4 overflow-hidden",
+					plain ? "border-y border-border/70" : "rounded-xl bg-background",
+				)}
+			>
 				<dl className="divide-y divide-border/70">
 					{items.map((item) => (
 						<div
@@ -1228,7 +1589,7 @@ function PolicyEditContextBar({
 			data-testid="policy-edit-context-bar"
 			className="rounded-2xl bg-muted/30 p-4"
 		>
-			<div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.85fr)]">
+			<div className="space-y-4">
 				<div className="min-w-0">
 					<p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 						{t("policy_edit_context_title")}
@@ -1275,7 +1636,7 @@ function PolicyEditContextBar({
 				</div>
 				<div
 					data-testid="policy-edit-capacity-summary"
-					className="min-w-0 border-border/70 md:border-l md:pl-4"
+					className="min-w-0 border-t border-border/70 pt-4"
 				>
 					<PolicyCapacitySummary capacity={capacity} loading={loading} />
 				</div>

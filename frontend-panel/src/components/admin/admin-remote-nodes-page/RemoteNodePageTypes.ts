@@ -1,9 +1,4 @@
-import type { RemoteNodeFormData } from "../remoteNodeDialogShared";
-
-export interface RemoteNodeDialogStep {
-	description: string;
-	title: string;
-}
+import type { RemoteNodeFormData } from "../remoteNodePageShared";
 
 export interface RemoteNodeSummaryItem {
 	label: string;

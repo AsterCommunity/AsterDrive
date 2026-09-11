@@ -186,6 +186,9 @@ describe("router", () => {
 		expect(
 			allRoutes.some((route) => route.path === "/admin/users/invitations"),
 		).toBe(true);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/users/:userId"),
+		).toBe(true);
 		expect(allRoutes.some((route) => route.path === "/tasks")).toBe(true);
 		expect(allRoutes.some((route) => route.path === "tasks")).toBe(true);
 		expect(allRoutes.some((route) => route.path === "/tags")).toBe(false);
@@ -233,6 +236,35 @@ describe("router", () => {
 		const allRoutes = flattenRoutes(routes as TestRoute[]);
 		expect(
 			allRoutes.some((route) => route.path === "/admin/policy-groups/:groupId"),
+		).toBe(true);
+	});
+
+	it("registers the dedicated storage policy detail route", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/policies/:policyId"),
+		).toBe(true);
+	});
+
+	it("registers the dedicated storage policy create route", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/policies/new"),
+		).toBe(true);
+	});
+
+	it("registers dedicated external auth provider pages", async () => {
+		const routes = await loadRoutes();
+		const allRoutes = flattenRoutes(routes as TestRoute[]);
+		expect(
+			allRoutes.some((route) => route.path === "/admin/external-auth/new"),
+		).toBe(true);
+		expect(
+			allRoutes.some(
+				(route) => route.path === "/admin/external-auth/:providerId",
+			),
 		).toBe(true);
 	});
 
@@ -301,6 +333,20 @@ describe("router", () => {
 		expect(allRoutes.some((route) => route.path === "/setup/pending")).toBe(
 			true,
 		);
+	});
+
+	it("registers remote node detail subpages alongside the legacy detail URL", async () => {
+		const routes = (await loadRoutes()) as TestRoute[];
+		const allRoutes = flattenRoutes(routes);
+
+		expect(
+			allRoutes.some((route) => route.path === "/admin/remote-nodes/:nodeId"),
+		).toBe(true);
+		expect(
+			allRoutes.some(
+				(route) => route.path === "/admin/remote-nodes/:nodeId/:section",
+			),
+		).toBe(true);
 	});
 
 	it("registers root and canonical subfolder routes for public folder shares", async () => {
@@ -372,6 +418,14 @@ describe("router", () => {
 			{
 				path: "/admin/teams/:teamId/:section",
 				namespaces: ["admin", "core", "settings"],
+			},
+			{
+				path: "/admin/remote-nodes/:nodeId",
+				namespaces: ["admin", "core", "errors"],
+			},
+			{
+				path: "/admin/remote-nodes/:nodeId/:section",
+				namespaces: ["admin", "core", "errors"],
 			},
 		];
 

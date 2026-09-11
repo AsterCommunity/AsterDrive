@@ -50,7 +50,9 @@ interface StoragePolicyEditorControllerInput {
 	list: StoragePolicyEditorListBridge;
 	loadPolicyCapacity: (policyId: number) => void;
 	onCloseDialog: () => void;
-	onPolicyCreated?: (policy: StoragePolicy) => Promise<void> | void;
+	onPolicyCreated?: (
+		policy: StoragePolicy,
+	) => Promise<boolean | undefined> | boolean | undefined;
 	setCreateStep: Dispatch<SetStateAction<number>>;
 	setCreateStepTouched: Dispatch<SetStateAction<boolean>>;
 	setEditingId: Dispatch<SetStateAction<number | null>>;
@@ -121,7 +123,20 @@ export function useStoragePolicyEditorController({
 					buildCreatePolicyPayload(currentForm, descriptor),
 				);
 				invalidateAdminPolicyLookup();
-				await onPolicyCreated?.(created);
+				const creationHandled = await onPolicyCreated?.(created);
+				if (creationHandled) {
+					toast.success(
+						supportsStorageCredentialLifecycle(descriptor) &&
+							descriptor.credential_management?.created_authorize_next_key
+							? translateStorageConnectorMessage(
+									t,
+									descriptor.connector_id,
+									descriptor.credential_management.created_authorize_next_key,
+								)
+							: t("policy_created"),
+					);
+					return;
+				}
 				if (supportsStorageCredentialLifecycle(descriptor)) {
 					setEditingId(created.id);
 					setEditingPolicy(created);

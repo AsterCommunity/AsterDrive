@@ -33,7 +33,6 @@ export function getRemoteStorageTargetForm(
 			),
 		),
 		credential_values: {},
-		is_default: target.is_default,
 	};
 }
 
@@ -61,7 +60,6 @@ export function buildCreateRemoteStorageTargetPayload(
 	return {
 		name: normalized.name.trim(),
 		connection: buildStorageConnection(normalized, descriptor, true),
-		is_default: normalized.is_default,
 	};
 }
 
@@ -83,12 +81,10 @@ export function buildUpdateRemoteStorageTargetPayload(
 			descriptor,
 			connectorChanged || hasCredentialValues,
 		),
-		is_default: normalized.is_default,
 	};
 }
 
 export const emptyRemoteStorageTargetForm: RemoteStorageTargetFormData = {
 	...emptyForm,
 	connector_id: "",
-	is_default: false,
 };

@@ -59,16 +59,22 @@ vi.mock(
 	"@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection",
 	() => ({
 		RemoteNodeRemoteStorageTargetSection: (props: {
+			allowCreate?: boolean;
 			errorMessage?: string | null;
 			loading?: boolean;
 			onCreateTarget?: () => void;
 		}) => (
-			<div data-testid="remote-targets">
+			<div
+				data-testid="remote-targets"
+				data-allow-create={String(props.allowCreate ?? false)}
+			>
 				<span>{props.errorMessage}</span>
 				<span>{String(props.loading)}</span>
-				<button type="button" onClick={props.onCreateTarget}>
-					create-target
-				</button>
+				{props.allowCreate && props.onCreateTarget ? (
+					<button type="button" onClick={props.onCreateTarget}>
+						create-target
+					</button>
+				) : null}
 			</div>
 		),
 	}),
@@ -284,6 +290,147 @@ describe("StoragePolicyDialog", () => {
 		interactionMocks.clipboard.mockResolvedValue(undefined);
 		interactionMocks.toastError.mockReset();
 		interactionMocks.toastSuccess.mockReset();
+	});
+
+	it("renders saved policies in the shared detail page shell", () => {
+		const props = dialogProps({
+			mode: "edit",
+			pageBackLabel: "Back to policies",
+			presentation: "page",
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(screen.getByTestId("policy-edit-shell")).toHaveClass(
+			"grid",
+			"gap-8",
+			"lg:grid-cols-[300px_minmax(0,1fr)]",
+		);
+		expect(
+			screen.getByTestId("policy-edit-context-bar").parentElement,
+		).toHaveClass("lg:sticky", "lg:top-6");
+		expect(screen.getByTestId("policy-edit-capacity-summary")).toHaveClass(
+			"border-t",
+			"pt-4",
+		);
+		expect(screen.getByTestId("policy-edit-capacity-summary")).not.toHaveClass(
+			"md:border-l",
+		);
+		fireEvent.click(screen.getByRole("button", { name: /back to policies/i }));
+		expect(props.onOpenChange).toHaveBeenCalledWith(false);
+		expect(
+			screen.getAllByRole("button", { name: /save_changes/i }).length,
+		).toBeGreaterThan(0);
+	});
+
+	it("renders the multi-step creator as a page without a dialog", () => {
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 1,
+					mode: "create",
+					pageBackLabel: "Back to policies",
+					presentation: "page",
+				})}
+			/>,
+		);
+
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(screen.getByText("create_policy")).toBeInTheDocument();
+		expect(screen.getByTestId("policy-step-panel")).toBeInTheDocument();
+		expect(screen.getByText("core:name")).toHaveClass(
+			"gap-0",
+			"after:ml-0.5",
+			"after:text-destructive",
+			"after:content-['*']",
+		);
+		expect(document.querySelector('[data-slot="dialog-footer"]')).toBeNull();
+	});
+
+	it("keeps remote target creation in the policy creation flow", () => {
+		const remotePlugin = descriptor("plugin.remote", {
+			fields: [
+				field("remote_node_id", {
+					kind: "select",
+					select: { data_source: "remote_nodes", value_kind: "integer" },
+				}),
+			],
+		});
+		render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 1,
+					form: policyForm({
+						connector_id: "plugin.remote",
+						connector_config_values: { remote_node_id: 7 },
+					}),
+					remoteNodes: [{ id: 7, name: "Node seven" } as never],
+					storageDriverDescriptor: remotePlugin,
+					storageDriverDescriptors: [remotePlugin],
+				})}
+			/>,
+		);
+
+		expect(screen.getByTestId("remote-targets")).toHaveAttribute(
+			"data-allow-create",
+			"true",
+		);
+		expect(screen.getByRole("button", { name: "create-target" })).toBeVisible();
+	});
+
+	it("keeps the page connector catalog compact, searchable, and explicitly advanced", () => {
+		const local = descriptor("local", {
+			ui: {
+				...descriptor("local").ui,
+				description_key: "local_description",
+				label_key: "local_label",
+			},
+		});
+		const objectStorage = descriptor("s3", {
+			ui: {
+				...descriptor("s3").ui,
+				description_key: "s3_description",
+				label_key: "s3_label",
+			},
+		});
+		const props = dialogProps({
+			form: policyForm({ connector_id: "local" }),
+			presentation: "page",
+			storageDriverDescriptor: local,
+			storageDriverDescriptors: [local, objectStorage],
+		});
+		render(<StoragePolicyDialog {...props} />);
+
+		const options = screen.getByTestId("storage-driver-options");
+		expect(options).toHaveClass(
+			"items-start",
+			"lg:grid-cols-[20rem_minmax(0,1fr)]",
+		);
+		const catalog = within(options)
+			.getByRole("searchbox", {
+				name: "policy_connector_search",
+			})
+			.closest("div")?.parentElement;
+		expect(catalog).toHaveClass("max-h-[26rem]", "lg:max-h-[min(56vh,34rem)]");
+
+		fireEvent.change(
+			within(options).getByRole("searchbox", {
+				name: "policy_connector_search",
+			}),
+			{ target: { value: "s3" } },
+		);
+		expect(
+			within(options).getByRole("button", { name: /s3_label/ }),
+		).toBeVisible();
+		expect(
+			within(options).queryByRole("button", { name: /local_label/ }),
+		).toBeNull();
+
+		fireEvent.click(within(options).getByRole("button", { name: /s3_label/ }));
+		expect(props.onConnectorIdChange).toHaveBeenCalledWith("s3");
+		expect(props.onCreateStepChange).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
+		expect(props.onCreateNext).toHaveBeenCalledOnce();
 	});
 
 	it("keeps the previous two-column connector selection and advances directly from a descriptor card", () => {
@@ -1361,6 +1508,10 @@ describe("StoragePolicyDialog", () => {
 
 	it("renders descriptor fallbacks, remote summaries, capacity, actions, and submitting states", () => {
 		const plugin = descriptor("plugin.example", {
+			capabilities: {
+				...descriptor("plugin.example").capabilities,
+				remote_node_binding: true,
+			},
 			actions: [
 				action({
 					action_id: "test_saved_connection",
@@ -1374,10 +1525,14 @@ describe("StoragePolicyDialog", () => {
 				}),
 			],
 			fields: [
-				field("base_path", { default_value: "" }),
+				field("base_path", {
+					default_value: "",
+					update_behavior: "create_only",
+				}),
 				field("remote_node_id", {
 					kind: "select",
 					select: { data_source: "remote_nodes", value_kind: "integer" },
+					update_behavior: "create_only",
 				}),
 				field("remote_storage_target_key", {
 					kind: "select",
@@ -1385,6 +1540,7 @@ describe("StoragePolicyDialog", () => {
 						data_source: "remote_storage_targets",
 						value_kind: "string",
 					},
+					update_behavior: "set_once",
 				}),
 				field("mode", {
 					kind: "select",
@@ -1428,20 +1584,156 @@ describe("StoragePolicyDialog", () => {
 			storageDriverDescriptors: [plugin],
 			submitting: true,
 		});
-		render(<StoragePolicyDialog {...props} />);
+		const view = render(<StoragePolicyDialog {...props} />);
 
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "Edited policy" },
 		});
-		expect(screen.getByTestId("remote-targets")).toHaveTextContent(
-			"targets failed",
-		);
-		expect(screen.getByTestId("remote-targets")).toHaveTextContent("true");
+		expect(screen.queryByTestId("remote-targets")).not.toBeInTheDocument();
 		expect(screen.getByText("policy_capacity_status_supported")).toBeVisible();
 		expect(
 			screen.getByRole("button", { name: "plugin.repair" }),
 		).toBeDisabled();
 		expect(screen.getByRole("button", { name: "save_changes" })).toBeDisabled();
+		expect(
+			screen.getByText("policy_editor_remote_location_immutable_desc"),
+		).toBeVisible();
+		expect(screen.getByLabelText("base_path")).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_node_id" }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_storage_target_key" }),
+		).toBeDisabled();
+		expect(screen.getByRole("combobox", { name: "mode" })).toBeEnabled();
 		expect(props.onFieldChange).toHaveBeenCalledWith("name", "Edited policy");
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					...props,
+					form: policyForm({
+						connector_config_values: {
+							base_path: "",
+							mode: "relay",
+							remote_node_id: 7,
+							remote_storage_target_key: "",
+						},
+					}),
+				})}
+			/>,
+		);
+		expect(
+			screen.getByText("policy_editor_remote_legacy_target_required_desc"),
+		).toBeVisible();
+		expect(screen.getByLabelText("base_path")).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_node_id" }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("combobox", { name: "remote_storage_target_key" }),
+		).toBeEnabled();
+	});
+
+	it("covers submitting create actions and blank edit-title fallbacks", () => {
+		const plugin = descriptor("plugin.example");
+		const view = render(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 2,
+					form: policyForm(),
+					storageDriverDescriptor: plugin,
+					storageDriverDescriptors: [plugin],
+					submitting: true,
+				})}
+			/>,
+		);
+		expect(screen.getByRole("button", { name: "core:create" })).toBeDisabled();
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					createStep: 0,
+					form: policyForm({ connector_id: "missing.connector" }),
+					storageDriverDescriptor: null,
+					storageDriverDescriptors: [plugin],
+				})}
+			/>,
+		);
+		expect(screen.getAllByText("plugin_label").length).toBeGreaterThan(0);
+
+		view.rerender(
+			<StoragePolicyDialog
+				{...dialogProps({
+					form: policyForm({ name: "" }),
+					mode: "edit",
+				})}
+			/>,
+		);
+		expect(screen.getByRole("heading", { name: "edit_policy" })).toBeVisible();
+	});
+
+	it("covers setup logout, non-page save prompts, and summary framing", () => {
+		const onSetupLogout = vi.fn();
+		const props = dialogProps({
+			createStep: 1,
+			onSetupLogout,
+			presentation: "setup",
+			saveAnywayConfirmOpen: true,
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "core:logout" }));
+		expect(onSetupLogout).toHaveBeenCalledOnce();
+		const prompt = screen.getByText("connection_test_failed_save_prompt");
+		expect(prompt.closest("div")?.parentElement?.parentElement).toHaveClass(
+			"px-6",
+		);
+
+		view.rerender(<StoragePolicyDialog {...props} createStep={2} />);
+		expect(screen.getByTestId("policy-summary-card")).toHaveClass(
+			"rounded-2xl",
+			"bg-muted/30",
+		);
+	});
+
+	it("covers empty page catalogs and unmatched connector searches", () => {
+		const props = dialogProps({
+			form: policyForm({ connector_id: "" }),
+			storageDriverDescriptor: null,
+			storageDriverDescriptors: [],
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+		expect(screen.getByText("policy_connector_search_empty")).toBeVisible();
+
+		const plugin = descriptor("plugin.example");
+		view.rerender(
+			<StoragePolicyDialog
+				{...props}
+				storageDriverDescriptor={plugin}
+				storageDriverDescriptors={[plugin]}
+			/>,
+		);
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "policy_connector_search" }),
+			{ target: { value: "no matching connector" } },
+		);
+		expect(screen.getByText("policy_connector_search_empty")).toBeVisible();
+	});
+
+	it("does not duplicate edit endpoint errors already attached to a field", () => {
+		const props = dialogProps({
+			connectionFieldErrors: {},
+			endpointValidationMessage: "endpoint invalid",
+			mode: "edit",
+		});
+		const view = render(<StoragePolicyDialog {...props} />);
+		expect(screen.getByText("endpoint invalid")).toBeVisible();
+		view.rerender(
+			<StoragePolicyDialog
+				{...props}
+				connectionFieldErrors={{ unrelated: "endpoint invalid" }}
+			/>,
+		);
+		expect(screen.queryByText("endpoint invalid")).not.toBeInTheDocument();
 	});
 });

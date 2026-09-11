@@ -17,8 +17,8 @@ final-status-level = "slow"
 [profile.database]
 inherits = "ci"
 # PostgreSQL integration tests share one testcontainer. GitHub-hosted Docker gives
-# that container a small /dev/shm; higher fan-out can exhaust it during parallel queries.
-test-threads = 4
+# that container a small /dev/shm; four-way fan-out exhausts it during WOPI queries.
+test-threads = 2
 slow-timeout = { period = "120s", terminate-after = 4 }
 
 [profile.external]

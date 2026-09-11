@@ -167,7 +167,7 @@ Users can retry once. If it repeats, administrators should check:
 - Whether `data/.uploads`, `data/.tmp`, or custom temp directories are on a full partition
 - Whether user / team / policy quota is exhausted
 - Whether the object-storage multipart or remote presigned browser-direct URL is reachable
-- Whether the remote follower is healthy and has an applied default remote storage target
+- Whether the remote follower is healthy and the target explicitly bound by the policy is applied
 
 ### Storage Policies, S3, And Remote Nodes
 
@@ -197,11 +197,15 @@ Remote-node codes:
 - `remote_node.disabled`: remote node is disabled.
 - `remote_node.enrollment_required`: follower has not completed enrollment.
 - `remote_node.unique_conflict`: remote-node binding or unique field conflict.
-- `remote_storage_target.required`, `remote_storage_target.default_missing`, `remote_storage_target.default_not_applied`: follower has no usable default remote storage target.
+- `remote_storage_target.required`: the remote request or policy has no explicit target key.
+- `remote_storage_target.referenced`: a storage policy still references this target, so it cannot be deleted or have its connector configuration changed; create a new policy and migrate data first.
+- `remote_storage_target.not_found`: the selected target no longer exists or does not belong to the current binding.
+- `remote_storage_target.unavailable`, `remote_storage_target.not_applied`: the selected target has a recorded error or has not finished applying.
 - `remote_storage_target.local_path_invalid`: the follower's local remote-storage-target path is invalid, commonly because it escapes the allowed root.
 - `remote_storage_target.connector_unsupported`: the follower has not declared support for this remote storage connector.
 - `remote_storage_target.single_primary_required`: this follower must be bound to only one primary.
 - `master_binding.disabled`: master / follower binding is disabled.
+- `policy.remote_storage_location_immutable`: a remote policy cannot change its node, target, or base path after creation; create another policy and run storage migration.
 
 If a remote policy uses browser-direct upload, also confirm browsers can reach the follower `base_url` and the follower CORS policy allows required upload headers.
 

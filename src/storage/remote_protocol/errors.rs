@@ -113,10 +113,16 @@ pub fn remote_api_error_kind(code: ApiErrorCode) -> Option<StorageErrorKind> {
         | ApiErrorCode::StoragePermission => Some(StorageErrorKind::Permission),
         ApiErrorCode::PreconditionFailed
         | ApiErrorCode::StoragePreconditionFailed
-        | ApiErrorCode::StoragePrecondition => Some(StorageErrorKind::Precondition),
+        | ApiErrorCode::StoragePrecondition
+        | ApiErrorCode::RemoteStorageTargetRequired
+        | ApiErrorCode::RemoteStorageTargetUnavailable
+        | ApiErrorCode::RemoteStorageTargetNotApplied => Some(StorageErrorKind::Precondition),
         ApiErrorCode::UnsupportedDriver
         | ApiErrorCode::StorageOperationUnsupported
-        | ApiErrorCode::StorageUnsupported => Some(StorageErrorKind::Unsupported),
+        | ApiErrorCode::StorageUnsupported
+        | ApiErrorCode::RemoteStorageTargetConnectorUnsupported => {
+            Some(StorageErrorKind::Unsupported)
+        }
         ApiErrorCode::StorageTransientFailure | ApiErrorCode::StorageTransient => {
             Some(StorageErrorKind::Transient)
         }

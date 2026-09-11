@@ -14,7 +14,8 @@ use actix_web::{App, HttpServer, test, web};
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::{
     file_repo, follower_enrollment_session_repo, managed_follower_repo, master_binding_repo,
-    policy_repo, upload_session_part_repo, upload_session_repo, user_repo,
+    policy_repo, remote_storage_target_repo, upload_session_part_repo, upload_session_repo,
+    user_repo,
 };
 use aster_drive::services::{
     auth::local, files::file, files::folder, files::upload, remote::master_binding,
@@ -74,12 +75,10 @@ struct RemotePolicyTransferOptions {
 fn remote_local_target(
     name: impl Into<String>,
     base_path: impl Into<String>,
-    is_default: bool,
 ) -> aster_drive::storage::remote_protocol::RemoteCreateStorageTargetRequest {
     aster_drive::storage::remote_protocol::RemoteCreateStorageTargetRequest {
         name: name.into(),
         connection: common::local_connection(base_path).storage,
-        is_default,
     }
 }
 
@@ -88,12 +87,10 @@ fn remote_s3_target(
     endpoint: impl Into<String>,
     bucket: impl Into<String>,
     base_path: impl Into<String>,
-    is_default: bool,
 ) -> aster_drive::storage::remote_protocol::RemoteCreateStorageTargetRequest {
     aster_drive::storage::remote_protocol::RemoteCreateStorageTargetRequest {
         name: name.into(),
         connection: common::s3_connection(endpoint, bucket, base_path, "access", "secret").storage,
-        is_default,
     }
 }
 
@@ -607,8 +604,8 @@ async fn create_remote_policy_with_options(
         .await
         .expect("remote storage targets should be listed before policy creation")
         .into_iter()
-        .find(|target| target.is_default)
-        .expect("remote policy test node should expose a default storage target")
+        .next()
+        .expect("remote policy test node should expose a storage target")
         .target_key;
     create_remote_policy_via_service_with_options(
         state,
@@ -653,6 +650,64 @@ async fn create_remote_policy_via_service_with_options(
     policy_repo::find_by_id(state.writer_db(), created.id)
         .await
         .expect("created remote policy entity should be queryable")
+}
+
+/// Inserts a remote policy for protocol tests whose fake transport intentionally
+/// does not expose the target-management API. Tests of policy admission must use
+/// `create_remote_policy_via_service_with_options` instead.
+async fn insert_remote_policy_fixture_with_options(
+    state: &aster_drive::runtime::PrimaryAppState,
+    remote_node_id: i64,
+    name: &str,
+    base_path: &str,
+    target_key: &str,
+    options: RemotePolicyTransferOptions,
+    chunk_size: i64,
+) -> storage_policy::Model {
+    let connector_config = common::remote_connector_config(
+        base_path,
+        Some(remote_node_id),
+        Some(target_key.to_string()),
+        options.download_strategy(),
+        options.upload_strategy(),
+    );
+    let stored_config = aster_drive_storage::encode_storage_policy_config(
+        aster_drive_storage::ConnectorConfigEnvelope::new(
+            connector_config.connector_id,
+            connector_config.schema_version,
+            serde_json::to_value(connector_config.values).unwrap(),
+        ),
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+    )
+    .unwrap();
+    let now = Utc::now();
+    let policy = policy_repo::create(
+        state.writer_db(),
+        storage_policy::ActiveModel {
+            name: Set(name.to_string()),
+            connector_id: Set("asterdrive.storage.remote".to_string()),
+            storage_config: Set(aster_drive_model::types::StoredStoragePolicyConfig(
+                stored_config,
+            )),
+            max_file_size: Set(0),
+            chunk_size: Set(chunk_size),
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes(
+                "[]".to_string(),
+            )),
+            is_default: Set(false),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .unwrap();
+    policy
 }
 
 async fn seed_remote_capabilities(
@@ -819,7 +874,7 @@ async fn create_managed_local_ingress_for_binding(
     storage_target::create(
         &provider_state.follower_view(),
         &binding,
-        remote_local_target(format!("Managed {base_path}"), base_path.to_string(), true),
+        remote_local_target(format!("Managed {base_path}"), base_path.to_string()),
     )
     .await
     .expect("provider managed remote storage target should be created")
@@ -927,16 +982,11 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
     let created = storage_target::create_remote(
         &consumer_state,
         consumer_node_model.id,
-        remote_local_target(
-            "Reverse Landing".to_string(),
-            "reverse-landing".to_string(),
-            true,
-        ),
+        remote_local_target("Reverse Landing".to_string(), "reverse-landing".to_string()),
     )
     .await
     .expect("reverse tunnel remote storage target create should not require base_url");
     assert_eq!(created.name, "Reverse Landing");
-    assert!(created.is_default);
 
     let listed = storage_target::list_remote(&consumer_state, consumer_node_model.id)
         .await
@@ -951,7 +1001,6 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         RemoteUpdateStorageTargetRequest {
             name: Some("Reverse Landing Updated".to_string()),
             connection: Some(crate::common::local_connection("reverse-landing-updated").storage),
-            ..Default::default()
         },
     )
     .await
@@ -967,7 +1016,8 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         &consumer_node_model.access_key,
         &consumer_node_model.secret_key,
     )
-    .expect("managed ingress direct client should build for verification");
+    .expect("managed ingress direct client should build for verification")
+    .with_policy_context(&created.target_key, 0);
     client
         .put_bytes("reverse-managed-ingress.bin", b"reverse managed ingress")
         .await
@@ -1019,7 +1069,6 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
         remote_local_target(
             "Auto Tunnel Landing".to_string(),
             "auto-tunnel-landing".to_string(),
-            true,
         ),
     )
     .await
@@ -1066,7 +1115,6 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
             "https://s3.example.com".to_string(),
             "bucket".to_string(),
             "unsupported-s3".to_string(),
-            true,
         ),
     )
     .await
@@ -1169,7 +1217,6 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
         RemoteUpdateStorageTargetRequest {
             connection: None,
             name: Some("Rename Only".to_string()),
-            ..Default::default()
         },
     )
     .await
@@ -1189,18 +1236,41 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
 
 #[actix_web::test]
 async fn test_remote_storage_target_connector_descriptors_follow_remote_capabilities() {
+    let provider_state = common::setup().await;
+    let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
     let consumer_state = common::setup().await;
     let consumer_node = remote_node::create(
         &consumer_state,
         remote_node::CreateRemoteNodeInput {
             name: "managed-ingress-driver-descriptor-node".to_string(),
-            base_url: "http://127.0.0.1:9".to_string(),
+            base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
             is_enabled: true,
         },
     )
     .await
     .expect("consumer remote node should be created");
+    let consumer_node_model =
+        managed_follower_repo::find_by_id(consumer_state.writer_db(), consumer_node.id)
+            .await
+            .expect("consumer remote node should be queryable");
+    master_binding::upsert_from_enrollment(
+        provider_state.writer_db(),
+        master_binding::UpsertMasterBindingInput {
+            name: "descriptor-binding".to_string(),
+            master_url: "http://master.example.com".to_string(),
+            access_key: consumer_node_model.access_key.clone(),
+            secret_key: consumer_node_model.secret_key.clone(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("provider binding should be created");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
     mark_remote_node_enrollment_completed(&consumer_state, consumer_node.id).await;
     seed_remote_capabilities(
         &consumer_state,
@@ -1224,14 +1294,17 @@ async fn test_remote_storage_target_connector_descriptors_follow_remote_capabili
 
     assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
     let body: serde_json::Value = test::read_body_json(resp).await;
-    let descriptors = body["data"]
+    let descriptors = body["data"]["descriptors"]
         .as_array()
         .expect("driver descriptors response should contain data array");
-    assert_eq!(descriptors.len(), 1);
-    assert_eq!(descriptors[0]["connector_id"], "asterdrive.storage.local");
-    assert!(descriptors[0].get("driver_type").is_none());
+    assert_eq!(descriptors.len(), 8);
+    let local_descriptor = descriptors
+        .iter()
+        .find(|descriptor| descriptor["connector_id"] == "asterdrive.storage.local")
+        .expect("follower catalog should include the local connector");
+    assert!(local_descriptor.get("driver_type").is_none());
     assert_eq!(
-        descriptors[0]["fields"]
+        local_descriptor["fields"]
             .as_array()
             .expect("local descriptor fields should be an array")
             .iter()
@@ -1286,6 +1359,7 @@ async fn test_remote_storage_target_connector_descriptors_follow_remote_capabili
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
     }
+    provider_server.stop().await;
 }
 
 #[actix_web::test]
@@ -1655,7 +1729,7 @@ async fn setup_browser_presigned_cors_fixture(
     )
     .await;
 
-    let remote_policy = create_remote_policy_via_service_with_options(
+    let remote_policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         consumer_node.id,
         &format!("Remote Presigned {label} Policy"),
@@ -1759,11 +1833,10 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
     let profile = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
-        remote_local_target("Managed Local".to_string(), "managed-a".to_string(), true),
+        remote_local_target("Managed Local".to_string(), "managed-a".to_string()),
     )
     .await
     .expect("managed remote storage target should be created through primary");
-    assert!(profile.is_default);
     assert_eq!(profile.applied_revision, profile.desired_revision);
 
     let client = RemoteStorageClient::new(
@@ -1772,6 +1845,15 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
         &consumer_node_model.secret_key,
     )
     .expect("managed ingress client should build");
+    let missing_target_error = client
+        .put_bytes("missing-target.bin", b"must not be written")
+        .await
+        .expect_err("remote object writes without target_key must be rejected");
+    assert_eq!(
+        missing_target_error.api_error_code(),
+        ApiErrorCode::RemoteStorageTargetRequired
+    );
+    let client = client.with_policy_context(&profile.target_key, 0);
     client
         .put_bytes("managed-ingress.bin", b"managed ingress payload")
         .await
@@ -1842,10 +1924,10 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(
+    let other_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &consumer_node_model.access_key,
-        "default-target",
+        "other-target",
     )
     .await;
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
@@ -1853,15 +1935,157 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
     let selected_target = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
-        remote_local_target(
-            "Selected Target".to_string(),
-            "selected-target".to_string(),
-            false,
-        ),
+        remote_local_target("Selected Target".to_string(), "selected-target".to_string()),
     )
     .await
     .expect("selected remote storage target should be created through primary");
-    assert!(!selected_target.is_default);
+
+    let legacy_connector_config = common::remote_connector_config(
+        "legacy-prefix",
+        Some(consumer_node.id),
+        None,
+        RemoteDownloadStrategy::RelayStream,
+        RemoteUploadStrategy::RelayStream,
+    );
+    let legacy_policy = policy_repo::create(
+        consumer_state.writer_db(),
+        storage_policy::ActiveModel {
+            name: Set("Legacy Unbound Remote Policy".to_string()),
+            connector_id: Set("asterdrive.storage.remote".to_string()),
+            storage_config: Set(aster_drive_model::types::StoredStoragePolicyConfig(
+                aster_drive_storage::encode_storage_policy_config(
+                    aster_drive_storage::ConnectorConfigEnvelope::new(
+                        legacy_connector_config.connector_id,
+                        legacy_connector_config.schema_version,
+                        serde_json::to_value(legacy_connector_config.values).unwrap(),
+                    ),
+                    aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+                )
+                .unwrap(),
+            )),
+            max_file_size: Set(0),
+            chunk_size: Set(5_242_880),
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes(
+                "[]".to_string(),
+            )),
+            is_default: Set(false),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    policy::update(
+        &consumer_state,
+        legacy_policy.id,
+        policy::UpdateStoragePolicyInput {
+            connector_config: Some(common::remote_connector_config(
+                "legacy-prefix",
+                Some(consumer_node.id),
+                Some(selected_target.target_key.clone()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("legacy unbound policy may select one explicit target");
+
+    let missing_target_error = policy::create(
+        &consumer_state,
+        policy::CreateStoragePolicyInput {
+            name: "Missing Target Policy".to_string(),
+            connection: common::remote_connection(
+                "policy-prefix",
+                Some(consumer_node.id),
+                Some("rst_missing".to_string()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            ),
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .expect_err("remote policy must reject a target absent from the selected follower");
+    assert_eq!(
+        missing_target_error.api_error_code(),
+        ApiErrorCode::RemoteStorageTargetNotFound
+    );
+
+    let other_target_row = remote_storage_target_repo::find_by_binding_and_target_key(
+        provider_state.writer_db(),
+        provider_binding.id,
+        &other_target.target_key,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut unavailable_target: aster_drive_model::entities::remote_storage_target::ActiveModel =
+        other_target_row.clone().into();
+    unavailable_target.last_error = Set("injected target failure".to_string());
+    unavailable_target
+        .update(provider_state.writer_db())
+        .await
+        .unwrap();
+    let unavailable_error = policy::create(
+        &consumer_state,
+        policy::CreateStoragePolicyInput {
+            name: "Unavailable Target Policy".to_string(),
+            connection: common::remote_connection(
+                "policy-prefix",
+                Some(consumer_node.id),
+                Some(other_target.target_key.clone()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            ),
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .expect_err("remote policy must reject a target with an apply error");
+    assert_eq!(
+        unavailable_error.api_error_code(),
+        ApiErrorCode::RemoteStorageTargetUnavailable
+    );
+    let mut pending_target: aster_drive_model::entities::remote_storage_target::ActiveModel =
+        other_target_row.into();
+    pending_target.desired_revision = Set(2);
+    pending_target.last_error = Set(String::new());
+    pending_target
+        .update(provider_state.writer_db())
+        .await
+        .unwrap();
+    let pending_error = policy::create(
+        &consumer_state,
+        policy::CreateStoragePolicyInput {
+            name: "Pending Target Policy".to_string(),
+            connection: common::remote_connection(
+                "policy-prefix",
+                Some(consumer_node.id),
+                Some(other_target.target_key.clone()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            ),
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .expect_err("remote policy must reject a target pending apply");
+    assert_eq!(
+        pending_error.api_error_code(),
+        ApiErrorCode::RemoteStorageTargetNotApplied
+    );
 
     let remote_policy = create_remote_policy_via_service_with_options(
         &consumer_state,
@@ -1878,6 +2102,210 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
             .remote_storage_target_key
             .as_deref(),
         Some(selected_target.target_key.as_str())
+    );
+    let other_node = remote_node::create(
+        &consumer_state,
+        remote_node::CreateRemoteNodeInput {
+            name: "other-selected-target-node".to_string(),
+            base_url: provider_server.base_url.clone(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("second remote node should be created");
+
+    for connector_config in [
+        common::remote_connector_config(
+            "policy-prefix",
+            Some(consumer_node.id),
+            Some(other_target.target_key.clone()),
+            RemoteDownloadStrategy::RelayStream,
+            RemoteUploadStrategy::RelayStream,
+        ),
+        common::remote_connector_config(
+            "moved-prefix",
+            Some(consumer_node.id),
+            Some(selected_target.target_key.clone()),
+            RemoteDownloadStrategy::RelayStream,
+            RemoteUploadStrategy::RelayStream,
+        ),
+        common::remote_connector_config(
+            "policy-prefix",
+            Some(other_node.id),
+            Some(selected_target.target_key.clone()),
+            RemoteDownloadStrategy::RelayStream,
+            RemoteUploadStrategy::RelayStream,
+        ),
+    ] {
+        let error = policy::update(
+            &consumer_state,
+            remote_policy.id,
+            policy::UpdateStoragePolicyInput {
+                connector_config: Some(connector_config),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("remote policy physical location must be immutable");
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::PolicyRemoteStorageLocationImmutable
+        );
+    }
+
+    let updated_policy = policy::update(
+        &consumer_state,
+        remote_policy.id,
+        policy::UpdateStoragePolicyInput {
+            connector_config: Some(common::remote_connector_config(
+                "policy-prefix",
+                Some(consumer_node.id),
+                Some(selected_target.target_key.clone()),
+                RemoteDownloadStrategy::Presigned,
+                RemoteUploadStrategy::RelayStream,
+            )),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("remote transfer strategy may change without moving the storage location");
+    assert_eq!(
+        common::remote_policy_config(
+            &policy_repo::find_by_id(consumer_state.writer_db(), updated_policy.id)
+                .await
+                .unwrap()
+        )
+        .remote_download_strategy,
+        RemoteDownloadStrategy::Presigned
+    );
+
+    storage_target::update_remote(
+        &consumer_state,
+        consumer_node.id,
+        &selected_target.target_key,
+        RemoteUpdateStorageTargetRequest {
+            connection: Some(crate::common::local_connection("selected-target").storage),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("referenced target may retain the same connector config for credential rotation");
+
+    let target_update_error = storage_target::update_remote(
+        &consumer_state,
+        consumer_node.id,
+        &selected_target.target_key,
+        RemoteUpdateStorageTargetRequest {
+            connection: Some(crate::common::local_connection("moved-target").storage),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect_err("referenced target physical configuration must be immutable");
+    assert_eq!(
+        target_update_error.api_error_code(),
+        ApiErrorCode::RemoteStorageTargetReferenced
+    );
+    let renamed_target = storage_target::update_remote(
+        &consumer_state,
+        consumer_node.id,
+        &selected_target.target_key,
+        RemoteUpdateStorageTargetRequest {
+            name: Some("Selected Target Renamed".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("referenced target display name may change");
+    assert_eq!(renamed_target.name, "Selected Target Renamed");
+
+    let delete_error = storage_target::delete_remote(
+        &consumer_state,
+        consumer_node.id,
+        &selected_target.target_key,
+    )
+    .await
+    .expect_err("referenced remote storage target must not be deleted");
+    assert_eq!(
+        delete_error.api_error_code(),
+        ApiErrorCode::RemoteStorageTargetReferenced
+    );
+    assert!(
+        storage_target::list_remote(&consumer_state, consumer_node.id)
+            .await
+            .unwrap()
+            .iter()
+            .any(|target| target.target_key == selected_target.target_key)
+    );
+
+    let app = create_test_app!(consumer_state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let policy_patch = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{}", remote_policy.id))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(serde_json::json!({
+            "connector_config": common::remote_connector_config(
+                "policy-prefix",
+                Some(consumer_node.id),
+                Some(other_target.target_key.clone()),
+                RemoteDownloadStrategy::RelayStream,
+                RemoteUploadStrategy::RelayStream,
+            )
+        }))
+        .to_request();
+    let policy_patch_response = test::call_service(&app, policy_patch).await;
+    assert_eq!(
+        policy_patch_response.status(),
+        actix_web::http::StatusCode::BAD_REQUEST
+    );
+    let policy_patch_body: serde_json::Value = test::read_body_json(policy_patch_response).await;
+    assert_eq!(
+        policy_patch_body["code"],
+        ApiErrorCode::PolicyRemoteStorageLocationImmutable.as_str()
+    );
+
+    let target_patch = test::TestRequest::patch()
+        .uri(&format!(
+            "/api/v1/admin/remote-nodes/{}/storage-targets/{}",
+            consumer_node.id, selected_target.target_key
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .set_json(RemoteUpdateStorageTargetRequest {
+            name: None,
+            connection: Some(crate::common::local_connection("api-moved-target").storage),
+        })
+        .to_request();
+    let target_patch_response = test::call_service(&app, target_patch).await;
+    assert_eq!(
+        target_patch_response.status(),
+        actix_web::http::StatusCode::PRECONDITION_FAILED
+    );
+    let target_patch_body: serde_json::Value = test::read_body_json(target_patch_response).await;
+    assert_eq!(
+        target_patch_body["code"],
+        ApiErrorCode::RemoteStorageTargetReferenced.as_str()
+    );
+
+    let target_delete = test::TestRequest::delete()
+        .uri(&format!(
+            "/api/v1/admin/remote-nodes/{}/storage-targets/{}",
+            consumer_node.id, selected_target.target_key
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&admin_token)))
+        .insert_header(common::csrf_header_for(&admin_token))
+        .to_request();
+    let target_delete_response = test::call_service(&app, target_delete).await;
+    assert_eq!(
+        target_delete_response.status(),
+        actix_web::http::StatusCode::PRECONDITION_FAILED
+    );
+    let target_delete_body: serde_json::Value = test::read_body_json(target_delete_response).await;
+    assert_eq!(
+        target_delete_body["code"],
+        ApiErrorCode::RemoteStorageTargetReferenced.as_str()
     );
 
     let driver = consumer_state
@@ -1896,9 +2324,9 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
         "policy-prefix",
         "selected.bin",
     );
-    let default_path = managed_ingress_object_path(
+    let other_path = managed_ingress_object_path(
         &provider_state,
-        "default-target",
+        "other-target",
         &provider_binding.storage_namespace,
         "policy-prefix",
         "selected.bin",
@@ -1910,13 +2338,13 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
         b"selected target payload"
     );
     assert!(
-        tokio::fs::metadata(&default_path).await.is_err(),
-        "selected policy object must not be written to the binding default target"
+        tokio::fs::metadata(&other_path).await.is_err(),
+        "selected policy object must not be written to another target"
     );
 
     provider_server.stop().await;
     let _ = tokio::fs::remove_dir_all(managed_root.join("selected-target")).await;
-    let _ = tokio::fs::remove_dir_all(managed_root.join("default-target")).await;
+    let _ = tokio::fs::remove_dir_all(managed_root.join("other-target")).await;
     let _ = tokio::fs::remove_dir(&managed_root).await;
 }
 
@@ -1941,15 +2369,20 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(&provider_state, &binding.access_key, "object-audit")
-        .await;
+    let target = create_managed_local_ingress_for_binding(
+        &provider_state,
+        &binding.access_key,
+        "object-audit",
+    )
+    .await;
 
     let client = RemoteStorageClient::new(
         &provider_server.base_url,
         &binding.access_key,
         &binding.secret_key,
     )
-    .expect("remote storage client should build");
+    .expect("remote storage client should build")
+    .with_policy_context(&target.target_key, 0);
     client
         .put_bytes("audit-object.bin", b"audit payload")
         .await
@@ -2139,7 +2572,6 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .create_storage_target(&remote_local_target(
             "Profile Audit Local".to_string(),
             "profile-audit-a".to_string(),
-            true,
         ))
         .await
         .expect("remote storage target create should succeed");
@@ -2156,7 +2588,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     assert_eq!(create_details["binding_id"], binding.id);
     assert_eq!(create_details["target_key"], profile.target_key);
     assert_eq!(create_details["driver_type"], "asterdrive.storage.local");
-    assert_eq!(create_details["is_default"], true);
+    assert!(create_details.get("is_default").is_none());
 
     let updated = client
         .update_storage_target(
@@ -2164,7 +2596,6 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
             &RemoteUpdateStorageTargetRequest {
                 name: Some("Profile Audit Updated".to_string()),
                 connection: Some(crate::common::local_connection("profile-audit-b").storage),
-                ..Default::default()
             },
         )
         .await
@@ -2182,7 +2613,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     assert_eq!(update_details["binding_id"], binding.id);
     assert_eq!(update_details["target_key"], updated.target_key);
     assert_eq!(update_details["driver_type"], "asterdrive.storage.local");
-    assert_eq!(update_details["is_default"], true);
+    assert!(update_details.get("is_default").is_none());
 
     client
         .delete_storage_target(&profile.target_key)
@@ -2201,7 +2632,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     assert_eq!(delete_details["binding_id"], binding.id);
     assert_eq!(delete_details["target_key"], profile.target_key);
     assert_eq!(delete_details["driver_type"], "asterdrive.storage.local");
-    assert_eq!(delete_details["is_default"], true);
+    assert!(delete_details.get("is_default").is_none());
 
     provider_server.stop().await;
 }
@@ -2250,21 +2681,30 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
         RemoteStorageClient::new(&provider_server.base_url, "managed-ak-b", "managed-sk-b")
             .expect("remote storage client should build");
 
-    for (client, name) in [(&client_a, "Managed A"), (&client_b, "Managed B")] {
-        let profile = client
-            .create_storage_target(&remote_local_target(
-                name.to_string(),
-                "shared-profile".to_string(),
-                true,
-            ))
-            .await
-            .expect("managed remote storage target should be created for its binding");
-        assert!(profile.is_default);
-        assert_eq!(
-            profile.connector_config.values["base_path"],
-            "shared-profile"
-        );
-    }
+    let target_a = client_a
+        .create_storage_target(&remote_local_target(
+            "Managed A".to_string(),
+            "shared-profile".to_string(),
+        ))
+        .await
+        .expect("managed remote storage target should be created for binding a");
+    let target_b = client_b
+        .create_storage_target(&remote_local_target(
+            "Managed B".to_string(),
+            "shared-profile".to_string(),
+        ))
+        .await
+        .expect("managed remote storage target should be created for binding b");
+    assert_eq!(
+        target_a.connector_config.values["base_path"],
+        "shared-profile"
+    );
+    assert_eq!(
+        target_b.connector_config.values["base_path"],
+        "shared-profile"
+    );
+    let client_a = client_a.with_policy_context(&target_a.target_key, 0);
+    let client_b = client_b.with_policy_context(&target_b.target_key, 0);
 
     client_a
         .put_bytes("same.bin", b"payload-from-a")
@@ -2340,7 +2780,7 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
     let profile_a = storage_target::create(
         &provider_state.follower_view(),
         &binding_a,
-        remote_local_target("Second A".to_string(), "secondary-a".to_string(), false),
+        remote_local_target("Second A".to_string(), "secondary-a".to_string()),
     )
     .await
     .expect("binding a should allow additional scoped profiles");
@@ -2389,7 +2829,8 @@ async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_l
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
 
     let follower_app = test::init_service(
         App::new()
@@ -2401,7 +2842,10 @@ async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_l
     .await;
 
     let path = "/api/v1/internal/storage/objects/too-large.bin";
-    let request_target = format!("{path}?max_file_size=8");
+    let request_target = format!(
+        "{path}?target_key={}&max_file_size=8",
+        urlencoding::encode(&target.target_key)
+    );
     let expires_at = Utc::now().timestamp() + 300;
     let signature =
         sign_presigned_request(secret_key, "PUT", &request_target, access_key, expires_at);
@@ -2447,7 +2891,8 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), access_key)
         .await
         .expect("provider binding lookup should succeed")
@@ -2464,7 +2909,10 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
         .expect("provider base_url should contain port");
     let object_key = "declared-length-only.bin";
     let path = format!("/api/v1/internal/storage/objects/{object_key}");
-    let signed_path = format!("{path}?max_file_size=0");
+    let signed_path = format!(
+        "{path}?target_key={}&max_file_size=0",
+        urlencoding::encode(&target.target_key)
+    );
     let expires_at = Utc::now().timestamp() + 300;
     let signature = sign_presigned_request(secret_key, "PUT", &signed_path, access_key, expires_at);
     let request_target = format!(
@@ -2517,7 +2965,8 @@ async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
         .await
         .expect("provider binding lookup should succeed")
@@ -2532,7 +2981,10 @@ async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
     .await;
 
     let object_key = "truncated-attempt.bin";
-    let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let path = format!(
+        "/api/v1/internal/storage/objects/{object_key}?target_key={}",
+        urlencoding::encode(&target.target_key)
+    );
     let timestamp = Utc::now().timestamp();
     let nonce = "truncated-attempt-nonce";
     let signature = sign_internal_request(&secret_key, "PUT", &path, timestamp, nonce, None);
@@ -2574,7 +3026,8 @@ async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
 async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
     let (provider_state, access_key, secret_key) =
         setup_internal_hmac_binding_state("commit-failure-attempt").await;
-    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
         .await
         .expect("provider binding lookup should succeed")
@@ -2599,7 +3052,10 @@ async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
     )
     .await;
 
-    let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let path = format!(
+        "/api/v1/internal/storage/objects/{object_key}?target_key={}",
+        urlencoding::encode(&target.target_key)
+    );
     let timestamp = Utc::now().timestamp();
     let nonce = "commit-failure-attempt-nonce";
     let signature = sign_internal_request(&secret_key, "PUT", &path, timestamp, nonce, None);
@@ -2634,14 +3090,17 @@ async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
 async fn test_internal_storage_zero_byte_put_commits_empty_object() {
     let (provider_state, access_key, secret_key) =
         setup_internal_hmac_binding_state("zero-byte-attempt").await;
-    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
         .await
         .expect("provider binding lookup should succeed")
         .expect("provider binding should exist");
     let server = spawn_internal_storage_server(provider_state.follower_view()).await;
     let object_key = "empty-object.bin";
-    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key)
+        .unwrap()
+        .with_policy_context(&target.target_key, 0);
 
     client
         .put_bytes(object_key, &[])
@@ -2669,9 +3128,12 @@ async fn test_internal_storage_zero_byte_put_commits_empty_object() {
 async fn test_internal_storage_compose_rejects_empty_parts_and_negative_size() {
     let (provider_state, access_key, secret_key) =
         setup_internal_hmac_binding_state("compose-input-boundaries").await;
-    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
     let server = spawn_internal_storage_server(provider_state.follower_view()).await;
-    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key)
+        .unwrap()
+        .with_policy_context(&target.target_key, 0);
 
     let empty_parts = client
         .compose_objects("empty-parts.bin", Vec::new(), 0)
@@ -2716,13 +3178,16 @@ impl ComposeAttemptFixture {
 
 async fn setup_compose_attempt_fixture(label: &str) -> ComposeAttemptFixture {
     let (provider_state, access_key, secret_key) = setup_internal_hmac_binding_state(label).await;
-    create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), &access_key)
         .await
         .expect("provider binding lookup should succeed")
         .expect("provider binding should exist");
     let server = spawn_internal_storage_server(provider_state.follower_view()).await;
-    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key).unwrap();
+    let client = RemoteStorageClient::new(&server.base_url, &access_key, &secret_key)
+        .unwrap()
+        .with_policy_context(&target.target_key, 0);
     ComposeAttemptFixture {
         provider_state,
         access_key,
@@ -2890,7 +3355,8 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
 
     let follower_app = test::init_service(
         App::new()
@@ -2907,19 +3373,22 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
         expected_size: 16,
     })
     .expect("compose request body should serialize");
-    let path = "/api/v1/internal/storage/compose?max_file_size=8";
+    let path = format!(
+        "/api/v1/internal/storage/compose?target_key={}&max_file_size=8",
+        urlencoding::encode(&target.target_key)
+    );
     let timestamp = Utc::now().timestamp();
     let nonce = "compose-limit-test";
     let signature = sign_internal_request(
         secret_key,
         "POST",
-        path,
+        &path,
         timestamp,
         nonce,
         Some(u64::try_from(body.len()).expect("compose body length should fit u64")),
     );
     let req = test::TestRequest::post()
-        .uri(path)
+        .uri(&path)
         .insert_header((actix_web::http::header::CONTENT_TYPE, "application/json"))
         .insert_header((
             actix_web::http::header::CONTENT_LENGTH,
@@ -3105,7 +3574,7 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
     .await
     .expect("remote node should be created");
     mark_remote_node_enrollment_completed(&state, node.id).await;
-    create_remote_policy_via_service_with_options(
+    insert_remote_policy_fixture_with_options(
         &state,
         node.id,
         "Remote Presigned Download Needs Range CORS",
@@ -4160,7 +4629,7 @@ async fn test_reverse_tunnel_production_worker_falls_back_to_poll_when_stream_un
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload for poll fallback test");
-    create_managed_local_ingress_for_binding(
+    let remote_target = create_managed_local_ingress_for_binding(
         &provider_state,
         &provider_binding.access_key,
         &provider_binding.access_key,
@@ -4193,11 +4662,14 @@ async fn test_reverse_tunnel_production_worker_falls_back_to_poll_when_stream_un
         "poll-only primary server must not register stream lanes"
     );
 
-    let remote_policy = create_remote_policy(
+    let remote_policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         consumer_node.id,
         "Reverse Poll Fallback Remote Policy",
         "reverse-poll-fallback-base",
+        &remote_target.target_key,
+        RemotePolicyTransferOptions::default(),
+        5_242_880,
     )
     .await;
     let remote_driver = consumer_state
@@ -4759,9 +5231,19 @@ async fn test_reverse_tunnel_polls_do_not_touch_updated_at() {
         .expect("send task should join")
         .expect("send should complete after updated_at test response");
 
-    let after = managed_follower_repo::find_by_id(state.writer_db(), node.id)
-        .await
-        .expect("reverse node should be queryable after poll");
+    let after = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let current = managed_follower_repo::find_by_id(state.writer_db(), node.id)
+                .await
+                .expect("reverse node should be queryable after poll");
+            if current.tunnel_last_handshake_at.is_some() {
+                break current;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reverse tunnel handshake should be persisted");
     assert_eq!(
         after.updated_at, before.updated_at,
         "tunnel heartbeat should not change configuration updated_at"
@@ -5063,7 +5545,7 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
     .await
     .expect("reverse remote node should be created");
     seed_remote_capabilities(&state, node.id, RemoteStorageCapabilities::current()).await;
-    let policy = create_remote_policy_via_service_with_options(
+    let policy = insert_remote_policy_fixture_with_options(
         &state,
         node.id,
         "Reverse Presigned Update Rejected",
@@ -5151,7 +5633,7 @@ async fn test_remote_node_update_rejects_reverse_tunnel_when_referenced_policy_u
         RemoteStorageCapabilities::current(),
     )
     .await;
-    let _policy = create_remote_policy_via_service_with_options(
+    let _policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         node.id,
         "Direct Presigned Before Reverse Switch",
@@ -7263,7 +7745,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     )
     .await;
 
-    let remote_policy = create_remote_policy_via_service_with_options(
+    let remote_policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Browser CORS Policy",
@@ -7492,7 +7974,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     )
     .await;
 
-    let remote_policy = create_remote_policy_via_service_with_options(
+    let remote_policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Browser Download CORS Policy",
@@ -7663,7 +8145,8 @@ async fn test_internal_storage_get_honors_range_header() {
         .reload_master_bindings(provider_state.writer_db())
         .await
         .expect("provider binding registry should reload");
-    create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, access_key, access_key).await;
     let binding = master_binding_repo::find_by_access_key(provider_state.writer_db(), access_key)
         .await
         .expect("provider binding lookup should succeed")
@@ -7695,7 +8178,10 @@ async fn test_internal_storage_get_honors_range_header() {
     )
     .await;
 
-    let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let path = format!(
+        "/api/v1/internal/storage/objects/{object_key}?target_key={}",
+        urlencoding::encode(&target.target_key)
+    );
     let timestamp = Utc::now().timestamp();
     let nonce = "range-header-test";
     let signature = sign_internal_request(secret_key, "GET", &path, timestamp, nonce, None);
@@ -8101,7 +8587,7 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     )
     .await;
 
-    let remote_policy = create_remote_policy_via_service_with_options(
+    let remote_policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Browser Origin Path Policy",
@@ -8221,7 +8707,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     )
     .await;
 
-    let remote_policy = create_remote_policy_via_service_with_options(
+    let remote_policy = insert_remote_policy_fixture_with_options(
         &consumer_state,
         consumer_node.id,
         "Remote Presigned Disabled Binding Policy",
