@@ -61,12 +61,14 @@ vi.mock("@/components/common/ConfirmDialog", () => ({
 		confirmLabel,
 		description,
 		onConfirm,
+		onOpenChange,
 		open,
 		title,
 	}: {
 		confirmLabel: string;
 		description?: string;
 		onConfirm: () => void;
+		onOpenChange: (open: boolean) => void;
 		open: boolean;
 		title: string;
 	}) =>
@@ -76,6 +78,9 @@ vi.mock("@/components/common/ConfirmDialog", () => ({
 				<p>{description}</p>
 				<button type="button" onClick={onConfirm}>
 					{confirmLabel}
+				</button>
+				<button type="button" onClick={() => onOpenChange(false)}>
+					close-confirm
 				</button>
 			</dialog>
 		) : null,
@@ -1146,12 +1151,40 @@ describe("AdminExternalAuthPage", () => {
 		expect(
 			await screen.findByText("external_auth_provider_discard_title"),
 		).toBeInTheDocument();
+		const beforeUnload = new Event("beforeunload", { cancelable: true });
+		window.dispatchEvent(beforeUnload);
+		expect(beforeUnload.defaultPrevented).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "close-confirm" }));
+		await waitFor(() => expect(mockState.blocker.reset).toHaveBeenCalled());
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_display_name"),
+			{ target: { value: "Changed provider again" } },
+		);
 		fireEvent.click(
 			screen.getByRole("button", {
 				name: "external_auth_provider_discard_confirm",
 			}),
 		);
 		expect(mockState.blocker.proceed).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows a detail loading fallback and returns from a missing provider", async () => {
+		mockState.get.mockRejectedValueOnce(new Error("missing provider"));
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth/1"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+		expect(screen.getByText("core:loading")).toBeVisible();
+		expect(
+			await screen.findByText("external_auth_provider_not_found"),
+		).toBeVisible();
+		fireEvent.click(
+			screen.getByRole("button", { name: "external_auth_back_to_providers" }),
+		);
+		expect(
+			await screen.findByRole("heading", { name: "external_auth" }),
+		).toBeVisible();
 	});
 
 	it("tests provider draft parameters while creating", async () => {

@@ -14,6 +14,7 @@ import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
 import { invalidateAdminStorageConnectorLocalizations } from "@/lib/adminStorageConnectorLocalizations";
 import { invalidateAdminStorageDriverDescriptors } from "@/lib/adminStorageDriverDescriptors";
 import AdminPoliciesPage from "@/pages/admin/AdminPoliciesPage";
+import { ApiError } from "@/services/http";
 import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetConnectorCatalog,
@@ -166,6 +167,33 @@ vi.mock("@/components/ui/button", () => ({
 
 vi.mock("@/components/ui/icon", () => ({
 	Icon: ({ name }: { name: string }) => <span>{name}</span>,
+}));
+
+vi.mock("@/components/common/ConfirmDialog", () => ({
+	ConfirmDialog: (props: {
+		open: boolean;
+		confirmLabel?: string;
+		onConfirm: () => void;
+		onOpenChange: (open: boolean) => void;
+	}) =>
+		props.open ? (
+			<div>
+				<button
+					type="button"
+					data-testid="guard-confirm"
+					onClick={props.onConfirm}
+				>
+					{props.confirmLabel}
+				</button>
+				<button
+					type="button"
+					data-testid="guard-close"
+					onClick={() => props.onOpenChange(false)}
+				>
+					close
+				</button>
+			</div>
+		) : null,
 }));
 
 vi.mock("@/components/admin/AdminOffsetPagination", () => ({
@@ -807,6 +835,32 @@ describe("AdminPoliciesPage connector orchestration", () => {
 
 		await act(async () => currentDialog().onCreateStepChange(1));
 		expect(mockState.blockerPredicate?.()).toBe(true);
+	});
+
+	it("handles blocked create navigation through reset, unload, and discard", async () => {
+		const connector = descriptor("plugin.guard");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		const view = renderCreate();
+		await waitForCatalog(connector.connector_id);
+		await act(async () => currentDialog().onCreateStepChange(1));
+		mockState.blocker.state = "blocked";
+		view.rerender(<AdminPoliciesPage variant="create" />);
+		const beforeUnload = new Event("beforeunload", { cancelable: true });
+		window.dispatchEvent(beforeUnload);
+		expect(beforeUnload.defaultPrevented).toBe(true);
+		fireEvent.click(screen.getByTestId("guard-close"));
+		await waitFor(() => expect(mockState.blocker.reset).toHaveBeenCalled());
+		mockState.blocker.state = "blocked";
+		view.rerender(<AdminPoliciesPage variant="create" />);
+		fireEvent.click(screen.getByTestId("guard-confirm"));
+		expect(mockState.blocker.proceed).toHaveBeenCalled();
+	});
+
+	it("redirects a detail editor that has no policy id", () => {
+		render(<AdminPoliciesPage variant="detail" />);
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		expect(screen.getByText("/admin/policies")).toBeInTheDocument();
 	});
 
 	it("initializes and submits supported thumbnail defaults without enabling native processing", async () => {
@@ -2180,6 +2234,34 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(mockState.create).not.toHaveBeenCalled();
 		await act(async () => currentDialog().onConfirmSaveAnyway());
 		await waitFor(() => expect(mockState.create).toHaveBeenCalledTimes(1));
+	});
+
+	it("maps structured connector diagnostics to the policy field error", async () => {
+		const connector = descriptor("plugin.field-error", {
+			actions: [draftTestAction],
+			fields: [field("endpoint", { required: true })],
+		});
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.testParams.mockRejectedValueOnce(
+			new ApiError("bad_request", "validation failed", {
+				diagnostic: {
+					kind: "connector_validation",
+					message: "must be a valid URL",
+					field: "endpoint",
+					scope: "connector_config",
+				},
+			}),
+		);
+		renderCreate();
+		await waitForCatalog(connector.connector_id);
+		await setField("connector_config_values", { endpoint: "bad" });
+		await act(async () => {
+			await currentDialog().onRunConnectionTest();
+		});
+		expect(currentDialog().connectionFieldErrors).toEqual({
+			"connector_config:endpoint": "policy_connector_field_invalid:endpoint",
+		});
 	});
 
 	it("forces setup policies to default and refreshes setup state", async () => {
