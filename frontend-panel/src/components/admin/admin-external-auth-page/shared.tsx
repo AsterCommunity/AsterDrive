@@ -131,6 +131,11 @@ export type ExternalAuthProviderFieldChange = <
 	value: ExternalAuthProviderFormData[K],
 ) => void;
 
+export interface ExternalAuthCreateStep {
+	title: string;
+	description: string;
+}
+
 export const emptyForm: ExternalAuthProviderFormData = {
 	allowedDomains: "",
 	authorizationUrl: "",

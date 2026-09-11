@@ -34,6 +34,10 @@ export default function AdminExternalAuthPage({
 	const {
 		copyCallbackUrl,
 		createDirty,
+		createStep,
+		createStepDirection,
+		createStepTouched,
+		createSteps,
 		formTouched,
 		currentPage,
 		deleteProviderName,
@@ -55,7 +59,8 @@ export default function AdminExternalAuthPage({
 		setField,
 		setOffset,
 		setProviderKind,
-		submitProvider,
+		submitCreateProvider,
+		submitEditedProvider,
 		submitting,
 		t,
 		testFormConnection,
@@ -207,8 +212,15 @@ export default function AdminExternalAuthPage({
 				) : (
 					<ExternalAuthProviderPage
 						formTouched={formTouched}
+						createStep={createStep}
+						createStepDirection={createStepDirection}
+						createStepTouched={createStepTouched}
+						createSteps={createSteps}
 						form={form}
 						mode={editingProvider ? "edit" : "create"}
+						onCreateBack={controller.goCreateBack}
+						onCreateNext={controller.goCreateNext}
+						onCreateStepChange={controller.goCreateStep}
 						pageBackLabel={t("external_auth_back_to_providers")}
 						provider={editingProvider}
 						providerKinds={providerKinds}
@@ -219,7 +231,11 @@ export default function AdminExternalAuthPage({
 							if (!open) navigateBackToProviders();
 						}}
 						onProviderKindChange={setProviderKind}
-						onSubmit={() => void submitProvider()}
+						onSubmit={() =>
+							void (variant === "create"
+								? submitCreateProvider()
+								: submitEditedProvider())
+						}
 						onTestConnection={testFormConnection}
 						testResult={testResult}
 					/>

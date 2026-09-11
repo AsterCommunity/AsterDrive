@@ -421,6 +421,7 @@ function clickProviderKindCard(name = "OpenID Connect") {
 			name: new RegExp(`^${escapeRegExp(name)}\\b`),
 		}),
 	);
+	fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
 }
 
 describe("AdminExternalAuthPage", () => {
@@ -503,7 +504,7 @@ describe("AdminExternalAuthPage", () => {
 		});
 	});
 
-	it("creates a provider from the single-page form and opens its detail", async () => {
+	it("creates a provider from the stepped form and opens its detail", async () => {
 		render(
 			<MemoryRouter initialEntries={["/admin/external-auth"]}>
 				<AdminExternalAuthPage />
@@ -545,6 +546,10 @@ describe("AdminExternalAuthPage", () => {
 		expect(
 			screen.queryByText("external_auth_provider_callback_url"),
 		).not.toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+		expect(mockState.create).not.toHaveBeenCalled();
 		fireEvent.change(
 			screen.getByLabelText("external_auth_provider_allowed_domains"),
 			{
@@ -638,6 +643,7 @@ describe("AdminExternalAuthPage", () => {
 			{ target: { value: "https://oauth.example.com/userinfo" } },
 		);
 
+		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
 		clickProviderKindCard("OpenID Connect");
 
 		expect(
@@ -723,6 +729,7 @@ describe("AdminExternalAuthPage", () => {
 			{ target: { value: "https://oauth.example.com/authorize" } },
 		);
 
+		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
 		clickProviderKindCard("Generic OAuth2");
 
 		expect(
@@ -786,6 +793,9 @@ describe("AdminExternalAuthPage", () => {
 			{
 				target: { value: "google-client" },
 			},
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
 		);
 		expect(screen.getByText("openid profile email")).toBeInTheDocument();
 		expect(
@@ -879,6 +889,9 @@ describe("AdminExternalAuthPage", () => {
 			{
 				target: { value: "microsoft-client" },
 			},
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
 		);
 		expect(screen.getByText("openid profile email")).toBeInTheDocument();
 		expect(
@@ -987,6 +1000,9 @@ describe("AdminExternalAuthPage", () => {
 				target: { value: "qq-app-key" },
 			},
 		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
 		expect(screen.getByText("get_user_info")).toBeInTheDocument();
 		expect(
 			screen.getByText("external_auth_provider_qq_claims_title"),
@@ -1022,7 +1038,7 @@ describe("AdminExternalAuthPage", () => {
 		).toBeInTheDocument();
 	});
 
-	it("keeps single-page creation disabled when provider kinds are unavailable", async () => {
+	it("keeps creation on the type step when provider kinds are unavailable", async () => {
 		const loadKindsError = new Error("provider kinds unavailable");
 		mockState.listKinds
 			.mockResolvedValueOnce([])
@@ -1045,11 +1061,15 @@ describe("AdminExternalAuthPage", () => {
 		});
 
 		expect(
-			screen.getByRole("button", { name: "external_auth_provider_create" }),
+			screen.getByRole("button", { name: "policy_wizard_next" }),
 		).toBeDisabled();
 		expect(
-			screen.getByRole("heading", { name: "external_auth_provider_type" }),
-		).toBeInTheDocument();
+			screen.getAllByText("external_auth_provider_wizard_step_type_title")
+				.length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.queryByLabelText("external_auth_provider_display_name"),
+		).not.toBeInTheDocument();
 	});
 
 	it("applies provider kind defaults loaded after opening the create page", async () => {
@@ -1117,6 +1137,7 @@ describe("AdminExternalAuthPage", () => {
 
 		await screen.findAllByText("OpenID Connect");
 		mockState.blocker.state = "blocked";
+		clickProviderKindCard();
 		fireEvent.change(
 			screen.getByLabelText("external_auth_provider_display_name"),
 			{ target: { value: "Changed provider" } },
