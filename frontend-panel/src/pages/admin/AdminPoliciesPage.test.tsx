@@ -756,6 +756,46 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		expect(currentDialog().dialogOpen).toBe(false);
 	});
 
+	it("navigates the list create action to the dedicated create page", async () => {
+		render(<AdminPoliciesPage />);
+		await waitFor(() => expect(mockState.listPolicies).toHaveBeenCalled());
+
+		fireEvent.click(screen.getByRole("button", { name: /new_policy/ }));
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies/new", {
+			viewTransition: false,
+		});
+	});
+
+	it("shows detail not-found state and navigates back to the policy list", async () => {
+		mockState.getPolicy.mockRejectedValueOnce(new Error("missing policy"));
+		renderDetail(404);
+
+		expect(await screen.findByText("policy_not_found")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /back_to_policies/ }));
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies");
+	});
+
+	it("navigates back when create and detail editors request closing", async () => {
+		const connector = descriptor("plugin.close");
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		renderCreate();
+		await waitForCatalog(connector.connector_id);
+		await act(async () => currentDialog().onDialogOpenChange(false));
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies", {
+			viewTransition: false,
+		});
+
+		mockState.navigate.mockClear();
+		mockState.policies = [policy(connector.connector_id)];
+		renderDetail();
+		await waitFor(() => expect(currentDialog().dialogOpen).toBe(true));
+		await act(async () => currentDialog().onDialogOpenChange(false));
+		expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies", {
+			viewTransition: false,
+		});
+	});
+
 	it("blocks page navigation only after the create wizard starts", async () => {
 		const connector = descriptor("plugin.create-page");
 		mockState.manageDescriptors = [connector];

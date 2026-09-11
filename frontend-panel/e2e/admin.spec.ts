@@ -79,6 +79,7 @@ test.describe
 			await page.getByRole("button", { name: "New Policy" }).click();
 			await expect(page).toHaveURL(/\/admin\/policies\/new$/);
 			await page.getByRole("button", { name: "Local" }).click();
+			await page.locator("#name").fill(policyName);
 			await page
 				.getByRole("button", { name: "Back to storage policies" })
 				.click();

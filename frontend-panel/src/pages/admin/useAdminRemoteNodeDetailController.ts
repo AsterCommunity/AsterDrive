@@ -106,12 +106,7 @@ export function useAdminRemoteNodeDetailController(
 	}, [node, pageTab, remoteNodeId]);
 
 	const loadDescriptors = useCallback(async () => {
-		if (
-			pageTab !== "storage-targets" ||
-			!node ||
-			!hasCompletedRemoteNodeEnrollment(node)
-		)
-			return;
+		if (!node || !hasCompletedRemoteNodeEnrollment(node)) return;
 		const requestId = ++descriptorsRequestId.current;
 		setRemoteStorageTargetConnectorDescriptorsLoading(true);
 		setRemoteStorageTargetConnectorDescriptorsError(null);
@@ -144,7 +139,7 @@ export function useAdminRemoteNodeDetailController(
 				setRemoteStorageTargetConnectorDescriptorsLoading(false);
 			}
 		}
-	}, [i18n, language, node, pageTab, remoteNodeId]);
+	}, [i18n, language, node, remoteNodeId]);
 
 	useEffect(() => {
 		let cancelled = false;

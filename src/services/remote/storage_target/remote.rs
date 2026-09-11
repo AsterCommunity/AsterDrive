@@ -117,12 +117,11 @@ pub async fn update_remote<S: RemoteProtocolRuntimeState>(
                 ),
             ));
         }
-        if !policy_ids.is_empty() {
-            if existing.connector_id != connection.connector_config.connector_id.as_str()
-                || existing.connector_config != connection.connector_config
-            {
-                return Err(referenced_target_error(target_key, &policy_ids));
-            }
+        if !policy_ids.is_empty()
+            && (existing.connector_id != connection.connector_config.connector_id.as_str()
+                || existing.connector_config != connection.connector_config)
+        {
+            return Err(referenced_target_error(target_key, &policy_ids));
         }
         let updated = remote_node::remote_storage_client_for_node(state, &node)?
             .update_storage_target(target_key, &input)

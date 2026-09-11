@@ -106,8 +106,7 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
     let registry = state.remote_protocol().tunnel_registry();
     let (request_rx, _registration) = registry.register_poll(remote_node);
     registry.record_handshake(remote_node, None);
-    managed_follower_repo::touch_tunnel_success(state.writer_db(), remote_node.id, Utc::now())
-        .await?;
+    persist_poll_handshake(state.writer_db().clone(), remote_node.id, Utc::now());
     // A successful control-plane handshake means the runtime path recovered. This clears only
     // transient tunnel telemetry and leaves the separate probe `last_probe_error` untouched.
     registry.clear_error(remote_node.id);
@@ -119,6 +118,23 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
         .map(|queued| queued.request);
 
     Ok(RemoteTunnelPollResponse { request })
+}
+
+fn persist_poll_handshake(
+    db: sea_orm::DatabaseConnection,
+    remote_node_id: i64,
+    handshake_at: chrono::DateTime<Utc>,
+) {
+    tokio::spawn(async move {
+        if let Err(error) =
+            managed_follower_repo::touch_tunnel_success(&db, remote_node_id, handshake_at).await
+        {
+            tracing::warn!(
+                remote_node_id,
+                "failed to persist reverse tunnel poll handshake: {error}"
+            );
+        }
+    });
 }
 
 pub async fn complete<S: RemoteProtocolRuntimeState>(

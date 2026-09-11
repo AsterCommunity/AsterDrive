@@ -3003,13 +3003,13 @@ async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
         "MySQL up should rename the target key index"
     );
     assert!(
-        mysql_table_index_exists(
+        !mysql_table_index_exists(
             &db,
             "remote_storage_targets",
             "idx_remote_storage_targets_binding_default"
         )
         .await,
-        "MySQL up should rename the default index"
+        "current MySQL schema should remove the obsolete default target index"
     );
     assert!(
         !mysql_table_index_exists(

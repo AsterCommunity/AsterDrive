@@ -5231,9 +5231,19 @@ async fn test_reverse_tunnel_polls_do_not_touch_updated_at() {
         .expect("send task should join")
         .expect("send should complete after updated_at test response");
 
-    let after = managed_follower_repo::find_by_id(state.writer_db(), node.id)
-        .await
-        .expect("reverse node should be queryable after poll");
+    let after = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let current = managed_follower_repo::find_by_id(state.writer_db(), node.id)
+                .await
+                .expect("reverse node should be queryable after poll");
+            if current.tunnel_last_handshake_at.is_some() {
+                break current;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reverse tunnel handshake should be persisted");
     assert_eq!(
         after.updated_at, before.updated_at,
         "tunnel heartbeat should not change configuration updated_at"
