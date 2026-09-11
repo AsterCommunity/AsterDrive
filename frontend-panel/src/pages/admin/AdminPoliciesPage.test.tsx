@@ -2324,4 +2324,26 @@ describe("AdminPoliciesPage connector orchestration", () => {
 			expect.any(Object),
 		);
 	});
+
+	it("refreshes the open detail page for an authorization callback", async () => {
+		const connector = descriptor("plugin.oauth-detail", {
+			actions: [authorizationAction],
+			credential_management: credentialManagement(),
+			credential_mode: "oauth_delegated",
+		});
+		const selected = policy(connector.connector_id, { drive: "authorized" });
+		mockState.manageDescriptors = [connector];
+		mockState.createDescriptors = [connector];
+		mockState.policies = [selected];
+		mockState.getPolicy.mockResolvedValue(selected);
+		mockState.searchParams = new URLSearchParams(
+			"storage_authorization=success&policy_id=7",
+		);
+		renderDetail();
+		await waitFor(() => expect(currentDialog().dialogOpen).toBe(true));
+		expect(mockState.getPolicy).toHaveBeenCalledWith(7);
+		expect(mockState.navigate).not.toHaveBeenCalledWith("/admin/policies/7", {
+			viewTransition: false,
+		});
+	});
 });

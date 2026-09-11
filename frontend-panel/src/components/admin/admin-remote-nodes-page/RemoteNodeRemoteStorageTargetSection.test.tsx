@@ -1,4 +1,5 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -914,5 +915,55 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				"remote_node_ingress_profile_delete_title:Local ingress",
 			),
 		).toBeInTheDocument();
+	});
+
+	it("finishes delayed draft cleanup after cancel and target removal", () => {
+		vi.useFakeTimers();
+		const existing = profile();
+		const view = render(
+			<RemoteNodeRemoteStorageTargetSection
+				connectorDescriptors={defaultConnectorDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
+			/>,
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /remote_node_ingress_profiles_create/,
+			}),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+		act(() => vi.advanceTimersByTime(120));
+		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
+
+		view.rerender(
+			<RemoteNodeRemoteStorageTargetSection
+				connectorDescriptors={defaultConnectorDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "core:edit" }));
+		view.rerender(
+			<RemoteNodeRemoteStorageTargetSection
+				connectorDescriptors={defaultConnectorDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[]}
+			/>,
+		);
+		act(() => vi.advanceTimersByTime(120));
+		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
 	});
 });

@@ -186,4 +186,68 @@ describe("RemoteNodePage", () => {
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "save_changes" })).toBeNull();
 	});
+
+	it("edits overview fields, toggles transport/status, submits, and animates tab changes", () => {
+		const onFieldChange = vi.fn();
+		const onSubmit = vi.fn();
+		const view = render(
+			<RemoteNodePage
+				{...baseProps}
+				editingNode={node({ enrollment_status: "completed" })}
+				form={{
+					...baseProps.form,
+					name: "Edge Alpha",
+					base_url: "https://edge.example.com",
+				}}
+				mode="edit"
+				deploymentPanel={<div>deployment</div>}
+				onFieldChange={onFieldChange}
+				onSubmit={onSubmit}
+				onPageTabChange={vi.fn()}
+				pageTab="overview"
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Renamed edge" },
+		});
+		fireEvent.change(screen.getByLabelText("base_url"), {
+			target: { value: "https://new-edge.example.com" },
+		});
+		fireEvent.click(screen.getByLabelText("remote_node_enabled"));
+		fireEvent.click(screen.getByText("remote_node_transport_reverse_tunnel"));
+		const form = document.getElementById("remote-node-form");
+		expect(form).not.toBeNull();
+		if (form) fireEvent.submit(form);
+		expect(onFieldChange).toHaveBeenCalledWith("name", "Renamed edge");
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"base_url",
+			"https://new-edge.example.com",
+		);
+		expect(onFieldChange).toHaveBeenCalledWith("is_enabled", false);
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"transport_mode",
+			"reverse_tunnel",
+		);
+		expect(onSubmit).toHaveBeenCalledOnce();
+		view.rerender(
+			<RemoteNodePage
+				{...baseProps}
+				editingNode={node({ enrollment_status: "completed" })}
+				form={{ ...baseProps.form, name: "Edge Alpha", base_url: "" }}
+				mode="edit"
+				onPageTabChange={vi.fn()}
+				pageTab="storage-targets"
+			/>,
+		);
+		view.rerender(
+			<RemoteNodePage
+				{...baseProps}
+				editingNode={node({ enrollment_status: "completed" })}
+				form={{ ...baseProps.form, name: "Edge Alpha", base_url: "" }}
+				mode="edit"
+				onPageTabChange={vi.fn()}
+				pageTab="overview"
+			/>,
+		);
+	});
 });

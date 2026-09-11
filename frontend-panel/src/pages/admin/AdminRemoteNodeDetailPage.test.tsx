@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminRemoteNodeDetailPage from "@/pages/admin/AdminRemoteNodeDetailPage";
@@ -6,15 +6,23 @@ import AdminRemoteNodeDetailPage from "@/pages/admin/AdminRemoteNodeDetailPage";
 const state = vi.hoisted(() => ({
 	params: { nodeId: "13", section: "overview" as string | undefined },
 	navigate: vi.fn(),
+	controllerOverrides: {} as Record<string, unknown>,
+	locationState: null as null | Record<string, unknown>,
+	enrollmentProps: null as null | {
+		onGenerate?: () => void;
+		onRetry?: () => void;
+	},
 	remoteNodePageProps: null as null | {
 		pageTab?: string;
 		onPageTabChange?: (value: string) => void;
+		deploymentPanel?: ReactNode;
+		onSubmit?: () => void;
 	},
 }));
 
 vi.mock("react-router-dom", () => ({
 	Navigate: ({ to }: { to: string }) => <div data-testid="navigate">{to}</div>,
-	useLocation: () => ({ state: null }),
+	useLocation: () => ({ state: state.locationState }),
 	useNavigate: () => state.navigate,
 	useParams: () => state.params,
 }));
@@ -63,21 +71,35 @@ vi.mock("@/pages/admin/useAdminRemoteNodeDetailController", () => ({
 		submit: vi.fn(),
 		submitting: false,
 		t: (key: string) => key,
+		...state.controllerOverrides,
 	}),
 }));
 vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodePage", () => ({
 	RemoteNodePage: (props: {
 		pageTab?: string;
 		onPageTabChange?: (value: string) => void;
+		deploymentPanel?: ReactNode;
+		onSubmit?: () => void;
 	}) => {
 		state.remoteNodePageProps = props;
-		return <div data-testid="remote-node-page">{props.pageTab}</div>;
+		return (
+			<div data-testid="remote-node-page">
+				{props.pageTab}
+				{props.deploymentPanel}
+			</div>
+		);
 	},
 }));
 vi.mock(
 	"@/components/admin/admin-remote-nodes-page/RemoteNodeEnrollmentPanel",
 	() => ({
-		RemoteNodeEnrollmentPanel: () => null,
+		RemoteNodeEnrollmentPanel: (props: {
+			onGenerate?: () => void;
+			onRetry?: () => void;
+		}) => {
+			state.enrollmentProps = props;
+			return <div data-testid="enrollment-panel" />;
+		},
 	}),
 );
 vi.mock("@/components/layout/AdminLayout", () => ({
@@ -88,14 +110,81 @@ vi.mock("@/components/layout/AdminPageShell", () => ({
 		<div>{children}</div>
 	),
 }));
-vi.mock("@/components/ui/button", () => ({ Button: () => null }));
+vi.mock("@/components/ui/button", () => ({
+	Button: ({
+		children,
+		onClick,
+	}: {
+		children: ReactNode;
+		onClick?: () => void;
+	}) => (
+		<button type="button" onClick={onClick}>
+			{children}
+		</button>
+	),
+}));
 vi.mock("@/components/ui/icon", () => ({ Icon: () => null }));
 
 describe("AdminRemoteNodeDetailPage", () => {
 	beforeEach(() => {
 		state.navigate.mockReset();
+		state.controllerOverrides = {};
+		state.locationState = null;
+		state.enrollmentProps = null;
 		state.remoteNodePageProps = null;
 		state.params = { nodeId: "13", section: "overview" };
+	});
+
+	it("renders loading and missing-node fallbacks", () => {
+		state.controllerOverrides = { loading: true };
+		const loading = render(<AdminRemoteNodeDetailPage />);
+		expect(screen.getByText("core:loading")).toBeVisible();
+		loading.unmount();
+
+		const navigateBack = vi.fn();
+		state.controllerOverrides = {
+			form: null,
+			loading: false,
+			navigateBack,
+			node: null,
+		};
+		render(<AdminRemoteNodeDetailPage />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "back_to_remote_nodes" }),
+		);
+		expect(navigateBack).toHaveBeenCalledOnce();
+	});
+
+	it("renders enrollment handoff and rejects unknown tab callbacks", () => {
+		const generateEnrollmentCommand = vi.fn();
+		state.locationState = {
+			enrollmentCommand: { command: "enroll", expires_at: "later" },
+			enrollmentError: "previous failure",
+		};
+		state.controllerOverrides = {
+			generateEnrollmentCommand,
+			node: {
+				id: 13,
+				name: "Pending edge",
+				base_url: "",
+				is_enabled: true,
+				enrollment_status: "pending",
+				last_probe_error: "",
+				last_probe_at: null,
+				capabilities: null,
+				created_at: "",
+				updated_at: "",
+				transport_mode: "reverse_tunnel",
+			},
+		};
+		render(<AdminRemoteNodeDetailPage />);
+		expect(screen.getByTestId("enrollment-panel")).toBeVisible();
+		state.enrollmentProps?.onGenerate?.();
+		state.enrollmentProps?.onRetry?.();
+		expect(generateEnrollmentCommand).toHaveBeenCalledTimes(2);
+		state.remoteNodePageProps?.onPageTabChange?.("invalid");
+		expect(state.navigate).not.toHaveBeenCalled();
+		state.remoteNodePageProps?.onSubmit?.();
 	});
 
 	it("redirects the legacy detail URL to overview", () => {

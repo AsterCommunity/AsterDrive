@@ -590,6 +590,67 @@ describe("AdminExternalAuthPage", () => {
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
 
+	it("refreshes the provider list and navigates back from provider details", async () => {
+		const list = render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+		await waitFor(() => expect(mockState.list).toHaveBeenCalled());
+		fireEvent.click(screen.getByRole("button", { name: "core:refresh" }));
+		await waitFor(() => expect(mockState.list).toHaveBeenCalledTimes(2));
+		list.unmount();
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth/1"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+		await screen.findByRole("heading", { name: "Example IDP" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "external_auth_back_to_providers" }),
+		);
+		expect(
+			await screen.findByRole("heading", { name: "external_auth" }),
+		).toBeVisible();
+	});
+
+	it("keeps the create page open and reports provider creation failures", async () => {
+		const createError = new Error("create provider failed");
+		mockState.create.mockRejectedValueOnce(createError);
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth/new"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+		await screen.findAllByText("OpenID Connect");
+		clickProviderKindCard();
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_display_name"),
+			{ target: { value: "Failed provider" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_issuer_url"),
+			{ target: { value: "https://idp.example.com" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_id"),
+			{ target: { value: "client-123" } },
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "policy_wizard_review" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "external_auth_provider_create" }),
+		);
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(createError),
+		);
+		expect(
+			screen.getByRole("heading", { name: "external_auth_provider_create" }),
+		).toBeVisible();
+	});
+
 	it("rebuilds the entire create draft when switching provider schemas", async () => {
 		mockState.listKinds.mockResolvedValue([
 			providerKind(),
