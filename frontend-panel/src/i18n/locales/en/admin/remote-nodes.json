@@ -137,6 +137,7 @@
 	"remote_node_ingress_profile_driver_local": "Local",
 	"remote_node_ingress_profile_driver_s3": "S3",
 	"remote_node_ingress_profile_driver_unsupported": "This follower does not declare support for the selected remote storage target driver.",
+	"remote_node_ingress_profile_connector_immutable": "The connector type cannot be changed after creation. Add a new target and migrate data instead.",
 	"remote_node_ingress_profile_credentials_hint": "These credentials are required and will be stored on the follower.",
 	"remote_node_ingress_profile_credentials_optional_hint": "Leave blank to keep the existing S3 credentials.",
 	"remote_node_ingress_profile_created": "Remote storage target created",

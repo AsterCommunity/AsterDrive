@@ -415,15 +415,12 @@ function escapeRegExp(value: string) {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function clickProviderKindCard(name = "OpenID Connect", continueToForm = true) {
+function clickProviderKindCard(name = "OpenID Connect") {
 	fireEvent.click(
 		screen.getByRole("button", {
 			name: new RegExp(`^${escapeRegExp(name)}\\b`),
 		}),
 	);
-	if (continueToForm) {
-		fireEvent.click(screen.getByRole("button", { name: "policy_wizard_next" }));
-	}
 }
 
 describe("AdminExternalAuthPage", () => {
@@ -506,7 +503,7 @@ describe("AdminExternalAuthPage", () => {
 		});
 	});
 
-	it("creates a provider from the SSO type wizard with provider_kind", async () => {
+	it("creates a provider from the single-page form and opens its detail", async () => {
 		render(
 			<MemoryRouter initialEntries={["/admin/external-auth"]}>
 				<AdminExternalAuthPage />
@@ -548,10 +545,6 @@ describe("AdminExternalAuthPage", () => {
 		expect(
 			screen.queryByText("external_auth_provider_callback_url"),
 		).not.toBeInTheDocument();
-		fireEvent.click(
-			screen.getByRole("button", { name: "policy_wizard_review" }),
-		);
-
 		fireEvent.change(
 			screen.getByLabelText("external_auth_provider_allowed_domains"),
 			{
@@ -577,21 +570,14 @@ describe("AdminExternalAuthPage", () => {
 			}),
 		);
 		expect(
-			await screen.findByText("external_auth_provider_created_callback_title"),
+			await screen.findByRole("heading", { name: "Example IDP", level: 1 }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText(
+			screen.getAllByText(
 				/\/api\/v1\/auth\/external-auth\/oidc\/example\/callback/,
-			),
-		).toBeInTheDocument();
-
-		fireEvent.click(screen.getByRole("button", { name: "core:close" }));
-
-		await waitFor(() => {
-			expect(
-				screen.queryByText("external_auth_provider_created_callback_title"),
-			).not.toBeInTheDocument();
-		});
+			).length,
+		).toBeGreaterThan(0);
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 	});
 
 	it("rebuilds the entire create draft when switching provider schemas", async () => {
@@ -652,7 +638,6 @@ describe("AdminExternalAuthPage", () => {
 			{ target: { value: "https://oauth.example.com/userinfo" } },
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
 		clickProviderKindCard("OpenID Connect");
 
 		expect(
@@ -738,7 +723,6 @@ describe("AdminExternalAuthPage", () => {
 			{ target: { value: "https://oauth.example.com/authorize" } },
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
 		clickProviderKindCard("Generic OAuth2");
 
 		expect(
@@ -749,7 +733,7 @@ describe("AdminExternalAuthPage", () => {
 		).toHaveValue("https://oauth.example.com/authorize");
 	});
 
-	it("applies Google create-dialog defaults and hides manual OIDC fields", async () => {
+	it("applies Google create-page defaults and hides manual OIDC fields", async () => {
 		mockState.listKinds.mockResolvedValue([
 			providerKind(),
 			providerKind({
@@ -803,9 +787,6 @@ describe("AdminExternalAuthPage", () => {
 				target: { value: "google-client" },
 			},
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "policy_wizard_review" }),
-		);
 		expect(screen.getByText("openid profile email")).toBeInTheDocument();
 		expect(
 			screen.getByText("external_auth_provider_google_claims_title"),
@@ -830,16 +811,11 @@ describe("AdminExternalAuthPage", () => {
 			}),
 		);
 		expect(
-			await screen.findByText("external_auth_provider_created_callback_title"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				/\/api\/v1\/auth\/external-auth\/google\/google\/callback/,
-			),
+			await screen.findByRole("heading", { name: "Example IDP", level: 1 }),
 		).toBeInTheDocument();
 	});
 
-	it("applies Microsoft create-dialog defaults and derives issuer from tenant", async () => {
+	it("applies Microsoft create-page defaults and derives issuer from tenant", async () => {
 		mockState.listKinds.mockResolvedValue([
 			providerKind(),
 			providerKind({
@@ -904,9 +880,6 @@ describe("AdminExternalAuthPage", () => {
 				target: { value: "microsoft-client" },
 			},
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "policy_wizard_review" }),
-		);
 		expect(screen.getByText("openid profile email")).toBeInTheDocument();
 		expect(
 			screen.getByText("external_auth_provider_microsoft_claims_title"),
@@ -940,16 +913,11 @@ describe("AdminExternalAuthPage", () => {
 			}),
 		);
 		expect(
-			await screen.findByText("external_auth_provider_created_callback_title"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(
-				/\/api\/v1\/auth\/external-auth\/microsoft\/microsoft\/callback/,
-			),
+			await screen.findByRole("heading", { name: "Example IDP", level: 1 }),
 		).toBeInTheDocument();
 	});
 
-	it("applies QQ create-dialog defaults and submits only app credentials", async () => {
+	it("applies QQ create-page defaults and submits only app credentials", async () => {
 		mockState.listKinds.mockResolvedValue([
 			providerKind(),
 			providerKind({
@@ -1019,9 +987,6 @@ describe("AdminExternalAuthPage", () => {
 				target: { value: "qq-app-key" },
 			},
 		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "policy_wizard_review" }),
-		);
 		expect(screen.getByText("get_user_info")).toBeInTheDocument();
 		expect(
 			screen.getByText("external_auth_provider_qq_claims_title"),
@@ -1053,14 +1018,11 @@ describe("AdminExternalAuthPage", () => {
 			}),
 		);
 		expect(
-			await screen.findByText("external_auth_provider_created_callback_title"),
-		).toBeInTheDocument();
-		expect(
-			screen.getByText(/\/api\/v1\/auth\/external-auth\/qq\/qq\/callback/),
+			await screen.findByRole("heading", { name: "Example IDP", level: 1 }),
 		).toBeInTheDocument();
 	});
 
-	it("keeps the create wizard on the type step when no provider kinds are available", async () => {
+	it("keeps single-page creation disabled when provider kinds are unavailable", async () => {
 		const loadKindsError = new Error("provider kinds unavailable");
 		mockState.listKinds
 			.mockResolvedValueOnce([])
@@ -1083,18 +1045,14 @@ describe("AdminExternalAuthPage", () => {
 		});
 
 		expect(
-			screen.getAllByText("external_auth_provider_wizard_step_type_title")
-				.length,
-		).toBeGreaterThan(0);
-		expect(
-			screen.getByRole("button", { name: "policy_wizard_next" }),
+			screen.getByRole("button", { name: "external_auth_provider_create" }),
 		).toBeDisabled();
 		expect(
-			screen.queryByLabelText("external_auth_provider_display_name"),
-		).not.toBeInTheDocument();
+			screen.getByRole("heading", { name: "external_auth_provider_type" }),
+		).toBeInTheDocument();
 	});
 
-	it("applies provider kind defaults loaded after opening the create dialog", async () => {
+	it("applies provider kind defaults loaded after opening the create page", async () => {
 		mockState.listKinds.mockResolvedValueOnce([]).mockResolvedValueOnce([
 			providerKind({
 				default_scopes: "get_user_info",
@@ -1159,7 +1117,10 @@ describe("AdminExternalAuthPage", () => {
 
 		await screen.findAllByText("OpenID Connect");
 		mockState.blocker.state = "blocked";
-		clickProviderKindCard();
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_display_name"),
+			{ target: { value: "Changed provider" } },
+		);
 
 		expect(
 			await screen.findByText("external_auth_provider_discard_title"),

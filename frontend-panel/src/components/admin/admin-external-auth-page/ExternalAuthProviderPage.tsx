@@ -8,7 +8,6 @@ import type {
 	AdminExternalAuthProviderKindInfo,
 	ExternalAuthProviderKind,
 } from "@/types/api";
-import { ExternalAuthCreateProgress } from "./ExternalAuthCreateProgress";
 import {
 	ExternalAuthAccessPolicyPanel,
 	ExternalAuthProviderIdentityPanel,
@@ -19,7 +18,6 @@ import {
 import {
 	callbackUrl,
 	connectionRequirementsMissing,
-	type ExternalAuthCreateStep,
 	type ExternalAuthProviderFieldChange,
 	type ExternalAuthProviderFormData,
 	kindDisplayName,
@@ -29,15 +27,9 @@ import {
 } from "./shared";
 
 interface ExternalAuthProviderPageProps {
-	createStep: number;
-	createStepDirection: "idle" | "forward" | "backward";
-	createStepTouched: boolean;
-	createSteps: ExternalAuthCreateStep[];
+	formTouched: boolean;
 	form: ExternalAuthProviderFormData;
 	mode: "create" | "edit";
-	onCreateBack: () => void;
-	onCreateNext: () => void;
-	onCreateStepChange: (step: number) => void;
 	onFieldChange: ExternalAuthProviderFieldChange;
 	onProviderKindChange: (kind: ExternalAuthProviderKind) => void;
 	onCopyCallbackUrl: (value: string) => void;
@@ -52,15 +44,9 @@ interface ExternalAuthProviderPageProps {
 }
 
 export function ExternalAuthProviderPage({
-	createStep,
-	createStepDirection,
-	createStepTouched,
-	createSteps,
+	formTouched,
 	form,
 	mode,
-	onCreateBack,
-	onCreateNext,
-	onCreateStepChange,
 	onCopyCallbackUrl,
 	onFieldChange,
 	onProviderKindChange,
@@ -75,7 +61,6 @@ export function ExternalAuthProviderPage({
 }: ExternalAuthProviderPageProps) {
 	const { t } = useTranslation("admin");
 	const isCreate = mode === "create";
-	const createLastStep = createSteps.length - 1;
 	const providerKind = provider?.provider_kind ?? form.providerKind;
 	const selectedKind =
 		providerKinds.find((item) => item.kind === providerKind) ??
@@ -89,21 +74,9 @@ export function ExternalAuthProviderPage({
 	const connectionMissing = connectionRequirementsMissing(form, selectedKind);
 	const testDisabled = submitting || connectionMissing;
 	const submitDisabled =
-		submitting || requiredFieldsMissing(form, selectedKind);
-	const showCreateNextButton = isCreate && createStep < createLastStep;
-	const stepPanelClass = cn(
-		createStep === 0 && "contents",
-		createStep === 0
-			? undefined
-			: createStepDirection === "idle"
-				? undefined
-				: "animate-in fade-in duration-[360ms] motion-reduce:animate-none",
-		createStep > 0 && createStepDirection === "forward"
-			? "slide-in-from-right-6"
-			: createStep > 0 && createStepDirection === "backward"
-				? "slide-in-from-left-6"
-				: undefined,
-	);
+		submitting ||
+		(isCreate && providerKinds.length === 0) ||
+		requiredFieldsMissing(form, selectedKind);
 
 	const summaryPanel = (
 		<ExternalAuthSummaryPanel
@@ -118,7 +91,7 @@ export function ExternalAuthProviderPage({
 	const identityPanel = (
 		<ExternalAuthProviderIdentityPanel
 			connectionMissing={connectionMissing}
-			createStepTouched={createStepTouched}
+			formTouched={formTouched}
 			currentCallbackUrl={currentCallbackUrl}
 			form={form}
 			identityMissing={identityMissing}
@@ -145,76 +118,18 @@ export function ExternalAuthProviderPage({
 	const accessPolicyPanel = (
 		<ExternalAuthAccessPolicyPanel form={form} onFieldChange={onFieldChange} />
 	);
-	const pageActions = isCreate ? (
-		<>
-			{createStep > 0 ? (
-				<Button
-					type="button"
-					variant="outline"
-					onClick={onCreateBack}
-					disabled={submitting}
-				>
-					{t("core:back")}
-				</Button>
-			) : null}
-			{createStep === 1 ? (
-				<Button
-					type="button"
-					variant="outline"
-					onClick={() => void onTestConnection()}
-					disabled={testDisabled}
-				>
-					{t("external_auth_provider_test")}
-				</Button>
-			) : null}
-			{showCreateNextButton ? (
-				<Button
-					type="button"
-					onClick={onCreateNext}
-					disabled={
-						submitting || (createStep === 0 && providerKinds.length === 0)
-					}
-				>
-					{createStep === createLastStep - 1
-						? t("policy_wizard_review")
-						: t("policy_wizard_next")}
-				</Button>
-			) : createStep === createLastStep ? (
-				<Button
-					type="submit"
-					form="external-auth-provider-form"
-					disabled={submitDisabled}
-				>
-					<Icon
-						name={submitting ? "Spinner" : "Plus"}
-						className={cn("mr-1 size-4", submitting && "animate-spin")}
-					/>
-					{t("external_auth_provider_create")}
-				</Button>
-			) : null}
-		</>
-	) : (
-		<>
-			<Button
-				type="button"
-				variant="outline"
-				onClick={() => void onTestConnection()}
-				disabled={testDisabled}
-			>
-				{t("external_auth_provider_test")}
-			</Button>
-			<Button
-				type="submit"
-				form="external-auth-provider-form"
-				disabled={submitDisabled}
-			>
-				<Icon
-					name={submitting ? "Spinner" : "FloppyDisk"}
-					className={cn("mr-1 size-4", submitting && "animate-spin")}
-				/>
-				{t("save_changes")}
-			</Button>
-		</>
+	const pageActions = (
+		<Button
+			type="submit"
+			form="external-auth-provider-form"
+			disabled={submitDisabled}
+		>
+			<Icon
+				name={submitting ? "Spinner" : isCreate ? "Plus" : "FloppyDisk"}
+				className={cn("mr-1 size-4", submitting && "animate-spin")}
+			/>
+			{isCreate ? t("external_auth_provider_create") : t("save_changes")}
+		</Button>
 	);
 	const content = (
 		<form
@@ -227,62 +142,40 @@ export function ExternalAuthProviderPage({
 			className="flex min-h-0 flex-1 flex-col overflow-visible"
 		>
 			<div className="min-h-0 flex-1 overflow-visible px-0 pt-0 pb-6">
-				{isCreate ? (
-					<div className="space-y-6">
-						<ExternalAuthCreateProgress
-							createStep={createStep}
-							createSteps={createSteps}
-							onCreateStepChange={onCreateStepChange}
-						/>
-						<div className="py-1">
-							<div className="relative overflow-hidden">
-								<div
-									key={`${createStep}-${createStepDirection}`}
-									data-testid="external-auth-provider-step-panel"
-									className={stepPanelClass}
-								>
-									{createStep === 0 ? (
-										<ExternalAuthProviderKindPanel
-											form={form}
-											onProviderKindChange={onProviderKindChange}
-											providerKinds={providerKinds}
-										/>
-									) : createStep === 1 ? (
-										<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-											<div className="min-w-0 space-y-4">{identityPanel}</div>
-											<aside className="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
-												{summaryPanel}
-											</aside>
-										</div>
-									) : (
-										<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-											<div className="min-w-0 space-y-4">
-												{rulesPanel}
-												{accessPolicyPanel}
-											</div>
-											<aside className="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
-												{summaryPanel}
-											</aside>
-										</div>
-									)}
-								</div>
-							</div>
-						</div>
-					</div>
-				) : (
-					<div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
-						<aside className="animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards motion-reduce:animate-none space-y-5 rounded-xl bg-muted/30 p-4 lg:sticky lg:top-6 lg:self-start">
-							{summaryPanel}
+				<div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
+					<aside className="min-w-0 space-y-5 rounded-xl bg-muted/30 p-4 lg:sticky lg:top-6 lg:self-start">
+						{summaryPanel}
+						{isCreate ? null : (
 							<div className="border-t border-foreground/10 pt-4">
 								{accessPolicyPanel}
 							</div>
-						</aside>
-						<div className="min-w-0 space-y-8 animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards delay-75 motion-reduce:animate-none">
-							{identityPanel}
-							{rulesPanel}
-						</div>
+						)}
+					</aside>
+					<div className="min-w-0 space-y-8 animate-in fade-in slide-in-from-top-1 duration-200 fill-mode-backwards delay-75 motion-reduce:animate-none">
+						{isCreate ? (
+							<section className="rounded-xl bg-muted/30 p-5">
+								<div className="space-y-1">
+									<h3 className="text-sm font-semibold">
+										{t("external_auth_provider_type")}
+									</h3>
+									<p className="text-sm text-muted-foreground">
+										{t("external_auth_provider_type_desc")}
+									</p>
+								</div>
+								<div className="mt-4">
+									<ExternalAuthProviderKindPanel
+										form={form}
+										onProviderKindChange={onProviderKindChange}
+										providerKinds={providerKinds}
+									/>
+								</div>
+							</section>
+						) : null}
+						{identityPanel}
+						{rulesPanel}
+						{isCreate ? accessPolicyPanel : null}
 					</div>
-				)}
+				</div>
 			</div>
 		</form>
 	);
@@ -291,7 +184,7 @@ export function ExternalAuthProviderPage({
 		<AdminDetailPageShell
 			actions={pageActions}
 			backLabel={pageBackLabel ?? t("external_auth")}
-			description={t("external_auth_provider_dialog_desc")}
+			description={t("external_auth_provider_page_desc")}
 			onBack={() => onOpenChange(false)}
 			title={
 				isCreate

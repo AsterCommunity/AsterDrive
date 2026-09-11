@@ -100,16 +100,19 @@ vi.mock("@/components/ui/label", () => ({
 vi.mock("@/components/ui/select", () => ({
 	Select: ({
 		children,
+		disabled,
 		onValueChange,
 		value,
 	}: {
 		children: ReactNode;
+		disabled?: boolean;
 		onValueChange?: (value: string) => void;
 		value: string;
 	}) => (
 		<div>
 			<select
 				aria-label={`select:${value}`}
+				disabled={disabled}
 				value={value}
 				onChange={(event) => onValueChange?.(event.currentTarget.value)}
 			>
@@ -733,6 +736,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.change(screen.getByLabelText("secret_key"), {
 			target: { value: " secret " },
 		});
+		expect(screen.getByRole("button", { name: /core:create/ })).toBeEnabled();
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
@@ -779,6 +783,12 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		const { onUpdateTarget } = renderSection({ targets: [existing] });
 
 		fireEvent.click(screen.getByRole("button", { name: "core:edit" }));
+		expect(
+			screen.getByLabelText("select:asterdrive.storage.s3"),
+		).toBeDisabled();
+		expect(
+			screen.getByText("remote_node_ingress_profile_connector_immutable"),
+		).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: /save_changes/ })).toBeEnabled();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "S3 renamed" },

@@ -17,6 +17,11 @@ import type {
 	RemoteUpdateStorageTargetRequest,
 	StorageConnectorDescriptor,
 } from "@/types/api";
+import {
+	isConnectorFieldRequired,
+	isConnectorFieldVisible,
+	resolvedConnectorFieldDefault,
+} from "../storage-policy-dialog/connectorFieldRules";
 import { RemoteNodeRemoteStorageTargetDialog } from "./RemoteNodeRemoteStorageTargetDialog";
 import { RemoteNodeRemoteStorageTargetsList } from "./RemoteNodeRemoteStorageTargetsList";
 
@@ -178,7 +183,13 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: t("remote_node_ingress_profile_name_required");
 	const missingRequiredField =
 		activeConnectorDescriptor?.fields.some((field) => {
-			if (!field.required) return false;
+			if (field.scope === "action_input") return false;
+			const values =
+				field.scope === "connector_config"
+					? form.connector_config_values
+					: form.credential_values;
+			if (!isConnectorFieldVisible(field, values)) return false;
+			if (!isConnectorFieldRequired(field, values)) return false;
 			if (
 				field.scope !== "connector_config" &&
 				activeDraftMode === "edit" &&
@@ -186,12 +197,10 @@ export function RemoteNodeRemoteStorageTargetSection({
 			) {
 				return false;
 			}
-			const values =
-				field.scope === "connector_config"
-					? form.connector_config_values
-					: form.credential_values;
 			const value = values[field.name];
-			return value == null || String(value).trim().length === 0;
+			const defaultValue = resolvedConnectorFieldDefault(field, values);
+			const resolvedValue = value ?? defaultValue;
+			return resolvedValue == null || String(resolvedValue).trim().length === 0;
 		}) ?? false;
 	const submitDisabled =
 		submitting ||
@@ -287,7 +296,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
 								onClick={startCreate}
 								disabled={
-									loading ||
 									Boolean(errorMessage) ||
 									firstSupportedConnectorId == null ||
 									!canCreateTargets
@@ -326,7 +334,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 						className={ADMIN_CONTROL_HEIGHT_CLASS}
 						onClick={startCreate}
 						disabled={
-							loading ||
 							Boolean(errorMessage) ||
 							firstSupportedConnectorId == null ||
 							!canCreateTargets
@@ -347,6 +354,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			<RemoteNodeRemoteStorageTargetDialog
 				connectorDescriptors={supportedConnectorDescriptors}
 				connectorIdError={connectorIdError}
+				connectorLocked={draftModeForRender === "edit"}
 				draftMode={draftModeForRender}
 				editingTarget={editingTarget}
 				form={form}

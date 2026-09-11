@@ -7,7 +7,6 @@ import {
 	createPayload,
 	DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
 	EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
-	type ExternalAuthCreateStep,
 	type ExternalAuthProviderFormData,
 	emptyForm,
 	formatTestResultSummary,
@@ -40,9 +39,7 @@ import type {
 } from "@/types/api";
 
 type AdminExternalAuthUiState = {
-	createdProviderCallback: AdminExternalAuthProviderInfo | null;
-	createStep: number;
-	createStepTouched: boolean;
+	formTouched: boolean;
 	deletingId: number | null;
 	editingProvider: AdminExternalAuthProviderInfo | null;
 	form: ExternalAuthProviderFormData;
@@ -108,16 +105,11 @@ type AdminExternalAuthUiAction =
 			form: ExternalAuthProviderFormData;
 			type: "replace_create_form";
 	  }
-	| { step: number; type: "set_create_step" }
-	| { touched: boolean; type: "set_create_step_touched" }
+	| { touched: boolean; type: "set_form_touched" }
 	| { submitting: boolean; type: "set_submitting" }
 	| { id: number | null; type: "set_testing_id" }
 	| { id: number | null; type: "set_deleting_id" }
 	| { result: string | null; type: "set_test_result" }
-	| {
-			provider: AdminExternalAuthProviderInfo | null;
-			type: "set_created_provider_callback";
-	  }
 	| {
 			provider: AdminExternalAuthProviderInfo;
 			type: "provider_updated";
@@ -130,9 +122,7 @@ type AdminExternalAuthUiAction =
 
 function createInitialAdminExternalAuthUiState(): AdminExternalAuthUiState {
 	return {
-		createdProviderCallback: null,
-		createStep: 0,
-		createStepTouched: false,
+		formTouched: false,
 		deletingId: null,
 		editingProvider: null,
 		form: emptyForm,
@@ -172,8 +162,7 @@ function adminExternalAuthUiReducer(
 		case "initialize_create":
 			return {
 				...state,
-				createStep: 0,
-				createStepTouched: false,
+				formTouched: false,
 				editingProvider: null,
 				form: action.form,
 				testResult: null,
@@ -181,8 +170,7 @@ function adminExternalAuthUiReducer(
 		case "initialize_edit":
 			return {
 				...state,
-				createStep: 0,
-				createStepTouched: false,
+				formTouched: false,
 				editingProvider: action.provider,
 				form: action.form,
 				testResult: null,
@@ -199,18 +187,12 @@ function adminExternalAuthUiReducer(
 		case "replace_create_form":
 			return {
 				...state,
-				createStepTouched: false,
+				formTouched: false,
 				form: action.form,
 				testResult: null,
 			};
-		case "set_create_step":
-			return {
-				...state,
-				createStep: Math.max(0, Math.min(action.step, 2)),
-				createStepTouched: false,
-			};
-		case "set_create_step_touched":
-			return { ...state, createStepTouched: action.touched };
+		case "set_form_touched":
+			return { ...state, formTouched: action.touched };
 		case "set_submitting":
 			return { ...state, submitting: action.submitting };
 		case "set_testing_id":
@@ -219,8 +201,6 @@ function adminExternalAuthUiReducer(
 			return { ...state, deletingId: action.id };
 		case "set_test_result":
 			return { ...state, testResult: action.result };
-		case "set_created_provider_callback":
-			return { ...state, createdProviderCallback: action.provider };
 		case "provider_updated":
 			return {
 				...state,
@@ -273,9 +253,7 @@ export function useAdminExternalAuthPageController({
 		createInitialAdminExternalAuthUiState,
 	);
 	const {
-		createdProviderCallback,
-		createStep,
-		createStepTouched,
+		formTouched,
 		deletingId,
 		editingProvider,
 		form,
@@ -311,40 +289,6 @@ export function useAdminExternalAuthPageController({
 		label: t("page_size_option", { count: size }),
 		value: String(size),
 	}));
-	const createSteps: ExternalAuthCreateStep[] = useMemo(
-		() => [
-			{
-				title: t("external_auth_provider_wizard_step_type_title"),
-				description: t("external_auth_provider_wizard_step_type_desc"),
-			},
-			{
-				title: t("external_auth_provider_wizard_step_connection_title"),
-				description: t("external_auth_provider_wizard_step_connection_desc"),
-			},
-			{
-				title: t("external_auth_provider_wizard_step_rules_title"),
-				description: t("external_auth_provider_wizard_step_rules_desc"),
-			},
-		],
-		[t],
-	);
-	const previousCreateStepRef = useRef(createStep);
-	const stepAnimationRef = useRef<{
-		direction: "idle" | "forward" | "backward";
-		step: number;
-	}>({
-		direction: "idle",
-		step: createStep,
-	});
-	if (createStep !== previousCreateStepRef.current) {
-		stepAnimationRef.current = {
-			direction:
-				createStep > previousCreateStepRef.current ? "forward" : "backward",
-			step: createStep,
-		};
-	}
-	const createStepDirection = stepAnimationRef.current.direction;
-
 	const loadProviders = useCallback(async () => {
 		try {
 			dispatchUi({ loading: true, type: "set_loading" });
@@ -433,19 +377,6 @@ export function useAdminExternalAuthPageController({
 		};
 	}, [loadProviders, providerId, variant]);
 
-	useEffect(() => {
-		if (variant !== "create" || editingProvider) {
-			previousCreateStepRef.current = 0;
-			stepAnimationRef.current = {
-				direction: "idle",
-				step: 0,
-			};
-			return;
-		}
-
-		previousCreateStepRef.current = createStep;
-	}, [createStep, editingProvider, variant]);
-
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, EXTERNAL_AUTH_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
@@ -488,44 +419,16 @@ export function useAdminExternalAuthPageController({
 		navigate("/admin/external-auth", { viewTransition: false });
 	};
 
-	const canAdvanceCreateStep = () => {
-		if (createStep === 0) {
-			return providerKinds.length > 0;
-		}
-		if (createStep === 1) {
-			return !requiredFieldsMissing(form, selectedKind);
-		}
-		return true;
-	};
-
-	const goCreateNext = () => {
-		dispatchUi({ touched: true, type: "set_create_step_touched" });
-		if (!canAdvanceCreateStep()) {
-			return;
-		}
-		dispatchUi({
-			step: Math.min(createStep + 1, createSteps.length - 1),
-			type: "set_create_step",
-		});
-	};
-
-	const goCreateBack = () => {
-		dispatchUi({
-			step: Math.max(createStep - 1, 0),
-			type: "set_create_step",
-		});
-	};
-
-	const goCreateStep = (step: number) => {
-		dispatchUi({
-			step: Math.max(0, Math.min(step, createSteps.length - 1)),
-			type: "set_create_step",
-		});
-	};
-
 	const submitProvider = async () => {
 		if (submitting) return;
 
+		dispatchUi({ touched: true, type: "set_form_touched" });
+		if (
+			requiredFieldsMissing(form, selectedKind) ||
+			(!editingProvider && providerKinds.length === 0)
+		) {
+			return;
+		}
 		dispatchUi({ submitting: true, type: "set_submitting" });
 		try {
 			if (editingProvider) {
@@ -540,9 +443,9 @@ export function useAdminExternalAuthPageController({
 					createPayload(form, selectedKind),
 				);
 				toast.success(t("external_auth_provider_created"));
-				dispatchUi({
-					provider: created,
-					type: "set_created_provider_callback",
+				navigate(`/admin/external-auth/${created.id}`, {
+					replace: true,
+					viewTransition: false,
 				});
 			}
 		} catch (error) {
@@ -571,8 +474,8 @@ export function useAdminExternalAuthPageController({
 	};
 
 	const testFormConnection = async () => {
+		dispatchUi({ touched: true, type: "set_form_touched" });
 		if (connectionRequirementsMissing(form, selectedKind)) {
-			dispatchUi({ touched: true, type: "set_create_step_touched" });
 			return false;
 		}
 
@@ -642,25 +545,18 @@ export function useAdminExternalAuthPageController({
 				"");
 	const createDirty =
 		variant === "create" &&
-		(createStep > 0 || JSON.stringify(form) !== initialCreateFormRef.current);
+		JSON.stringify(form) !== initialCreateFormRef.current;
 
 	return {
 		copyCallbackUrl,
 		createDirty,
-		createStep,
-		createStepDirection,
-		createStepTouched,
-		createSteps,
+		formTouched,
 		currentPage,
-		createdProviderCallback,
 		deleteProviderName,
 		deletingId,
 		dialogProps,
 		editingProvider,
 		form,
-		goCreateBack,
-		goCreateNext,
-		goCreateStep,
 		navigateBackToProviders,
 		handlePageSizeChange,
 		loadProviders,
@@ -672,24 +568,6 @@ export function useAdminExternalAuthPageController({
 		providerKinds,
 		providers,
 		requestConfirm,
-		setCreatedProviderCallback: (
-			provider: AdminExternalAuthProviderInfo | null,
-		) =>
-			dispatchUi({
-				provider,
-				type: "set_created_provider_callback",
-			}),
-		handleCreatedProviderCallbackOpenChange: (open: boolean) => {
-			if (open || !createdProviderCallback) return;
-			const createdId = createdProviderCallback.id;
-			dispatchUi({ provider: null, type: "set_created_provider_callback" });
-			if (variant === "create") {
-				navigate(`/admin/external-auth/${createdId}`, {
-					replace: true,
-					viewTransition: false,
-				});
-			}
-		},
 		setField,
 		setOffset,
 		setProviderKind,

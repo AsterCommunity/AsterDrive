@@ -1,4 +1,6 @@
+use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
+use crate::errors::validation_error_with_code;
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::StorageConnectionInput;
 use crate::storage::remote_protocol::{
@@ -34,6 +36,17 @@ pub(in crate::services::remote::storage_target) async fn normalize_update_input<
 ) -> Result<NormalizedStorageTargetInput> {
     let connection = match input.connection {
         Some(mut connection) => {
+            if existing.connector_id.as_deref()
+                != Some(connection.connector_config.connector_id.as_str())
+            {
+                return Err(validation_error_with_code(
+                    ApiErrorCode::RemoteStorageTargetConnectorUnsupported,
+                    format!(
+                        "remote storage target '{}' connector is immutable; create a new target instead",
+                        existing.target_key
+                    ),
+                ));
+            }
             if existing.connector_id.as_deref()
                 == Some(connection.connector_config.connector_id.as_str())
                 && let Ok(saved_connection) =

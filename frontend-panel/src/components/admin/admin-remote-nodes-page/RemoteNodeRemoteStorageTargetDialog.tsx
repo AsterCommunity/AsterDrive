@@ -20,6 +20,7 @@ import type {
 interface RemoteNodeRemoteStorageTargetDialogProps {
 	connectorDescriptors: StorageConnectorDescriptor[];
 	connectorIdError: string | null;
+	connectorLocked?: boolean;
 	draftMode: RemoteNodeRemoteStorageTargetDraftMode;
 	editingTarget: RemoteStorageTargetInfo | null;
 	form: RemoteStorageTargetFormData;
@@ -37,6 +38,7 @@ interface RemoteNodeRemoteStorageTargetDialogProps {
 export function RemoteNodeRemoteStorageTargetDialog({
 	connectorDescriptors,
 	connectorIdError,
+	connectorLocked = false,
 	draftMode,
 	editingTarget,
 	form,
@@ -76,6 +78,7 @@ export function RemoteNodeRemoteStorageTargetDialog({
 				<RemoteNodeRemoteStorageTargetForm
 					connectorDescriptors={connectorDescriptors}
 					connectorIdError={connectorIdError}
+					connectorLocked={connectorLocked}
 					draftMode={draftMode}
 					form={form}
 					nameError={nameError}

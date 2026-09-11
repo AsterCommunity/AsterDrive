@@ -137,6 +137,7 @@
 	"remote_node_ingress_profile_driver_local": "本地",
 	"remote_node_ingress_profile_driver_s3": "S3",
 	"remote_node_ingress_profile_driver_unsupported": "这台 follower 没有声明支持当前远程存储目标驱动。",
+	"remote_node_ingress_profile_connector_immutable": "connector 类型创建后不能修改；如需更换存储类型，请新增目标并迁移数据。",
 	"remote_node_ingress_profile_credentials_hint": "这些凭证是必填项，保存后会写到 follower 侧。",
 	"remote_node_ingress_profile_credentials_optional_hint": "留空表示继续沿用当前 S3 凭证。",
 	"remote_node_ingress_profile_created": "远程存储目标已创建",

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useBlocker, useNavigate } from "react-router-dom";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
-import { ExternalAuthCallbackDialog } from "@/components/admin/admin-external-auth-page/ExternalAuthCallbackDialog";
 import { ExternalAuthProviderPage } from "@/components/admin/admin-external-auth-page/ExternalAuthProviderPage";
 import {
 	ExternalAuthProvidersTableHeader,
@@ -35,21 +34,13 @@ export default function AdminExternalAuthPage({
 	const {
 		copyCallbackUrl,
 		createDirty,
-		createStep,
-		createStepDirection,
-		createStepTouched,
-		createSteps,
+		formTouched,
 		currentPage,
-		createdProviderCallback,
 		deleteProviderName,
 		deletingId,
 		dialogProps,
 		editingProvider,
 		form,
-		goCreateBack,
-		goCreateNext,
-		goCreateStep,
-		handleCreatedProviderCallbackOpenChange,
 		handlePageSizeChange,
 		loadProviders,
 		loading,
@@ -215,15 +206,9 @@ export default function AdminExternalAuthPage({
 					</div>
 				) : (
 					<ExternalAuthProviderPage
-						createStep={createStep}
-						createStepDirection={createStepDirection}
-						createStepTouched={createStepTouched}
-						createSteps={createSteps}
+						formTouched={formTouched}
 						form={form}
 						mode={editingProvider ? "edit" : "create"}
-						onCreateBack={goCreateBack}
-						onCreateNext={goCreateNext}
-						onCreateStepChange={goCreateStep}
 						pageBackLabel={t("external_auth_back_to_providers")}
 						provider={editingProvider}
 						providerKinds={providerKinds}
@@ -243,12 +228,6 @@ export default function AdminExternalAuthPage({
 				{variant === "create" ? (
 					<ExternalAuthCreateNavigationGuard dirty={createDirty} />
 				) : null}
-
-				<ExternalAuthCallbackDialog
-					provider={createdProviderCallback}
-					onCopy={(value) => void copyCallbackUrl(value)}
-					onOpenChange={handleCreatedProviderCallbackOpenChange}
-				/>
 
 				{!pageMode ? (
 					<ConfirmDialog

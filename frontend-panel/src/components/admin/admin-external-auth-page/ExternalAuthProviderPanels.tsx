@@ -417,7 +417,7 @@ function ProviderKindCapability({
 
 interface ExternalAuthProviderIdentityPanelProps {
 	connectionMissing: boolean;
-	createStepTouched: boolean;
+	formTouched: boolean;
 	currentCallbackUrl: string;
 	form: ExternalAuthProviderFormData;
 	identityMissing: boolean;
@@ -436,7 +436,7 @@ interface ExternalAuthProviderIdentityPanelProps {
 
 export function ExternalAuthProviderIdentityPanel({
 	connectionMissing,
-	createStepTouched,
+	formTouched,
 	currentCallbackUrl,
 	form,
 	identityMissing,
@@ -498,7 +498,7 @@ export function ExternalAuthProviderIdentityPanel({
 						maxLength={128}
 						placeholder="Authentik"
 						aria-invalid={
-							createStepTouched && !form.displayName.trim() ? true : undefined
+							formTouched && !form.displayName.trim() ? true : undefined
 						}
 						onChange={(event) =>
 							onFieldChange("displayName", event.target.value)
@@ -565,9 +565,7 @@ export function ExternalAuthProviderIdentityPanel({
 							placeholder="11111111-2222-3333-4444-555555555555"
 							maxLength={256}
 							aria-invalid={
-								createStepTouched && !form.microsoftTenant.trim()
-									? true
-									: undefined
+								formTouched && !form.microsoftTenant.trim() ? true : undefined
 							}
 							onChange={(event) =>
 								onFieldChange("microsoftTenant", event.target.value)
@@ -579,7 +577,7 @@ export function ExternalAuthProviderIdentityPanel({
 					</div>
 				) : null}
 				<ExternalAuthConnectionFields
-					createStepTouched={createStepTouched}
+					formTouched={formTouched}
 					form={form}
 					onFieldChange={onFieldChange}
 					provider={provider}
@@ -592,11 +590,9 @@ export function ExternalAuthProviderIdentityPanel({
 					onTestConnection={onTestConnection}
 					testResult={testResult}
 				/>
-				{isCreate &&
-				createStepTouched &&
-				(identityMissing || connectionMissing) ? (
+				{isCreate && formTouched && (identityMissing || connectionMissing) ? (
 					<p className="text-xs text-destructive md:col-span-2">
-						{t("external_auth_provider_wizard_required")}
+						{t("external_auth_provider_required")}
 					</p>
 				) : null}
 				{isCreate ? null : (

@@ -424,7 +424,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing
-				createStepTouched
+				formTouched
 				currentCallbackUrl=""
 				form={form({
 					authorizationUrl: "",
@@ -474,7 +474,7 @@ describe("ExternalAuthProviderPanels", () => {
 			screen.getByLabelText("external_auth_provider_client_id"),
 		).toHaveAttribute("aria-invalid", "true");
 		expect(
-			screen.getByText("external_auth_provider_wizard_required"),
+			screen.getByText("external_auth_provider_required"),
 		).toBeInTheDocument();
 		expect(screen.getByText("connection ok")).toBeInTheDocument();
 		expect(
@@ -551,7 +551,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched={false}
+				formTouched={false}
 				currentCallbackUrl="https://app.example.com/api/callback"
 				form={form()}
 				identityMissing={false}
@@ -598,7 +598,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched={false}
+				formTouched={false}
 				currentCallbackUrl=""
 				form={form({
 					providerKind: "github",
@@ -631,7 +631,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched={false}
+				formTouched={false}
 				currentCallbackUrl=""
 				form={form({
 					providerKind: "google",
@@ -667,7 +667,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched={false}
+				formTouched={false}
 				currentCallbackUrl=""
 				form={form({
 					providerKind: "qq",
@@ -702,7 +702,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched={false}
+				formTouched={false}
 				currentCallbackUrl=""
 				form={form({
 					microsoftTenant: "organizations",
@@ -767,7 +767,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched
+				formTouched
 				currentCallbackUrl=""
 				form={form({
 					microsoftTenant: "",
@@ -808,7 +808,7 @@ describe("ExternalAuthProviderPanels", () => {
 		render(
 			<ExternalAuthProviderIdentityPanel
 				connectionMissing={false}
-				createStepTouched
+				formTouched
 				currentCallbackUrl=""
 				form={form({
 					microsoftTenant: "11111111-2222-3333-4444-555555555555",

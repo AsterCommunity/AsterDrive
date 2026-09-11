@@ -371,6 +371,23 @@ async fn normalize_update_input_keeps_connection_opaque_when_omitted() {
 }
 
 #[tokio::test]
+async fn normalize_update_input_rejects_connector_changes() {
+    let state = setup_state().await;
+    let existing = s3_model();
+    let error = normalize_update_input(
+        &state,
+        &existing,
+        RemoteUpdateStorageTargetRequest {
+            connection: Some(local_create("Local", "other").connection),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.message().contains("connector is immutable"));
+}
+
+#[tokio::test]
 async fn normalize_update_input_merges_partial_static_credentials_from_saved_connection() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-credential-merge").await;

@@ -30,6 +30,7 @@ interface RemoteNodeRemoteStorageTargetFormProps {
 	draftMode: RemoteNodeRemoteStorageTargetDraftMode;
 	form: RemoteStorageTargetFormData;
 	nameError: string | null;
+	connectorLocked?: boolean;
 	onCancel: () => void;
 	onFieldChange: RemoteNodeRemoteStorageTargetFieldChangeHandler;
 	onSubmit: () => void;
@@ -45,6 +46,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 	draftMode,
 	form,
 	nameError,
+	connectorLocked = false,
 	onCancel,
 	onFieldChange,
 	onSubmit,
@@ -118,6 +120,7 @@ export function RemoteNodeRemoteStorageTargetForm({
 					<Label htmlFor="remote-target-connector">{t("connector_type")}</Label>
 					<Select
 						items={options}
+						disabled={connectorLocked || submitting}
 						value={form.connector_id}
 						onValueChange={(value) => {
 							if (value != null) onFieldChange("connector_id", value);
@@ -136,6 +139,11 @@ export function RemoteNodeRemoteStorageTargetForm({
 					</Select>
 					{connectorIdError ? (
 						<p className="text-xs text-destructive">{connectorIdError}</p>
+					) : null}
+					{connectorLocked ? (
+						<p className="text-xs text-muted-foreground">
+							{t("remote_node_ingress_profile_connector_immutable")}
+						</p>
 					) : null}
 				</div>
 			</div>

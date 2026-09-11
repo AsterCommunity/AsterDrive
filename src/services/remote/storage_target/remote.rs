@@ -98,18 +98,26 @@ pub async fn update_remote<S: RemoteProtocolRuntimeState>(
         let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
         system_initialization_repo::acquire_storage_topology_lock(&txn).await?;
         let policy_ids = referencing_policy_ids(state, &txn, remote_node_id, target_key).await?;
+        let existing = remote_node::remote_storage_client_for_node(state, &node)?
+            .list_storage_targets()
+            .await?
+            .into_iter()
+            .find(|target| target.target_key == target_key)
+            .ok_or_else(|| {
+                validation_error_with_code(
+                    ApiErrorCode::RemoteStorageTargetNotFound,
+                    format!("remote storage target '{target_key}' is not configured"),
+                )
+            })?;
+        if existing.connector_id != connection.connector_config.connector_id.as_str() {
+            return Err(validation_error_with_code(
+                ApiErrorCode::RemoteStorageTargetConnectorUnsupported,
+                format!(
+                    "remote storage target '{target_key}' connector is immutable; create a new target instead"
+                ),
+            ));
+        }
         if !policy_ids.is_empty() {
-            let existing = remote_node::remote_storage_client_for_node(state, &node)?
-                .list_storage_targets()
-                .await?
-                .into_iter()
-                .find(|target| target.target_key == target_key)
-                .ok_or_else(|| {
-                    validation_error_with_code(
-                        ApiErrorCode::RemoteStorageTargetNotFound,
-                        format!("remote storage target '{target_key}' is not configured"),
-                    )
-                })?;
             if existing.connector_id != connection.connector_config.connector_id.as_str()
                 || existing.connector_config != connection.connector_config
             {
