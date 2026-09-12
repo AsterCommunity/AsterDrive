@@ -2,6 +2,8 @@
 
 use crate::common;
 
+use std::collections::HashSet;
+
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 
 async fn explain_query_plan(db: &DatabaseConnection, sql: &str) -> Vec<String> {
@@ -14,6 +16,30 @@ async fn explain_query_plan(db: &DatabaseConnection, sql: &str) -> Vec<String> {
     .into_iter()
     .map(|row| row.try_get_by_index::<String>(3).unwrap())
     .collect()
+}
+
+async fn explain_backend_plan(db: &DatabaseConnection, sql: &str) -> Vec<String> {
+    let (statement, detail_index) = match db.get_database_backend() {
+        DbBackend::Sqlite => (
+            Statement::from_string(DbBackend::Sqlite, format!("EXPLAIN QUERY PLAN {sql}")),
+            3,
+        ),
+        DbBackend::Postgres => (
+            Statement::from_string(DbBackend::Postgres, format!("EXPLAIN (FORMAT TEXT) {sql}")),
+            0,
+        ),
+        DbBackend::MySql => (
+            Statement::from_string(DbBackend::MySql, format!("EXPLAIN FORMAT=JSON {sql}")),
+            0,
+        ),
+        backend => panic!("unsupported database backend for query plan: {backend:?}"),
+    };
+    db.query_all_raw(statement)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| row.try_get_by_index::<String>(detail_index).unwrap())
+        .collect()
 }
 
 fn skip_unless_sqlite(db: &DatabaseConnection) -> bool {
@@ -219,6 +245,190 @@ async fn test_trash_pagination_indexes_cover_deleted_item_queries() {
     .await;
     assert_uses_index(&file_trash, "idx_files_owner_deleted_at_id", "files");
     assert_no_temp_btree(&file_trash);
+}
+
+#[actix_web::test]
+async fn test_folder_tree_keyset_indexes_cover_personal_and_team_scans() {
+    let state = common::setup().await;
+    if !skip_unless_sqlite(state.writer_db()) {
+        return;
+    }
+
+    let queries = [
+        (
+            "personal folders active",
+            "idx_folders_owner_team_parent_deleted_id",
+            "folders",
+            "SELECT id FROM folders WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "personal folders restore",
+            "idx_folders_owner_team_parent_id",
+            "folders",
+            "SELECT id FROM folders WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team folders active",
+            "idx_folders_team_parent_deleted_id",
+            "folders",
+            "SELECT id FROM folders WHERE team_id = 1 AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team folders restore",
+            "idx_folders_team_parent_id",
+            "folders",
+            "SELECT id FROM folders WHERE team_id = 1 AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "personal files active",
+            "idx_files_owner_team_folder_deleted_id",
+            "files",
+            "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "personal files restore",
+            "idx_files_owner_team_folder_id",
+            "files",
+            "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team files active",
+            "idx_files_team_folder_deleted_id",
+            "files",
+            "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team files restore",
+            "idx_files_team_folder_id",
+            "files",
+            "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+    ];
+
+    for (name, index, table, sql) in queries {
+        let plan = explain_query_plan(state.writer_db(), sql).await;
+        assert_uses_index(&plan, index, table);
+        assert_no_temp_btree(&plan);
+        assert!(
+            !plan.iter().any(|detail| detail.contains("SCAN")),
+            "{name} should use a bounded keyset scan, got {plan:?}"
+        );
+    }
+}
+
+#[actix_web::test]
+async fn test_sqlite_folder_tree_keyset_index_removes_scan_plan() {
+    let state = common::setup().await;
+    if !skip_unless_sqlite(state.writer_db()) {
+        return;
+    }
+
+    let query = "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512";
+    let indexed = explain_query_plan(state.writer_db(), query).await;
+    assert_uses_index(&indexed, "idx_files_owner_team_folder_deleted_id", "files");
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "DROP INDEX idx_files_owner_team_folder_deleted_id; DROP INDEX idx_files_owner_team_folder_id",
+        )
+        .await
+        .unwrap();
+    // Change the SQL text to bypass SQLite's prepared-statement cache after the schema change.
+    let unindexed = explain_query_plan(
+        state.writer_db(),
+        "SELECT id FROM files /* unindexed */ WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+    )
+    .await;
+    assert!(
+        !unindexed
+            .iter()
+            .any(|detail| detail.contains("folder_id=?")),
+        "without the keyset indexes SQLite cannot constrain folder_id in the index range: {unindexed:?}"
+    );
+}
+
+/// Verify that every production database accepts the folder-tree keyset indexes and can plan
+/// the same cursor predicates against them.
+#[actix_web::test]
+async fn test_folder_tree_keyset_indexes_cover_database_matrix() {
+    let state = common::setup().await;
+    let backend = state.writer_db().get_database_backend();
+    if backend == DbBackend::Sqlite {
+        return;
+    }
+
+    let mut statements = Vec::new();
+    match backend {
+        DbBackend::Postgres => {
+            state
+                .writer_db()
+                .execute_unprepared("SET enable_seqscan = off")
+                .await
+                .unwrap();
+            statements.extend([
+                ("idx_folders_owner_team_parent_id", "folders", "SELECT id FROM folders WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_folders_owner_team_parent_deleted_id", "folders", "SELECT id FROM folders WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_folders_team_parent_id", "folders", "SELECT id FROM folders WHERE team_id = 1 AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_folders_team_parent_deleted_id", "folders", "SELECT id FROM folders WHERE team_id = 1 AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_owner_team_folder_id", "files", "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_owner_team_folder_deleted_id", "files", "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_team_folder_id", "files", "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_team_folder_deleted_id", "files", "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+            ]);
+            let indexes = state
+                .writer_db()
+                .query_all_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND (indexname LIKE 'idx_%_parent%_id' OR indexname LIKE 'idx_%_folder%_id')",
+                ))
+                .await
+                .unwrap()
+                .into_iter()
+                .filter_map(|row| row.try_get_by_index::<String>(0).ok())
+                .collect::<HashSet<_>>();
+            for index in [
+                "idx_folders_owner_team_parent_id",
+                "idx_folders_owner_team_parent_deleted_id",
+                "idx_folders_team_parent_id",
+                "idx_folders_team_parent_deleted_id",
+                "idx_files_owner_team_folder_id",
+                "idx_files_owner_team_folder_deleted_id",
+                "idx_files_team_folder_id",
+                "idx_files_team_folder_deleted_id",
+            ] {
+                assert!(
+                    indexes.contains(index),
+                    "PostgreSQL migration should create {index}"
+                );
+            }
+        }
+        DbBackend::MySql => {
+            statements.extend([
+                ("idx_folders_owner_team_parent_id", "folders", "SELECT id FROM folders USE INDEX (idx_folders_owner_team_parent_id) WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_folders_owner_team_parent_deleted_id", "folders", "SELECT id FROM folders USE INDEX (idx_folders_owner_team_parent_deleted_id) WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_folders_team_parent_id", "folders", "SELECT id FROM folders USE INDEX (idx_folders_team_parent_id) WHERE team_id = 1 AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_folders_team_parent_deleted_id", "folders", "SELECT id FROM folders USE INDEX (idx_folders_team_parent_deleted_id) WHERE team_id = 1 AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_owner_team_folder_id", "files", "SELECT id FROM files USE INDEX (idx_files_owner_team_folder_id) WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_owner_team_folder_deleted_id", "files", "SELECT id FROM files USE INDEX (idx_files_owner_team_folder_deleted_id) WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_team_folder_id", "files", "SELECT id FROM files USE INDEX (idx_files_team_folder_id) WHERE team_id = 1 AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
+                ("idx_files_team_folder_deleted_id", "files", "SELECT id FROM files USE INDEX (idx_files_team_folder_deleted_id) WHERE team_id = 1 AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
+            ]);
+        }
+        _ => unreachable!(),
+    }
+
+    for (index, table, query) in statements {
+        let plan = explain_backend_plan(state.writer_db(), query).await;
+        let rendered = plan.join(" ");
+        assert!(!rendered.is_empty(), "{table} plan should not be empty");
+        if backend == DbBackend::MySql {
+            assert!(
+                rendered.contains(index),
+                "MySQL USE INDEX plan should mention {index}: {rendered}"
+            );
+        }
+    }
 }
 
 #[actix_web::test]
