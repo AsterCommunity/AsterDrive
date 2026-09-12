@@ -17,6 +17,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 const DEFAULT_MULTIPART_READER_BUFFER_SIZE: usize = 64 * 1024;
+const MAX_MULTIPART_READER_BUFFER_SIZE: usize = 64 * 1024 * 1024;
 
 /// Provider 端已经接收的 multipart part 明细。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +82,10 @@ pub trait MultipartStorageDriver: Send + Sync {
     }
 
     /// 服务端直接流式上传一个 multipart part，返回该 part 的 ETag。
+    ///
+    /// The default fallback is deliberately bounded to 64 MiB and buffers the
+    /// part before calling `upload_multipart_part`. Drivers accepting larger
+    /// parts or requiring fixed-buffer streaming must override this method.
     async fn upload_multipart_part_reader(
         &self,
         path: &str,
@@ -91,7 +96,16 @@ pub trait MultipartStorageDriver: Send + Sync {
     ) -> Result<String> {
         let mut reader = reader;
         let expected_size = aster_forge_utils::numbers::bytes_to_usize(size, "multipart part size")
-            .map_storage_err(StorageErrorKind::Misconfigured)?;
+            .map_storage_err(StorageErrorKind::Precondition)?;
+        if expected_size > MAX_MULTIPART_READER_BUFFER_SIZE {
+            return Err(storage_driver_error(
+                StorageErrorKind::Unsupported,
+                format!(
+                    "multipart reader upload exceeds default {} byte buffer limit; driver must implement streaming",
+                    MAX_MULTIPART_READER_BUFFER_SIZE
+                ),
+            ));
+        }
         let mut data = Vec::with_capacity(expected_size);
         let mut buffer = vec![0u8; DEFAULT_MULTIPART_READER_BUFFER_SIZE.min(expected_size.max(1))];
 
@@ -110,7 +124,7 @@ pub trait MultipartStorageDriver: Send + Sync {
 
         if data.len() < expected_size {
             return Err(storage_driver_error(
-                StorageErrorKind::Transient,
+                StorageErrorKind::Precondition,
                 format!(
                     "read multipart part stream: multipart part stream ended before expected size {size}"
                 ),
@@ -124,7 +138,7 @@ pub trait MultipartStorageDriver: Send + Sync {
             .map_storage_err_ctx(StorageErrorKind::Transient, "read multipart part stream")?;
         if extra_read > 0 {
             return Err(storage_driver_error(
-                StorageErrorKind::Transient,
+                StorageErrorKind::Precondition,
                 format!(
                     "read multipart part stream: multipart part stream exceeds expected size {size}"
                 ),
@@ -265,7 +279,7 @@ mod tests {
             .await
             .expect_err("oversized stream should fail");
 
-        assert_eq!(error.kind(), StorageErrorKind::Transient);
+        assert_eq!(error.kind(), StorageErrorKind::Precondition);
         assert!(
             error
                 .message()
@@ -295,7 +309,7 @@ mod tests {
             .await
             .expect_err("short stream should fail");
 
-        assert_eq!(error.kind(), StorageErrorKind::Transient);
+        assert_eq!(error.kind(), StorageErrorKind::Precondition);
         assert!(
             error
                 .message()
@@ -350,7 +364,7 @@ mod tests {
             .await
             .expect_err("zero-size stream with data should fail");
 
-        assert_eq!(error.kind(), StorageErrorKind::Transient);
+        assert_eq!(error.kind(), StorageErrorKind::Precondition);
         assert!(
             error
                 .message()
@@ -380,7 +394,7 @@ mod tests {
             .await
             .expect_err("negative size should fail");
 
-        assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+        assert_eq!(error.kind(), StorageErrorKind::Precondition);
         assert!(
             driver
                 .uploaded
@@ -388,5 +402,23 @@ mod tests {
                 .expect("uploaded lock should not poison")
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn default_reader_upload_rejects_huge_declared_part_before_allocation() {
+        let driver = CapturingMultipartDriver::new();
+        let error = driver
+            .upload_multipart_part_reader(
+                "path",
+                "upload",
+                1,
+                Box::new(tokio::io::repeat(0)),
+                10_i64 * 1024 * 1024 * 1024 * 1024,
+            )
+            .await
+            .expect_err("huge default part should require explicit streaming implementation");
+
+        assert_eq!(error.kind(), StorageErrorKind::Unsupported);
+        assert!(driver.uploaded.lock().unwrap().is_empty());
     }
 }

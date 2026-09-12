@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, ReadBuf};
 
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
-use aster_drive_storage::traits::extensions::ListStorageDriver;
+use aster_drive_storage::traits::extensions::{ListStorageDriver, checked_stream_upload_size};
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 
 use super::RemoteDriver;
@@ -135,12 +135,7 @@ impl MultipartStorageDriver for RemoteDriver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let part_key = Self::multipart_part_key(upload_id, part_number)?;
-        let size = u64::try_from(size).map_err(|_| {
-            storage_driver_error(
-                StorageErrorKind::Precondition,
-                "remote multipart part size cannot be negative",
-            )
-        })?;
+        let size = checked_stream_upload_size(size, "remote multipart part size")?;
         let hasher = Arc::new(Mutex::new(Sha256::new()));
         let hashing_reader = HashingReader {
             inner: reader,

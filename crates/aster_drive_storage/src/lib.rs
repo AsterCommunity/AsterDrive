@@ -76,12 +76,12 @@ pub use traits::driver::{
     PresignedUploadRequest, StorageDriver, StoragePathVisitor,
 };
 pub use traits::{
-    DirectDownloadStorageDriver, ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver,
-    NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
-    NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedUploadStorageDriver,
-    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
-    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageCapacityInfo, StorageCapacityStatus,
-    StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-    UploadedMultipartPart,
+    DirectDownloadStorageDriver, ExactSizeReader, ListStorageDriver, LocalPathStorageDriver,
+    MultipartStorageDriver, NativeMediaMetadataRequest, NativeMediaMetadataResult,
+    NativeMediaMetadataStorageDriver, NativeThumbnailRequest, NativeThumbnailStorageDriver,
+    PresignedUploadStorageDriver, ProviderResumableUploadCapabilities,
+    ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
+    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
+    StorageCapacityStatus, StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup,
+    StreamUploadDriver, UploadedMultipartPart, checked_stream_upload_size,
 };

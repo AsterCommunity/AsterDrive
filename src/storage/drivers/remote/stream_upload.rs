@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use tokio::io::AsyncRead;
 
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
-use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::extensions::{StreamUploadDriver, checked_stream_upload_size};
 
 use super::RemoteDriver;
 
@@ -16,12 +16,7 @@ impl StreamUploadDriver for RemoteDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        let size = u64::try_from(size).map_err(|_| {
-            storage_driver_error(
-                StorageErrorKind::Precondition,
-                format!("remote stream upload size must be non-negative, got {size}"),
-            )
-        })?;
+        let size = checked_stream_upload_size(size, "remote stream upload size")?;
         self.client
             .put_reader(&self.object_key(storage_path), reader, size)
             .await?;

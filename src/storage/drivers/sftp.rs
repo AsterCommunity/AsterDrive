@@ -22,6 +22,7 @@ use aster_drive_storage::error::{
 };
 use aster_drive_storage::{
     BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    checked_stream_upload_size,
 };
 
 const DEFAULT_SFTP_PORT: u16 = 22;
@@ -607,12 +608,7 @@ impl StreamUploadDriver for SftpDriver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let remote_path = self.full_path(storage_path)?;
-        let expected_size = u64::try_from(size).map_err(|_| {
-            storage_driver_error(
-                StorageErrorKind::Precondition,
-                "SFTP stream upload size must be non-negative",
-            )
-        })?;
+        let expected_size = checked_stream_upload_size(size, "SFTP stream upload size")?;
         let temporary_path = format!(
             "{remote_path}.aster-upload-{:016x}.tmp",
             rand::random::<u64>()
@@ -624,7 +620,8 @@ impl StreamUploadDriver for SftpDriver {
             .create(temporary_path.clone())
             .await
             .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
-        let written = match tokio::io::copy(&mut reader, &mut remote_file).await {
+        let mut bounded_reader = (&mut *reader).take(expected_size.saturating_add(1));
+        let written = match tokio::io::copy(&mut bounded_reader, &mut remote_file).await {
             Ok(written) => written,
             Err(error) => {
                 drop(remote_file);
@@ -635,9 +632,14 @@ impl StreamUploadDriver for SftpDriver {
         if written != expected_size {
             drop(remote_file);
             cleanup_sftp_temporary_file(&mut connection, &temporary_path, "size mismatch").await;
+            let detail = if written < expected_size {
+                format!("actual {written}")
+            } else {
+                "actual exceeds declared size".to_string()
+            };
             return Err(storage_driver_error(
                 StorageErrorKind::Precondition,
-                format!("SFTP stream upload size mismatch: declared {size}, actual {written}"),
+                format!("SFTP stream upload size mismatch: declared {size}, {detail}"),
             ));
         }
         if let Err(error) = remote_file.flush().await {

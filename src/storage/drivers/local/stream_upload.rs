@@ -2,10 +2,9 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 use aster_drive_storage::traits::extensions::{
-    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, checked_stream_upload_size,
 };
 use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
-use aster_forge_utils::numbers;
 
 use super::LocalDriver;
 
@@ -46,8 +45,7 @@ impl StreamUploadDriver for LocalDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     ) -> aster_drive_storage::Result<()> {
         let expected_size =
-            numbers::i64_to_u64(attempt.expected_size, "local stream upload declared size")
-                .map_storage_err(StorageErrorKind::Misconfigured)?;
+            checked_stream_upload_size(attempt.expected_size, "local stream upload declared size")?;
         let staging_path = self.full_path(&attempt.staging_path)?;
         if let Some(parent) = staging_path.parent() {
             tokio::fs::create_dir_all(parent)

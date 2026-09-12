@@ -15,10 +15,96 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, ReadBuf};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
+
+/// Validate a declared reader-upload length before provider I/O.
+pub fn checked_stream_upload_size(size: i64, context: &str) -> Result<u64> {
+    u64::try_from(size).map_err(|_| {
+        crate::error::storage_driver_error(
+            crate::error::StorageErrorKind::Precondition,
+            format!("{context} must be non-negative, got {size}"),
+        )
+    })
+}
+
+/// An `AsyncRead` adapter that reads exactly `size` bytes and probes one
+/// additional byte. It never buffers according to the declared object size.
+pub struct ExactSizeReader<R> {
+    inner: R,
+    remaining: u64,
+    checked_extra: bool,
+}
+
+impl<R> ExactSizeReader<R> {
+    pub fn new(inner: R, size: u64) -> Self {
+        Self {
+            inner,
+            remaining: size,
+            checked_extra: false,
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for ExactSizeReader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        output: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if output.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        if self.remaining > 0 {
+            let limit = usize::try_from(self.remaining)
+                .unwrap_or(usize::MAX)
+                .min(output.remaining());
+            let before = output.filled().len();
+            let mut limited = ReadBuf::new(&mut output.initialize_unfilled()[..limit]);
+            match Pin::new(&mut self.inner).poll_read(cx, &mut limited) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {
+                    let read = limited.filled().len();
+                    if read == 0 {
+                        return Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "reader ended before declared size",
+                        )));
+                    }
+                    output.advance(read);
+                    self.remaining -=
+                        u64::try_from(output.filled().len() - before).unwrap_or(self.remaining);
+                    Poll::Ready(Ok(()))
+                }
+            }
+        } else if !self.checked_extra {
+            let mut probe = [0u8; 1];
+            let mut probe_buf = ReadBuf::new(&mut probe);
+            match Pin::new(&mut self.inner).poll_read(cx, &mut probe_buf) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {
+                    self.checked_extra = true;
+                    if probe_buf.filled().is_empty() {
+                        Poll::Ready(Ok(()))
+                    } else {
+                        Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "reader exceeded declared size",
+                        )))
+                    }
+                }
+            }
+        } else {
+            Poll::Ready(Ok(()))
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -298,10 +384,14 @@ pub trait ListStorageDriver: Send + Sync {
 /// 可以在内部使用 provider-native session、对象存储 streaming body 或临时文件。
 #[async_trait]
 pub trait StreamUploadDriver: Send + Sync {
-    /// 从 reader 流式写入存储
+    /// 从 reader 流式写入存储。
     ///
     /// 适用于不应先落本地临时文件的上传路径（如 WebDAV 直传、S3 流式上传）。
-    /// driver 必须保持有界流式读取，并在目标可见前完成大小校验。
+    /// `size` is a byte count and must be non-negative. The reader must contain
+    /// exactly that many bytes: a short or long reader is a `Precondition`
+    /// failure, while reader I/O failures remain `Transient`. Drivers must
+    /// bound request memory independently of the declared size and reject a
+    /// negative size before provider I/O.
     async fn put_reader(
         &self,
         storage_path: &str,
@@ -403,7 +493,7 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::{StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver};
+    use super::{ExactSizeReader, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver};
     use crate::error::{Result, StorageErrorKind};
     use async_trait::async_trait;
     use std::sync::Arc;
@@ -559,5 +649,30 @@ mod tests {
         .await
         .expect("independent attempts must not be serialized");
         assert_eq!(driver.max_active.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_accepts_exact_input_without_buffering() {
+        let mut reader = ExactSizeReader::new(std::io::Cursor::new(b"abcd"), 4);
+        let mut output = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut output)
+            .await
+            .unwrap();
+        assert_eq!(output, b"abcd");
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_rejects_short_and_long_input() {
+        let mut short = ExactSizeReader::new(std::io::Cursor::new(b"abc"), 4);
+        let short_error = tokio::io::AsyncReadExt::read_to_end(&mut short, &mut Vec::new())
+            .await
+            .unwrap_err();
+        assert_eq!(short_error.kind(), std::io::ErrorKind::UnexpectedEof);
+
+        let mut long = ExactSizeReader::new(std::io::Cursor::new(b"abcde"), 4);
+        let long_error = tokio::io::AsyncReadExt::read_to_end(&mut long, &mut Vec::new())
+            .await
+            .unwrap_err();
+        assert_eq!(long_error.kind(), std::io::ErrorKind::InvalidData);
     }
 }

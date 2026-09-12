@@ -13,7 +13,7 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 
 use aster_drive_storage::traits::driver::StorageDriver;
-use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::extensions::{StreamUploadDriver, checked_stream_upload_size};
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_storage::{MapStorageErr, StorageError, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
@@ -31,6 +31,7 @@ struct AzureSizedReaderStream {
 struct AzureSizedReaderState {
     reader: Option<Box<dyn AsyncRead + Unpin + Send + Sync>>,
     remaining: u64,
+    checked_extra: bool,
 }
 
 struct AzureChunkReader {
@@ -115,6 +116,7 @@ impl AzureSizedReaderStream {
             inner: Arc::new(Mutex::new(AzureSizedReaderState {
                 reader: Some(reader),
                 remaining: len,
+                checked_extra: false,
             })),
             len,
         }
@@ -145,7 +147,31 @@ impl FuturesAsyncRead for AzureSizedReaderStream {
             .lock()
             .map_err(|_| std::io::Error::other("Azure Blob upload stream lock poisoned"))?;
         if state.remaining == 0 {
-            return Poll::Ready(Ok(0));
+            if state.checked_extra {
+                return Poll::Ready(Ok(0));
+            }
+            let Some(reader) = state.reader.as_mut() else {
+                state.checked_extra = true;
+                return Poll::Ready(Ok(0));
+            };
+            let mut probe = [0_u8; 1];
+            let mut probe_buf = ReadBuf::new(&mut probe);
+            return match Pin::new(reader).poll_read(cx, &mut probe_buf) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {
+                    state.checked_extra = true;
+                    state.reader = None;
+                    if probe_buf.filled().is_empty() {
+                        Poll::Ready(Ok(0))
+                    } else {
+                        Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Azure Blob upload stream exceeded declared size",
+                        )))
+                    }
+                }
+            };
         }
 
         let output_len = aster_forge_utils::numbers::usize_to_u64(
@@ -324,9 +350,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let client = self.block_blob_client(path, "cw")?;
-        let content_length =
-            aster_forge_utils::numbers::i64_to_u64(size, "Azure Blob multipart part size")
-                .map_storage_err(StorageErrorKind::Misconfigured)?;
+        let content_length = checked_stream_upload_size(size, "Azure Blob multipart part size")?;
         let body: RequestContent<Bytes, azure_core::http::NoFormat> = Body::SeekableStream(
             Box::new(AzureSizedReaderStream::new(reader, content_length)),
         )
@@ -408,8 +432,8 @@ impl StreamUploadDriver for AzureBlobDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        let expected_size = numbers::i64_to_u64(size, "Azure Blob put_reader declared size")
-            .map_storage_err(StorageErrorKind::Misconfigured)?;
+        let expected_size =
+            checked_stream_upload_size(size, "Azure Blob put_reader declared size")?;
         let chunk_size = self.chunk_size_for_content(expected_size)?;
         let reader = Arc::new(Mutex::new(reader));
         let mut remaining = expected_size;
@@ -577,7 +601,7 @@ mod tests {
 
     #[tokio::test]
     async fn sized_reader_stream_reads_only_declared_length() {
-        let reader = Box::new(std::io::Cursor::new(b"abcdef".to_vec()));
+        let reader = Box::new(std::io::Cursor::new(b"abc".to_vec()));
         let mut stream = AzureSizedReaderStream::new(reader, 3);
         let mut output = Vec::new();
 
@@ -589,6 +613,20 @@ mod tests {
         assert_eq!(output, b"abc");
         assert_eq!(stream.len(), Some(3));
         assert_eq!(stream.buffer_size(), AZURE_STREAM_BUFFER_SIZE);
+    }
+
+    #[tokio::test]
+    async fn sized_reader_stream_rejects_extra_bytes() {
+        let reader = Box::new(std::io::Cursor::new(b"abcdef".to_vec()));
+        let mut stream = AzureSizedReaderStream::new(reader, 3);
+        let mut output = Vec::new();
+
+        let error = stream
+            .read_to_end(&mut output)
+            .await
+            .expect_err("long stream should fail");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(output, b"abc");
     }
 
     #[tokio::test]
