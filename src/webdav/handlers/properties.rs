@@ -169,7 +169,7 @@ where
         .await
     {
         Ok(Ok(())) => {}
-        Ok(Err(response)) => return response,
+        Ok(Err(error)) => return crate::webdav::if_evaluation_error_response(error),
         Err(_) => return propfind_deadline_response(maximum_duration),
     }
     let Some(depth) = request_head.depth else {
@@ -330,7 +330,7 @@ pub(crate) async fn handle_proppatch(
     )
     .await
     {
-        return response;
+        return crate::webdav::if_evaluation_error_response(response);
     }
     if let Err(response) = aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
@@ -343,7 +343,7 @@ pub(crate) async fn handle_proppatch(
     )
     .await
     {
-        return response;
+        return crate::webdav::lock_enforcement_error_response(response, prefix);
     }
 
     let patches = match parse_proppatch_request(body) {

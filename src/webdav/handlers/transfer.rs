@@ -58,7 +58,7 @@ pub(crate) async fn handle_get_head(
     )
     .await
     {
-        return resp;
+        return crate::webdav::if_evaluation_error_response(resp);
     }
 
     let meta = match aster_forge_webdav::DavDownloadSource::metadata(dav_fs, &path).await {
@@ -88,7 +88,7 @@ pub(crate) async fn handle_get_head(
         });
     let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
-        Err(response) => return response,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
     let plan = match plan_download_response_with_multi_range(
         &headers,
@@ -161,7 +161,7 @@ pub(crate) async fn handle_put(
     };
     let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
-        Err(response) => return response,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
     let target_is_collection = target_meta.as_ref().is_some_and(|meta| meta.is_dir());
     let target_etag = target_meta.as_ref().and_then(|meta| meta.etag());
@@ -217,7 +217,7 @@ pub(crate) async fn handle_put(
     )
     .await
     {
-        return resp;
+        return crate::webdav::if_evaluation_error_response(resp);
     }
     let mut credentials = match aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
@@ -231,7 +231,7 @@ pub(crate) async fn handle_put(
     .await
     {
         Ok(credentials) => credentials,
-        Err(resp) => return resp,
+        Err(error) => return crate::webdav::lock_enforcement_error_response(error, prefix),
     };
     if !plan.resource_existed {
         let parent_credentials = match aster_forge_webdav::actix::enforce_parent_unlocked(
@@ -245,7 +245,9 @@ pub(crate) async fn handle_put(
         .await
         {
             Ok(credentials) => credentials,
-            Err(resp) => return resp,
+            Err(error) => {
+                return crate::webdav::lock_enforcement_error_response(error, prefix);
+            }
         };
         credentials.merge(parent_credentials);
     }

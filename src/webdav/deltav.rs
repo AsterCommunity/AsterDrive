@@ -326,7 +326,7 @@ pub(crate) async fn handle_version_control(
     )
     .await
     {
-        return response;
+        return crate::webdav::if_evaluation_error_response(response);
     }
     if let Err(response) = aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
@@ -339,7 +339,7 @@ pub(crate) async fn handle_version_control(
     )
     .await
     {
-        return response;
+        return crate::webdav::lock_enforcement_error_response(response, prefix);
     }
     let plan = match plan_version_control_request(snapshot, body) {
         Ok(plan) => plan,
@@ -543,7 +543,7 @@ pub(crate) async fn handle_report(
     )
     .await
     {
-        return response;
+        return crate::webdav::if_evaluation_error_response(response);
     }
     let plan =
         match plan_report_request_with_limits(snapshot, body, request_head.depth, REPORT_LIMITS) {
@@ -754,7 +754,7 @@ pub(crate) async fn handle_version_get_head(
     };
     let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
-        Err(response) => return response,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
     let content_type = metadata
         .content_type()

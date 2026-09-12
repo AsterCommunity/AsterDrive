@@ -196,7 +196,7 @@ pub(crate) async fn handle_mkcol(
     }
 
     if let Err(response) = aster_forge_webdav::enforce_parent_collection(dav_fs, &path).await {
-        return aster_forge_webdav::actix::into_response(response);
+        return aster_forge_webdav::actix::parent_collection_error_response(response);
     }
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
@@ -211,7 +211,7 @@ pub(crate) async fn handle_mkcol(
     )
     .await
     {
-        return resp;
+        return crate::webdav::if_evaluation_error_response(resp);
     }
     let mut credentials = match aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
@@ -225,7 +225,9 @@ pub(crate) async fn handle_mkcol(
     .await
     {
         Ok(credentials) => credentials,
-        Err(resp) => return resp,
+        Err(error) => {
+            return crate::webdav::lock_enforcement_error_response(error, prefix);
+        }
     };
     let parent_credentials = match aster_forge_webdav::actix::enforce_parent_unlocked(
         lock_system,
@@ -238,7 +240,9 @@ pub(crate) async fn handle_mkcol(
     .await
     {
         Ok(credentials) => credentials,
-        Err(resp) => return resp,
+        Err(error) => {
+            return crate::webdav::lock_enforcement_error_response(error, prefix);
+        }
     };
     credentials.merge(parent_credentials);
 
@@ -304,7 +308,7 @@ pub(crate) async fn handle_delete(
     )
     .await
     {
-        return resp;
+        return crate::webdav::if_evaluation_error_response(resp);
     }
     if let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
@@ -317,7 +321,7 @@ pub(crate) async fn handle_delete(
     )
     .await
     {
-        return resp;
+        return crate::webdav::lock_enforcement_error_response(resp, prefix);
     }
     if let Err(resp) = aster_forge_webdav::actix::enforce_parent_unlocked(
         lock_system,
@@ -329,7 +333,7 @@ pub(crate) async fn handle_delete(
     )
     .await
     {
-        return resp;
+        return crate::webdav::lock_enforcement_error_response(resp, prefix);
     }
 
     let conditions = backend::DavMutationConditions {
@@ -396,7 +400,7 @@ pub(crate) async fn handle_copy_move(
     }
     if let Err(response) = aster_forge_webdav::enforce_parent_collection(dav_fs, &destination).await
     {
-        return aster_forge_webdav::actix::into_response(response);
+        return aster_forge_webdav::actix::parent_collection_error_response(response);
     }
 
     let source_meta: Box<dyn DavMetaData> = if matches!(
@@ -433,7 +437,7 @@ pub(crate) async fn handle_copy_move(
     )
     .await
     {
-        return resp;
+        return crate::webdav::if_evaluation_error_response(resp);
     }
     if is_move
         && let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
@@ -447,7 +451,7 @@ pub(crate) async fn handle_copy_move(
         )
         .await
     {
-        return resp;
+        return crate::webdav::lock_enforcement_error_response(resp, prefix);
     }
     if is_move
         && let Err(resp) = aster_forge_webdav::actix::enforce_parent_unlocked(
@@ -460,7 +464,7 @@ pub(crate) async fn handle_copy_move(
         )
         .await
     {
-        return resp;
+        return crate::webdav::lock_enforcement_error_response(resp, prefix);
     }
 
     let destination_meta = match dav_fs.metadata_for_write(&destination).await {
@@ -515,7 +519,7 @@ pub(crate) async fn handle_copy_move(
         )
         .await
     {
-        return resp;
+        return crate::webdav::lock_enforcement_error_response(resp, prefix);
     }
     if let Err(resp) = aster_forge_webdav::actix::enforce_parent_unlocked(
         lock_system,
@@ -527,7 +531,7 @@ pub(crate) async fn handle_copy_move(
     )
     .await
     {
-        return resp;
+        return crate::webdav::lock_enforcement_error_response(resp, prefix);
     }
 
     let operation = if is_move {

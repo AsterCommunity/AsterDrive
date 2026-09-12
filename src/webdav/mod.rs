@@ -27,6 +27,28 @@ pub(crate) use aster_forge_webdav::{
 };
 pub(crate) use responses::fs_error_response;
 
+pub(crate) fn if_evaluation_error_response(
+    error: aster_forge_webdav::DavIfEvaluationError,
+) -> HttpResponse {
+    match error {
+        aster_forge_webdav::DavIfEvaluationError::Protocol(error) => {
+            aster_forge_webdav::actix::protocol_error_response(error)
+        }
+        aster_forge_webdav::DavIfEvaluationError::Backend(error) => {
+            aster_forge_webdav::actix::into_response(aster_forge_webdav::backend_error_response(
+                &error,
+            ))
+        }
+    }
+}
+
+pub(crate) fn lock_enforcement_error_response(
+    error: aster_forge_webdav::DavLockEnforcementError,
+    prefix: &str,
+) -> HttpResponse {
+    aster_forge_webdav::actix::lock_enforcement_error_response(error, prefix)
+}
+
 /// WebDAV 共享状态（单例）
 pub struct WebDavState {
     pub prefix: String,
@@ -147,7 +169,9 @@ pub async fn webdav_handler(
     .await
     {
         Ok(snapshot) => snapshot,
-        Err(response) => return response,
+        Err(error) => {
+            return aster_forge_webdav::actix::capability_error_response(&error);
+        }
     };
     if let Some(method) = DavMethod::from_name(req.method().as_str())
         && let Some(response) = deltav::immutable_method_rejection(method, &capability_snapshot)
@@ -156,11 +180,13 @@ pub async fn webdav_handler(
     }
     let method = match aster_forge_webdav::actix::gate_request_method(&req, &capability_snapshot) {
         Ok(method) => method,
-        Err(response) => return response,
+        Err(_) => {
+            return aster_forge_webdav::actix::method_gate_error_response(&capability_snapshot);
+        }
     };
     let request_headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
-        Err(response) => return response,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
     let request_head = match aster_forge_webdav::DavRequestHead::parse_known_method(
         method,

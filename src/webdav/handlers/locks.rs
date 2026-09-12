@@ -27,7 +27,7 @@ pub(crate) async fn handle_lock(
     let path = request_head.target.clone();
     let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
-        Err(resp) => return resp,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
 
     let request_scheme = request_head.origin.scheme.as_str();
@@ -61,7 +61,7 @@ pub(crate) async fn handle_lock(
             )
             .await
             {
-                return resp;
+                return crate::webdav::if_evaluation_error_response(resp);
             }
             match lock_system
                 .check(&path, None, false, false, std::slice::from_ref(&token))
@@ -134,7 +134,9 @@ pub(crate) async fn handle_lock(
                 .await
                 {
                     Ok(credentials) => credentials,
-                    Err(response) => return response,
+                    Err(error) => {
+                        return crate::webdav::lock_enforcement_error_response(error, prefix);
+                    }
                 },
                 Err(error) => {
                     return aster_forge_webdav::actix::into_response(
@@ -193,7 +195,7 @@ pub(crate) async fn handle_unlock(
     let path = request_head.target.clone();
     let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
-        Err(resp) => return resp,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
     let token = match aster_forge_webdav::parse_lock_token_header(&headers) {
         Ok(token) => token,

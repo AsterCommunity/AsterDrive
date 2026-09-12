@@ -16,9 +16,9 @@ final-status-level = "slow"
 
 [profile.database]
 inherits = "ci"
-# PostgreSQL integration tests share one testcontainer. GitHub-hosted Docker gives
-# that container a small /dev/shm; four-way fan-out exhausts it during WOPI queries.
-test-threads = 2
+# PostgreSQL integration tests share one testcontainer. The Forge test helper configures a
+# 1 GiB /dev/shm and reclaims exited per-test databases during the same nextest run.
+test-threads = 4
 slow-timeout = { period = "120s", terminate-after = 4 }
 
 [profile.external]
