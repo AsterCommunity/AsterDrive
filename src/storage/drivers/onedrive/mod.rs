@@ -10,10 +10,11 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::{
-    DirectDownloadStorageDriver, ProviderResumableUploadCapabilities,
+    DirectDownloadStorageDriver, ExactSizeReader, ProviderResumableUploadCapabilities,
     ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
     ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
-    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, checked_upload_size,
+    exact_size_error_kind,
 };
 use aster_drive_storage::{
     MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
@@ -262,13 +263,20 @@ impl OneDriveDriver {
     async fn put_reader_via_upload_session(
         &self,
         path: &str,
-        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
         attempt: Option<&StreamUploadAttempt>,
     ) -> Result<String> {
-        let total_size = numbers::i64_to_u64(size, "OneDrive put_reader declared size")
-            .map_storage_err(StorageErrorKind::Misconfigured)?;
+        let total_size = checked_upload_size(size, "OneDrive put_reader declared size")?;
+        let mut reader = ExactSizeReader::new(reader, total_size);
         if total_size == 0 {
+            let mut probe = [0_u8; 1];
+            reader.read(&mut probe).await.map_err(|error| {
+                storage_driver_error(
+                    exact_size_error_kind(&error).unwrap_or(StorageErrorKind::Transient),
+                    format!("read OneDrive zero-size upload stream: {error}"),
+                )
+            })?;
             return self
                 .put_owned_with_attempt(path, Bytes::new(), attempt)
                 .await;
@@ -277,11 +285,13 @@ impl OneDriveDriver {
             let capacity = numbers::u64_to_usize(total_size, "OneDrive bounded simple upload size")
                 .map_storage_err(StorageErrorKind::Misconfigured)?;
             let mut data = vec![0_u8; capacity];
-            reader.read_exact(&mut data).await.map_storage_err_ctx(
-                StorageErrorKind::Precondition,
-                "read OneDrive bounded simple upload stream",
-            )?;
-            reject_extra_upload_bytes(reader).await?;
+            reader.read_exact(&mut data).await.map_err(|error| {
+                let kind = exact_size_error_kind(&error).unwrap_or(StorageErrorKind::Transient);
+                storage_driver_error(
+                    kind,
+                    format!("read OneDrive bounded simple upload stream: {error}"),
+                )
+            })?;
             return self
                 .put_owned_with_attempt(path, Bytes::from(data), attempt)
                 .await;
@@ -314,10 +324,13 @@ impl OneDriveDriver {
                 )
                 .map_storage_err(StorageErrorKind::Misconfigured)?;
                 let mut chunk = vec![0_u8; read_len];
-                reader.read_exact(&mut chunk).await.map_storage_err_ctx(
-                    StorageErrorKind::Precondition,
-                    "read OneDrive upload session fragment",
-                )?;
+                reader.read_exact(&mut chunk).await.map_err(|error| {
+                    let kind = exact_size_error_kind(&error).unwrap_or(StorageErrorKind::Transient);
+                    storage_driver_error(
+                        kind,
+                        format!("read OneDrive upload session fragment: {error}"),
+                    )
+                })?;
                 if remaining
                     > numbers::usize_to_u64(read_len, "OneDrive upload fragment length")
                         .map_storage_err(StorageErrorKind::Misconfigured)?
@@ -339,7 +352,6 @@ impl OneDriveDriver {
                 uploaded += numbers::usize_to_u64(read_len, "OneDrive uploaded fragment size")
                     .map_storage_err(StorageErrorKind::Misconfigured)?;
             }
-            reject_extra_upload_bytes(reader).await?;
             Ok(path.to_string())
         }
         .await;
@@ -702,23 +714,6 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
             next_expected_ranges: outcome.next_expected_ranges,
         })
     }
-}
-
-async fn reject_extra_upload_bytes(
-    mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
-) -> Result<()> {
-    let mut extra = [0_u8; 1];
-    let read = reader.read(&mut extra).await.map_storage_err_ctx(
-        StorageErrorKind::Precondition,
-        "check OneDrive upload stream length",
-    )?;
-    if read != 0 {
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            "OneDrive upload stream exceeded declared size",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1280,7 +1275,7 @@ mod tests {
             )
             .await
             .expect_err("extra reader bytes must be rejected");
-        assert_eq!(long.kind(), StorageErrorKind::Misconfigured);
+        assert_eq!(long.kind(), StorageErrorKind::Precondition);
 
         assert!(
             server

@@ -13,7 +13,9 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 
 use aster_drive_storage::traits::driver::StorageDriver;
-use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::extensions::{
+    ExactSizeReader, StreamUploadDriver, checked_upload_size,
+};
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_storage::{MapStorageErr, StorageError, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
@@ -324,13 +326,13 @@ impl MultipartStorageDriver for AzureBlobDriver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let client = self.block_blob_client(path, "cw")?;
-        let content_length =
-            aster_forge_utils::numbers::i64_to_u64(size, "Azure Blob multipart part size")
-                .map_storage_err(StorageErrorKind::Misconfigured)?;
-        let body: RequestContent<Bytes, azure_core::http::NoFormat> = Body::SeekableStream(
-            Box::new(AzureSizedReaderStream::new(reader, content_length)),
-        )
-        .into();
+        let content_length = checked_upload_size(size, "Azure Blob multipart part size")?;
+        let body: RequestContent<Bytes, azure_core::http::NoFormat> =
+            Body::SeekableStream(Box::new(AzureSizedReaderStream::new(
+                Box::new(ExactSizeReader::new(reader, content_length)),
+                content_length,
+            )))
+            .into();
         client
             .stage_block(
                 &Self::block_id(upload_id, part_number)?,
@@ -408,18 +410,30 @@ impl StreamUploadDriver for AzureBlobDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        let expected_size = numbers::i64_to_u64(size, "Azure Blob put_reader declared size")
-            .map_storage_err(StorageErrorKind::Misconfigured)?;
+        let expected_size = checked_upload_size(size, "Azure Blob put_reader declared size")?;
         let chunk_size = self.chunk_size_for_content(expected_size)?;
+        if expected_size == 0 {
+            let mut reader = reader;
+            let mut probe = [0_u8; 1];
+            let read = tokio::io::AsyncReadExt::read(&mut reader, &mut probe)
+                .await
+                .map_storage_err_ctx(
+                    StorageErrorKind::Transient,
+                    "check Azure Blob zero-size upload",
+                )?;
+            if read != 0 {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    "Azure Blob upload stream exceeded declared size",
+                ));
+            }
+            self.put(storage_path, &[]).await?;
+            return Ok(storage_path.to_string());
+        }
         let reader = Arc::new(Mutex::new(reader));
         let mut remaining = expected_size;
         let mut part_number = 1_i32;
         let mut parts = Vec::new();
-
-        if remaining == 0 {
-            self.put(storage_path, &[]).await?;
-            return Ok(storage_path.to_string());
-        }
 
         let upload_id = self.create_multipart_upload(storage_path).await?;
         while remaining > 0 {

@@ -12,7 +12,7 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::managed_follower;
-use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::{ExactSizeReader, StorageErrorKind};
 
 use super::auth::{normalize_remote_base_url, sign_internal_request};
 use super::errors::{build_remote_status_error_from_parts, map_reqwest_error};
@@ -66,7 +66,7 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => Ok(Box::new(std::io::Cursor::new(Bytes::new()))),
             Self::Bytes(body) => Ok(Box::new(std::io::Cursor::new(body))),
-            Self::Reader { reader, .. } => Ok(reader),
+            Self::Reader { reader, size } => Ok(Box::new(ExactSizeReader::new(reader, size))),
         }
     }
 
@@ -230,8 +230,9 @@ impl RemoteTransport for DirectHttpTransport {
         builder = match request.body {
             RemoteRequestBody::Empty => builder,
             RemoteRequestBody::Bytes(body) => builder.body(body),
-            RemoteRequestBody::Reader { reader, .. } => {
-                let stream = ReaderStream::new(reader).map_err(std::io::Error::other);
+            RemoteRequestBody::Reader { reader, size } => {
+                let stream = ReaderStream::new(ExactSizeReader::new(reader, size))
+                    .map_err(std::io::Error::other);
                 builder.body(reqwest::Body::wrap_stream(stream))
             }
         };

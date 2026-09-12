@@ -10,16 +10,23 @@ struct RemoteErrorEnvelope {
 }
 
 pub(super) fn map_reqwest_error(error: reqwest::Error) -> AsterError {
-    if error.is_timeout() {
+    let message = error.to_string();
+    let kind = if message.contains("reader exceeded declared size")
+        || message.contains("reader ended before declared size")
+    {
+        StorageErrorKind::Precondition
+    } else if error.is_timeout() || error.is_connect() || error.is_request() {
+        StorageErrorKind::Transient
+    } else {
+        StorageErrorKind::Unknown
+    };
+    if kind == StorageErrorKind::Transient && error.is_timeout() {
         crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("remote storage request timed out: {error}"),
         )
     } else {
-        crate::errors::storage_driver_error(
-            StorageErrorKind::Transient,
-            format!("remote storage request failed: {error}"),
-        )
+        crate::errors::storage_driver_error(kind, format!("remote storage request failed: {error}"))
     }
 }
 

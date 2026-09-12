@@ -141,8 +141,15 @@ impl S3Driver {
     where
         E: StdError + ProvideErrorMetadata + Send + Sync + 'static,
     {
-        let kind = Self::classify_sdk_error(&err);
-        storage_driver_error(kind, format!("{ctx}: {}", Self::format_sdk_error(&err)))
+        let detail = Self::format_sdk_error(&err);
+        let kind = if detail.contains("reader exceeded declared size")
+            || detail.contains("reader ended before declared size")
+        {
+            StorageErrorKind::Precondition
+        } else {
+            Self::classify_sdk_error(&err)
+        };
+        storage_driver_error(kind, format!("{ctx}: {detail}"))
     }
 
     pub(super) fn classify_sdk_error<E>(err: &SdkError<E>) -> StorageErrorKind

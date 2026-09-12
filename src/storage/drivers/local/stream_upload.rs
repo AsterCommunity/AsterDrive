@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use aster_drive_storage::traits::extensions::{
-    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    ExactSizeReader, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    checked_upload_size, exact_size_error_kind,
 };
 use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
-use aster_forge_utils::numbers;
 
 use super::LocalDriver;
 
@@ -46,8 +46,7 @@ impl StreamUploadDriver for LocalDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     ) -> aster_drive_storage::Result<()> {
         let expected_size =
-            numbers::i64_to_u64(attempt.expected_size, "local stream upload declared size")
-                .map_storage_err(StorageErrorKind::Misconfigured)?;
+            checked_upload_size(attempt.expected_size, "local stream upload declared size")?;
         let staging_path = self.full_path(&attempt.staging_path)?;
         if let Some(parent) = staging_path.parent() {
             tokio::fs::create_dir_all(parent)
@@ -55,21 +54,18 @@ impl StreamUploadDriver for LocalDriver {
                 .map_storage_err(StorageErrorKind::Transient)?;
         }
 
-        let mut reader = reader;
+        let mut reader = ExactSizeReader::new(reader, expected_size);
         let mut file = tokio::fs::File::create(&staging_path)
             .await
             .map_storage_err(StorageErrorKind::Transient)?;
-        let written =
-            match tokio::io::copy(&mut (&mut *reader).take(expected_size), &mut file).await {
-                Ok(written) => written,
-                Err(error) => {
-                    cleanup_local_staging_file(&staging_path, "reader error").await;
-                    return Err(error).map_storage_err_ctx(
-                        StorageErrorKind::Transient,
-                        "write local upload attempt",
-                    );
-                }
-            };
+        let written = match tokio::io::copy(&mut reader, &mut file).await {
+            Ok(written) => written,
+            Err(error) => {
+                cleanup_local_staging_file(&staging_path, "reader error").await;
+                let kind = exact_size_error_kind(&error).unwrap_or(StorageErrorKind::Transient);
+                return Err(error).map_storage_err_ctx(kind, "write local upload attempt");
+            }
+        };
         if written != expected_size {
             cleanup_local_staging_file(&staging_path, "size mismatch").await;
             return Err(storage_driver_error(
@@ -79,27 +75,6 @@ impl StreamUploadDriver for LocalDriver {
                     attempt.expected_size
                 ),
             ));
-        }
-        let mut extra = [0_u8; 1];
-        match reader.read(&mut extra).await {
-            Ok(0) => {}
-            Ok(_) => {
-                cleanup_local_staging_file(&staging_path, "size mismatch").await;
-                return Err(storage_driver_error(
-                    StorageErrorKind::Precondition,
-                    format!(
-                        "local stream upload size mismatch: declared {}, actual exceeds declared size",
-                        attempt.expected_size
-                    ),
-                ));
-            }
-            Err(error) => {
-                cleanup_local_staging_file(&staging_path, "length probe error").await;
-                return Err(error).map_storage_err_ctx(
-                    StorageErrorKind::Transient,
-                    "check local upload attempt length",
-                );
-            }
         }
         if let Err(error) = file.flush().await {
             cleanup_local_staging_file(&staging_path, "flush error").await;

@@ -441,8 +441,16 @@ impl AzureBlobDriver {
     }
 
     fn map_azure_error(ctx: &str, error: azure_core::Error) -> StorageError {
-        let kind = Self::classify_azure_error(&error);
-        storage_driver_error(kind, format!("{ctx}: {}", Self::format_azure_error(error)))
+        let marker = error.to_string();
+        let kind = if marker.contains("reader exceeded declared size")
+            || marker.contains("reader ended before declared size")
+        {
+            StorageErrorKind::Precondition
+        } else {
+            Self::classify_azure_error(&error)
+        };
+        let detail = Self::format_azure_error(error);
+        storage_driver_error(kind, format!("{ctx}: {detail}"))
     }
 
     fn rewrap_azure_error(ctx: &str, error: azure_core::Error) -> StorageError {
