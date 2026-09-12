@@ -222,6 +222,75 @@ async fn test_trash_pagination_indexes_cover_deleted_item_queries() {
 }
 
 #[actix_web::test]
+async fn test_folder_tree_keyset_indexes_cover_personal_and_team_scans() {
+    let state = common::setup().await;
+    if !skip_unless_sqlite(state.writer_db()) {
+        return;
+    }
+
+    let queries = [
+        (
+            "personal folders active",
+            "idx_folders_owner_team_parent_deleted_id",
+            "folders",
+            "SELECT id FROM folders WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "personal folders restore",
+            "idx_folders_owner_team_parent_id",
+            "folders",
+            "SELECT id FROM folders WHERE owner_user_id = 1 AND team_id IS NULL AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team folders active",
+            "idx_folders_team_parent_deleted_id",
+            "folders",
+            "SELECT id FROM folders WHERE team_id = 1 AND parent_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team folders restore",
+            "idx_folders_team_parent_id",
+            "folders",
+            "SELECT id FROM folders WHERE team_id = 1 AND parent_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "personal files active",
+            "idx_files_owner_team_folder_deleted_id",
+            "files",
+            "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "personal files restore",
+            "idx_files_owner_team_folder_id",
+            "files",
+            "SELECT id FROM files WHERE owner_user_id = 1 AND team_id IS NULL AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team files active",
+            "idx_files_team_folder_deleted_id",
+            "files",
+            "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512",
+        ),
+        (
+            "team files restore",
+            "idx_files_team_folder_id",
+            "files",
+            "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512",
+        ),
+    ];
+
+    for (name, index, table, sql) in queries {
+        let plan = explain_query_plan(state.writer_db(), sql).await;
+        assert_uses_index(&plan, index, table);
+        assert_no_temp_btree(&plan);
+        assert!(
+            !plan.iter().any(|detail| detail.contains("SCAN")),
+            "{name} should use a bounded keyset scan, got {plan:?}"
+        );
+    }
+}
+
+#[actix_web::test]
 async fn test_sqlite_file_type_filter_indexes_cover_search_queries() {
     let state = common::setup().await;
     if !skip_unless_sqlite(state.writer_db()) {

@@ -280,6 +280,28 @@ test runs do not execute or compile the large-fixture runner. Workspace
 all-feature/all-target Clippy still compiles it to keep the measurement tooling
 in sync with application APIs.
 
+## Folder Tree Mutation Database Plans
+
+Issue `#518` adds backend-neutral keyset indexes for the paged folder-tree
+traversal. Personal scans use `(owner_user_id, team_id, parent_id|folder_id,
+deleted_at, id)` and team scans use the corresponding `(team_id, parent_id|folder_id,
+deleted_at, id)` layout. A second variant without `deleted_at` serves restore
+scans, which include both live and deleted rows; keeping `id` last preserves the
+`id > cursor ORDER BY id` access path in both cases.
+
+SQLite planner coverage is executable and runs as part of the platform index
+tests:
+
+```bash
+cargo test --test platform db_indexes -- --nocapture
+```
+
+The test checks personal/team and delete/restore predicates, verifies the new
+index names appear in `EXPLAIN QUERY PLAN`, and rejects a table scan or temporary
+ORDER BY b-tree. PostgreSQL and MySQL plans should be captured on the same
+fixture with `EXPLAIN (ANALYZE, BUFFERS)` / `EXPLAIN ANALYZE`; no recursive CTE
+adapter is introduced until those measurements demonstrate a repeatable win.
+
 ## WebDAV Provider Range Baselines
 
 Issue `#449` uses a separate Rust runner for provider efficiency. It calls the

@@ -76,6 +76,7 @@ mod m20260825_000002_upload_session_placement_binding;
 mod m20260901_000001_upload_session_mime_type;
 mod m20260901_000002_upload_session_folder_status_index;
 mod m20260902_000001_remote_target_connector_contract;
+mod m20260912_000001_folder_tree_keyset_indexes;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -225,6 +226,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260901_000001_upload_session_mime_type::Migration),
             Box::new(m20260901_000002_upload_session_folder_status_index::Migration),
             Box::new(m20260902_000001_remote_target_connector_contract::Migration),
+            Box::new(m20260912_000001_folder_tree_keyset_indexes::Migration),
         ]
     }
 }
