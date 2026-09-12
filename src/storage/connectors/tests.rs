@@ -36,6 +36,34 @@ struct LocalizationContractConnector {
 #[test]
 fn unified_registry_exposes_remote_target_scope_for_reusable_provider_connectors() {
     let registry = builtin_storage_connector_registry().expect("built-in registry");
+    let ids = registry
+        .descriptors()
+        .into_iter()
+        .map(|descriptor| descriptor.connector_id.to_string())
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        ids.len(),
+        10,
+        "the built-in connector matrix must stay complete"
+    );
+    assert_eq!(
+        ids,
+        [
+            "asterdrive.storage.local",
+            "asterdrive.storage.s3",
+            "asterdrive.storage.alibaba_oss",
+            "asterdrive.storage.sftp",
+            "asterdrive.storage.azure_blob",
+            "asterdrive.storage.huawei_obs",
+            "asterdrive.storage.tencent_cos",
+            "asterdrive.storage.remote",
+            "asterdrive.storage.onedrive",
+            "asterdrive.storage.qiniu",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    );
     for connector_id in [
         "asterdrive.storage.local",
         "asterdrive.storage.s3",

@@ -9,7 +9,9 @@ use http_body::{Frame, SizeHint};
 use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
-use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::extensions::{
+    ExactSizeReader, StreamUploadDriver, checked_upload_size,
+};
 use aster_drive_storage::{MapStorageErr, StorageErrorKind};
 use aster_forge_utils::numbers;
 
@@ -140,9 +142,11 @@ impl StreamUploadDriver for S3Driver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(storage_path);
-        let content_length = numbers::i64_to_u64(size, "S3 put_reader content_length")
-            .map_storage_err(StorageErrorKind::Misconfigured)?;
-        let body = ByteStream::from_body_1_x(SizedReaderBody::new(reader, content_length));
+        let content_length = checked_upload_size(size, "S3 put_reader content_length")?;
+        let body = ByteStream::from_body_1_x(SizedReaderBody::new(
+            ExactSizeReader::new(reader, content_length),
+            content_length,
+        ));
 
         self.client
             .put_object()

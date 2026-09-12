@@ -21,7 +21,8 @@ use aster_drive_storage::error::{
     storage_driver_error_with_context,
 };
 use aster_drive_storage::{
-    BlobMetadata, StorageDriver, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    BlobMetadata, ExactSizeReader, StorageDriver, StreamUploadAttempt, StreamUploadCleanup,
+    StreamUploadDriver,
 };
 
 const DEFAULT_SFTP_PORT: u16 = 22;
@@ -603,7 +604,7 @@ impl StreamUploadDriver for SftpDriver {
     async fn put_reader(
         &self,
         storage_path: &str,
-        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let remote_path = self.full_path(storage_path)?;
@@ -624,6 +625,7 @@ impl StreamUploadDriver for SftpDriver {
             .create(temporary_path.clone())
             .await
             .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
+        let mut reader = ExactSizeReader::new(reader, expected_size);
         let written = match tokio::io::copy(&mut reader, &mut remote_file).await {
             Ok(written) => written,
             Err(error) => {
@@ -1199,6 +1201,16 @@ fn is_sftp_connection_reusable_after_error(error: &SftpError) -> bool {
 }
 
 fn classify_io_error(error: &std::io::Error) -> StorageErrorKind {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::InvalidData
+    ) && (error
+        .to_string()
+        .contains("reader ended before declared size")
+        || error.to_string().contains("reader exceeded declared size"))
+    {
+        return StorageErrorKind::Precondition;
+    }
     match error.kind() {
         std::io::ErrorKind::NotFound => StorageErrorKind::NotFound,
         std::io::ErrorKind::PermissionDenied => StorageErrorKind::Permission,

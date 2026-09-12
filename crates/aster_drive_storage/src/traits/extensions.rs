@@ -15,10 +15,133 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, ReadBuf};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
+
+/// Reject negative declared sizes before provider I/O.
+pub fn checked_upload_size(size: i64, context: &str) -> Result<u64> {
+    u64::try_from(size).map_err(|_| {
+        crate::error::storage_driver_error(
+            crate::error::StorageErrorKind::Precondition,
+            format!("{context} must be non-negative, got {size}"),
+        )
+    })
+}
+
+/// Classify only errors emitted by `ExactSizeReader` itself. Provider adapters
+/// must not infer a length violation from `UnexpectedEof`/`InvalidData` alone,
+/// because underlying readers may use those kinds for transient I/O failures.
+pub fn exact_size_error_kind(error: &std::io::Error) -> Option<crate::error::StorageErrorKind> {
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::InvalidData
+    ) && (error
+        .to_string()
+        .contains("reader ended before declared size")
+        || error.to_string().contains("reader exceeded declared size"))
+    {
+        Some(crate::error::StorageErrorKind::Precondition)
+    } else {
+        None
+    }
+}
+
+/// Bounded exact-length reader. It withholds the final declared byte until
+/// one extra byte has been probed, preventing fixed-length transports from
+/// silently truncating oversized input.
+pub struct ExactSizeReader<R> {
+    inner: R,
+    remaining: u64,
+    final_byte: Option<u8>,
+    eof_checked: bool,
+}
+
+impl<R> ExactSizeReader<R> {
+    pub fn new(inner: R, size: u64) -> Self {
+        Self {
+            inner,
+            remaining: size,
+            final_byte: None,
+            eof_checked: false,
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for ExactSizeReader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        output: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if output.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
+        if self.remaining > 1 {
+            let limit = usize::try_from(self.remaining - 1)
+                .unwrap_or(usize::MAX)
+                .min(output.remaining());
+            let mut limited = ReadBuf::new(&mut output.initialize_unfilled()[..limit]);
+            return match Pin::new(&mut self.inner).poll_read(cx, &mut limited) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) => {
+                    let read = limited.filled().len();
+                    if read == 0 {
+                        Poll::Ready(Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "reader ended before declared size",
+                        )))
+                    } else {
+                        output.advance(read);
+                        self.remaining -= u64::try_from(read).unwrap_or(self.remaining);
+                        Poll::Ready(Ok(()))
+                    }
+                }
+            };
+        }
+        if self.remaining == 1 && self.final_byte.is_none() {
+            let mut byte = [0u8; 1];
+            let mut buffer = ReadBuf::new(&mut byte);
+            match Pin::new(&mut self.inner).poll_read(cx, &mut buffer) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) if buffer.filled().is_empty() => {
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "reader ended before declared size",
+                    )));
+                }
+                Poll::Ready(Ok(())) => {
+                    self.final_byte = Some(byte[0]);
+                    self.remaining = 0;
+                }
+            }
+        }
+        if !self.eof_checked {
+            let mut extra = [0u8; 1];
+            let mut buffer = ReadBuf::new(&mut extra);
+            match Pin::new(&mut self.inner).poll_read(cx, &mut buffer) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                Poll::Ready(Ok(())) if !buffer.filled().is_empty() => {
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "reader exceeded declared size",
+                    )));
+                }
+                Poll::Ready(Ok(())) => self.eof_checked = true,
+            }
+        }
+        if let Some(byte) = self.final_byte.take() {
+            output.put_slice(&[byte]);
+        }
+        Poll::Ready(Ok(()))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -403,12 +526,60 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::{StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver};
+    use super::{
+        ExactSizeReader, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+        checked_upload_size,
+    };
     use crate::error::{Result, StorageErrorKind};
     use async_trait::async_trait;
+    use std::io::Cursor;
+    use std::pin::Pin;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::io::AsyncRead;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, ReadBuf};
+
+    struct PendingOnceReader {
+        inner: Cursor<Vec<u8>>,
+        pending: bool,
+    }
+
+    impl AsyncRead for PendingOnceReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            output: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            if self.pending {
+                self.pending = false;
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            Pin::new(&mut self.inner).poll_read(cx, output)
+        }
+    }
+
+    struct ErrorReader;
+
+    impl AsyncRead for ErrorReader {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _output: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Poll::Ready(Err(std::io::Error::other("synthetic reader failure")))
+        }
+    }
+
+    #[test]
+    fn checked_upload_size_covers_zero_max_and_negative_boundaries() {
+        assert_eq!(checked_upload_size(0, "size").expect("zero is valid"), 0);
+        assert_eq!(
+            checked_upload_size(i64::MAX, "size").expect("i64 max is representable"),
+            i64::MAX as u64
+        );
+        assert!(checked_upload_size(-1, "size").is_err());
+    }
     use tokio::sync::Barrier;
 
     struct AtomicAttemptDriver {
@@ -559,5 +730,72 @@ mod tests {
         .await
         .expect("independent attempts must not be serialized");
         assert_eq!(driver.max_active.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_rejects_short_and_long_streams_before_completion() {
+        let mut short = ExactSizeReader::new(std::io::Cursor::new(b"abc"), 4);
+        let short_error = tokio::io::AsyncReadExt::read_to_end(&mut short, &mut Vec::new())
+            .await
+            .expect_err("short reader should fail");
+        assert_eq!(short_error.kind(), std::io::ErrorKind::UnexpectedEof);
+
+        let mut long = ExactSizeReader::new(std::io::Cursor::new(b"abcde"), 4);
+        let long_error = tokio::io::AsyncReadExt::read_to_end(&mut long, &mut Vec::new())
+            .await
+            .expect_err("long reader should fail");
+        assert_eq!(long_error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_rejects_long_stream_while_consumer_reads_declared_bytes() {
+        let mut reader = ExactSizeReader::new(std::io::Cursor::new(b"abcde"), 4);
+        let mut declared = [0_u8; 4];
+        let error = tokio::io::AsyncReadExt::read_exact(&mut reader, &mut declared)
+            .await
+            .expect_err("oversized stream must fail before the fourth byte is released");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(&declared[..3], b"abc");
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_preserves_data_across_pending_poll() {
+        let mut reader = ExactSizeReader::new(
+            PendingOnceReader {
+                inner: Cursor::new(b"abcd".to_vec()),
+                pending: true,
+            },
+            4,
+        );
+        let mut data = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut data)
+            .await
+            .expect("pending reader should resume");
+        assert_eq!(data, b"abcd");
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_preserves_transient_reader_errors() {
+        let mut reader = ExactSizeReader::new(ErrorReader, 1);
+        let error = tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut Vec::new())
+            .await
+            .expect_err("reader failure should be returned");
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
+        assert_eq!(error.to_string(), "synthetic reader failure");
+    }
+
+    #[tokio::test]
+    async fn exact_size_reader_probes_zero_and_huge_declarations_without_allocation() {
+        let mut zero = ExactSizeReader::new(std::io::Cursor::new(b"x"), 0);
+        let error = tokio::io::AsyncReadExt::read_to_end(&mut zero, &mut Vec::new())
+            .await
+            .expect_err("zero-size reader with data should fail");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+        let mut huge = ExactSizeReader::new(tokio::io::repeat(0), 10 * 1024 * 1024 * 1024 * 1024);
+        let mut one = [0_u8; 1];
+        tokio::io::AsyncReadExt::read_exact(&mut huge, &mut one)
+            .await
+            .expect("huge declaration should stream one byte");
     }
 }

@@ -1,14 +1,14 @@
 use std::time::Duration;
 
+use aster_drive_storage::PresignedUploadRequest;
+use aster_drive_storage::traits::extensions::{ExactSizeReader, checked_upload_size};
+use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use tokio::io::AsyncRead;
-
-use aster_drive_storage::PresignedUploadRequest;
-use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
-use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
 use super::S3Driver;
 use super::presigned::{clamp_presign_ttl, sdk_presigned_upload_request};
@@ -155,10 +155,9 @@ impl MultipartStorageDriver for S3Driver {
         size: i64,
     ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
-        let content_length = aster_forge_utils::numbers::i64_to_u64(size, "S3 multipart part size")
-            .map_storage_err(StorageErrorKind::Misconfigured)?;
+        let content_length = checked_upload_size(size, "S3 multipart part size")?;
         let body = ByteStream::from_body_1_x(super::stream_upload::SizedReaderBody::new(
-            reader,
+            ExactSizeReader::new(reader, content_length),
             content_length,
         ));
         let resp = self

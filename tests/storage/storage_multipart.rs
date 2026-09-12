@@ -112,7 +112,7 @@ async fn default_reader_upload_rejects_stream_larger_than_size() {
         .await
         .expect_err("oversized stream should fail");
 
-    assert_eq!(error.kind(), StorageErrorKind::Transient);
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
     assert!(
         error
             .message()
@@ -136,7 +136,7 @@ async fn default_reader_upload_rejects_stream_shorter_than_size() {
         .await
         .expect_err("short stream should fail");
 
-    assert_eq!(error.kind(), StorageErrorKind::Transient);
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
     assert!(
         error
             .message()
@@ -172,7 +172,7 @@ async fn default_reader_upload_enforces_zero_size_boundary() {
         .await
         .expect_err("zero-size stream with data should fail");
 
-    assert_eq!(error.kind(), StorageErrorKind::Transient);
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
     assert!(
         error
             .message()
@@ -196,6 +196,6 @@ async fn default_reader_upload_rejects_negative_size_before_upload() {
         .await
         .expect_err("negative size should fail");
 
-    assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
     assert!(driver.uploaded().is_empty());
 }

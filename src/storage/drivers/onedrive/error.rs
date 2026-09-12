@@ -16,6 +16,15 @@ pub(super) struct MicrosoftGraphErrorBody {
 }
 
 pub(super) fn map_reqwest_error(ctx: &str, error: reqwest::Error) -> StorageError {
+    let message = error.to_string();
+    if message.contains("reader exceeded declared size")
+        || message.contains("reader ended before declared size")
+    {
+        return storage_driver_error(
+            StorageErrorKind::Precondition,
+            format!("{ctx}: Microsoft Graph upload stream length mismatch: {message}"),
+        );
+    }
     if error.is_timeout() {
         return storage_driver_error(
             StorageErrorKind::Transient,
