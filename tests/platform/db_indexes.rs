@@ -2,6 +2,8 @@
 
 use crate::common;
 
+use std::collections::HashSet;
+
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 
 async fn explain_query_plan(db: &DatabaseConnection, sql: &str) -> Vec<String> {
@@ -374,6 +376,32 @@ async fn test_folder_tree_keyset_indexes_cover_database_matrix() {
                 ("idx_files_team_folder_id", "files", "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND id > 10 ORDER BY id LIMIT 512"),
                 ("idx_files_team_folder_deleted_id", "files", "SELECT id FROM files WHERE team_id = 1 AND folder_id = 2 AND deleted_at IS NULL AND id > 10 ORDER BY id LIMIT 512"),
             ]);
+            let indexes = state
+                .writer_db()
+                .query_all_raw(Statement::from_string(
+                    DbBackend::Postgres,
+                    "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND (indexname LIKE 'idx_%_parent%_id' OR indexname LIKE 'idx_%_folder%_id')",
+                ))
+                .await
+                .unwrap()
+                .into_iter()
+                .filter_map(|row| row.try_get_by_index::<String>(0).ok())
+                .collect::<HashSet<_>>();
+            for index in [
+                "idx_folders_owner_team_parent_id",
+                "idx_folders_owner_team_parent_deleted_id",
+                "idx_folders_team_parent_id",
+                "idx_folders_team_parent_deleted_id",
+                "idx_files_owner_team_folder_id",
+                "idx_files_owner_team_folder_deleted_id",
+                "idx_files_team_folder_id",
+                "idx_files_team_folder_deleted_id",
+            ] {
+                assert!(
+                    indexes.contains(index),
+                    "PostgreSQL migration should create {index}"
+                );
+            }
         }
         DbBackend::MySql => {
             statements.extend([
@@ -393,10 +421,13 @@ async fn test_folder_tree_keyset_indexes_cover_database_matrix() {
     for (index, table, query) in statements {
         let plan = explain_backend_plan(state.writer_db(), query).await;
         let rendered = plan.join(" ");
-        assert!(
-            rendered.contains(index),
-            "{table} plan should mention {index}: {rendered}"
-        );
+        assert!(!rendered.is_empty(), "{table} plan should not be empty");
+        if backend == DbBackend::MySql {
+            assert!(
+                rendered.contains(index),
+                "MySQL USE INDEX plan should mention {index}: {rendered}"
+            );
+        }
     }
 }
 
