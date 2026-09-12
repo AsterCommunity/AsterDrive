@@ -301,6 +301,10 @@ index names appear in `EXPLAIN QUERY PLAN`, and rejects a table scan or temporar
 ORDER BY b-tree. PostgreSQL and MySQL plans should be captured on the same
 fixture with `EXPLAIN (ANALYZE, BUFFERS)` / `EXPLAIN ANALYZE`; no recursive CTE
 adapter is introduced until those measurements demonstrate a repeatable win.
+An additional SQLite regression test drops the two personal-file keyset indexes
+and confirms the planner no longer constrains `folder_id` in its index range;
+this is a deterministic before/after proof of the optimization, without a
+machine-dependent wall-time threshold.
 
 ## WebDAV Provider Range Baselines
 
