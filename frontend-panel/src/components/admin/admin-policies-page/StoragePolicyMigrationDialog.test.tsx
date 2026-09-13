@@ -5,7 +5,10 @@ import { StoragePolicyMigrationDialog } from "@/components/admin/admin-policies-
 import type { StoragePolicy, StoragePolicyMigrationDryRun } from "@/types/api";
 
 vi.mock("react-i18next", () => ({
-	useTranslation: () => ({ t: (key: string) => key }),
+	useTranslation: () => ({
+		t: (key: string, values?: Record<string, unknown>) =>
+			values ? `${key} ${Object.values(values).join(" ")}` : key,
+	}),
 }));
 vi.mock("@/components/ui/dialog", () => ({
 	Dialog: ({ children, open }: { children: ReactNode; open: boolean }) =>
@@ -171,7 +174,7 @@ describe("StoragePolicyMigrationDialog", () => {
 		};
 		renderDialog(value);
 		expect(
-			screen.getByText("policy_migration_capacity_available_of_total"),
+			screen.getByText(/policy_migration_capacity_available_of_total.*40.*100/),
 		).toBeInTheDocument();
 	});
 

@@ -7,8 +7,30 @@ use aster_drive_model::entities::remote_storage_target;
 use aster_drive_model::types::LocaleTag;
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId};
 use aster_drive_storage::{
-    StorageConnectorDescriptor, StorageConnectorLocalizationCatalog, StorageDriver,
+    MultipartStorageDriver, StorageConnectorDescriptor, StorageConnectorLocalizationCatalog,
+    StorageDriver,
 };
+
+pub(crate) fn map_multipart_runtime_capability(
+    multipart: Option<&dyn MultipartStorageDriver>,
+) -> Option<crate::storage::remote_protocol::RemoteMultipartCapabilities> {
+    multipart.map(|driver| {
+        let capability = driver.capabilities();
+        let (native_reader_upload, buffered_reader_max_size) = match capability.upload_mode {
+            aster_drive_storage::MultipartUploadMode::NativeStreaming => (true, None),
+            aster_drive_storage::MultipartUploadMode::Buffered { max_size } => {
+                (false, Some(max_size))
+            }
+        };
+        crate::storage::remote_protocol::RemoteMultipartCapabilities {
+            min_part_size: capability.min_part_size,
+            max_part_size: capability.max_part_size,
+            max_parts: capability.max_parts,
+            native_reader_upload,
+            buffered_reader_max_size,
+        }
+    })
+}
 
 pub(crate) async fn runtime_capabilities<S: FollowerRuntimeState>(
     state: &S,
@@ -22,24 +44,7 @@ pub(crate) async fn runtime_capabilities<S: FollowerRuntimeState>(
         let (range_read, stream_upload, multipart) = match resolved {
             Ok(resolved) => {
                 let extensions = resolved.driver.extensions();
-                let multipart = extensions.multipart.map(|driver| {
-                    let capability = driver.capabilities();
-                    let (native_reader_upload, buffered_reader_max_size) = match capability
-                        .upload_mode
-                    {
-                        aster_drive_storage::MultipartUploadMode::NativeStreaming => (true, None),
-                        aster_drive_storage::MultipartUploadMode::Buffered { max_size } => {
-                            (false, Some(max_size))
-                        }
-                    };
-                    crate::storage::remote_protocol::RemoteMultipartCapabilities {
-                        min_part_size: capability.min_part_size,
-                        max_part_size: capability.max_part_size,
-                        max_parts: capability.max_parts,
-                        native_reader_upload,
-                        buffered_reader_max_size,
-                    }
-                });
+                let multipart = map_multipart_runtime_capability(extensions.multipart);
                 (
                     resolved.driver.supports_efficient_range(),
                     extensions.stream_upload.is_some(),
