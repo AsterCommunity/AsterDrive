@@ -88,12 +88,18 @@ impl StorageDriver for RemoteDriver {
                 Some(capability) if capability.stream_upload => Some(self),
                 Some(_) => None,
             };
+        let multipart: Option<&dyn aster_drive_storage::MultipartStorageDriver> =
+            match self.target_runtime_capabilities.as_ref() {
+                None => Some(self),
+                Some(capability) if capability.multipart.is_some() => Some(self),
+                Some(_) => None,
+            };
         aster_drive_storage::traits::StorageDriverExtensions {
             list: Some(self),
             stream_upload,
             direct_download: Some(self),
             presigned_upload: Some(self),
-            multipart: Some(self),
+            multipart,
             ..Default::default()
         }
     }
