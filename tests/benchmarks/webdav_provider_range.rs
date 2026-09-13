@@ -35,7 +35,6 @@ const DEFAULT_RANGE_BYTES: u64 = 256 * 1024;
 const MAX_PAYLOAD_BYTES: u64 = 1024 * 1024 * 1024;
 const DEFAULT_WARMUPS: usize = 3;
 const DEFAULT_SAMPLES: usize = 20;
-const DEFAULT_OBJECT_PATH: &str = "webdav-provider-range-v1.bin";
 const READ_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone)]
@@ -47,6 +46,7 @@ struct BenchConfig {
     warmups: usize,
     samples: usize,
     object_path: String,
+    object_path_explicit: bool,
     output_path: PathBuf,
     cleanup_fixture: bool,
     baseline_path: Option<PathBuf>,
@@ -77,6 +77,10 @@ impl BenchConfig {
             .into());
         }
 
+        let object_path_explicit = std::env::var("ASTER_BENCH_RANGE_OBJECT_PATH").is_ok();
+        let object_path = env_optional("ASTER_BENCH_RANGE_OBJECT_PATH")
+            .unwrap_or_else(|| format!("webdav-provider-range-v1-{}.bin", uuid::Uuid::new_v4()));
+
         Ok(Self {
             provider: env_string("ASTER_BENCH_RANGE_PROVIDER", "local").to_ascii_lowercase(),
             provider_required: env_bool("ASTER_BENCH_RANGE_PROVIDER_REQUIRED", false)?,
@@ -84,7 +88,8 @@ impl BenchConfig {
             range_bytes,
             warmups: env_usize("ASTER_BENCH_RANGE_WARMUPS", DEFAULT_WARMUPS)?,
             samples: env_usize("ASTER_BENCH_RANGE_SAMPLES", DEFAULT_SAMPLES)?.max(1),
-            object_path: env_string("ASTER_BENCH_RANGE_OBJECT_PATH", DEFAULT_OBJECT_PATH),
+            object_path,
+            object_path_explicit,
             output_path: PathBuf::from(env_string(
                 "ASTER_BENCH_RANGE_OUTPUT",
                 "tests/performance/results/webdav-provider-range/artifact.json",
@@ -370,12 +375,23 @@ async fn main() -> BenchResult<()> {
         }
     };
 
+    let mut fixture_created = false;
     let benchmark_result = async {
         let payload = deterministic_payload(config.payload_bytes)?;
+        if config.object_path_explicit
+            && provider_fixture.driver.exists(&config.object_path).await?
+        {
+            return Err(format!(
+                "ASTER_BENCH_RANGE_OBJECT_PATH already exists: {}",
+                config.object_path
+            )
+            .into());
+        }
         provider_fixture
             .driver
             .put(&config.object_path, &payload)
             .await?;
+        fixture_created = true;
 
         let scenario_specs = config.scenario_specs();
         let mut scenarios = BTreeMap::new();
@@ -440,7 +456,7 @@ async fn main() -> BenchResult<()> {
     .await;
 
     let cleanup_result = if config.cleanup_fixture {
-        cleanup_provider_fixture(&provider_fixture, &config.object_path).await
+        cleanup_provider_fixture(&provider_fixture, &config.object_path, fixture_created).await
     } else {
         Ok(())
     };
@@ -450,14 +466,16 @@ async fn main() -> BenchResult<()> {
 async fn cleanup_provider_fixture(
     provider_fixture: &ProviderFixture,
     object_path: &str,
+    fixture_created: bool,
 ) -> BenchResult<()> {
     let mut cleanup_errors = Vec::new();
-    if let Err(error) = provider_fixture.driver.delete(object_path).await {
+    if fixture_created && let Err(error) = provider_fixture.driver.delete(object_path).await {
         cleanup_errors.push(format!(
             "failed to delete provider fixture '{object_path}': {error}"
         ));
     }
-    if let Some(root) = &provider_fixture.cleanup_root
+    if fixture_created
+        && let Some(root) = &provider_fixture.cleanup_root
         && let Err(error) = tokio::fs::remove_dir_all(root).await
     {
         cleanup_errors.push(format!(
@@ -1090,6 +1108,7 @@ pub fn contract_odd_multi_range_accounting() {
         warmups: 0,
         samples: 1,
         object_path: "contract.bin".to_string(),
+        object_path_explicit: true,
         output_path: PathBuf::from("artifact.json"),
         cleanup_fixture: true,
         baseline_path: None,
@@ -1127,12 +1146,42 @@ pub async fn contract_failed_benchmark_cleans_fixture() {
         cleanup_root: Some(root.clone()),
     };
     let benchmark_result: BenchResult<()> = Err("synthetic benchmark failure".into());
-    let cleanup_result = cleanup_provider_fixture(&provider_fixture, "contract.bin").await;
+    let cleanup_result = cleanup_provider_fixture(&provider_fixture, "contract.bin", true).await;
 
     let error = finish_benchmark(benchmark_result, cleanup_result).unwrap_err();
 
     assert_eq!(error.to_string(), "synthetic benchmark failure");
     assert!(!root.exists());
+}
+
+#[cfg(test)]
+pub async fn contract_unowned_fixture_is_preserved() {
+    let root = std::env::temp_dir().join(format!(
+        "asterdrive-webdav-provider-range-preserve-contract-{}",
+        uuid::Uuid::new_v4()
+    ));
+    tokio::fs::create_dir_all(&root).await.unwrap();
+    let root_string = root.to_string_lossy().into_owned();
+    let driver = LocalDriver::new(&root_string).unwrap();
+    driver.put("external.bin", b"external").await.unwrap();
+    let provider_fixture = ProviderFixture {
+        provider: "local".to_string(),
+        driver: Box::new(driver),
+        requests_per_backend_call: 1,
+        config_summary: json!({}),
+        cleanup_root: Some(root.clone()),
+    };
+    cleanup_provider_fixture(&provider_fixture, "external.bin", false)
+        .await
+        .unwrap();
+    assert!(root.join("external.bin").exists());
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[cfg(test)]
+pub fn contract_missing_baseline_scenario_is_rejected() {
+    let error = ensure_baseline_scenarios(vec!["full".to_string()], &BTreeMap::new()).unwrap_err();
+    assert!(error.to_string().contains("missing scenario 'full'"));
 }
 
 #[cfg(test)]
@@ -1252,11 +1301,13 @@ async fn compare_baseline(
         });
     };
 
+    ensure_baseline_scenarios(scenarios.keys().cloned(), &selected.scenarios)?;
     let mut comparisons = BTreeMap::new();
     for (name, current) in scenarios {
-        let Some(reference) = selected.scenarios.get(name) else {
-            continue;
-        };
+        let reference = selected
+            .scenarios
+            .get(name)
+            .expect("validated baseline scenario");
         let ttfb_ratio = ratio(current.summary.ttfb_ms.p95, reference.ttfb_p95_ms);
         let throughput_ratio = ratio(
             current.summary.throughput_bytes_per_second.p50,
@@ -1280,6 +1331,22 @@ async fn compare_baseline(
         policy: Some(baseline.regression_policy),
         scenarios: comparisons,
     })
+}
+
+fn ensure_baseline_scenarios<I>(
+    current: I,
+    baseline: &BTreeMap<String, BaselineScenario>,
+) -> BenchResult<()>
+where
+    I: IntoIterator<Item = String>,
+{
+    if let Some(name) = current
+        .into_iter()
+        .find(|name| !baseline.contains_key(name))
+    {
+        return Err(format!("selected baseline profile is missing scenario '{name}'").into());
+    }
+    Ok(())
 }
 
 fn baseline_not_compared(config: &BenchConfig, reason: &str) -> BaselineComparison {

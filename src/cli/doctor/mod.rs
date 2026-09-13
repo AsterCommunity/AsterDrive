@@ -565,6 +565,7 @@ async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<Do
         .samples
         .iter()
         .any(|issue| issue.kind == integrity::FolderTreeIssueKind::Cycle);
+    let samples_truncated = issues.samples.len() < issues.total;
     let details = issues
         .samples
         .into_iter()
@@ -589,7 +590,13 @@ async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<Do
         summary: format!(
             "{} folder issue(s) detected ({}); showing up to 256 samples",
             issues.total,
-            if has_cycle { "including cycles" } else { "invalid parent references" }
+            if samples_truncated {
+                "sampled issue types (full type breakdown unavailable)"
+            } else if has_cycle {
+                "including cycles"
+            } else {
+                "invalid parent references"
+            }
         ),
         details,
         suggestion: Some(

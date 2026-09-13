@@ -24,3 +24,13 @@ fn odd_multi_range_preserves_configured_total() {
 async fn failed_benchmark_cleans_provider_fixture() {
     benchmark::contract_failed_benchmark_cleans_fixture().await;
 }
+
+#[tokio::test]
+async fn unowned_fixture_is_preserved_when_cleanup_is_not_authorized() {
+    benchmark::contract_unowned_fixture_is_preserved().await;
+}
+
+#[test]
+fn missing_baseline_scenario_is_rejected() {
+    benchmark::contract_missing_baseline_scenario_is_rejected();
+}

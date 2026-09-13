@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use aster_drive_storage::traits::driver::StoragePathVisitor;
+use aster_drive_storage::traits::driver::{StoragePathVisitControl, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::ListStorageDriver;
 use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
@@ -115,7 +115,12 @@ impl ListStorageDriver for LocalDriver {
                         .unwrap_or(&path)
                         .to_string_lossy()
                         .replace('\\', "/");
-                    visitor.visit_path(relative).await?;
+                    if matches!(
+                        visitor.visit_path(relative).await?,
+                        StoragePathVisitControl::Stop
+                    ) {
+                        return Ok(());
+                    }
                 }
             }
 

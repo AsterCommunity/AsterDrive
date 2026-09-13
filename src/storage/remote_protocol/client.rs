@@ -12,8 +12,8 @@ use crate::errors::Result;
 use aster_drive_model::types::LocaleTag;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
-use aster_drive_storage::StoragePathVisitor;
 use aster_drive_storage::traits::driver::{BlobMetadata, DirectDownloadOptions};
+use aster_drive_storage::{StoragePathVisitControl, StoragePathVisitor};
 use async_trait::async_trait;
 
 use super::errors::remote_api_error_kind;
@@ -258,12 +258,12 @@ impl RemoteStorageClient {
         visitor: &mut dyn StoragePathVisitor,
     ) -> Result<()> {
         let prefix = prefix.filter(|value| !value.is_empty());
-        let mut cursor: Option<u64> = None;
+        let mut cursor: Option<String> = None;
 
         loop {
             let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/objects");
             self.append_storage_target_key(&mut path);
-            let cursor_text = cursor.map(|cursor| cursor.to_string());
+            let cursor_text = cursor.clone();
             let mut query = vec![("limit", REMOTE_LIST_PAGE_SIZE_QUERY_VALUE)];
             if let Some(prefix) = prefix {
                 query.push(("prefix", prefix));
@@ -298,15 +298,23 @@ impl RemoteStorageClient {
 
             let page = envelope.data.unwrap_or_default();
             for item in page.items {
-                visitor
-                    .visit_path(item)
-                    .await
-                    .map_err(crate::errors::AsterError::from)?;
+                if matches!(
+                    visitor
+                        .visit_path(item)
+                        .await
+                        .map_err(crate::errors::AsterError::from)?,
+                    StoragePathVisitControl::Stop
+                ) {
+                    return Ok(());
+                }
             }
             let Some(next_cursor) = page.next_cursor else {
                 break;
             };
-            if next_cursor <= cursor.unwrap_or(0) {
+            if cursor
+                .as_deref()
+                .is_some_and(|current| next_cursor.as_str() <= current)
+            {
                 return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     "remote storage list cursor did not advance",
@@ -642,9 +650,12 @@ struct VecVisitor<'a>(&'a mut Vec<String>);
 
 #[async_trait]
 impl StoragePathVisitor for VecVisitor<'_> {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.0.push(path);
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 

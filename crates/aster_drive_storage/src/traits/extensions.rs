@@ -8,7 +8,8 @@
 
 use crate::error::Result;
 use crate::traits::driver::{
-    DirectDownloadOptions, DirectDownloadRequest, PresignedUploadRequest, StoragePathVisitor,
+    DirectDownloadOptions, DirectDownloadRequest, PresignedUploadRequest, StoragePathVisitControl,
+    StoragePathVisitor,
 };
 use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
@@ -410,7 +411,12 @@ pub trait ListStorageDriver: Send + Sync {
         visitor: &mut dyn StoragePathVisitor,
     ) -> Result<()> {
         for path in self.list_paths(prefix).await? {
-            visitor.visit_path(path).await?;
+            if matches!(
+                visitor.visit_path(path).await?,
+                StoragePathVisitControl::Stop
+            ) {
+                break;
+            }
         }
         Ok(())
     }

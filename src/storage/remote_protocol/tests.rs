@@ -121,18 +121,16 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
     ) -> HttpResponse {
         log_request(&req, &[], &log);
         let prefix = query.get("prefix").cloned().unwrap_or_default();
-        let cursor = query
-            .get("cursor")
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(0);
+        let cursor = query.get("cursor").map(String::as_str);
         let items = [format!("{prefix}/one.bin"), format!("{prefix}/two.bin")];
-        let end = (cursor + 1).min(items.len());
+        let start = cursor.map_or(0, |value| usize::from(value.ends_with("one.bin")));
+        let end = (start + 1).min(items.len());
         HttpResponse::Ok().json(serde_json::json!({
             "code": "success",
             "msg": "",
             "data": {
-                "items": &items[cursor.min(items.len())..end],
-                "next_cursor": (end < items.len()).then_some(end),
+                "items": &items[start..end],
+                "next_cursor": (end < items.len()).then(|| items[end - 1].clone()),
             }
         }))
     }
@@ -1000,7 +998,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     assert!(
         list_requests
             .iter()
-            .any(|request| request.path_and_query.contains("cursor=1"))
+            .any(|request| request.path_and_query.contains("cursor=prefix%2Fone.bin"))
     );
     assert!(requests.iter().any(|request| {
         request.method == "PATCH" && request.path_and_query.contains("/targets/profile%2Fa")

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use aster_drive_storage::traits::driver::StoragePathVisitControl;
 use aster_drive_storage::traits::extensions::ListStorageDriver;
 use aster_drive_storage::{StorageErrorKind, storage_driver_error};
 
@@ -57,8 +58,13 @@ impl S3Driver {
                 let Some(key) = object.key() else {
                     continue;
                 };
-                if let Some(path) = self.relative_key(key) {
-                    visitor.visit_path(path.to_string()).await?;
+                if let Some(path) = self.relative_key(key)
+                    && matches!(
+                        visitor.visit_path(path.to_string()).await?,
+                        StoragePathVisitControl::Stop
+                    )
+                {
+                    return Ok(());
                 }
             }
 
@@ -77,9 +83,12 @@ struct VecVisitor<'a>(&'a mut Vec<String>);
 
 #[async_trait]
 impl aster_drive_storage::traits::driver::StoragePathVisitor for VecVisitor<'_> {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.0.push(path);
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 
@@ -143,8 +152,13 @@ impl S3Driver {
                 let Some(key) = object.key() else {
                     continue;
                 };
-                if let Some(path) = self.relative_key(key) {
-                    visitor.visit_path(path.to_string()).await?;
+                if let Some(path) = self.relative_key(key)
+                    && matches!(
+                        visitor.visit_path(path.to_string()).await?,
+                        StoragePathVisitControl::Stop
+                    )
+                {
+                    return Ok(());
                 }
             }
 

@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 
 use aster_drive_storage::object_key;
-use aster_drive_storage::traits::{StoragePathVisitor, extensions::ListStorageDriver};
+use aster_drive_storage::traits::{
+    StoragePathVisitControl, StoragePathVisitor, extensions::ListStorageDriver,
+};
 
 use super::RemoteDriver;
 
@@ -40,10 +42,13 @@ struct PrefixVisitor<'a> {
 
 #[async_trait]
 impl StoragePathVisitor for PrefixVisitor<'_> {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         if let Some(relative) = object_key::strip_key_prefix(self.base_path, &path) {
-            self.visitor.visit_path(relative.to_string()).await?;
+            return self.visitor.visit_path(relative.to_string()).await;
         }
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }

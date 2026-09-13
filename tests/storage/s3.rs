@@ -5,7 +5,8 @@ use aster_drive::storage::drivers::s3::{
 };
 use aster_drive_storage::{
     DirectDownloadOptions, DirectDownloadStorageDriver, ListStorageDriver,
-    PresignedUploadStorageDriver, StorageDriver, StoragePathVisitor, StreamUploadDriver,
+    PresignedUploadStorageDriver, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+    StreamUploadDriver,
 };
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
@@ -190,9 +191,12 @@ struct CollectingPathVisitor(Vec<String>);
 
 #[async_trait]
 impl StoragePathVisitor for CollectingPathVisitor {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.0.push(path);
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 

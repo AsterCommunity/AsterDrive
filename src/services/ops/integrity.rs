@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::{StreamExt as _, stream};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder,
     QuerySelect, RelationTrait, sea_query::Expr,
@@ -27,7 +28,7 @@ use aster_drive_model::entities::{
     upload_session::{self, Entity as UploadSession},
     user::{self, Entity as User},
 };
-use aster_drive_storage::StoragePathVisitor;
+use aster_drive_storage::{StoragePathVisitControl, StoragePathVisitor};
 
 // 审计走全表扫描，但必须控制单批内存占用；因此统一按主键顺序分批拉取。
 const INTEGRITY_BATCH_SIZE: u64 = 1_000;
@@ -339,18 +340,21 @@ impl<'db, 'report, 'sink, C: ConnectionTrait + Sync> StorageAuditVisitor<'db, 'r
 
 #[async_trait]
 impl<C: ConnectionTrait + Sync> StoragePathVisitor for StorageAuditVisitor<'_, '_, '_, C> {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.report.scanned_objects += 1;
         if path.starts_with(".staging/") {
             self.report.ignored_paths += 1;
-            return Ok(());
+            return Ok(StoragePathVisitControl::Continue);
         }
         self.pending_paths.push(path);
         self.report.peak_path_batch = self.report.peak_path_batch.max(self.pending_paths.len());
         if self.pending_paths.len() >= STORAGE_AUDIT_PATH_BATCH_SIZE {
             self.flush().await?;
         }
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 
@@ -1338,13 +1342,44 @@ async fn load_folder_node<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<
         })
 }
 
-async fn next_folder_parent<C: ConnectionTrait>(
+const FOLDER_PARENT_CACHE_LIMIT: usize = 4096;
+
+struct FolderParentCache {
+    nodes: HashMap<i64, Option<FolderNode>>,
+}
+
+impl FolderParentCache {
+    fn new() -> Self {
+        Self {
+            nodes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
+        }
+    }
+
+    fn insert(&mut self, id: i64, node: Option<FolderNode>) {
+        if self.nodes.len() >= FOLDER_PARENT_CACHE_LIMIT
+            && !self.nodes.contains_key(&id)
+            && let Some(key) = self.nodes.keys().next().copied()
+        {
+            self.nodes.remove(&key);
+        }
+        self.nodes.insert(id, node);
+    }
+}
+
+async fn next_folder_parent_cached<C: ConnectionTrait>(
     db: &C,
     id: i64,
     scope: FolderAuditScope,
+    cache: &mut FolderParentCache,
 ) -> Result<Option<i64>> {
-    Ok(load_folder_node(db, id)
-        .await?
+    let node = if let Some(node) = cache.nodes.get(&id).copied() {
+        node
+    } else {
+        let node = load_folder_node(db, id).await?;
+        cache.insert(id, node);
+        node
+    };
+    Ok(node
         .filter(|node| folder_in_scope(scope, node))
         .and_then(|node| node.parent_id))
 }
@@ -1353,20 +1388,21 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
     db: &C,
     start: i64,
     scope: FolderAuditScope,
+    cache: &mut FolderParentCache,
 ) -> Result<Option<i64>> {
     let mut slow = Some(start);
     let mut fast = Some(start);
     let meeting = loop {
         slow = match slow {
-            Some(id) => next_folder_parent(db, id, scope).await?,
+            Some(id) => next_folder_parent_cached(db, id, scope, cache).await?,
             None => return Ok(None),
         };
         fast = match fast {
-            Some(id) => next_folder_parent(db, id, scope).await?,
+            Some(id) => next_folder_parent_cached(db, id, scope, cache).await?,
             None => return Ok(None),
         };
         fast = match fast {
-            Some(id) => next_folder_parent(db, id, scope).await?,
+            Some(id) => next_folder_parent_cached(db, id, scope, cache).await?,
             None => return Ok(None),
         };
         if let (Some(slow_id), Some(fast_id)) = (slow, fast)
@@ -1377,13 +1413,13 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
     };
 
     let mut representative = meeting;
-    let mut current = next_folder_parent(db, meeting, scope).await?;
+    let mut current = next_folder_parent_cached(db, meeting, scope, cache).await?;
     while let Some(id) = current {
         representative = std::cmp::min(representative, id);
         if id == meeting {
             break;
         }
-        current = next_folder_parent(db, id, scope).await?;
+        current = next_folder_parent_cached(db, id, scope, cache).await?;
     }
     Ok(Some(representative))
 }
@@ -1395,6 +1431,7 @@ async fn audit_folder_tree_partition_bounded<C: ConnectionTrait>(
 ) -> Result<AuditFindingSummary<FolderTreeIssue>> {
     let mut issues = AuditFindingSummary::new();
     let mut reported_cycles = HashSet::<i64>::new();
+    let mut parent_cache = FolderParentCache::new();
     let mut last_folder_id = None;
     loop {
         let mut query = Folder::find()
@@ -1455,16 +1492,20 @@ async fn audit_folder_tree_partition_bounded<C: ConnectionTrait>(
                 Some(_) => {}
             }
             if let Some(representative) =
-                find_folder_cycle_representative(db, folder_id, scope).await?
+                find_folder_cycle_representative(db, folder_id, scope, &mut parent_cache).await?
                 && reported_cycles.insert(representative)
             {
                 issues.record(
                     FolderTreeIssue {
                         kind: FolderTreeIssueKind::Cycle,
                         folder_id: representative,
-                        parent_id: load_folder_node(db, representative)
-                            .await?
-                            .and_then(|node| node.parent_id),
+                        parent_id: next_folder_parent_cached(
+                            db,
+                            representative,
+                            scope,
+                            &mut parent_cache,
+                        )
+                        .await?,
                         detail: format!(
                             "folder cycle detected involving folder#{}",
                             representative
@@ -1601,16 +1642,25 @@ async fn audit_missing_blob_objects<C: ConnectionTrait>(
             break;
         }
         last_blob_id = blobs.last().map(|blob| blob.id);
-        for blob in blobs {
-            report.scanned_blob_records += 1;
-            let Some(path) = blob.storage_path_for_connector() else {
-                continue;
-            };
-            if !driver.exists(path).await.map_err(AsterError::from)? {
+        report.scanned_blob_records += blobs.len();
+        let missing = stream::iter(blobs.into_iter().filter_map(|blob| {
+            blob.storage_path_for_connector()
+                .map(|path| (blob.id, path.to_string()))
+        }))
+        .map(|(blob_id, path)| async move {
+            let exists = driver.exists(&path).await.map_err(AsterError::from)?;
+            Ok::<_, AsterError>((blob_id, path, exists))
+        })
+        .buffer_unordered(32)
+        .collect::<Vec<_>>()
+        .await;
+        for result in missing {
+            let (blob_id, path, exists) = result?;
+            if !exists {
                 let finding = BlobObjectIssue {
                     policy_id,
-                    path: path.to_string(),
-                    blob_id: Some(blob.id),
+                    path,
+                    blob_id: Some(blob_id),
                 };
                 sink.record(StorageObjectFinding::MissingBlob(finding.clone()))?;
                 record_finding(

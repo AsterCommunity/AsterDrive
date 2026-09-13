@@ -1,7 +1,9 @@
 use super::presigned::{MAX_PRESIGN_TTL, clamp_presign_ttl};
 use super::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use aster_drive_storage::error::StorageErrorKind;
-use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
+use aster_drive_storage::traits::driver::{
+    StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+};
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
 };
@@ -646,9 +648,12 @@ struct CollectingVisitor {
 
 #[async_trait::async_trait]
 impl StoragePathVisitor for CollectingVisitor {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.paths.push(path);
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 

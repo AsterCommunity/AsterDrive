@@ -311,7 +311,7 @@ fn csv_header_values_union(raw_values: &[&str]) -> Vec<String> {
 pub struct RemoteStorageListResponse {
     pub items: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub next_cursor: Option<u64>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

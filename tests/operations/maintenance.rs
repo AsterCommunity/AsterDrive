@@ -1589,6 +1589,10 @@ async fn test_integrity_storage_scan_bounds_path_batch_and_keeps_exact_totals() 
     .await
     .unwrap();
     assert_eq!(collector.0, streamed.untracked_objects_total);
+    assert_eq!(
+        report.untracked_objects_total,
+        streamed.untracked_objects_total
+    );
     assert_eq!(streamed.missing_blob_objects.len(), 0);
     assert_eq!(streamed.untracked_objects.len(), 0);
 }

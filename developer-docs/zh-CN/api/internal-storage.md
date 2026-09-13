@@ -272,7 +272,7 @@ legacy push 只在当前或切换前确实存在可用数据路径时尝试；�
   "msg": "",
   "data": {
     "items": ["files/part-001", "files/part-002"],
-    "next_cursor": 2
+    "next_cursor": "files/part-002"
   }
 }
 ```

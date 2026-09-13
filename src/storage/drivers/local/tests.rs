@@ -2,7 +2,9 @@ use super::DEFAULT_LOCAL_STORAGE_PATH;
 use super::paths::{effective_base_path, sanitize_relative_path};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
 use aster_drive_storage::StorageErrorKind;
-use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
+use aster_drive_storage::traits::driver::{
+    StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+};
 use aster_drive_storage::traits::extensions::{
     ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus, StreamUploadAttempt,
     StreamUploadCleanup, StreamUploadDriver,
@@ -62,9 +64,12 @@ struct CollectingVisitor {
 
 #[async_trait::async_trait]
 impl StoragePathVisitor for CollectingVisitor {
-    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.paths.push(path);
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 
@@ -390,8 +395,8 @@ async fn scan_paths_walks_directories_in_stable_order() {
         visitor.paths,
         vec![
             "root/a.txt".to_string(),
-            "root/z.txt".to_string(),
-            "root/child/b.txt".to_string()
+            "root/child/b.txt".to_string(),
+            "root/z.txt".to_string()
         ]
     );
 
