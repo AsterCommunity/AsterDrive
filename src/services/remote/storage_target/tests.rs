@@ -1,6 +1,6 @@
 use super::{
     create, delete,
-    driver::remote_storage_target_connector_catalog,
+    driver::{remote_storage_target_connector_catalog, runtime_capabilities},
     list,
     normalization::{normalize_create_input, normalize_update_input},
     paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path},
@@ -341,6 +341,31 @@ async fn normalize_create_input_uses_connector_validation_and_envelope() {
         "asterdrive.storage.local"
     );
     assert_eq!(connection.connector_config.values["base_path"], "dropbox");
+}
+
+#[tokio::test]
+async fn runtime_capabilities_reflect_resolved_target_driver() {
+    let state = setup_state().await;
+    let binding = create_binding(&state, "runtime-capabilities").await;
+    let target = create(
+        &state,
+        &binding,
+        local_create("Local", "runtime-capabilities"),
+    )
+    .await
+    .expect("local target should be created");
+
+    let capabilities = runtime_capabilities(&state, &binding)
+        .await
+        .expect("target capabilities should resolve");
+    let capability = capabilities
+        .into_iter()
+        .find(|capability| capability.target_key == target.target_key)
+        .expect("created target capability should be returned");
+    assert_eq!(capability.connector_id, "asterdrive.storage.local");
+    assert!(capability.range_read);
+    assert!(capability.stream_upload);
+    assert!(capability.multipart.is_none());
 }
 
 #[tokio::test]

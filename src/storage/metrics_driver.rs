@@ -447,6 +447,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
 mod tests {
     use super::*;
     use aster_drive_metrics::MetricsRecorder;
+    use aster_drive_storage::StorageErrorKind;
     use parking_lot::Mutex;
     use std::io;
     use tokio::io::{AsyncReadExt, ReadBuf};
@@ -524,6 +525,64 @@ mod tests {
     }
 
     struct ProviderResumableDriver;
+
+    struct MultipartProbe;
+
+    #[async_trait]
+    impl MultipartStorageDriver for MultipartProbe {
+        fn capabilities(&self) -> aster_drive_storage::MultipartStorageCapabilities {
+            aster_drive_storage::MultipartStorageCapabilities {
+                min_part_size: 7,
+                max_part_size: Some(70),
+                max_parts: 7,
+                max_object_size: Some(700),
+                upload_mode: aster_drive_storage::MultipartUploadMode::NativeStreaming,
+            }
+        }
+
+        async fn create_multipart_upload(&self, _: &str) -> Result<String> {
+            Ok("upload".to_string())
+        }
+        async fn presigned_upload_part_request(
+            &self,
+            _: &str,
+            _: &str,
+            _: i32,
+            _: Duration,
+        ) -> Result<aster_drive_storage::PresignedUploadRequest> {
+            Err(aster_drive_storage::storage_driver_error(
+                StorageErrorKind::Unsupported,
+                "not used",
+            ))
+        }
+        async fn complete_multipart_upload(
+            &self,
+            _: &str,
+            _: &str,
+            _: Vec<(i32, String)>,
+        ) -> Result<()> {
+            Ok(())
+        }
+        async fn upload_multipart_part(
+            &self,
+            _: &str,
+            _: &str,
+            _: i32,
+            _: &[u8],
+        ) -> Result<String> {
+            Ok("etag".to_string())
+        }
+        async fn abort_multipart_upload(&self, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn list_uploaded_part_details(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Vec<aster_drive_storage::UploadedMultipartPart>> {
+            Ok(Vec::new())
+        }
+    }
 
     #[async_trait]
     impl StorageDriver for ProviderResumableDriver {
@@ -746,5 +805,19 @@ mod tests {
 
         let extensions = driver.extensions();
         assert!(extensions.provider_resumable.is_some());
+    }
+
+    #[test]
+    fn metrics_wrapper_preserves_multipart_capabilities() {
+        let driver = MetricsMultipartStorageDriver::new(
+            Arc::new(MultipartProbe),
+            "test",
+            Arc::new(CapturingMetrics::default()),
+        );
+        let capabilities = driver.capabilities();
+        assert_eq!(capabilities.min_part_size, 7);
+        assert_eq!(capabilities.max_part_size, Some(70));
+        assert_eq!(capabilities.max_parts, 7);
+        assert_eq!(capabilities.max_object_size, Some(700));
     }
 }

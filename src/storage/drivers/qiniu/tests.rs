@@ -169,6 +169,7 @@ fn exposes_qiniu_official_multipart_limits() {
     assert_eq!(capability.min_part_size, 1024 * 1024);
     assert_eq!(capability.max_part_size, Some(1024 * 1024 * 1024));
     assert_eq!(capability.max_parts, 10_000);
+    assert_eq!(driver.max_single_put_size(), Some(5 * 1024 * 1024 * 1024));
 }
 
 #[tokio::test]
