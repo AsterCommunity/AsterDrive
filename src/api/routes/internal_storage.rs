@@ -1074,7 +1074,7 @@ mod tests {
         visitor.visit_path("ns/one".to_string()).await.unwrap();
         visitor.visit_path("ns/two".to_string()).await.unwrap();
         visitor.visit_path("ns/three".to_string()).await.unwrap();
-        visitor.visit_path("ns/four".to_string()).await.unwrap();
+        visitor.visit_path("ns/zoo".to_string()).await.unwrap();
 
         assert_eq!(visitor.items, vec!["two", "three"]);
         assert!(visitor.has_more);
