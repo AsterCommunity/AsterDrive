@@ -277,6 +277,31 @@ export function StoragePolicyMigrationDialog({
 									})}
 								</div>
 							</div>
+							{dryRun.multipart_plan ? (
+								<div className="rounded-md border bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
+									<div className="font-medium text-foreground">
+										{t("policy_migration_multipart_plan")}
+									</div>
+									<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+										<span>
+											{t("policy_migration_multipart_part_size", {
+												size: formatBytes(dryRun.multipart_plan.part_size),
+												count: dryRun.multipart_plan.part_count,
+											})}
+										</span>
+										<span>
+											{dryRun.multipart_plan.upload_mode === "native_streaming"
+												? t("policy_migration_multipart_mode_native_streaming")
+												: t("policy_migration_multipart_mode_buffered")}
+										</span>
+									</div>
+									{dryRun.multipart_plan.reason ? (
+										<div className="mt-1 text-destructive">
+											{dryRun.multipart_plan.reason}
+										</div>
+									) : null}
+								</div>
+							) : null}
 							{dryRun.warnings.length > 0 ? (
 								<div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
 									{dryRun.warnings.map((warning) => (

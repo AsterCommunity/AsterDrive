@@ -10,6 +10,7 @@ mod tests;
 
 use crate::errors::{AsterError, Result};
 use crate::services::remote::capability::RemoteCapabilityResolver;
+use crate::storage::remote_protocol::RemoteStorageCapabilities;
 use crate::storage::remote_protocol::RemoteStorageClient;
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::object_key;
@@ -26,6 +27,7 @@ pub struct RemoteDriver {
     base_path: String,
     supports_capacity: bool,
     uses_reverse_tunnel: bool,
+    max_multipart_parts: u64,
 }
 
 impl RemoteDriver {
@@ -60,6 +62,13 @@ impl RemoteDriver {
         resolver.ensure_protocol_compatible("remote storage driver")?;
         let client =
             client.with_policy_context(&config.remote_storage_target_key, config.max_file_size);
+        let max_multipart_parts =
+            RemoteStorageCapabilities::from_stored_json(&follower.last_capabilities)
+                .limits
+                .compose_max_parts
+                .and_then(|value| u64::try_from(value).ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(10_000);
         Ok(Self {
             client,
             base_path: config.base_path.trim_matches('/').to_string(),
@@ -67,6 +76,7 @@ impl RemoteDriver {
             uses_reverse_tunnel: follower
                 .transport_mode
                 .resolves_to_reverse_tunnel(&follower.base_url),
+            max_multipart_parts,
         })
     }
 

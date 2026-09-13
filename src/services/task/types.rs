@@ -748,6 +748,29 @@ pub enum StoragePolicyMigrationCapacityCheck {
 #[serde(rename_all = "snake_case")]
 pub enum StoragePolicyMigrationDryRunWarning {
     TargetCapacityUnavailable,
+    MultipartCapabilityUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum StoragePolicyMigrationMultipartUploadMode {
+    NativeStreaming,
+    Buffered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StoragePolicyMigrationMultipartPlan {
+    pub blob_size: i64,
+    pub part_size: i64,
+    pub part_count: i64,
+    pub provider_max_parts: i64,
+    pub provider_max_part_size: Option<i64>,
+    pub heap_budget: i64,
+    pub upload_mode: StoragePolicyMigrationMultipartUploadMode,
+    pub can_start: bool,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -766,6 +789,8 @@ pub struct StoragePolicyMigrationDryRun {
     pub target_connection_ok: bool,
     pub target_capacity_check: StoragePolicyMigrationCapacityCheck,
     pub target_capacity: aster_drive_storage::StorageCapacityInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multipart_plan: Option<StoragePolicyMigrationMultipartPlan>,
     /// Read-only source evidence used by recover-available mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_recovery_probe:

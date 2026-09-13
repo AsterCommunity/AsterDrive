@@ -4,7 +4,6 @@ use aster_forge_tasks::TaskExecutionContext;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use bytes::Bytes;
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
@@ -15,11 +14,14 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use aster_drive_model::entities::{background_task, file_blob, storage_policy};
 use aster_drive_model::types::BackgroundTaskKind;
-use aster_drive_storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
+use aster_drive_storage::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode, StorageDriver,
+    StorageErrorKind,
+};
 use aster_forge_crypto::{new_sha256, sha256_digest_to_hex, sha256_hex};
 use aster_forge_db::transaction;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
-use aster_forge_utils::numbers::{bytes_to_usize, u64_to_i64};
+use aster_forge_utils::numbers::u64_to_i64;
 
 use super::spec::{self, StoragePolicyMigrationTask, decode_payload_as};
 use super::steps::{
@@ -29,6 +31,7 @@ use super::steps::{
 use super::types::{
     StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
     StoragePolicyMigrationDryRunWarning, StoragePolicyMigrationMode,
+    StoragePolicyMigrationMultipartPlan, StoragePolicyMigrationMultipartUploadMode,
     StoragePolicyMigrationTaskPayload, StoragePolicyMigrationTaskResult, TaskInfo,
 };
 use super::{
@@ -38,7 +41,7 @@ use super::{
 const MIGRATION_BATCH_SIZE: u64 = 100;
 const MIGRATION_MULTIPART_MIN_PART_SIZE: i64 = 5 * 1024 * 1024;
 const MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE: i64 = 64 * 1024 * 1024;
-const MIGRATION_MULTIPART_MAX_PARTS: i64 = 10_000;
+const MIGRATION_MULTIPART_HEAP_BUDGET: i64 = 64 * 1024 * 1024;
 const MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS: usize = 3;
 const CHECKPOINT_STAGE_PREPARE_POLICIES: &str = "prepare_policies";
 const CHECKPOINT_STAGE_MIGRATE_VIRTUAL_EMPTY: &str = "migrate_virtual_empty";
@@ -84,12 +87,154 @@ struct StoragePolicyMigrationPreflight {
     dry_run: StoragePolicyMigrationDryRun,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct MigrationMultipartPartPlan {
+    part_size: i64,
+    part_count: i64,
+    provider_max_parts: i64,
+    provider_max_part_size: Option<i64>,
+    upload_mode: MultipartUploadMode,
+    can_start: bool,
+}
+
+struct MultipartPartRetry<'a> {
+    multipart: &'a dyn MultipartStorageDriver,
+    source_driver: &'a dyn StorageDriver,
+    source_path: &'a str,
+    target_path: &'a str,
+    upload_id: &'a str,
+    part_number: i32,
+    offset: i64,
+    part_size: i64,
+    context: &'a TaskExecutionContext,
+}
+
+fn migration_multipart_part_plan(
+    blob_size: i64,
+    configured_part_size: i64,
+    capabilities: MultipartStorageCapabilities,
+) -> Result<MigrationMultipartPartPlan> {
+    if blob_size < 0 {
+        return Err(AsterError::internal_error(format!(
+            "storage migration blob size cannot be negative: {blob_size}"
+        )));
+    }
+    let max_parts = i64::try_from(capabilities.max_parts).map_err(|_| {
+        AsterError::internal_error("storage migration multipart max parts exceeds i64 range")
+    })?;
+    if max_parts <= 0 {
+        return Err(AsterError::validation_error(
+            "storage migration multipart provider max parts must be positive",
+        ));
+    }
+    let min_part_size = i64::try_from(capabilities.min_part_size).map_err(|_| {
+        AsterError::internal_error(
+            "storage migration multipart minimum part size exceeds i64 range",
+        )
+    })?;
+    let configured_part_size = configured_part_size.max(min_part_size).clamp(
+        MIGRATION_MULTIPART_MIN_PART_SIZE,
+        MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE,
+    );
+    let count_limited_part_size = if blob_size == 0 {
+        configured_part_size
+    } else {
+        blob_size.checked_add(max_parts - 1).ok_or_else(|| {
+            AsterError::internal_error("storage migration multipart size overflow")
+        })? / max_parts
+    };
+    let part_size = configured_part_size.max(count_limited_part_size);
+    let part_count = if blob_size == 0 {
+        0
+    } else {
+        blob_size.checked_add(part_size - 1).ok_or_else(|| {
+            AsterError::internal_error("storage migration multipart part count overflow")
+        })? / part_size
+    };
+    let provider_max_part_size = capabilities
+        .max_part_size
+        .map(|size| {
+            i64::try_from(size).map_err(|_| {
+                AsterError::internal_error(
+                    "storage migration provider max part size exceeds i64 range",
+                )
+            })
+        })
+        .transpose()?;
+    let provider_size_ok = provider_max_part_size.is_none_or(|max| part_size <= max);
+    let reader_size_ok = match capabilities.upload_mode {
+        MultipartUploadMode::NativeStreaming => true,
+        MultipartUploadMode::Buffered { max_size } => {
+            i64::try_from(max_size).is_ok_and(|max| part_size <= max)
+        }
+    };
+    Ok(MigrationMultipartPartPlan {
+        part_size,
+        part_count,
+        provider_max_parts: max_parts,
+        provider_max_part_size,
+        upload_mode: capabilities.upload_mode,
+        can_start: part_count <= max_parts && provider_size_ok && reader_size_ok,
+    })
+}
+
+fn multipart_plan_for_dry_run(
+    blob_size: i64,
+    configured_part_size: i64,
+    capabilities: MultipartStorageCapabilities,
+) -> Result<Option<StoragePolicyMigrationMultipartPlan>> {
+    if blob_size <= 0 {
+        return Ok(None);
+    }
+    let plan = migration_multipart_part_plan(blob_size, configured_part_size, capabilities)?;
+    let multipart_required = blob_size > plan.part_size;
+    let reason = if plan.can_start || !multipart_required {
+        None
+    } else {
+        Some(match plan.upload_mode {
+            MultipartUploadMode::NativeStreaming => {
+                "provider multipart limits cannot represent this blob size".to_string()
+            }
+            MultipartUploadMode::Buffered { .. } => {
+                "provider multipart reader requires a part larger than its heap budget".to_string()
+            }
+        })
+    };
+    Ok(Some(StoragePolicyMigrationMultipartPlan {
+        blob_size,
+        part_size: plan.part_size,
+        part_count: plan.part_count,
+        provider_max_parts: plan.provider_max_parts,
+        provider_max_part_size: plan.provider_max_part_size,
+        heap_budget: MIGRATION_MULTIPART_HEAP_BUDGET,
+        upload_mode: match plan.upload_mode {
+            MultipartUploadMode::NativeStreaming => {
+                StoragePolicyMigrationMultipartUploadMode::NativeStreaming
+            }
+            MultipartUploadMode::Buffered { .. } => {
+                StoragePolicyMigrationMultipartUploadMode::Buffered
+            }
+        },
+        can_start: plan.can_start || !multipart_required,
+        reason,
+    }))
+}
+
 pub(crate) async fn create_storage_policy_migration_task(
     state: &PrimaryAppState,
     input: CreateStoragePolicyMigrationInput,
 ) -> Result<TaskInfo> {
     let preflight = build_storage_policy_migration_preflight(state, input.clone()).await?;
     if !preflight.dry_run.can_start {
+        if let Some(plan) = preflight.dry_run.multipart_plan.as_ref()
+            && !plan.can_start
+        {
+            return Err(AsterError::validation_error(
+                plan.reason
+                    .as_deref()
+                    .unwrap_or("target multipart capability cannot represent this migration"),
+            ));
+        }
         return Err(AsterError::validation_error(
             "target storage capacity is insufficient for this migration",
         ));
@@ -245,7 +390,21 @@ async fn build_storage_policy_migration_preflight(
         .await;
     let target_capacity_check =
         migration_capacity_check(&target_capacity, missing_summary.total_size);
-    let warnings = match target_capacity_check {
+    let multipart_plan = target_driver
+        .extensions()
+        .multipart
+        .filter(|_| missing_summary.count > 0)
+        .map(|multipart| {
+            multipart_plan_for_dry_run(
+                missing_summary.max_size,
+                target_policy.chunk_size,
+                multipart.capabilities(),
+            )
+        })
+        .transpose()?
+        .flatten();
+    let multipart_can_start = multipart_plan.as_ref().is_none_or(|plan| plan.can_start);
+    let mut warnings = match target_capacity_check {
         StoragePolicyMigrationCapacityCheck::Unsupported
         | StoragePolicyMigrationCapacityCheck::Unavailable => {
             vec![StoragePolicyMigrationDryRunWarning::TargetCapacityUnavailable]
@@ -253,6 +412,9 @@ async fn build_storage_policy_migration_preflight(
         StoragePolicyMigrationCapacityCheck::Sufficient
         | StoragePolicyMigrationCapacityCheck::Insufficient => Vec::new(),
     };
+    if multipart_plan.as_ref().is_some_and(|plan| !plan.can_start) {
+        warnings.push(StoragePolicyMigrationDryRunWarning::MultipartCapabilityUnavailable);
+    }
     let can_start = storage_policy_migration_can_start(&target_capacity_check);
 
     Ok(StoragePolicyMigrationPreflight {
@@ -272,8 +434,10 @@ async fn build_storage_policy_migration_preflight(
             target_connection_ok: true,
             target_capacity_check,
             target_capacity,
+            multipart_plan,
             source_recovery_probe: source_recovery_probe.clone(),
             can_start: can_start
+                && multipart_can_start
                 && source_recovery_probe
                     .as_ref()
                     .is_none_or(|probe| probe.can_start_recovery),
@@ -1041,7 +1205,11 @@ async fn copy_blob_streaming(
         AsterError::validation_error("virtual-empty blobs must migrate as metadata-only records")
     })?;
     if let Some(multipart) = target_driver.extensions().multipart
-        && should_use_multipart_migration(blob.size, target_multipart_part_size)?
+        && should_use_multipart_migration(
+            blob.size,
+            target_multipart_part_size,
+            multipart.capabilities(),
+        )?
     {
         // Large single PUT streams are not safely retryable: the S3 SDK cannot
         // clone an in-flight reader after a timeout. Multipart migration keeps
@@ -1121,12 +1289,22 @@ async fn copy_blob_multipart(
             "source storage driver is unavailable for multipart blob migration",
         )
     })?;
-    let mut source_stream = source_driver.get_stream(source_path).await?;
-    let part_size = migration_multipart_part_size(blob.size, target_multipart_part_size)?;
+    let part_plan = migration_multipart_part_plan(
+        blob.size,
+        target_multipart_part_size,
+        multipart.capabilities(),
+    )?;
+    if !part_plan.can_start {
+        return Err(AsterError::validation_error(
+            "target multipart capability cannot represent this migration",
+        ));
+    }
+    let part_size = part_plan.part_size;
     let upload_id = multipart.create_multipart_upload(target_path).await?;
     let mut completed_parts = Vec::new();
     let mut hasher = new_sha256();
     let mut remaining = blob.size;
+    let mut offset = 0_i64;
     let mut part_number = 1_i32;
     let mut completed = false;
 
@@ -1134,24 +1312,32 @@ async fn copy_blob_multipart(
         while remaining > 0 {
             context.ensure_active()?;
             let current_part_size = remaining.min(part_size);
-            let part_bytes =
-                read_multipart_part(&mut source_stream, current_part_size, &mut hasher).await?;
             let etag = upload_multipart_part_with_retry(
-                multipart,
-                target_path,
-                &upload_id,
-                part_number,
-                part_bytes,
+                MultipartPartRetry {
+                    multipart,
+                    source_driver,
+                    source_path,
+                    target_path,
+                    upload_id: &upload_id,
+                    part_number,
+                    offset,
+                    part_size: current_part_size,
+                    context,
+                },
+                &mut hasher,
             )
             .await?;
             completed_parts.push((part_number, etag));
             remaining -= current_part_size;
+            offset = offset.checked_add(current_part_size).ok_or_else(|| {
+                AsterError::internal_error("storage migration source range offset overflow")
+            })?;
             part_number = part_number.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error("storage migration multipart part number overflow")
             })?;
         }
 
-        ensure_source_stream_finished(&mut source_stream).await?;
+        ensure_source_range_finished(source_driver, source_path, offset).await?;
         context.ensure_active()?;
         complete_migration_multipart_upload(
             context,
@@ -1188,59 +1374,29 @@ async fn copy_blob_multipart(
     Ok(())
 }
 
-fn should_use_multipart_migration(blob_size: i64, configured_part_size: i64) -> Result<bool> {
-    if blob_size < 0 {
-        return Err(AsterError::internal_error(format!(
-            "storage migration blob size cannot be negative: {blob_size}"
-        )));
-    }
-    Ok(blob_size > migration_multipart_part_size(blob_size, configured_part_size)?)
+fn should_use_multipart_migration(
+    blob_size: i64,
+    configured_part_size: i64,
+    capabilities: MultipartStorageCapabilities,
+) -> Result<bool> {
+    let plan = migration_multipart_part_plan(blob_size, configured_part_size, capabilities)?;
+    Ok(blob_size > plan.part_size)
 }
 
-fn migration_multipart_part_size(blob_size: i64, configured_part_size: i64) -> Result<i64> {
-    if blob_size < 0 {
-        return Err(AsterError::internal_error(format!(
-            "storage migration blob size cannot be negative: {blob_size}"
-        )));
-    }
-    let configured_part_size = configured_part_size.clamp(
-        MIGRATION_MULTIPART_MIN_PART_SIZE,
-        MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE,
-    );
-    let count_limited_part_size = if blob_size == 0 {
-        MIGRATION_MULTIPART_MIN_PART_SIZE
-    } else {
-        blob_size
-            .checked_add(MIGRATION_MULTIPART_MAX_PARTS - 1)
-            .ok_or_else(|| {
-                AsterError::internal_error("storage migration multipart size overflow")
-            })?
-            / MIGRATION_MULTIPART_MAX_PARTS
-    };
-    // Prefer bounded memory during migration, but S3-compatible providers cap
-    // multipart uploads at 10,000 parts, so extremely large blobs may need a
-    // larger part size to stay within the protocol limit.
-    Ok(configured_part_size.max(count_limited_part_size))
-}
-
-async fn read_multipart_part(
-    stream: &mut Box<dyn AsyncRead + Unpin + Send>,
-    expected_size: i64,
-    hasher: &mut sha2::Sha256,
-) -> Result<Bytes> {
-    let expected_size = bytes_to_usize(expected_size, "storage migration multipart part size")?;
-    let mut data = vec![0_u8; expected_size];
-    stream.read_exact(&mut data).await.map_aster_err_ctx(
-        "read source object multipart part",
-        AsterError::storage_driver_error,
-    )?;
-    sha2::Digest::update(hasher, &data);
-    Ok(Bytes::from(data))
-}
-
-async fn ensure_source_stream_finished(
-    stream: &mut Box<dyn AsyncRead + Unpin + Send>,
+async fn ensure_source_range_finished(
+    source_driver: &dyn StorageDriver,
+    source_path: &str,
+    offset: i64,
 ) -> Result<()> {
+    let mut stream = source_driver
+        .get_range(
+            source_path,
+            u64::try_from(offset).map_err(|_| {
+                AsterError::internal_error("storage migration source range offset overflow")
+            })?,
+            None,
+        )
+        .await?;
     let mut extra = [0_u8; 1];
     let read = stream.read(&mut extra).await.map_aster_err_ctx(
         "read source object after expected multipart size",
@@ -1255,18 +1411,41 @@ async fn ensure_source_stream_finished(
 }
 
 async fn upload_multipart_part_with_retry(
-    multipart: &dyn MultipartStorageDriver,
-    target_path: &str,
-    upload_id: &str,
-    part_number: i32,
-    part_bytes: Bytes,
+    part: MultipartPartRetry<'_>,
+    hasher: &mut sha2::Sha256,
 ) -> Result<String> {
     for attempt in 1..=MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS {
-        match multipart
-            .upload_multipart_part_bytes(target_path, upload_id, part_number, part_bytes.clone())
+        part.context.ensure_active()?;
+        let source_reader = part
+            .source_driver
+            .get_range(
+                part.source_path,
+                u64::try_from(part.offset).map_err(|_| {
+                    AsterError::internal_error("storage migration source range offset overflow")
+                })?,
+                Some(u64::try_from(part.part_size).map_err(|_| {
+                    AsterError::internal_error("storage migration source range size overflow")
+                })?),
+            )
+            .await?;
+        let hashing_reader =
+            HashingReader::with_digest(source_reader, part.context.clone(), hasher.clone());
+        let digest = hashing_reader.digest_handle();
+        match part
+            .multipart
+            .upload_multipart_part_reader(
+                part.target_path,
+                part.upload_id,
+                part.part_number,
+                Box::new(hashing_reader),
+                part.part_size,
+            )
             .await
         {
-            Ok(etag) => return Ok(etag),
+            Ok(etag) => {
+                *hasher = digest.finish_hasher()?;
+                return Ok(etag);
+            }
             Err(error)
                 if matches!(
                     error.kind(),
@@ -1274,8 +1453,8 @@ async fn upload_multipart_part_with_retry(
                 ) && attempt < MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS =>
             {
                 tracing::warn!(
-                    target_path,
-                    part_number,
+                    target_path = part.target_path,
+                    part_number = part.part_number,
                     attempt,
                     error = %error,
                     "storage migration multipart part upload failed; retrying"
@@ -1565,11 +1744,17 @@ struct HashDigestHandle(std::sync::Arc<std::sync::Mutex<Option<sha2::Sha256>>>);
 
 impl HashingReader {
     fn new(inner: Box<dyn AsyncRead + Unpin + Send>, context: TaskExecutionContext) -> Self {
+        Self::with_digest(inner, context, new_sha256())
+    }
+
+    fn with_digest(
+        inner: Box<dyn AsyncRead + Unpin + Send>,
+        context: TaskExecutionContext,
+        digest: sha2::Sha256,
+    ) -> Self {
         Self {
             inner: Self::wrap_inner(inner),
-            digest: HashDigestHandle(std::sync::Arc::new(std::sync::Mutex::new(Some(
-                new_sha256(),
-            )))),
+            digest: HashDigestHandle(std::sync::Arc::new(std::sync::Mutex::new(Some(digest)))),
             context,
         }
     }
@@ -1644,14 +1829,18 @@ impl AsyncRead for HashingReader {
 }
 
 impl HashDigestHandle {
-    fn finish_hex(&self) -> Result<String> {
+    fn finish_hasher(&self) -> Result<sha2::Sha256> {
         let mut guard = self
             .0
             .lock()
             .map_err(|_| AsterError::internal_error("hashing reader digest lock poisoned"))?;
-        let hasher = guard
+        guard
             .take()
-            .ok_or_else(|| AsterError::internal_error("hashing reader digest already finalized"))?;
+            .ok_or_else(|| AsterError::internal_error("hashing reader digest already finalized"))
+    }
+
+    fn finish_hex(&self) -> Result<String> {
+        let hasher = self.finish_hasher()?;
         Ok(sha256_digest_to_hex(&sha2::Digest::finalize(hasher)))
     }
 }
@@ -1724,6 +1913,56 @@ mod tests {
         assert!(!storage_policy_migration_can_start(
             &StoragePolicyMigrationCapacityCheck::Insufficient
         ));
+    }
+
+    fn native_multipart_capabilities() -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 5 * 1024 * 1024,
+            max_part_size: Some(5 * 1024 * 1024 * 1024),
+            max_parts: 10_000,
+            upload_mode: MultipartUploadMode::NativeStreaming,
+        }
+    }
+
+    #[test]
+    fn multipart_part_plan_keeps_heap_budget_separate_from_provider_part_size() {
+        let plan = migration_multipart_part_plan(
+            10_i64 * 1024 * 1024 * 1024 * 1024,
+            64 * 1024 * 1024,
+            native_multipart_capabilities(),
+        )
+        .expect("large blob plan should succeed");
+        assert!(plan.part_size > MIGRATION_MULTIPART_HEAP_BUDGET);
+        assert_eq!(plan.part_count, 10_000);
+        assert!(plan.can_start);
+    }
+
+    #[test]
+    fn multipart_part_plan_rejects_buffered_reader_above_heap_budget() {
+        let mut capabilities = native_multipart_capabilities();
+        capabilities.upload_mode = MultipartUploadMode::Buffered {
+            max_size: MIGRATION_MULTIPART_HEAP_BUDGET as u64,
+        };
+        let plan = migration_multipart_part_plan(
+            10_i64 * 1024 * 1024 * 1024 * 1024,
+            64 * 1024 * 1024,
+            capabilities,
+        )
+        .expect("buffered plan should be computed");
+        assert!(!plan.can_start);
+    }
+
+    #[test]
+    fn multipart_part_plan_handles_provider_part_limit_and_overflow() {
+        let mut capabilities = native_multipart_capabilities();
+        capabilities.max_parts = 50_000;
+        let plan = migration_multipart_part_plan(1_i64 << 40, 5 * 1024 * 1024, capabilities)
+            .expect("provider limit plan should succeed");
+        assert_eq!(plan.part_count, 50_000);
+
+        let error = migration_multipart_part_plan(i64::MAX, i64::MAX, capabilities)
+            .expect_err("part size arithmetic should reject overflow");
+        assert!(error.to_string().contains("overflow"));
     }
 
     #[tokio::test]

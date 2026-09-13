@@ -154,6 +154,12 @@ macro_rules! delegate_s3_compatible_multipart_driver {
     ($driver:ty, $field:ident) => {
         #[async_trait::async_trait]
         impl aster_drive_storage::MultipartStorageDriver for $driver {
+            fn capabilities(
+                &self,
+            ) -> aster_drive_storage::traits::multipart::MultipartStorageCapabilities {
+                self.$field.capabilities()
+            }
+
             async fn create_multipart_upload(
                 &self,
                 path: &str,

@@ -20,6 +20,38 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 const DEFAULT_MULTIPART_READER_BUFFER_SIZE: usize = 64 * 1024;
 const MAX_DEFAULT_MULTIPART_READER_SIZE: usize = 64 * 1024 * 1024;
 
+/// 描述 provider 对 numbered multipart/block upload 的限制以及 reader 上传能力。
+///
+/// `max_part_size` 是 provider 的协议限制，`upload_mode` 描述驱动在本地如何
+/// 消费 part。两者必须分开：一个 1 GiB 的 provider part 可以通过固定小 buffer
+/// 流式发送，并不意味着进程需要分配 1 GiB 的 `Vec`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MultipartStorageCapabilities {
+    pub min_part_size: u64,
+    pub max_part_size: Option<u64>,
+    pub max_parts: u64,
+    pub upload_mode: MultipartUploadMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultipartUploadMode {
+    NativeStreaming,
+    Buffered { max_size: u64 },
+}
+
+impl MultipartStorageCapabilities {
+    pub const fn conservative_default() -> Self {
+        Self {
+            min_part_size: 5 * 1024 * 1024,
+            max_part_size: None,
+            max_parts: 10_000,
+            upload_mode: MultipartUploadMode::Buffered {
+                max_size: MAX_DEFAULT_MULTIPART_READER_SIZE as u64,
+            },
+        }
+    }
+}
+
 /// Provider 端已经接收的 multipart part 明细。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UploadedMultipartPart {
@@ -38,6 +70,14 @@ pub struct UploadedMultipartPart {
 /// 协议勉强模拟。
 #[async_trait]
 pub trait MultipartStorageDriver: Send + Sync {
+    /// 返回 provider part 限制与 reader 上传的本地内存语义。
+    ///
+    /// 未覆写的驱动使用保守 buffered fallback，迁移 preflight 会在 logical
+    /// part 超过该 fallback 上限时提前阻塞任务，而不是让 worker 在运行中才失败。
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities::conservative_default()
+    }
+
     /// 创建 multipart upload，返回 provider 端的 upload_id
     async fn create_multipart_upload(&self, path: &str) -> Result<String>;
 

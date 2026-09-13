@@ -9,7 +9,10 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::traits::extensions::ListStorageDriver;
-use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::traits::multipart::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    UploadedMultipartPart,
+};
 
 use super::RemoteDriver;
 
@@ -44,6 +47,15 @@ impl AsyncRead for HashingReader {
 
 #[async_trait]
 impl MultipartStorageDriver for RemoteDriver {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 1,
+            max_part_size: None,
+            max_parts: self.max_multipart_parts,
+            upload_mode: MultipartUploadMode::NativeStreaming,
+        }
+    }
+
     async fn create_multipart_upload(&self, _path: &str) -> aster_drive_storage::Result<String> {
         Ok(aster_forge_utils::id::new_uuid())
     }

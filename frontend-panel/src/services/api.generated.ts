@@ -8798,12 +8798,31 @@ export interface components {
         /** @enum {string} */
         StoragePolicyMigrationCapacityCheck: "sufficient" | "insufficient" | "unsupported" | "unavailable";
         /** @enum {string} */
-        StoragePolicyMigrationDryRunWarning: "target_capacity_unavailable";
+        StoragePolicyMigrationDryRunWarning: "target_capacity_unavailable" | "multipart_capability_unavailable";
         /**
          * @description Product intent applied by a storage-policy migration task.
          * @enum {string}
          */
         StoragePolicyMigrationMode: "normal" | "recover_available";
+        StoragePolicyMigrationMultipartPlan: {
+            /** Format: int64 */
+            blob_size: number;
+            can_start: boolean;
+            /** Format: int64 */
+            heap_budget: number;
+            /** Format: int64 */
+            part_count: number;
+            /** Format: int64 */
+            part_size: number;
+            /** Format: int64 */
+            provider_max_part_size?: number | null;
+            /** Format: int64 */
+            provider_max_parts: number;
+            reason?: string | null;
+            upload_mode: components["schemas"]["StoragePolicyMigrationMultipartUploadMode"];
+        };
+        /** @enum {string} */
+        StoragePolicyMigrationMultipartUploadMode: "native_streaming" | "buffered";
         StoragePolicyMigrationTaskPayload: {
             /** @description Migration behavior selected when the immutable task plan was created. */
             mode?: components["schemas"]["StoragePolicyMigrationMode"];
@@ -14322,6 +14341,7 @@ export interface operations {
                             content_sha256_blob_count: number;
                             /** Format: int64 */
                             estimated_copy_blob_count: number;
+                            multipart_plan?: null | components["schemas"]["StoragePolicyMigrationMultipartPlan"];
                             /** Format: int64 */
                             opaque_blob_count: number;
                             /** Format: int64 */

@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use aster_drive_storage::PresignedUploadRequest;
 use aster_drive_storage::traits::extensions::{ExactSizeReader, checked_upload_size};
-use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::traits::multipart::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    UploadedMultipartPart,
+};
 use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
@@ -19,6 +22,15 @@ use super::presigned::{clamp_presign_ttl, sdk_presigned_upload_request};
 
 #[async_trait]
 impl MultipartStorageDriver for S3Driver {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 5 * 1024 * 1024,
+            max_part_size: Some(5 * 1024 * 1024 * 1024),
+            max_parts: 10_000,
+            upload_mode: MultipartUploadMode::NativeStreaming,
+        }
+    }
+
     async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
         let resp = self

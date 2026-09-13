@@ -16,7 +16,10 @@ use aster_drive_storage::traits::driver::StorageDriver;
 use aster_drive_storage::traits::extensions::{
     ExactSizeReader, StreamUploadDriver, checked_upload_size,
 };
-use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::traits::multipart::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    UploadedMultipartPart,
+};
 use aster_drive_storage::{MapStorageErr, StorageError, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
 
@@ -219,6 +222,15 @@ impl SeekableStream for AzureSizedReaderStream {
 
 #[async_trait]
 impl MultipartStorageDriver for AzureBlobDriver {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 1,
+            max_part_size: Some(super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE),
+            max_parts: super::AZURE_BLOCK_BLOB_MAX_BLOCKS,
+            upload_mode: MultipartUploadMode::NativeStreaming,
+        }
+    }
+
     async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
         Ok(format!(
             "azure-block:{}:{}",

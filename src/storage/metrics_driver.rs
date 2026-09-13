@@ -327,6 +327,10 @@ impl StorageDriver for MetricsStorageDriver {
 
 #[async_trait]
 impl MultipartStorageDriver for MetricsMultipartStorageDriver {
+    fn capabilities(&self) -> aster_drive_storage::traits::multipart::MultipartStorageCapabilities {
+        self.inner.capabilities()
+    }
+
     async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self.inner.create_multipart_upload(path).await;

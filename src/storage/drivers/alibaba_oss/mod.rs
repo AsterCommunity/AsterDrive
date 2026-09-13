@@ -14,7 +14,10 @@ use aster_drive_storage::traits::driver::{DirectDownloadOptions, StorageDriver};
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, PresignedUploadStorageDriver, StorageDriverExtensions,
 };
-use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::traits::multipart::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    UploadedMultipartPart,
+};
 use aster_drive_storage::{Result, StorageCapacityInfo};
 use bytes::Bytes;
 use tokio::io::AsyncRead;
@@ -438,6 +441,15 @@ impl PresignedUploadStorageDriver for AlibabaOssDriver {
 
 #[async_trait::async_trait]
 impl MultipartStorageDriver for AlibabaOssDriver {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 100 * 1024,
+            max_part_size: Some(5 * 1024 * 1024 * 1024),
+            max_parts: 10_000,
+            upload_mode: MultipartUploadMode::NativeStreaming,
+        }
+    }
+
     async fn create_multipart_upload(&self, path: &str) -> Result<String> {
         self.storage.create_multipart_upload(path).await
     }
