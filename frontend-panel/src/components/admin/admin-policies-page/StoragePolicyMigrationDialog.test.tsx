@@ -139,4 +139,20 @@ describe("StoragePolicyMigrationDialog", () => {
 			screen.getByText("policy_migration_multipart_mode_buffered"),
 		).toBeInTheDocument();
 	});
+
+	it("renders a verified target capacity detail", () => {
+		const value = dryRun(null);
+		value.target_capacity = {
+			status: "supported",
+			total_bytes: 100,
+			available_bytes: 40,
+			used_bytes: 60,
+			source: "test",
+			observed_at: "2026-01-01T00:00:00Z",
+		};
+		renderDialog(value);
+		expect(
+			screen.getByText("policy_migration_capacity_available_of_total"),
+		).toBeInTheDocument();
+	});
 });
