@@ -296,6 +296,22 @@ impl DriverRegistry {
         );
     }
 
+    #[cfg(any(test, debug_assertions))]
+    pub fn insert_multipart_for_test<T>(&self, policy_id: i64, driver: Arc<T>)
+    where
+        T: StorageDriver + MultipartStorageDriver + 'static,
+    {
+        let storage: Arc<dyn StorageDriver> = driver.clone();
+        let multipart: Arc<dyn MultipartStorageDriver> = driver;
+        self.drivers.insert(
+            policy_id,
+            DriverEntry {
+                storage,
+                multipart: Some(multipart),
+            },
+        );
+    }
+
     /// Insert the exact S3 driver instance for tests that need raw S3 behavior.
     ///
     /// This intentionally bypasses metrics wrapping so tests can rely on the

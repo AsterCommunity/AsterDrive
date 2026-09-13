@@ -1,7 +1,7 @@
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
-    UploadTransport, effective_object_multipart_chunk_size,
+    OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageUploadStrategy, ProviderResumableUploadStrategy,
+    RemoteUploadStrategy, UploadTransport,
 };
 
 /// Connector 对 upload service 暴露的上传传输模型。
@@ -46,10 +46,18 @@ impl StorageConnectorUploadTransport {
 
     /// 返回当前传输模型下实际使用的 chunk size。
     ///
-    /// 对象存储 multipart 需要满足 provider 最小 part size，因此会走专门的修正逻辑。
+    /// 返回策略配置的逻辑 chunk 值。对象存储/Remote 的 provider 最小值、最大值和
+    /// part-count 约束由上传 planner 根据实际 driver capability 修正；这里不能再把
+    /// S3 的 5 MiB 下限套到所有 connector 上。
     pub fn effective_chunk_size(self, policy: &storage_policy::Model) -> i64 {
         match self {
-            Self::ObjectStorage(_) => effective_object_multipart_chunk_size(policy.chunk_size),
+            Self::ObjectStorage(_) => {
+                if policy.chunk_size <= 0 {
+                    OBJECT_MULTIPART_MIN_PART_SIZE
+                } else {
+                    policy.chunk_size
+                }
+            }
             Self::Local | Self::Remote(_) | Self::ProviderResumable(_) | Self::Sftp => {
                 policy.chunk_size
             }
@@ -60,12 +68,13 @@ impl StorageConnectorUploadTransport {
     ///
     /// 这里只做调度决策；真正创建 multipart upload、presigned URL 或 session 的逻辑在
     /// upload service 后续步骤和具体 driver 中。
-    pub fn resolve_init_mode(
+    pub fn resolve_init_mode_with_single_put_limit(
         self,
         policy: &storage_policy::Model,
         total_size: i64,
+        max_single_put_size: Option<u64>,
     ) -> UploadTransport {
-        let fits_single_request = self.fits_single_request(policy, total_size);
+        let fits_single_request = self.fits_single_request(policy, total_size, max_single_put_size);
         match (self, fits_single_request) {
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), true)
             | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadTransport::Presigned,
@@ -95,16 +104,16 @@ impl StorageConnectorUploadTransport {
         }
 
         match self {
-            Self::Local => self.fits_single_request(policy, declared_size),
+            Self::Local => self.fits_single_request(policy, declared_size, None),
             Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream) => {
-                self.fits_single_request(policy, declared_size)
+                self.fits_single_request(policy, declared_size, None)
             }
             Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned) => false,
             Self::Remote(RemoteUploadStrategy::RelayStream)
             | Self::Remote(RemoteUploadStrategy::Presigned) => true,
             Self::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay) => true,
             Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect) => false,
-            Self::Sftp => self.fits_single_request(policy, declared_size),
+            Self::Sftp => self.fits_single_request(policy, declared_size, None),
         }
     }
 
@@ -136,8 +145,16 @@ impl StorageConnectorUploadTransport {
         }
     }
 
-    fn fits_single_request(self, policy: &storage_policy::Model, total_size: i64) -> bool {
+    fn fits_single_request(
+        self,
+        policy: &storage_policy::Model,
+        total_size: i64,
+        max_single_put_size: Option<u64>,
+    ) -> bool {
         let chunk_size = self.effective_chunk_size(policy);
-        chunk_size == 0 || total_size <= chunk_size
+        let configured_limit = chunk_size == 0 || total_size <= chunk_size;
+        configured_limit
+            && max_single_put_size
+                .is_none_or(|max| u64::try_from(total_size).is_ok_and(|size| size <= max))
     }
 }

@@ -147,9 +147,15 @@ async fn init_upload_for_scope(
 
     validate_storage_capacity(state, &ctx.policy, ctx.total_size).await?;
     materialize_upload_target(state, &mut ctx).await?;
+    let target_driver = state.driver_registry().get_driver(&ctx.policy)?;
+    let max_single_put_size = target_driver.max_single_put_size();
 
     let result: Result<InitUploadResponse> = async {
-        if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream
+        if transport.resolve_init_mode_with_single_put_limit(
+            &ctx.policy,
+            ctx.total_size,
+            max_single_put_size,
+        ) == UploadTransport::Stream
             && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
         {
             return init_stream_session(state, &ctx).await;

@@ -11,11 +11,11 @@ use crate::services::workspace::storage::{
     PolicyUploadTransport, resolve_policy_upload_transport_for_execution,
 };
 use aster_drive_model::types::{ObjectStorageUploadStrategy, UploadSessionStatus, UploadTransport};
-use aster_forge_utils::numbers;
 
 use super::context::{
     InitUploadContext, MultipartSessionInitParams, UploadSessionRecordParams,
-    init_multipart_session_with_retry, session_kind_for_transport, try_persist_upload_session,
+    init_multipart_session_with_retry, plan_multipart_upload, session_kind_for_transport,
+    try_persist_upload_session,
 };
 
 pub(super) async fn init_object_storage_upload(
@@ -54,15 +54,24 @@ async fn init_presigned_object_storage_upload(
 
     // 小文件 presigned：客户端直接 PUT 到最终 temp object，不经过服务端 relay，
     // 也不需要 chunk bookkeeping。
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Presigned {
+    if transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        driver.max_single_put_size(),
+    ) == UploadTransport::Presigned
+    {
         return init_presigned_object_storage_single_upload(state, ctx, driver.as_ref()).await;
     }
 
     // 大文件 presigned multipart：服务端仍然不接管数据流，但必须保留 session，
     // 用来记录 multipart upload_id、分片总数以及后续 complete 阶段的收口点。
     let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
-    let total_chunks =
-        numbers::calc_total_chunks(ctx.total_size, chunk_size, "presigned multipart upload")?;
+    let multipart_plan = plan_multipart_upload(
+        ctx.total_size,
+        chunk_size,
+        multipart.as_ref(),
+        "presigned multipart upload",
+    )?;
 
     init_multipart_session_with_retry(
         state,
@@ -72,8 +81,8 @@ async fn init_presigned_object_storage_upload(
             mode: UploadTransport::PresignedMultipart,
             status: UploadSessionStatus::Presigned,
             session_kind: session_kind_for_transport(transport, UploadTransport::PresignedMultipart)?,
-            chunk_size,
-            total_chunks,
+            chunk_size: multipart_plan.chunk_size,
+            total_chunks: multipart_plan.total_chunks,
             expires_in: Duration::hours(24),
             log_label: "presigned multipart",
             abort_db_error_context: "upload session DB initialization error",
@@ -167,10 +176,16 @@ async fn init_relay_stream_object_storage_upload(
     ctx: &InitUploadContext,
     transport: PolicyUploadTransport,
 ) -> Result<InitUploadResponse> {
+    let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
     // relay_stream + 小文件：直接走普通上传接口，让服务端把字节流转发到驱动。
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream {
+    if transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        driver.max_single_put_size(),
+    ) == UploadTransport::Stream
+    {
         tracing::debug!(
             scope = ?ctx.scope,
             policy_id = ctx.policy.id,
@@ -183,8 +198,12 @@ async fn init_relay_stream_object_storage_upload(
 
     // relay_stream + 大文件：客户端仍然分片传给服务端，服务端再逐片上传到对象存储 multipart。
     let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
-    let total_chunks =
-        numbers::calc_total_chunks(ctx.total_size, chunk_size, "relay multipart upload")?;
+    let multipart_plan = plan_multipart_upload(
+        ctx.total_size,
+        chunk_size,
+        multipart.as_ref(),
+        "relay multipart upload",
+    )?;
 
     init_multipart_session_with_retry(
         state,
@@ -194,8 +213,8 @@ async fn init_relay_stream_object_storage_upload(
             mode: UploadTransport::Chunked,
             status: UploadSessionStatus::Uploading,
             session_kind: session_kind_for_transport(transport, UploadTransport::Chunked)?,
-            chunk_size,
-            total_chunks,
+            chunk_size: multipart_plan.chunk_size,
+            total_chunks: multipart_plan.total_chunks,
             expires_in: Duration::hours(24),
             log_label: "relay multipart",
             abort_db_error_context: "upload session DB initialization error",

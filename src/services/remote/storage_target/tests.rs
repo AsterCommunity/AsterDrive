@@ -1,6 +1,9 @@
 use super::{
     create, delete,
-    driver::remote_storage_target_connector_catalog,
+    driver::{
+        map_multipart_runtime_capability, remote_storage_target_connector_catalog,
+        runtime_capabilities,
+    },
     list,
     normalization::{normalize_create_input, normalize_update_input},
     paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path},
@@ -16,6 +19,11 @@ use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::{
     master_binding, remote_storage_target, remote_storage_target_credential,
 };
+use aster_drive_storage::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    PresignedUploadRequest, Result as StorageResult, StorageErrorKind, UploadedMultipartPart,
+};
+use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
 use std::fs;
@@ -119,6 +127,66 @@ async fn setup_state() -> TestFollowerState {
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
         metrics: aster_drive_metrics::NoopMetrics::arc(),
+    }
+}
+
+struct CapabilityMultipartDriver {
+    mode: MultipartUploadMode,
+}
+
+#[async_trait]
+impl MultipartStorageDriver for CapabilityMultipartDriver {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 100,
+            max_part_size: Some(10_000),
+            max_parts: 321,
+            max_object_size: Some(9_999_999),
+            upload_mode: self.mode,
+        }
+    }
+
+    async fn create_multipart_upload(&self, _: &str) -> StorageResult<String> {
+        Ok("upload".into())
+    }
+    async fn presigned_upload_part_request(
+        &self,
+        _: &str,
+        _: &str,
+        _: i32,
+        _: std::time::Duration,
+    ) -> StorageResult<PresignedUploadRequest> {
+        Err(aster_drive_storage::storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "not used",
+        ))
+    }
+    async fn complete_multipart_upload(
+        &self,
+        _: &str,
+        _: &str,
+        _: Vec<(i32, String)>,
+    ) -> StorageResult<()> {
+        Ok(())
+    }
+    async fn upload_multipart_part(
+        &self,
+        _: &str,
+        _: &str,
+        _: i32,
+        _: &[u8],
+    ) -> StorageResult<String> {
+        Ok("etag".into())
+    }
+    async fn abort_multipart_upload(&self, _: &str, _: &str) -> StorageResult<()> {
+        Ok(())
+    }
+    async fn list_uploaded_part_details(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> StorageResult<Vec<UploadedMultipartPart>> {
+        Ok(Vec::new())
     }
 }
 
@@ -341,6 +409,52 @@ async fn normalize_create_input_uses_connector_validation_and_envelope() {
         "asterdrive.storage.local"
     );
     assert_eq!(connection.connector_config.values["base_path"], "dropbox");
+}
+
+#[tokio::test]
+async fn runtime_capabilities_reflect_resolved_target_driver() {
+    let state = setup_state().await;
+    let binding = create_binding(&state, "runtime-capabilities").await;
+    let target = create(
+        &state,
+        &binding,
+        local_create("Local", "runtime-capabilities"),
+    )
+    .await
+    .expect("local target should be created");
+
+    let capabilities = runtime_capabilities(&state, &binding)
+        .await
+        .expect("target capabilities should resolve");
+    let capability = capabilities
+        .into_iter()
+        .find(|capability| capability.target_key == target.target_key)
+        .expect("created target capability should be returned");
+    assert_eq!(capability.connector_id, "asterdrive.storage.local");
+    assert!(capability.range_read);
+    assert!(capability.stream_upload);
+    assert!(capability.multipart.is_none());
+}
+
+#[test]
+fn multipart_runtime_capability_maps_native_and_buffered_modes() {
+    let native = CapabilityMultipartDriver {
+        mode: MultipartUploadMode::NativeStreaming,
+    };
+    let native = map_multipart_runtime_capability(Some(&native)).expect("native capability");
+    assert_eq!(native.min_part_size, 100);
+    assert_eq!(native.max_part_size, Some(10_000));
+    assert_eq!(native.max_parts, 321);
+    assert!(native.native_reader_upload);
+    assert_eq!(native.buffered_reader_max_size, None);
+
+    let buffered = CapabilityMultipartDriver {
+        mode: MultipartUploadMode::Buffered { max_size: 4096 },
+    };
+    let buffered = map_multipart_runtime_capability(Some(&buffered)).expect("buffered capability");
+    assert!(!buffered.native_reader_upload);
+    assert_eq!(buffered.buffered_reader_max_size, Some(4096));
+    assert!(map_multipart_runtime_capability(None).is_none());
 }
 
 #[tokio::test]

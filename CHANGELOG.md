@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Asynchronous storage path visitors** — `StoragePathVisitor::visit_path` is now asynchronous so storage drivers can flush bounded path batches without full-list buffering; external driver implementations must update their visitor method to `async`.
 
+### Fixed
+
+- **Storage migration multipart memory bound** — Storage-policy Blob migration now
+  plans provider part limits separately from the local heap budget, uses bounded
+  reader uploads with reopenable source ranges for retries, and exposes multipart
+  capability results during dry-run preflight. Existing hash, verification, abort,
+  checkpoint, and Blob CAS semantics remain unchanged.
+
 ## [v0.6.0] - 2026-09-12
 
 ### Release Highlights

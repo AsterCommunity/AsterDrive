@@ -18,4 +18,7 @@ pub use extensions::{
     StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
     checked_upload_size, exact_size_error_kind,
 };
-pub use multipart::{MultipartStorageDriver, UploadedMultipartPart};
+pub use multipart::{
+    MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    UploadedMultipartPart,
+};

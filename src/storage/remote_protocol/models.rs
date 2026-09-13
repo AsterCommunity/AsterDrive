@@ -46,6 +46,8 @@ pub struct RemoteStorageCapabilities {
     pub supports_stream_upload: bool,
     #[serde(default)]
     pub supports_capacity: bool,
+    #[serde(default)]
+    pub target_runtime_capabilities: Vec<RemoteStorageTargetRuntimeCapabilities>,
 }
 
 impl Default for RemoteStorageCapabilities {
@@ -69,6 +71,7 @@ impl RemoteStorageCapabilities {
             supports_range_read: true,
             supports_stream_upload: true,
             supports_capacity: true,
+            target_runtime_capabilities: Vec::new(),
         }
     }
 
@@ -85,6 +88,7 @@ impl RemoteStorageCapabilities {
             supports_range_read: false,
             supports_stream_upload: false,
             supports_capacity: false,
+            target_runtime_capabilities: Vec::new(),
         }
     }
 
@@ -160,6 +164,33 @@ impl RemoteStorageCapabilities {
 
         Ok(())
     }
+}
+
+/// Capability snapshot of the connector actually bound to one remote target.
+/// The primary must prefer this target-scoped value over Remote's generic
+/// protocol limits when planning storage migration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteStorageTargetRuntimeCapabilities {
+    pub target_key: String,
+    pub connector_id: String,
+    pub applied_revision: i64,
+    #[serde(default)]
+    pub range_read: bool,
+    #[serde(default)]
+    pub stream_upload: bool,
+    #[serde(default)]
+    pub multipart: Option<RemoteMultipartCapabilities>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteMultipartCapabilities {
+    pub min_part_size: u64,
+    pub max_part_size: Option<u64>,
+    pub max_parts: u64,
+    pub native_reader_upload: bool,
+    pub buffered_reader_max_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -425,7 +456,10 @@ pub(crate) struct ApiEnvelope<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RemoteBindingSyncRequest, RemoteStorageFeatureFlags};
+    use super::{
+        RemoteBindingSyncRequest, RemoteMultipartCapabilities, RemoteStorageCapabilities,
+        RemoteStorageFeatureFlags, RemoteStorageTargetRuntimeCapabilities,
+    };
 
     #[test]
     fn binding_sync_defaults_legacy_payloads_to_reverse_tunnel_state() {
@@ -448,5 +482,35 @@ mod tests {
             serde_json::from_value(serde_json::json!({})).expect("legacy features should decode");
         assert!(!legacy.binding_state_pull);
         assert!(RemoteStorageFeatureFlags::current().binding_state_pull);
+    }
+
+    #[test]
+    fn target_runtime_capabilities_round_trip_without_breaking_legacy_payloads() {
+        let mut capabilities = RemoteStorageCapabilities::current();
+        capabilities.target_runtime_capabilities = vec![RemoteStorageTargetRuntimeCapabilities {
+            target_key: "target-s3".to_string(),
+            connector_id: "asterdrive.storage.s3".to_string(),
+            applied_revision: 4,
+            range_read: true,
+            stream_upload: true,
+            multipart: Some(RemoteMultipartCapabilities {
+                min_part_size: 5 * 1024 * 1024,
+                max_part_size: Some(5 * 1024 * 1024 * 1024),
+                max_parts: 10_000,
+                native_reader_upload: true,
+                buffered_reader_max_size: None,
+            }),
+        }];
+        let encoded = serde_json::to_vec(&capabilities).expect("capabilities should encode");
+        let decoded: RemoteStorageCapabilities =
+            serde_json::from_slice(&encoded).expect("capabilities should decode");
+        assert_eq!(decoded, capabilities);
+
+        let legacy: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+            "protocol_version": "v6",
+            "min_supported_protocol_version": "v6"
+        }))
+        .expect("legacy capabilities should decode");
+        assert!(legacy.target_runtime_capabilities.is_empty());
     }
 }

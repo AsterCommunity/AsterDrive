@@ -30,6 +30,7 @@ pub struct StoragePolicyBlobSummary {
 pub struct StoragePolicyMissingBlobSummary {
     pub count: i64,
     pub total_size: i64,
+    pub max_size: i64,
 }
 
 #[derive(Debug, Clone, FromQueryResult)]
@@ -391,10 +392,11 @@ pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
     let backend = db.get_database_backend();
     let content_hash_condition = content_sha256_sql_condition(backend, "source.hash");
     let total_size = i64_cast_sql(backend, "COALESCE(SUM(source.size), 0)");
+    let max_size = i64_cast_sql(backend, "COALESCE(MAX(source.size), 0)");
     let sql = match backend {
         DbBackend::Postgres => {
             format!(
-                r#"SELECT COUNT(*) AS count, {total_size} AS total_size
+                r#"SELECT COUNT(*) AS count, {total_size} AS total_size, {max_size} AS max_size
                FROM file_blobs source
                WHERE source.policy_id = $1
                  AND NOT EXISTS (
@@ -409,7 +411,7 @@ pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
         }
         DbBackend::MySql | DbBackend::Sqlite | _ => {
             format!(
-                r#"SELECT COUNT(*) AS count, {total_size} AS total_size
+                r#"SELECT COUNT(*) AS count, {total_size} AS total_size, {max_size} AS max_size
                FROM file_blobs source
                WHERE source.policy_id = ?
                  AND NOT EXISTS (

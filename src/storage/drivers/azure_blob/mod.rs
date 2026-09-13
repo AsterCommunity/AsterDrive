@@ -483,6 +483,7 @@ mod tests {
 
     use super::{AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials};
     use aster_drive_model::types::effective_object_multipart_chunk_size;
+    use aster_drive_storage::StorageDriver;
 
     fn sample_config() -> AzureBlobDriverConfig {
         AzureBlobDriverConfig {
@@ -656,6 +657,18 @@ mod tests {
         assert!(
             driver.chunk_size_for_content(u64::MAX).is_err(),
             "content-length arithmetic overflow must be rejected"
+        );
+        let multipart = driver
+            .extensions()
+            .multipart
+            .expect("Azure multipart capability");
+        assert_eq!(
+            multipart.capabilities().max_parts,
+            super::AZURE_BLOCK_BLOB_MAX_BLOCKS
+        );
+        assert_eq!(
+            multipart.capabilities().max_part_size,
+            Some(super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE)
         );
 
         let oversized_config = AzureBlobDriver::new(

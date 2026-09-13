@@ -1715,11 +1715,11 @@ fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
         .upload_transport(&policy)
         .unwrap();
     assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_880),
+        transport.resolve_init_mode_with_single_put_limit(&policy, 5_242_880, None),
         aster_drive_model::types::UploadTransport::Presigned
     );
     assert_eq!(
-        transport.resolve_init_mode(&policy, 5_242_881),
+        transport.resolve_init_mode_with_single_put_limit(&policy, 5_242_881, None),
         aster_drive_model::types::UploadTransport::PresignedMultipart
     );
     assert!(!transport.supports_streaming_direct_upload(&policy, 1));
@@ -1727,6 +1727,34 @@ fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
     let remote = StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned);
     assert!(!remote.supports_streaming_direct_upload(&policy, 0));
     assert!(remote.supports_streaming_direct_upload(&policy, 1));
+}
+
+#[test]
+fn upload_init_mode_honors_single_put_provider_limit() {
+    let mut policy = policy(
+        S3Connector::ID,
+        s3_config(ObjectStorageUploadStrategy::Presigned),
+    );
+    policy.chunk_size = 8 * 1024 * 1024 * 1024;
+    let transport =
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned);
+    let single_put_limit = 5_u64 * 1024 * 1024 * 1024;
+    assert_eq!(
+        transport.resolve_init_mode_with_single_put_limit(
+            &policy,
+            i64::try_from(single_put_limit).unwrap(),
+            Some(single_put_limit),
+        ),
+        aster_drive_model::types::UploadTransport::Presigned,
+    );
+    assert_eq!(
+        transport.resolve_init_mode_with_single_put_limit(
+            &policy,
+            i64::try_from(single_put_limit + 1).unwrap(),
+            Some(single_put_limit),
+        ),
+        aster_drive_model::types::UploadTransport::PresignedMultipart,
+    );
 }
 
 #[test]
@@ -1771,11 +1799,11 @@ fn local_transport_uses_stream_for_single_request_and_chunked_above_boundary() {
     let transport = StorageConnectorUploadTransport::Local;
 
     assert_eq!(
-        transport.resolve_init_mode(&policy, 1024),
+        transport.resolve_init_mode_with_single_put_limit(&policy, 1024, None),
         aster_drive_model::types::UploadTransport::Stream
     );
     assert_eq!(
-        transport.resolve_init_mode(&policy, 1025),
+        transport.resolve_init_mode_with_single_put_limit(&policy, 1025, None),
         aster_drive_model::types::UploadTransport::Chunked
     );
     assert!(transport.supports_streaming_direct_upload(&policy, 1024));
@@ -1794,11 +1822,11 @@ fn force_server_stream_preserves_effective_mode_boundaries() {
             .force_server_stream();
 
     assert_eq!(
-        transport.resolve_init_mode(&policy, policy.chunk_size),
+        transport.resolve_init_mode_with_single_put_limit(&policy, policy.chunk_size, None),
         aster_drive_model::types::UploadTransport::Stream
     );
     assert_eq!(
-        transport.resolve_init_mode(&policy, policy.chunk_size + 1),
+        transport.resolve_init_mode_with_single_put_limit(&policy, policy.chunk_size + 1, None),
         aster_drive_model::types::UploadTransport::Chunked
     );
     assert!(transport.supports_streaming_direct_upload(&policy, 1));

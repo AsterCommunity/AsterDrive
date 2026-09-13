@@ -196,6 +196,12 @@ pub trait StorageDriver: Send + Sync {
         false
     }
 
+    /// Optional maximum size for a single non-multipart PUT accepted by the
+    /// provider. This is distinct from multipart part/object limits.
+    fn max_single_put_size(&self) -> Option<u64> {
+        None
+    }
+
     /// 删除文件
     async fn delete(&self, path: &str) -> Result<()>;
 

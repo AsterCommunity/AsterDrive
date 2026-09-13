@@ -9,12 +9,12 @@ use aster_drive::services::auth::local;
 use aster_drive_model::types::UploadSessionKind;
 use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
 use aster_drive_storage::{
-    BlobMetadata, MultipartStorageDriver, PresignedUploadRequest, PresignedUploadStorageDriver,
-    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
-    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageDriver, StorageDriverExtensions, StorageError,
-    StorageErrorKind, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-    UploadedMultipartPart,
+    BlobMetadata, MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    PresignedUploadRequest, PresignedUploadStorageDriver, ProviderResumableUploadCapabilities,
+    ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
+    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageDriver,
+    StorageDriverExtensions, StorageError, StorageErrorKind, StreamUploadAttempt,
+    StreamUploadCleanup, StreamUploadDriver, UploadedMultipartPart,
 };
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_usize, usize_to_i32};
 use async_trait::async_trait;
@@ -43,6 +43,8 @@ struct UploadDataPlaneProbe {
     presigned_calls: AtomicUsize,
     provider_calls: AtomicUsize,
     capacity_available: Option<i64>,
+    multipart_capabilities: Option<MultipartStorageCapabilities>,
+    multipart_create_succeeds: bool,
 }
 
 impl UploadDataPlaneProbe {
@@ -329,8 +331,16 @@ impl PresignedUploadStorageDriver for UploadDataPlaneProbe {
 
 #[async_trait]
 impl MultipartStorageDriver for UploadDataPlaneProbe {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        self.multipart_capabilities
+            .unwrap_or_else(MultipartStorageCapabilities::conservative_default)
+    }
+
     async fn create_multipart_upload(&self, _path: &str) -> aster_drive_storage::Result<String> {
         self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        if self.multipart_create_succeeds {
+            return Ok("probe-multipart-upload".to_string());
+        }
         Err(self.unexpected("MultipartStorageDriver::create_multipart_upload"))
     }
 
@@ -573,6 +583,80 @@ async fn install_probe_s3_policy_with_upload_strategy(
             s3_connect_timeout_secs: 5,
             s3_read_timeout_secs: 30,
             s3_operation_timeout_secs: 3_600,
+        },
+        aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+    ));
+    let policy = active.update(state.writer_db()).await.unwrap();
+    reload_policy_snapshot(state).await;
+    policy
+}
+
+async fn install_probe_remote_policy_with_upload_strategy(
+    state: &aster_drive::runtime::PrimaryAppState,
+    upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
+) -> aster_drive_model::entities::storage_policy::Model {
+    use aster_drive::db::repository::{follower_enrollment_session_repo, managed_follower_repo};
+    use aster_drive_model::entities::{follower_enrollment_session, managed_follower};
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let now = chrono::Utc::now();
+    let remote_node = managed_follower_repo::create(
+        state.writer_db(),
+        managed_follower::ActiveModel {
+            name: Set(format!("probe-remote-{}", uuid::Uuid::new_v4())),
+            base_url: Set("http://127.0.0.1:9".to_string()),
+            access_key: Set("probe-remote-ak".to_string()),
+            secret_key: Set("probe-remote-sk".to_string()),
+            is_enabled: Set(true),
+            last_capabilities: Set(serde_json::to_string(
+                &aster_drive::storage::remote_protocol::RemoteStorageCapabilities::current(),
+            )
+            .expect("remote capabilities should serialize")),
+            last_probe_error: Set(String::new()),
+            last_probe_at: Set(Some(now)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    follower_enrollment_session_repo::create(
+        state.writer_db(),
+        follower_enrollment_session::ActiveModel {
+            managed_follower_id: Set(remote_node.id),
+            token_hash: Set(format!("probe-token-{}", uuid::Uuid::new_v4())),
+            ack_token_hash: Set(format!("probe-ack-{}", uuid::Uuid::new_v4())),
+            expires_at: Set(now + chrono::Duration::minutes(30)),
+            redeemed_at: Set(Some(now)),
+            acked_at: Set(Some(now)),
+            invalidated_at: Set(None),
+            created_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    state
+        .driver_registry
+        .reload_managed_followers(state.writer_db())
+        .await
+        .unwrap();
+
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default policy should exist in test setup");
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+    active.connector_id = Set("asterdrive.storage.remote".to_string());
+    active.storage_config = Set(common::encoded_policy_config(
+        "asterdrive.storage.remote",
+        common::TestRemoteConnectorConfigV1 {
+            base_path: "probe-remote".to_string(),
+            remote_node_id: Some(remote_node.id),
+            remote_storage_target_key: Some("probe-target".to_string()),
+            remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy::RelayStream,
+            remote_upload_strategy: upload_strategy,
         },
         aster_drive_storage::StoragePolicyBehaviorConfig::default(),
     ));
@@ -2229,6 +2313,192 @@ async fn test_multipart_init_failure_cleans_new_relative_directories() {
         "failed multipart initialization must remove newly-created parents"
     );
     assert_eq!(driver.multipart_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn multipart_init_uses_driver_capabilities_for_object_and_remote_transports() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{
+        ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadTransport,
+    };
+    use sea_orm::{ActiveModelTrait, Set};
+
+    for (object_strategy, expected_mode) in [
+        (
+            ObjectStorageUploadStrategy::RelayStream,
+            UploadTransport::Chunked,
+        ),
+        (
+            ObjectStorageUploadStrategy::Presigned,
+            UploadTransport::PresignedMultipart,
+        ),
+    ] {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            "objectplanner",
+            "object-planner@test.com",
+            "password123",
+        )
+        .await
+        .unwrap();
+        let policy = install_probe_s3_policy_with_upload_strategy(&state, object_strategy).await;
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
+            policy.clone().into();
+        active.chunk_size = Set(1);
+        let policy = active.update(state.writer_db()).await.unwrap();
+        reload_policy_snapshot(&state).await;
+        let driver = Arc::new(UploadDataPlaneProbe {
+            multipart_capabilities: Some(MultipartStorageCapabilities {
+                min_part_size: 5,
+                max_part_size: Some(100),
+                max_parts: 10,
+                max_object_size: Some(1_000),
+                upload_mode: MultipartUploadMode::NativeStreaming,
+            }),
+            multipart_create_succeeds: true,
+            ..Default::default()
+        });
+        state
+            .driver_registry
+            .insert_multipart_for_test(policy.id, driver.clone());
+        reload_policy_snapshot(&state).await;
+
+        let response = upload::init_upload(&state, user.id, "planned.bin", 11, None, None)
+            .await
+            .expect("multipart init should succeed");
+        assert_eq!(response.mode, expected_mode);
+        assert_eq!(response.chunk_size, Some(5));
+        assert_eq!(response.total_chunks, Some(3));
+        let session = upload_session_repo::find_by_id(
+            state.writer_db(),
+            response.upload_id.as_deref().expect("upload id"),
+        )
+        .await
+        .expect("session should persist");
+        assert_eq!(session.chunk_size, 5);
+        assert_eq!(session.total_chunks, 3);
+        assert_eq!(driver.multipart_calls.load(Ordering::SeqCst), 1);
+    }
+
+    for (remote_strategy, expected_mode) in [
+        (RemoteUploadStrategy::RelayStream, UploadTransport::Chunked),
+        (
+            RemoteUploadStrategy::Presigned,
+            UploadTransport::PresignedMultipart,
+        ),
+    ] {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            "remoteplanner",
+            "remote-planner@test.com",
+            "password123",
+        )
+        .await
+        .unwrap();
+        let policy =
+            install_probe_remote_policy_with_upload_strategy(&state, remote_strategy).await;
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
+            policy.clone().into();
+        active.chunk_size = Set(1);
+        let policy = active.update(state.writer_db()).await.unwrap();
+        reload_policy_snapshot(&state).await;
+        let driver = Arc::new(UploadDataPlaneProbe {
+            multipart_capabilities: Some(MultipartStorageCapabilities {
+                min_part_size: 1,
+                max_part_size: Some(5),
+                max_parts: 3,
+                max_object_size: Some(15),
+                upload_mode: MultipartUploadMode::NativeStreaming,
+            }),
+            multipart_create_succeeds: true,
+            ..Default::default()
+        });
+        state
+            .driver_registry
+            .insert_multipart_for_test(policy.id, driver.clone());
+        reload_policy_snapshot(&state).await;
+
+        let response = upload::init_upload(&state, user.id, "remote-planned.bin", 11, None, None)
+            .await
+            .expect("remote multipart init should succeed");
+        assert_eq!(response.mode, expected_mode);
+        assert_eq!(response.chunk_size, Some(4));
+        assert_eq!(response.total_chunks, Some(3));
+        assert_eq!(driver.multipart_calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
+async fn multipart_init_rejects_capability_conflicts_before_remote_or_database_side_effects() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{ObjectStorageUploadStrategy, RemoteUploadStrategy};
+    use sea_orm::{ActiveModelTrait, Set};
+
+    for is_remote in [false, true] {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            "limitplanner",
+            "limit-planner@test.com",
+            "password123",
+        )
+        .await
+        .unwrap();
+        let policy = if is_remote {
+            install_probe_remote_policy_with_upload_strategy(
+                &state,
+                RemoteUploadStrategy::RelayStream,
+            )
+            .await
+        } else {
+            install_probe_s3_policy_with_upload_strategy(
+                &state,
+                ObjectStorageUploadStrategy::RelayStream,
+            )
+            .await
+        };
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel =
+            policy.clone().into();
+        active.chunk_size = Set(1);
+        let policy = active.update(state.writer_db()).await.unwrap();
+        reload_policy_snapshot(&state).await;
+        let driver = Arc::new(UploadDataPlaneProbe {
+            multipart_capabilities: Some(MultipartStorageCapabilities {
+                min_part_size: 1,
+                max_part_size: Some(5),
+                max_parts: 2,
+                max_object_size: Some(10),
+                upload_mode: MultipartUploadMode::NativeStreaming,
+            }),
+            multipart_create_succeeds: true,
+            ..Default::default()
+        });
+        state
+            .driver_registry
+            .insert_multipart_for_test(policy.id, driver.clone());
+        reload_policy_snapshot(&state).await;
+
+        let error = match upload::init_upload(&state, user.id, "rejected.bin", 11, None, None).await
+        {
+            Ok(_) => panic!("capability conflict should reject init"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("maximum part size")
+                || error.to_string().contains("maximum object size")
+        );
+        assert_eq!(driver.multipart_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+                .await
+                .unwrap(),
+            0
+        );
+    }
 }
 
 #[tokio::test]

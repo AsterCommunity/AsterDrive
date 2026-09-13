@@ -29,8 +29,8 @@ use aster_drive::services::{
 use aster_drive_model::entities::{audit_log, file, file_blob, file_revision, storage_policy};
 use aster_drive_model::types::{AuditAction, BackgroundTaskStatus, file_blob::FileBlobBacking};
 use aster_drive_storage::{
-    BlobMetadata, MultipartStorageDriver, Result, StorageDriver, StorageDriverExtensions,
-    StorageErrorKind, StreamUploadDriver,
+    BlobMetadata, MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,
+    Result, StorageDriver, StorageDriverExtensions, StorageErrorKind, StreamUploadDriver,
 };
 use aster_forge_file_classification::FileCategory;
 use aster_forge_utils::numbers::usize_to_u64;
@@ -206,6 +206,7 @@ struct MultipartMigrationDriverState {
     complete_calls: usize,
     abort_calls: usize,
     delete_calls: usize,
+    reader_upload_calls: usize,
     complete_mode: Option<MultipartCompleteMode>,
     part_failure: Option<MultipartPartFailure>,
 }
@@ -274,6 +275,10 @@ impl MultipartMigrationTestDriver {
 
     fn delete_calls(&self) -> usize {
         self.state.lock().delete_calls
+    }
+
+    fn reader_upload_calls(&self) -> usize {
+        self.state.lock().reader_upload_calls
     }
 }
 
@@ -367,6 +372,16 @@ impl StreamUploadDriver for MultipartMigrationTestDriver {
 
 #[async_trait]
 impl MultipartStorageDriver for MultipartMigrationTestDriver {
+    fn capabilities(&self) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size: 5 * 1024 * 1024,
+            max_part_size: Some(5 * 1024 * 1024 * 1024),
+            max_parts: 10_000,
+            max_object_size: None,
+            upload_mode: MultipartUploadMode::NativeStreaming,
+        }
+    }
+
     async fn create_multipart_upload(&self, path: &str) -> Result<String> {
         let mut state = self.state.lock();
         state.next_upload_id += 1;
@@ -451,6 +466,28 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
         data: &[u8],
     ) -> Result<String> {
         self.upload_multipart_part_bytes(path, upload_id, part_number, Bytes::copy_from_slice(data))
+            .await
+    }
+
+    async fn upload_multipart_part_reader(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+    ) -> Result<String> {
+        self.state.lock().reader_upload_calls += 1;
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).await.map_aster_err_ctx(
+            "read test multipart part reader",
+            AsterError::storage_driver_error,
+        )?;
+        assert_eq!(
+            data.len(),
+            usize::try_from(size).expect("test size should fit usize")
+        );
+        self.upload_multipart_part_bytes(path, upload_id, part_number, Bytes::from(data))
             .await
     }
 
@@ -2858,6 +2895,7 @@ async fn test_storage_migration_large_blob_uses_multipart_upload() {
         .expect("blob should remain after multipart migration");
     assert_eq!(migrated.policy_id, target.id);
     assert_eq!(target_driver.put_reader_calls(), 0);
+    assert!(target_driver.reader_upload_calls() >= 2);
     assert_eq!(
         target_driver.uploaded_part_sizes(),
         vec![5 * 1024 * 1024, 17]

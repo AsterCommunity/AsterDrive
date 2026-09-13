@@ -159,6 +159,9 @@ fn driver_exposes_s3_compatible_capabilities_with_public_presigning() {
     assert!(extensions.list.is_some());
     assert!(extensions.stream_upload.is_some());
     assert!(extensions.multipart.is_some());
+    let multipart = extensions.multipart.expect("multipart extension");
+    assert_eq!(multipart.capabilities().min_part_size, 100 * 1024);
+    assert_eq!(multipart.capabilities().max_parts, 10_000);
 }
 
 #[tokio::test]
