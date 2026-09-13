@@ -73,7 +73,7 @@ pub use storage_policy_config::{
 };
 pub use traits::driver::{
     BlobMetadata, DirectDownloadCredentials, DirectDownloadOptions, DirectDownloadRequest,
-    PresignedUploadRequest, StorageDriver, StoragePathVisitor,
+    PresignedUploadRequest, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
 };
 pub use traits::{
     DirectDownloadStorageDriver, ExactSizeReader, ListStorageDriver, LocalPathStorageDriver,

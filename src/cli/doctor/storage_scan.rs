@@ -11,6 +11,8 @@ use crate::services::ops::integrity::{self, StorageObjectAudit};
 
 use super::{DoctorCheck, DoctorStatus, doctor_check};
 
+const DOCTOR_FINDING_SAMPLE_LIMIT: usize = 256;
+
 /// Runs storage object auditing and maps the findings into doctor checks.
 pub(super) async fn doctor_storage_scan_checks(
     db: &DatabaseConnection,
@@ -18,12 +20,13 @@ pub(super) async fn doctor_storage_scan_checks(
     policy_id: Option<i64>,
 ) -> Result<Vec<DoctorCheck>> {
     let driver_registry = crate::storage::DriverRegistry::noop()?;
-    let report = integrity::audit_storage_objects(
+    let report = integrity::audit_storage_objects_with_finding_limit(
         db,
         &driver_registry,
         policy_id,
         operations::thumbnail_max_dimension(runtime_config),
         operations::image_preview_max_dimension(runtime_config),
+        Some(DOCTOR_FINDING_SAMPLE_LIMIT),
     )
     .await?;
     let scan_meta = scan_meta_details(&report);
@@ -38,8 +41,12 @@ pub(super) async fn doctor_storage_scan_checks(
 fn scan_meta_details(report: &StorageObjectAudit) -> Vec<String> {
     vec![
         format!("policies={}", report.scanned_policies),
+        format!("completed_policies={}", report.completed_policies),
+        format!("blob_records={}", report.scanned_blob_records),
         format!("objects={}", report.scanned_objects),
         format!("ignored_paths={}", report.ignored_paths),
+        format!("peak_path_batch={}", report.peak_path_batch),
+        format!("findings_truncated={}", report.findings_truncated),
     ]
 }
 
@@ -48,7 +55,7 @@ fn tracked_blob_check(
     policy_id: Option<i64>,
     scan_meta: &[String],
 ) -> DoctorCheck {
-    if report.missing_blob_objects.is_empty() {
+    if report.missing_blob_objects_total == 0 {
         return doctor_check(
             "tracked_blob_objects",
             "Tracked blob objects",
@@ -85,12 +92,11 @@ fn tracked_blob_check(
         match policy_id {
             Some(policy_id) => format!(
                 "{} tracked blob object(s) are missing from storage for policy #{}",
-                report.missing_blob_objects.len(),
-                policy_id
+                report.missing_blob_objects_total, policy_id
             ),
             None => format!(
                 "{} tracked blob object(s) are missing from storage",
-                report.missing_blob_objects.len()
+                report.missing_blob_objects_total
             ),
         },
         details,
@@ -138,12 +144,11 @@ fn untracked_storage_check(
         match policy_id {
             Some(policy_id) => format!(
                 "{} untracked storage object(s) were found for policy #{}",
-                report.untracked_objects.len(),
-                policy_id
+                report.untracked_objects_total, policy_id
             ),
             None => format!(
                 "{} untracked storage object(s) were found",
-                report.untracked_objects.len()
+                report.untracked_objects_total
             ),
         },
         details,
@@ -159,7 +164,7 @@ fn thumbnail_storage_check(
     policy_id: Option<i64>,
     scan_meta: &[String],
 ) -> DoctorCheck {
-    if report.orphan_thumbnails.is_empty() {
+    if report.orphan_thumbnails_total == 0 {
         return doctor_check(
             "thumbnail_objects",
             "Thumbnail objects",
@@ -190,12 +195,11 @@ fn thumbnail_storage_check(
         match policy_id {
             Some(policy_id) => format!(
                 "{} orphan thumbnail(s) were found for policy #{}",
-                report.orphan_thumbnails.len(),
-                policy_id
+                report.orphan_thumbnails_total, policy_id
             ),
             None => format!(
                 "{} orphan thumbnail(s) were found",
-                report.orphan_thumbnails.len()
+                report.orphan_thumbnails_total
             ),
         },
         details,

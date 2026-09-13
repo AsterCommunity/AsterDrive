@@ -4,9 +4,12 @@ use aster_drive::storage::drivers::s3::{
     S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials,
 };
 use aster_drive_storage::{
-    DirectDownloadOptions, DirectDownloadStorageDriver, PresignedUploadStorageDriver,
-    StorageDriver, StreamUploadDriver,
+    DirectDownloadOptions, DirectDownloadStorageDriver, ListStorageDriver,
+    PresignedUploadStorageDriver, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+    StreamUploadDriver,
 };
+use async_trait::async_trait;
+use futures::{StreamExt, TryStreamExt};
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
@@ -182,4 +185,71 @@ async fn test_s3_put_get_delete() {
 
     // cleanup
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+struct CollectingPathVisitor(Vec<String>);
+
+#[async_trait]
+impl StoragePathVisitor for CollectingPathVisitor {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
+        self.0.push(path);
+        Ok(StoragePathVisitControl::Continue)
+    }
+}
+
+#[tokio::test]
+async fn test_s3_scan_paths_streams_across_provider_pages() {
+    let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
+        .with_exposed_port(testcontainers::core::IntoContainerPort::tcp(9000))
+        .with_env_var("RUSTFS_ACCESS_KEY", "rustfsadmin")
+        .with_env_var("RUSTFS_SECRET_KEY", "rustfsadmin123")
+        .start()
+        .await
+        .expect("failed to start rustfs container");
+    let port = container.get_host_port_ipv4(9000).await.unwrap();
+    let endpoint = format!("http://127.0.0.1:{port}");
+    let bucket = format!("scan-pages-{}", uuid::Uuid::new_v4().simple());
+    wait_for_s3_bucket(&endpoint, &bucket).await;
+
+    let count = std::env::var("ASTER_S3_SCAN_OBJECT_COUNT")
+        .unwrap_or_else(|_| "1001".to_string())
+        .parse::<usize>()
+        .expect("ASTER_S3_SCAN_OBJECT_COUNT must be an integer");
+    assert!(
+        count > 1000,
+        "test must cross the 1000-object provider page"
+    );
+    let client = s3_test_client(&endpoint);
+    futures::stream::iter(0..count)
+        .map(|index| {
+            let client = client.clone();
+            let bucket = bucket.clone();
+            async move {
+                client
+                    .put_object()
+                    .bucket(bucket)
+                    .key(format!("test-prefix/scan-pages/{index:05}.bin"))
+                    .body(aws_sdk_s3::primitives::ByteStream::from_static(b"x"))
+                    .send()
+                    .await
+                    .map(|_| ())
+            }
+        })
+        .buffer_unordered(32)
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("provider fixtures should upload");
+
+    let driver = s3_driver(&endpoint, &bucket);
+    let mut visitor = CollectingPathVisitor(Vec::new());
+    driver
+        .scan_paths(Some("scan-pages"), &mut visitor)
+        .await
+        .expect("S3 scan should stream all provider pages");
+    assert_eq!(visitor.0.len(), count);
+    assert!(visitor.0.iter().any(|path| path.ends_with("00000.bin")));
+    assert!(visitor.0.iter().any(|path| path.ends_with("01000.bin")));
 }

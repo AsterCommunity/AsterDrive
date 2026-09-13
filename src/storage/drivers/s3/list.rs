@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use aster_drive_storage::traits::driver::StoragePathVisitControl;
 use aster_drive_storage::traits::extensions::ListStorageDriver;
 use aster_drive_storage::{StorageErrorKind, storage_driver_error};
 
@@ -13,11 +14,8 @@ use super::S3Driver;
 impl ListStorageDriver for S3Driver {
     async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         let mut paths = Vec::new();
-        self.scan_paths_v2_with(prefix, |path| {
-            paths.push(path);
-            Ok(())
-        })
-        .await?;
+        let mut visitor = VecVisitor(&mut paths);
+        self.scan_paths_v2_with(prefix, &mut visitor).await?;
         paths.sort();
         Ok(paths)
     }
@@ -27,8 +25,7 @@ impl ListStorageDriver for S3Driver {
         prefix: Option<&str>,
         visitor: &mut dyn aster_drive_storage::traits::driver::StoragePathVisitor,
     ) -> aster_drive_storage::Result<()> {
-        self.scan_paths_v2_with(prefix, |path| visitor.visit_path(path))
-            .await
+        self.scan_paths_v2_with(prefix, visitor).await
     }
 }
 
@@ -36,7 +33,7 @@ impl S3Driver {
     async fn scan_paths_v2_with(
         &self,
         prefix: Option<&str>,
-        mut visit: impl FnMut(String) -> aster_drive_storage::Result<()>,
+        visitor: &mut dyn aster_drive_storage::traits::driver::StoragePathVisitor,
     ) -> aster_drive_storage::Result<()> {
         let full_prefix = prefix
             .map(|prefix| self.full_key(prefix))
@@ -61,8 +58,13 @@ impl S3Driver {
                 let Some(key) = object.key() else {
                     continue;
                 };
-                if let Some(path) = self.relative_key(key) {
-                    visit(path.to_string())?;
+                if let Some(path) = self.relative_key(key)
+                    && matches!(
+                        visitor.visit_path(path.to_string()).await?,
+                        StoragePathVisitControl::Stop
+                    )
+                {
+                    return Ok(());
                 }
             }
 
@@ -74,6 +76,19 @@ impl S3Driver {
         }
 
         Ok(())
+    }
+}
+
+struct VecVisitor<'a>(&'a mut Vec<String>);
+
+#[async_trait]
+impl aster_drive_storage::traits::driver::StoragePathVisitor for VecVisitor<'_> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
+        self.0.push(path);
+        Ok(StoragePathVisitControl::Continue)
     }
 }
 
@@ -89,11 +104,8 @@ impl S3Driver {
         prefix: Option<&str>,
     ) -> aster_drive_storage::Result<Vec<String>> {
         let mut paths = Vec::new();
-        self.scan_paths_v1_with(prefix, |path| {
-            paths.push(path);
-            Ok(())
-        })
-        .await?;
+        let mut visitor = VecVisitor(&mut paths);
+        self.scan_paths_v1_with(prefix, &mut visitor).await?;
         paths.sort();
         Ok(paths)
     }
@@ -103,14 +115,13 @@ impl S3Driver {
         prefix: Option<&str>,
         visitor: &mut dyn aster_drive_storage::traits::driver::StoragePathVisitor,
     ) -> aster_drive_storage::Result<()> {
-        self.scan_paths_v1_with(prefix, |path| visitor.visit_path(path))
-            .await
+        self.scan_paths_v1_with(prefix, visitor).await
     }
 
     async fn scan_paths_v1_with(
         &self,
         prefix: Option<&str>,
-        mut visit: impl FnMut(String) -> aster_drive_storage::Result<()>,
+        visitor: &mut dyn aster_drive_storage::traits::driver::StoragePathVisitor,
     ) -> aster_drive_storage::Result<()> {
         let full_prefix = prefix
             .map(|prefix| self.full_key(prefix))
@@ -141,8 +152,13 @@ impl S3Driver {
                 let Some(key) = object.key() else {
                     continue;
                 };
-                if let Some(path) = self.relative_key(key) {
-                    visit(path.to_string())?;
+                if let Some(path) = self.relative_key(key)
+                    && matches!(
+                        visitor.visit_path(path.to_string()).await?,
+                        StoragePathVisitControl::Stop
+                    )
+                {
+                    return Ok(());
                 }
             }
 

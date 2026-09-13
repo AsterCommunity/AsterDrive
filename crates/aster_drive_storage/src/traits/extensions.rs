@@ -8,7 +8,8 @@
 
 use crate::error::Result;
 use crate::traits::driver::{
-    DirectDownloadOptions, DirectDownloadRequest, PresignedUploadRequest, StoragePathVisitor,
+    DirectDownloadOptions, DirectDownloadRequest, PresignedUploadRequest, StoragePathVisitControl,
+    StoragePathVisitor,
 };
 use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
@@ -400,7 +401,8 @@ pub trait ListStorageDriver: Send + Sync {
     /// 等大规模扫描路径应使用 `scan_paths`，避免在 S3 等后端一次性拉取全部 key。
     async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>>;
 
-    /// 逐条扫描当前策略下的对象路径，避免一次性拉取整个列表
+    /// 逐条扫描当前策略下的对象路径，避免一次性拉取整个列表。
+    /// 调用方不得依赖路径顺序；需要排序时应在有界范围内自行处理。
     ///
     /// 默认实现基于 list_paths，驱动可覆盖优化（如流式 API）
     async fn scan_paths(
@@ -409,7 +411,12 @@ pub trait ListStorageDriver: Send + Sync {
         visitor: &mut dyn StoragePathVisitor,
     ) -> Result<()> {
         for path in self.list_paths(prefix).await? {
-            visitor.visit_path(path)?;
+            if matches!(
+                visitor.visit_path(path).await?,
+                StoragePathVisitControl::Stop
+            ) {
+                break;
+            }
         }
         Ok(())
     }

@@ -1,7 +1,7 @@
 //! Large-fixture memory benchmark for issue #497 folder delete and restore.
 
 #[macro_use]
-#[path = "common/mod.rs"]
+#[path = "../common/mod.rs"]
 mod common;
 
 use std::alloc::{GlobalAlloc, Layout, System};

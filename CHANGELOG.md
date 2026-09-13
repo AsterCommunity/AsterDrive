@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Bounded integrity aggregation** — `doctor --deep` now compares storage usage in bounded owner pages, blob reference counts in bounded blob pages, and folder integrity per workspace scope with bounded parent-chain cycle checks and sampled findings. The admin Blob maintenance task reuses the same per-page reference-count calculation, while storage-object reports retain exact totals with bounded in-memory path batches and samples; remote listings stream page results through the driver and follower endpoint. Existing task progress and repair semantics are preserved.
+
+### Breaking
+
+- **Asynchronous storage path visitors** — `StoragePathVisitor::visit_path` is now asynchronous so storage drivers can flush bounded path batches without full-list buffering; external driver implementations must update their visitor method to `async`.
+
 ### Fixed
 
 - **Storage migration multipart memory bound** — Storage-policy Blob migration now

@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
-use crate::db::repository::{file_repo, revision_repo};
+use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::services::ops::integrity;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::{background_task, file_blob};
 use aster_drive_storage::StorageDriver;
@@ -591,11 +592,11 @@ async fn reconcile_single_blob_ref_count(
 }
 
 async fn current_blob_ref_count<C: sea_orm::ConnectionTrait>(db: &C, blob_id: i64) -> Result<i32> {
-    let file_refs = file_repo::count_blob_refs_from_files_for_blob(db, blob_id).await?;
-    let version_refs = revision_repo::count_non_current_blob_refs_for_blob(db, blob_id).await?;
-    let total_refs = file_refs
-        .checked_add(version_refs)
-        .ok_or_else(|| AsterError::internal_error("blob ref count overflow during reconcile"))?;
+    let total_refs = integrity::actual_blob_ref_counts_for_blobs(db, &[blob_id])
+        .await?
+        .get(&blob_id)
+        .copied()
+        .unwrap_or(0);
     Ok(aster_forge_utils::numbers::i64_to_i32(
         total_refs,
         "blob actual reference count",
@@ -606,25 +607,16 @@ async fn current_blob_ref_counts(
     state: &PrimaryAppState,
     blob_ids: &[i64],
 ) -> Result<HashMap<i64, i32>> {
-    let mut counts = HashMap::new();
-    let file_refs =
-        file_repo::count_blob_refs_from_files_for_blobs(state.writer_db(), blob_ids).await?;
-    let version_refs =
-        revision_repo::count_non_current_blob_refs_for_blobs(state.writer_db(), blob_ids).await?;
-
-    for blob_id in blob_ids {
-        let file_count = file_refs.get(blob_id).copied().unwrap_or(0);
-        let version_count = version_refs.get(blob_id).copied().unwrap_or(0);
-        let total_refs = file_count.checked_add(version_count).ok_or_else(|| {
-            AsterError::internal_error("blob ref count overflow during batch reconcile")
-        })?;
-        counts.insert(
-            *blob_id,
-            aster_forge_utils::numbers::i64_to_i32(total_refs, "blob actual reference count")?,
-        );
-    }
-
-    Ok(counts)
+    let actual = integrity::actual_blob_ref_counts_for_blobs(state.writer_db(), blob_ids).await?;
+    actual
+        .into_iter()
+        .map(|(blob_id, refs)| {
+            Ok((
+                blob_id,
+                aster_forge_utils::numbers::i64_to_i32(refs, "blob actual reference count")?,
+            ))
+        })
+        .collect()
 }
 
 struct BlobTargetScope<'a> {
