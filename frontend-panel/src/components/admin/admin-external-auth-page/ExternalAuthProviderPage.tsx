@@ -86,7 +86,7 @@ export function ExternalAuthProviderPage({
 	const showIssuerUrl = shouldShowIssuerUrl(selectedKind);
 	const showManualEndpoints = shouldShowManualEndpoints(selectedKind);
 	const currentCallbackUrl = isCreate
-		? (provider?.unified_callback_uri ?? "/api/v1/auth/external-auth/callback")
+		? (selectedKind?.unified_callback_uri ?? "")
 		: form.callbackMode === "unified"
 			? (provider?.unified_callback_uri ?? "")
 			: (provider?.legacy_callback_uri ?? "");
@@ -103,7 +103,9 @@ export function ExternalAuthProviderPage({
 			currentCallbackUrl={currentCallbackUrl}
 			legacyCallbackUrl={provider?.legacy_callback_uri ?? ""}
 			unifiedCallbackUrl={
-				provider?.unified_callback_uri ?? "/api/v1/auth/external-auth/callback"
+				provider?.unified_callback_uri ??
+				selectedKind?.unified_callback_uri ??
+				""
 			}
 			form={form}
 			isCreate={isCreate}
@@ -119,7 +121,9 @@ export function ExternalAuthProviderPage({
 			currentCallbackUrl={currentCallbackUrl}
 			legacyCallbackUrl={provider?.legacy_callback_uri ?? ""}
 			unifiedCallbackUrl={
-				provider?.unified_callback_uri ?? "/api/v1/auth/external-auth/callback"
+				provider?.unified_callback_uri ??
+				selectedKind?.unified_callback_uri ??
+				""
 			}
 			form={form}
 			identityMissing={identityMissing}

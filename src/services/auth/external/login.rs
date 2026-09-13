@@ -27,8 +27,8 @@ use super::verification::create_pending_email_verification_flow;
 use super::{
     BROWSER_BINDING_SECRET_BYTES, ExternalAuthBrowserBinding, ExternalAuthCallbackOutcome,
     ExternalAuthCallbackQuery, ExternalAuthCallbackResult, ExternalAuthCallbackRoute,
-    ExternalAuthPrimaryLogin, ExternalAuthStartLoginResponse, ExternalAuthStartLoginResult,
-    FLOW_TTL_SECS,
+    ExternalAuthPrimaryLogin, ExternalAuthRequestOrigin, ExternalAuthStartLoginResponse,
+    ExternalAuthStartLoginResult, FLOW_TTL_SECS,
 };
 
 fn browser_binding_secret() -> String {
@@ -40,7 +40,7 @@ fn browser_binding_secret() -> String {
 
 pub async fn start_login(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
     return_path: Option<&str>,
@@ -70,7 +70,7 @@ pub async fn start_login(
     )?;
     let redirect_uri = callback_redirect_uri(
         state,
-        req,
+        origin,
         provider.callback_mode,
         provider.provider_kind,
         &provider.key,

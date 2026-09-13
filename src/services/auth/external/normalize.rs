@@ -7,6 +7,8 @@ use aster_drive_model::types::external_auth_provider::ExternalAuthCallbackMode;
 use aster_forge_api::NullablePatch;
 use aster_forge_external_auth::ExternalAuthProviderKind;
 
+use super::ExternalAuthRequestOrigin;
+
 use super::REDACTED_SECRET;
 
 pub(super) fn normalize_secret_create(value: Option<String>) -> Option<String> {
@@ -52,7 +54,7 @@ fn legacy_callback_path(provider_kind: ExternalAuthProviderKind, provider_key: &
 
 pub fn callback_redirect_uri(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     callback_mode: ExternalAuthCallbackMode,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
@@ -61,51 +63,37 @@ pub fn callback_redirect_uri(
         ExternalAuthCallbackMode::Legacy => legacy_callback_path(provider_kind, provider_key),
         ExternalAuthCallbackMode::Unified => UNIFIED_CALLBACK_PATH.to_string(),
     };
-    callback_uri_for_path(state, req, &path)
+    callback_uri_for_path(state, origin, &path)
 }
 
-pub fn callback_redirect_uris(
+pub fn display_callback_uri(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
-    provider_kind: ExternalAuthProviderKind,
-    provider_key: &str,
-) -> Result<(String, String)> {
-    let legacy_path = legacy_callback_path(provider_kind, provider_key);
-    Ok((
-        callback_uri_or_path_for_request(state, req, &legacy_path),
-        callback_uri_or_path_for_request(state, req, UNIFIED_CALLBACK_PATH),
-    ))
-}
-
-fn callback_uri_or_path_for_request(
-    state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: &ExternalAuthRequestOrigin,
     path: &str,
 ) -> String {
-    let conn = req.connection_info();
-    site_url::public_app_url_or_path_for_request(
-        state.runtime_config(),
-        path,
-        conn.scheme(),
-        conn.host(),
-    )
+    site_url::public_app_url_for_request(state.runtime_config(), path, &origin.scheme, &origin.host)
+        .unwrap_or_else(|| {
+            site_url::join_origin_and_path(&format!("{}://{}", origin.scheme, origin.host), path)
+        })
 }
 
 fn callback_uri_for_path(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     path: &str,
 ) -> Result<String> {
-    let conn = req.connection_info();
-    let scheme = conn.scheme();
-    let host = conn.host();
-    let uri = site_url::public_app_url_for_request(state.runtime_config(), path, scheme, host)
-        .ok_or_else(|| {
-            validation_error_with_code(
-                ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
-                "cannot build external auth callback redirect URI; configure public_site_url",
-            )
-        })?;
+    let uri = site_url::public_app_url_for_request(
+        state.runtime_config(),
+        path,
+        &origin.scheme,
+        &origin.host,
+    )
+    .ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
+            "cannot build external auth callback redirect URI; configure public_site_url",
+        )
+    })?;
     if uri.starts_with('/') {
         return Err(validation_error_with_code(
             ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,

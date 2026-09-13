@@ -487,6 +487,16 @@ export function ExternalAuthProviderIdentityPanel({
 				},
 			]
 		: [];
+	const callbackModeOptions = [
+		{
+			label: t("external_auth_provider_callback_mode_unified"),
+			value: "unified" as const,
+		},
+		{
+			label: t("external_auth_provider_callback_mode_legacy"),
+			value: "legacy" as const,
+		},
+	];
 
 	return (
 		<section className="rounded-xl bg-muted/30 p-5">
@@ -631,16 +641,7 @@ export function ExternalAuthProviderIdentityPanel({
 								{t("external_auth_provider_callback_mode")}
 							</Label>
 							<Select
-								items={[
-									{
-										label: t("external_auth_provider_callback_mode_unified"),
-										value: "unified",
-									},
-									{
-										label: t("external_auth_provider_callback_mode_legacy"),
-										value: "legacy",
-									},
-								]}
+								items={callbackModeOptions}
 								value={form.callbackMode}
 								onValueChange={(value) => {
 									if (value === "legacy" || value === "unified") {
@@ -652,12 +653,11 @@ export function ExternalAuthProviderIdentityPanel({
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="unified">
-										{t("external_auth_provider_callback_mode_unified")}
-									</SelectItem>
-									<SelectItem value="legacy">
-										{t("external_auth_provider_callback_mode_legacy")}
-									</SelectItem>
+									{callbackModeOptions.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
 								</SelectContent>
 							</Select>
 							<p className="text-xs text-muted-foreground">

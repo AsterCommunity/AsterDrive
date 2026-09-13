@@ -29,11 +29,14 @@ use super::normalize::{normalize_secret_create, normalize_secret_update};
 use super::{
     AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput,
     ExternalAuthProviderCreateDefaults, ExternalAuthProviderKindInfo,
-    ExternalAuthProviderTestParamsInput, ExternalAuthPublicProvider,
+    ExternalAuthProviderTestParamsInput, ExternalAuthPublicProvider, ExternalAuthRequestOrigin,
     UpdateExternalAuthProviderInput,
 };
 
-fn descriptor_to_info(descriptor: ExternalAuthProviderDescriptor) -> ExternalAuthProviderKindInfo {
+fn descriptor_to_info(
+    descriptor: ExternalAuthProviderDescriptor,
+    unified_callback_uri: String,
+) -> ExternalAuthProviderKindInfo {
     let create_defaults = provider_create_defaults(&descriptor);
     let issuer_url_supported =
         descriptor.issuer_url_required || descriptor.manual_endpoint_configuration_supported;
@@ -53,6 +56,7 @@ fn descriptor_to_info(descriptor: ExternalAuthProviderDescriptor) -> ExternalAut
         supports_discovery: descriptor.supports_discovery,
         supports_pkce: descriptor.supports_pkce,
         supports_email_verified_claim: descriptor.supports_email_verified_claim,
+        unified_callback_uri,
     }
 }
 
@@ -108,7 +112,7 @@ fn nullable_patch_to_update<T>(value: NullablePatch<T>) -> Option<Option<T>> {
 
 fn provider_to_admin(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     model: external_auth_provider::Model,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let allowed_domains =
@@ -122,8 +126,17 @@ fn provider_to_admin(
     let authorization_url = admin_manual_endpoint(model.provider_kind, model.authorization_url);
     let token_url = admin_manual_endpoint(model.provider_kind, model.token_url);
     let userinfo_url = admin_manual_endpoint(model.provider_kind, model.userinfo_url);
-    let (legacy_callback_uri, unified_callback_uri) =
-        super::normalize::callback_redirect_uris(state, req, model.provider_kind, &model.key)?;
+    let legacy_path = format!(
+        "/api/v1/auth/external-auth/{}/{}/callback",
+        model.provider_kind.as_str(),
+        model.key
+    );
+    let legacy_callback_uri = super::normalize::display_callback_uri(state, &origin, &legacy_path);
+    let unified_callback_uri = super::normalize::display_callback_uri(
+        state,
+        &origin,
+        super::normalize::UNIFIED_CALLBACK_PATH,
+    );
     let callback_uri = match model.callback_mode {
         ExternalAuthCallbackMode::Legacy => legacy_callback_uri.clone(),
         ExternalAuthCallbackMode::Unified => unified_callback_uri.clone(),
@@ -457,7 +470,7 @@ pub async fn list_public_providers_by_kind(
 
 pub async fn list_admin_providers(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<AdminExternalAuthProviderInfo>> {
@@ -474,7 +487,7 @@ pub async fn list_admin_providers(
     let items = page
         .items
         .into_iter()
-        .map(|provider| provider_to_admin(state, req, provider))
+        .map(|provider| provider_to_admin(state, origin.clone(), provider))
         .collect::<Result<Vec<_>>>()?;
     Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
 }
@@ -483,13 +496,30 @@ pub fn list_provider_kinds() -> Vec<ExternalAuthProviderKindInfo> {
     default_registry()
         .descriptors()
         .into_iter()
-        .map(descriptor_to_info)
+        .map(|descriptor| descriptor_to_info(descriptor, String::new()))
         .collect()
+}
+
+pub fn list_provider_kinds_with_origin(
+    state: &impl SharedRuntimeState,
+    origin: ExternalAuthRequestOrigin,
+) -> Result<Vec<ExternalAuthProviderKindInfo>> {
+    let unified_callback_uri = super::normalize::display_callback_uri(
+        state,
+        &origin,
+        super::normalize::UNIFIED_CALLBACK_PATH,
+    );
+    let kinds = default_registry()
+        .descriptors()
+        .into_iter()
+        .map(|descriptor| descriptor_to_info(descriptor, unified_callback_uri.clone()))
+        .collect::<Vec<_>>();
+    Ok(kinds)
 }
 
 pub async fn get_admin_provider(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     id: i64,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
@@ -498,12 +528,12 @@ pub async fn get_admin_provider(
             "external auth provider #{id}"
         )));
     }
-    provider_to_admin(state, req, provider)
+    provider_to_admin(state, origin, provider)
 }
 
 pub async fn create_provider(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     input: CreateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let descriptor = default_registry().descriptor_for(input.provider_kind)?;
@@ -630,12 +660,12 @@ pub async fn create_provider(
         ..Default::default()
     };
     let provider = external_auth_provider_repo::create(state.writer_db(), model).await?;
-    provider_to_admin(state, req, provider)
+    provider_to_admin(state, origin, provider)
 }
 
 pub async fn update_provider(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     id: i64,
     input: UpdateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
@@ -810,7 +840,7 @@ pub async fn update_provider(
     } else {
         external_auth_provider_repo::update(state.writer_db(), active).await?
     };
-    provider_to_admin(state, req, provider)
+    provider_to_admin(state, origin, provider)
 }
 
 pub async fn delete_provider(state: &impl SharedRuntimeState, id: i64) -> Result<()> {

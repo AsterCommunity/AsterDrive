@@ -355,7 +355,7 @@ MFA 自助管理接口都需要已登录。当前持久化因子只支持 TOTP�
 登录流程：
 
 - `POST /auth/external-auth/{kind}/{provider}/start`：请求体可传 `{ "return_path": "/files" }`，返回 `authorization_url`
-- 浏览器跳到 `authorization_url` 后，外部 provider 按 provider 的 `callback_mode` 回调统一 URI `/auth/external-auth/callback` 或兼容 URI `/auth/external-auth/{kind}/{provider}/callback`。兼容 URI 计划在 1.0.0 删除。
+- 浏览器跳到 `authorization_url` 后，外部 provider 回调 login flow 开始时保存的 `redirect_uri`。统一 URI 为 `/auth/external-auth/callback`，兼容 URI 为 `/auth/external-auth/{kind}/{provider}/callback`；兼容 URI 计划在 1.0.0 删除。
 - 如果账号未启用 MFA，回调成功时服务端写入认证 Cookie，并 `302` 到 `return_path`
 - 如果账号需要 MFA（已启用 TOTP，或邮箱验证码 MFA 策略对该账号可用），回调会先创建 MFA 登录 flow，并重定向到登录页携带 MFA challenge 信息；前端继续调用 `POST /auth/mfa/challenge/verify` 完成二次验证
 

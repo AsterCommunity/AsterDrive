@@ -238,7 +238,7 @@ Deployment-facing documentation should tell admins where to create each applicat
 - Google: Google Cloud Console Credentials <https://console.cloud.google.com/apis/credentials>; create an OAuth client ID, choose Web application, open the OAuth client ID, and add the AsterDrive callback under Authorized redirect URIs.
 - Microsoft: Microsoft Entra admin center <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> or Azure portal <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>; open the app, go to Authentication, choose Add a platform -> Web, paste the AsterDrive callback into Redirect URIs, then create a client secret under Certificates & secrets and copy its generated `Value`.
 
-New providers use `/api/v1/auth/external-auth/callback` by default. Existing providers remain in legacy mode after upgrade; administrators should register both URIs with the upstream provider before explicitly switching modes. Legacy compatibility is migration-only and scheduled for removal in 1.0.0.
+New providers use `/api/v1/auth/external-auth/callback` by default. Existing providers remain in legacy mode after upgrade; administrators should register both URIs with the upstream provider before explicitly switching modes. The callback always exchanges the exact `redirect_uri` snapshotted when the login flow started; only the legacy route performs an additional URL kind/key consistency check. Legacy compatibility is migration-only and scheduled for removal in 1.0.0.
 
 ## Account provisioning and binding
 

@@ -350,6 +350,9 @@ function AdminExternalAuthPage() {
 function savedProvider(overrides: Record<string, unknown> = {}) {
 	return {
 		allowed_domains: [],
+		callback_mode: "legacy",
+		callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
 		authorization_url: null,
 		auto_link_verified_email_enabled: false,
 		auto_provision_enabled: false,
@@ -368,6 +371,8 @@ function savedProvider(overrides: Record<string, unknown> = {}) {
 		id: 1,
 		issuer_url: "https://idp.example.com",
 		key: "example",
+		legacy_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
 		protocol: "oidc",
 		provider_kind: "oidc",
 		require_email_verified: true,
@@ -377,6 +382,8 @@ function savedProvider(overrides: Record<string, unknown> = {}) {
 		updated_at: "2026-05-17T10:00:00Z",
 		userinfo_url: null,
 		username_claim: null,
+		unified_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/callback",
 		...overrides,
 	};
 }
@@ -400,6 +407,8 @@ function providerKind(
 			scopes: defaultScopes,
 		},
 		default_scopes: defaultScopes,
+		unified_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/callback",
 		description: "OpenID Connect authorization-code sign-in.",
 		display_name: displayName,
 		issuer_url_supported: kind === "oidc" || kind === "generic_oauth2",
@@ -457,6 +466,9 @@ describe("AdminExternalAuthPage", () => {
 		mockState.get.mockResolvedValue(savedProvider());
 		mockState.create.mockResolvedValue({
 			allowed_domains: ["example.com"],
+			callback_mode: "unified",
+			callback_uri:
+				"https://app.example.com/api/v1/auth/external-auth/callback",
 			authorization_url: null,
 			auto_link_verified_email_enabled: false,
 			auto_provision_enabled: false,
@@ -475,6 +487,8 @@ describe("AdminExternalAuthPage", () => {
 			id: 1,
 			issuer_url: "https://idp.example.com",
 			key: "example",
+			legacy_callback_uri:
+				"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
 			protocol: "oidc",
 			provider_kind: "oidc",
 			require_email_verified: true,
@@ -484,6 +498,8 @@ describe("AdminExternalAuthPage", () => {
 			updated_at: "2026-05-17T10:00:00Z",
 			userinfo_url: null,
 			username_claim: null,
+			unified_callback_uri:
+				"https://app.example.com/api/v1/auth/external-auth/callback",
 		});
 		mockState.test.mockResolvedValue({
 			authorization_endpoint: "https://idp.example.com/authorize",
@@ -549,8 +565,10 @@ describe("AdminExternalAuthPage", () => {
 			},
 		);
 		expect(
-			screen.queryByText("external_auth_provider_callback_url"),
-		).not.toBeInTheDocument();
+			screen.getAllByText(
+				"https://app.example.com/api/v1/auth/external-auth/callback",
+			).length,
+		).toBeGreaterThan(0);
 		fireEvent.click(
 			screen.getByRole("button", { name: "policy_wizard_review" }),
 		);

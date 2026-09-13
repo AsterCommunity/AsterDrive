@@ -12,7 +12,8 @@ use crate::runtime::PrimaryAppState;
 use crate::services::auth::external::{
     self as external, ExternalAuthCallbackOutcome, ExternalAuthCallbackQuery,
     ExternalAuthEmailVerificationConfirmQuery, ExternalAuthEmailVerificationStartRequest,
-    ExternalAuthLoginAuditDetails, ExternalAuthPasswordLinkRequest, ExternalAuthStartLoginRequest,
+    ExternalAuthLoginAuditDetails, ExternalAuthPasswordLinkRequest, ExternalAuthRequestOrigin,
+    ExternalAuthStartLoginRequest,
 };
 use crate::services::auth::local::Claims;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
@@ -70,11 +71,19 @@ pub async fn start_login(
         &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
+    let (scheme, host) = {
+        let connection = req.connection_info();
+        (
+            connection.scheme().to_string(),
+            connection.host().to_string(),
+        )
+    };
+    let origin = ExternalAuthRequestOrigin { scheme, host };
     let (kind, provider) = path.into_inner();
     let provider_kind = parse_provider_kind(&kind)?;
     let result = external::start_login(
         state.get_ref(),
-        &req,
+        origin,
         provider_kind,
         &provider,
         body.return_path.as_deref(),

@@ -10409,6 +10409,7 @@ export interface operations {
                             supports_email_verified_claim: boolean;
                             supports_pkce: boolean;
                             token_url_required: boolean;
+                            unified_callback_uri: string;
                             userinfo_url_required: boolean;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];

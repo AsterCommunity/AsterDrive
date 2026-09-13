@@ -6,7 +6,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::auth::external::{
     self as external, AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput,
     ExternalAuthProviderAuditDetails, ExternalAuthProviderTestParamsInput,
-    UpdateExternalAuthProviderInput,
+    ExternalAuthRequestOrigin, UpdateExternalAuthProviderInput,
 };
 use crate::services::auth::local::Claims;
 use crate::services::ops::audit;
@@ -17,6 +17,14 @@ use aster_forge_api::OffsetPage;
 #[cfg(feature = "openapi")]
 use aster_forge_external_auth::ExternalAuthProviderTestResult;
 use serde::Serialize;
+
+fn request_origin(req: &HttpRequest) -> ExternalAuthRequestOrigin {
+    let connection = req.connection_info();
+    ExternalAuthRequestOrigin {
+        scheme: connection.scheme().to_string(),
+        host: connection.host().to_string(),
+    }
+}
 
 fn external_auth_provider_audit_details(
     provider: &AdminExternalAuthProviderInfo,
@@ -60,7 +68,7 @@ pub async fn list_external_auth_providers(
 ) -> Result<HttpResponse> {
     let providers = external::list_admin_providers(
         state.get_ref(),
-        &req,
+        request_origin(&req),
         page.limit_or(50, 100),
         page.offset(),
     )
@@ -80,8 +88,12 @@ pub async fn list_external_auth_providers(
     ),
     security(("bearer" = [])),
 )]
-pub async fn list_external_auth_provider_kinds() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(external::list_provider_kinds())))
+pub async fn list_external_auth_provider_kinds(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+) -> Result<HttpResponse> {
+    let kinds = external::list_provider_kinds_with_origin(state.get_ref(), request_origin(&req))?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(kinds)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -104,7 +116,8 @@ pub async fn create_external_auth_provider(
     req: HttpRequest,
     body: web::Json<CreateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
-    let provider = external::create_provider(state.get_ref(), &req, body.into_inner()).await?;
+    let provider =
+        external::create_provider(state.get_ref(), request_origin(&req), body.into_inner()).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -138,7 +151,8 @@ pub async fn get_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external::get_admin_provider(state.get_ref(), &req, *path).await?;
+    let provider =
+        external::get_admin_provider(state.get_ref(), request_origin(&req), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
 }
 
@@ -165,8 +179,13 @@ pub async fn update_external_auth_provider(
     path: web::Path<i64>,
     body: web::Json<UpdateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
-    let provider =
-        external::update_provider(state.get_ref(), &req, *path, body.into_inner()).await?;
+    let provider = external::update_provider(
+        state.get_ref(),
+        request_origin(&req),
+        *path,
+        body.into_inner(),
+    )
+    .await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -201,7 +220,8 @@ pub async fn delete_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external::get_admin_provider(state.get_ref(), &req, *path).await?;
+    let provider =
+        external::get_admin_provider(state.get_ref(), request_origin(&req), *path).await?;
     external::delete_provider(state.get_ref(), *path).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
@@ -283,7 +303,8 @@ pub async fn test_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external::get_admin_provider(state.get_ref(), &req, *path).await?;
+    let provider =
+        external::get_admin_provider(state.get_ref(), request_origin(&req), *path).await?;
     let result = external::test_provider(state.get_ref(), *path).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(

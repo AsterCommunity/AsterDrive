@@ -27,8 +27,8 @@ pub use normalize::callback_redirect_uri;
 pub use password_link::link_with_password;
 pub use providers::{
     create_provider, delete_provider, get_admin_provider, list_admin_providers,
-    list_provider_kinds, list_public_providers, list_public_providers_by_kind, test_provider,
-    test_provider_params, update_provider,
+    list_provider_kinds, list_provider_kinds_with_origin, list_public_providers,
+    list_public_providers_by_kind, test_provider, test_provider_params, update_provider,
 };
 pub use verification::{confirm_email_verification, start_email_verification};
 
@@ -69,6 +69,13 @@ pub struct ExternalAuthProviderKindInfo {
     pub supports_discovery: bool,
     pub supports_pkce: bool,
     pub supports_email_verified_claim: bool,
+    pub unified_callback_uri: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExternalAuthRequestOrigin {
+    pub scheme: String,
+    pub host: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
