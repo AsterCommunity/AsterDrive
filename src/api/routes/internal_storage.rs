@@ -12,15 +12,16 @@ use crate::services::{
 };
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
-    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
-    RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
-    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
+    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteMultipartCapabilities,
+    RemoteStorageCapabilities, RemoteStorageCapacityResponse, RemoteStorageComposeRequest,
+    RemoteStorageComposeResponse, RemoteStorageListResponse, RemoteStorageObjectMetadata,
+    RemoteStorageTargetRuntimeCapabilities, RemoteUpdateStorageTargetRequest,
 };
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
 use aster_drive_storage::StorageErrorKind;
 use aster_drive_storage::object_key;
-use aster_drive_storage::{BlobMetadata, StorageDriver};
+use aster_drive_storage::{BlobMetadata, MultipartUploadMode, StorageDriver};
 use aster_forge_utils::numbers;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -324,8 +325,41 @@ async fn get_capabilities(
         .iter()
         .map(|connector| connector.descriptor().connector_id.to_string())
         .collect();
-    let capabilities = RemoteStorageCapabilities::current()
+    let mut capabilities = RemoteStorageCapabilities::current()
         .with_remote_storage_target_connector_ids(connector_ids);
+    for target in storage_target::list(state.get_ref(), &binding).await? {
+        let Ok(resolved) =
+            storage_target::resolve_target_by_key(state.get_ref(), &binding, &target.target_key)
+                .await
+        else {
+            continue;
+        };
+        let extensions = resolved.driver.extensions();
+        let multipart = extensions.multipart.map(|driver| {
+            let capability = driver.capabilities();
+            let (native_reader_upload, buffered_reader_max_size) = match capability.upload_mode {
+                MultipartUploadMode::NativeStreaming => (true, None),
+                MultipartUploadMode::Buffered { max_size } => (false, Some(max_size)),
+            };
+            RemoteMultipartCapabilities {
+                min_part_size: capability.min_part_size,
+                max_part_size: capability.max_part_size,
+                max_parts: capability.max_parts,
+                native_reader_upload,
+                buffered_reader_max_size,
+            }
+        });
+        capabilities
+            .target_runtime_capabilities
+            .push(RemoteStorageTargetRuntimeCapabilities {
+                target_key: target.target_key,
+                connector_id: target.connector_id,
+                applied_revision: target.applied_revision,
+                range_read: resolved.driver.supports_efficient_range(),
+                stream_upload: extensions.stream_upload.is_some(),
+                multipart,
+            });
+    }
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
 }
 

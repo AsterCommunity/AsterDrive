@@ -48,6 +48,24 @@ impl AsyncRead for HashingReader {
 #[async_trait]
 impl MultipartStorageDriver for RemoteDriver {
     fn capabilities(&self) -> MultipartStorageCapabilities {
+        if let Some(runtime) = self.target_runtime_capabilities.as_ref()
+            && let Some(multipart) = runtime.multipart.as_ref()
+        {
+            return MultipartStorageCapabilities {
+                min_part_size: multipart.min_part_size,
+                max_part_size: multipart.max_part_size,
+                max_parts: multipart.max_parts,
+                upload_mode: if multipart.native_reader_upload {
+                    MultipartUploadMode::NativeStreaming
+                } else {
+                    MultipartUploadMode::Buffered {
+                        max_size: multipart
+                            .buffered_reader_max_size
+                            .unwrap_or(64 * 1024 * 1024),
+                    }
+                },
+            };
+        }
         MultipartStorageCapabilities {
             min_part_size: 1,
             max_part_size: None,

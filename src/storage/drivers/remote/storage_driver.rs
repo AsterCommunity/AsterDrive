@@ -4,6 +4,7 @@ use tokio::io::AsyncRead;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::StorageCapacityInfo;
+use aster_drive_storage::traits::extensions::StreamUploadDriver;
 
 use super::RemoteDriver;
 
@@ -44,7 +45,9 @@ impl StorageDriver for RemoteDriver {
     }
 
     fn supports_efficient_range(&self) -> bool {
-        true
+        self.target_runtime_capabilities
+            .as_ref()
+            .is_none_or(|capability| capability.range_read)
     }
 
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
@@ -79,9 +82,15 @@ impl StorageDriver for RemoteDriver {
     }
 
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        let stream_upload: Option<&dyn StreamUploadDriver> =
+            match self.target_runtime_capabilities.as_ref() {
+                None => Some(self),
+                Some(capability) if capability.stream_upload => Some(self),
+                Some(_) => None,
+            };
         aster_drive_storage::traits::StorageDriverExtensions {
             list: Some(self),
-            stream_upload: Some(self),
+            stream_upload,
             direct_download: Some(self),
             presigned_upload: Some(self),
             multipart: Some(self),

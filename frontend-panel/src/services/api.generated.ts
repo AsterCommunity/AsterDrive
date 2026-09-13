@@ -7519,6 +7519,17 @@ export interface components {
             remote_node_name: string;
             token: string;
         };
+        RemoteMultipartCapabilities: {
+            /** Format: int64 */
+            buffered_reader_max_size?: number | null;
+            /** Format: int64 */
+            max_part_size?: number | null;
+            /** Format: int64 */
+            max_parts: number;
+            /** Format: int64 */
+            min_part_size: number;
+            native_reader_upload: boolean;
+        };
         /** @enum {string} */
         RemoteNodeEnrollmentStatus: "not_started" | "pending" | "redeemed" | "completed" | "expired";
         RemoteNodeInfo: {
@@ -7574,6 +7585,7 @@ export interface components {
             supports_list?: boolean;
             supports_range_read?: boolean;
             supports_stream_upload?: boolean;
+            target_runtime_capabilities?: components["schemas"]["RemoteStorageTargetRuntimeCapabilities"][];
         };
         RemoteStorageFeatureFlags: {
             accept_ranges_header?: boolean;
@@ -7619,6 +7631,20 @@ export interface components {
             name: string;
             target_key: string;
             updated_at: string;
+        };
+        /**
+         * @description Capability snapshot of the connector actually bound to one remote target.
+         *     The primary must prefer this target-scoped value over Remote's generic
+         *     protocol limits when planning storage migration.
+         */
+        RemoteStorageTargetRuntimeCapabilities: {
+            /** Format: int64 */
+            applied_revision: number;
+            connector_id: string;
+            multipart?: null | components["schemas"]["RemoteMultipartCapabilities"];
+            range_read?: boolean;
+            stream_upload?: boolean;
+            target_key: string;
         };
         RemoteTunnelInfo: {
             /** @description Last successful poll or stream handshake persisted by the primary. */
@@ -13414,6 +13440,7 @@ export interface operations {
                             supports_list?: boolean;
                             supports_range_read?: boolean;
                             supports_stream_upload?: boolean;
+                            target_runtime_capabilities?: components["schemas"]["RemoteStorageTargetRuntimeCapabilities"][];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
