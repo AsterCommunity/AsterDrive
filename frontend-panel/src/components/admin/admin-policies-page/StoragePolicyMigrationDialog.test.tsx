@@ -113,6 +113,25 @@ function renderDialog(dryRunValue: StoragePolicyMigrationDryRun) {
 	);
 }
 
+function renderWithoutDryRun() {
+	return render(
+		<StoragePolicyMigrationDialog
+			dryRun={null}
+			dryRunLoading={false}
+			open
+			policies={policies}
+			sourcePolicyId="1"
+			submitting={false}
+			targetPolicyId="2"
+			onOpenChange={vi.fn()}
+			onDryRun={vi.fn()}
+			onSourcePolicyChange={vi.fn()}
+			onSubmit={vi.fn()}
+			onTargetPolicyChange={vi.fn()}
+		/>,
+	);
+}
+
 describe("StoragePolicyMigrationDialog", () => {
 	it("renders native streaming multipart plan details", () => {
 		renderDialog(dryRun(null));
@@ -154,5 +173,17 @@ describe("StoragePolicyMigrationDialog", () => {
 		expect(
 			screen.getByText("policy_migration_capacity_available_of_total"),
 		).toBeInTheDocument();
+	});
+
+	it("renders the dialog before a dry run exists", () => {
+		renderWithoutDryRun();
+		expect(screen.getByText("policy_migration_dry_run")).toBeInTheDocument();
+	});
+
+	it("renders a dry run without a multipart plan", () => {
+		const value = dryRun(null);
+		value.multipart_plan = null;
+		renderDialog(value);
+		expect(screen.queryByText("policy_migration_multipart_plan")).toBeNull();
 	});
 });
