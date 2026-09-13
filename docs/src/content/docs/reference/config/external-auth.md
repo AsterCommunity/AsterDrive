@@ -34,7 +34,9 @@ title: "外部认证"
 保存 provider 后，页面会显示 AsterDrive 生成的重定向 URI。把它登记到身份提供商侧。回调路径形如：
 
 ```text
-https://drive.example.com/api/v1/auth/external-auth/{kind}/{provider}/callback
+https://drive.example.com/api/v1/auth/external-auth/callback
+
+升级期间旧 provider 仍可能使用 `https://drive.example.com/api/v1/auth/external-auth/{kind}/{provider}/callback`。请在身份提供商侧同时登记两个 URI，确认统一 URI 生效后，再在 AsterDrive 管理端切换 callback mode。Legacy 兼容将在 1.0.0 删除。
 ```
 
 其中 `{kind}` 是 `oidc`、`generic_oauth2`、`github`、`qq`、`google` 或 `microsoft`，`{provider}` 是服务端生成的 provider key。
@@ -45,7 +47,7 @@ https://drive.example.com/api/v1/auth/external-auth/{kind}/{provider}/callback
 
 | Provider | 去哪里创建应用 | 需要登记的回调 |
 | --- | --- | --- |
-| OIDC / Generic OAuth2 | 你的身份提供商管理后台，例如 Logto、Authentik、Keycloak、Zitadel 等的 Applications / Clients 页面 | 保存 AsterDrive provider 后显示的 callback URL；如果 IdP 要求预填，可先按 `/api/v1/auth/external-auth/{kind}/{provider}/callback` 规则生成 |
+| OIDC / Generic OAuth2 | 你的身份提供商管理后台，例如 Logto、Authentik、Keycloak、Zitadel 等的 Applications / Clients 页面 | 保存 AsterDrive provider 后显示的 callback URL；新 provider 可预先登记 `/api/v1/auth/external-auth/callback` |
 | GitHub | GitHub 用户或组织的 `Settings -> Developer settings -> OAuth Apps -> New OAuth App` | OAuth App 的 Authorization callback URL |
 | QQ | QQ 互联管理中心 <https://connect.qq.com/manage.html> 创建网站应用 | 应用回调地址 / 回调域名；使用 AsterDrive provider 保存后显示的 callback URL |
 | Google | Google Cloud Console 的 `APIs & Services -> Credentials -> Create Credentials -> OAuth client ID` | OAuth client 的 Authorized redirect URIs |

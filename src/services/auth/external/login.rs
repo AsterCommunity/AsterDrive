@@ -26,8 +26,9 @@ use super::resolution::{
 use super::verification::create_pending_email_verification_flow;
 use super::{
     BROWSER_BINDING_SECRET_BYTES, ExternalAuthBrowserBinding, ExternalAuthCallbackOutcome,
-    ExternalAuthCallbackQuery, ExternalAuthCallbackResult, ExternalAuthPrimaryLogin,
-    ExternalAuthStartLoginResponse, ExternalAuthStartLoginResult, FLOW_TTL_SECS,
+    ExternalAuthCallbackQuery, ExternalAuthCallbackResult, ExternalAuthCallbackRoute,
+    ExternalAuthPrimaryLogin, ExternalAuthRequestOrigin, ExternalAuthStartLoginResponse,
+    ExternalAuthStartLoginResult, FLOW_TTL_SECS,
 };
 
 fn browser_binding_secret() -> String {
@@ -39,7 +40,7 @@ fn browser_binding_secret() -> String {
 
 pub async fn start_login(
     state: &impl SharedRuntimeState,
-    req: &actix_web::HttpRequest,
+    origin: ExternalAuthRequestOrigin,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
     return_path: Option<&str>,
@@ -67,7 +68,13 @@ pub async fn start_login(
         return_path,
         super::EXTERNAL_AUTH_URL_MAX_LEN,
     )?;
-    let redirect_uri = callback_redirect_uri(state, req, provider.provider_kind, &provider.key)?;
+    let redirect_uri = callback_redirect_uri(
+        state,
+        origin,
+        provider.callback_mode,
+        provider.provider_kind,
+        &provider.key,
+    )?;
     let runtime_provider = external_auth_provider_config(&provider);
     let auth_start = default_registry()
         .driver_for_provider(&runtime_provider)?
@@ -115,8 +122,7 @@ pub async fn start_login(
 
 pub async fn finish_callback(
     state: &impl SharedRuntimeState,
-    provider_kind: ExternalAuthProviderKind,
-    provider_key: &str,
+    callback_route: ExternalAuthCallbackRoute,
     query: &ExternalAuthCallbackQuery,
     browser_binding_secret: Option<&str>,
     _ip_address: Option<&str>,
@@ -181,16 +187,22 @@ pub async fn finish_callback(
     })?;
     let provider =
         external_auth_provider_repo::find_by_id(state.writer_db(), flow.provider_id).await?;
-    if provider.provider_kind != provider_kind {
-        return Err(AsterError::auth_invalid_credentials(
-            "external auth callback provider kind does not match login flow",
-        ));
-    }
-    let expected_key = external_auth_normalize::normalize_provider_key(provider_key)?;
-    if provider.key != expected_key {
-        return Err(AsterError::auth_invalid_credentials(
-            "external auth callback provider does not match login flow",
-        ));
+    if let ExternalAuthCallbackRoute::Legacy {
+        provider_kind,
+        provider_key,
+    } = callback_route
+    {
+        if provider.provider_kind != provider_kind {
+            return Err(AsterError::auth_invalid_credentials(
+                "external auth callback provider kind does not match login flow",
+            ));
+        }
+        let expected_key = external_auth_normalize::normalize_provider_key(&provider_key)?;
+        if provider.key != expected_key {
+            return Err(AsterError::auth_invalid_credentials(
+                "external auth callback provider does not match login flow",
+            ));
+        }
     }
     if !provider.enabled {
         return Err(AsterError::auth_forbidden(

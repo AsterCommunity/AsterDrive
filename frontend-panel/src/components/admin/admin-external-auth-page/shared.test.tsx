@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	buildManagedExternalAuthSearchParams,
 	CallbackUrlField,
-	callbackUrl,
 	connectionRequirementsMissing,
 	createPayload,
 	defaultScopesForKind,
@@ -104,6 +103,12 @@ function provider(
 ): AdminExternalAuthProviderInfo {
 	return {
 		allowed_domains: ["example.com", "example.org"],
+		callback_mode: "unified",
+		callback_uri: "https://app.example.com/api/v1/auth/external-auth/callback",
+		legacy_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+		unified_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/callback",
 		authorization_url: null,
 		auto_link_verified_email_enabled: false,
 		auto_provision_enabled: false,
@@ -462,9 +467,6 @@ describe("admin external auth shared helpers", () => {
 		expect(formClaimSummary(form, descriptor)).toBe(
 			"subject=id · username=login · display=name · email=primary && verified from /user/emails",
 		);
-		expect(callbackUrl("github", "github")).toBe(
-			"https://app.example.com/api/v1/auth/external-auth/github/github/callback",
-		);
 	});
 
 	it("treats specialized provider kind strings as fixed connections without descriptors", () => {
@@ -537,9 +539,6 @@ describe("admin external auth shared helpers", () => {
 		);
 		expect(formClaimSummary(form, descriptor)).toBe(
 			"subject=sub · display=name · email=email · email_verified=email_verified · avatar=picture",
-		);
-		expect(callbackUrl("google", "google")).toBe(
-			"https://app.example.com/api/v1/auth/external-auth/google/google/callback",
 		);
 	});
 
@@ -710,9 +709,6 @@ describe("admin external auth shared helpers", () => {
 			microsoftTenant: "organizations",
 			providerKind: "microsoft",
 		});
-		expect(callbackUrl("microsoft", "microsoft")).toBe(
-			"https://app.example.com/api/v1/auth/external-auth/microsoft/microsoft/callback",
-		);
 	});
 
 	it("uses QQ descriptor defaults and fixed OAuth2 summaries", () => {
@@ -744,9 +740,21 @@ describe("admin external auth shared helpers", () => {
 		expect(formClaimSummary(form, descriptor)).toBe(
 			"subject=openid · display=nickname · email=not returned",
 		);
-		expect(callbackUrl("qq", "qq")).toBe(
-			"https://app.example.com/api/v1/auth/external-auth/qq/qq/callback",
-		);
+	});
+
+	it("uses backend callback mode and never derives provider callback paths", () => {
+		const item = provider({
+			callback_mode: "legacy",
+			callback_uri:
+				"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+			legacy_callback_uri:
+				"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+			unified_callback_uri:
+				"https://app.example.com/api/v1/auth/external-auth/callback",
+		});
+		const form = formFromProvider(item);
+		expect(form.callbackMode).toBe("legacy");
+		expect(updatePayload(form).callback_mode).toBe("legacy");
 	});
 
 	it("drops stale URL fields from fixed provider payloads", () => {
@@ -1044,10 +1052,6 @@ describe("admin external auth shared helpers", () => {
 				}),
 			),
 		).toBe("external_auth_provider_mode_link_and_provision");
-		expect(callbackUrl("oidc", "example idp")).toBe(
-			"https://app.example.com/api/v1/auth/external-auth/oidc/example%20idp/callback",
-		);
-		expect(callbackUrl("oidc", " ")).toBe("");
 		expect(providerPrimaryEndpoint(provider())?.labelKey).toBe(
 			"external_auth_provider_issuer_url",
 		);

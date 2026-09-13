@@ -77,8 +77,8 @@
 3. 服务端规范化 provider key，加载 provider，计算 callback redirect URI。
 4. Driver 生成授权 URL、state、PKCE verifier；OIDC 还会生成 nonce。
 5. 服务端把 state hash、nonce、PKCE verifier、redirect URI 和 return path 写入 `external_auth_login_flows`。
-6. 用户在身份提供商授权后回调 `/auth/external-auth/{kind}/{provider}/callback`。
-7. 服务端按 state hash 原子消费 flow，校验 kind / provider 是否匹配，再调用 driver exchange。
+6. 用户在身份提供商授权后回调 login flow 开始时快照的 `redirect_uri`。统一路由从已校验并原子消费的 flow 解析 `provider_id`；只有兼容旧 URI `/auth/external-auth/{kind}/{provider}/callback` 才额外校验 URL 中的 kind/provider。旧 URI 仅在迁移期保留，TODO：1.0.0 删除。
+7. 服务端按 state hash 原子消费 flow；legacy 回调额外校验 URL 中的 kind/provider，一致后调用 driver exchange，统一回调则直接使用 flow 中的 provider 调用 driver。
 8. Driver 返回 `ExternalAuthProfile`，服务层按 `identity_namespace + subject` 解析本地用户。
 9. 找到或创建本地用户后，走 `mfa::complete_primary_login_or_start_mfa()`。
 10. 不需要 MFA 时写 Cookie 并重定向；需要 MFA 时重定向到登录页继续 challenge。
@@ -249,7 +249,7 @@ QQ 回调缺邮箱时走现有缺邮箱分支：先尝试已有外部身份绑�
 - Google：Google Cloud Console Credentials <https://console.cloud.google.com/apis/credentials>，创建 OAuth client ID -> 选择 Web 应用 -> 在 Authorized redirect URIs 中添加 AsterDrive callback URL；创建后复制 client secret 的 `Value`。
 - Microsoft：Microsoft Entra admin center <https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade> 或 Azure portal <https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade>，App registrations 创建应用 -> Authentication -> Add a platform -> Web -> 在 Redirect URI 填入 AsterDrive callback URL；在 Certificates & secrets 创建 client secret 后复制 `Value`。
 
-所有入口都应使用 AsterDrive 生成的 `/api/v1/auth/external-auth/{kind}/{provider}/callback` 作为 redirect URI。
+新 provider 默认使用 `/api/v1/auth/external-auth/callback`。升级已有 provider 时保持 legacy 模式；管理员应先在第三方控制台同时登记统一 URI 和旧 URI，再显式切换模式。旧 URI 兼容计划在 1.0.0 删除。
 
 ## Token exchange 约束
 

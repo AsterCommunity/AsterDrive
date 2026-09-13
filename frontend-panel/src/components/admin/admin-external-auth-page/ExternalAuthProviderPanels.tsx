@@ -165,6 +165,8 @@ export function ExternalAuthConnectionTestPanel({
 
 interface ExternalAuthSummaryPanelProps {
 	currentCallbackUrl: string;
+	legacyCallbackUrl: string;
+	unifiedCallbackUrl: string;
 	form: ExternalAuthProviderFormData;
 	isCreate: boolean;
 	providerKind: ExternalAuthProviderKind;
@@ -174,8 +176,9 @@ interface ExternalAuthSummaryPanelProps {
 
 export function ExternalAuthSummaryPanel({
 	currentCallbackUrl,
+	legacyCallbackUrl,
+	unifiedCallbackUrl,
 	form,
-	isCreate,
 	providerKind,
 	providerKinds,
 	selectedKind,
@@ -278,16 +281,30 @@ export function ExternalAuthSummaryPanel({
 							t("external_auth_provider_allowed_domains_all")}
 					</dd>
 				</div>
-				{isCreate ? null : (
-					<div>
-						<dt className="text-xs text-muted-foreground">
-							{t("external_auth_provider_callback_url")}
-						</dt>
-						<dd className="mt-1 break-all font-mono text-xs">
-							{currentCallbackUrl || "-"}
-						</dd>
-					</div>
-				)}
+				<div>
+					<dt className="text-xs text-muted-foreground">
+						{t("external_auth_provider_callback_url")}
+					</dt>
+					<dd className="mt-1 break-all font-mono text-xs">
+						{currentCallbackUrl || "-"}
+					</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">
+						{t("external_auth_provider_unified_callback_url")}
+					</dt>
+					<dd className="mt-1 break-all font-mono text-xs">
+						{unifiedCallbackUrl || "-"}
+					</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">
+						{t("external_auth_provider_legacy_callback_url")}
+					</dt>
+					<dd className="mt-1 break-all font-mono text-xs">
+						{legacyCallbackUrl || "-"}
+					</dd>
+				</div>
 			</dl>
 		</section>
 	);
@@ -419,6 +436,8 @@ interface ExternalAuthProviderIdentityPanelProps {
 	connectionMissing: boolean;
 	formTouched: boolean;
 	currentCallbackUrl: string;
+	legacyCallbackUrl: string;
+	unifiedCallbackUrl: string;
 	form: ExternalAuthProviderFormData;
 	identityMissing: boolean;
 	isCreate: boolean;
@@ -438,6 +457,8 @@ export function ExternalAuthProviderIdentityPanel({
 	connectionMissing,
 	formTouched,
 	currentCallbackUrl,
+	legacyCallbackUrl,
+	unifiedCallbackUrl,
 	form,
 	identityMissing,
 	isCreate,
@@ -466,6 +487,16 @@ export function ExternalAuthProviderIdentityPanel({
 				},
 			]
 		: [];
+	const callbackModeOptions = [
+		{
+			label: t("external_auth_provider_callback_mode_unified"),
+			value: "unified" as const,
+		},
+		{
+			label: t("external_auth_provider_callback_mode_legacy"),
+			value: "legacy" as const,
+		},
+	];
 
 	return (
 		<section className="rounded-xl bg-muted/30 p-5">
@@ -595,18 +626,49 @@ export function ExternalAuthProviderIdentityPanel({
 						{t("external_auth_provider_required")}
 					</p>
 				) : null}
-				{isCreate ? null : (
-					<div className="min-w-0 space-y-2 md:col-span-2">
-						<Label>{t("external_auth_provider_callback_url")}</Label>
-						<CallbackUrlField
-							value={currentCallbackUrl}
-							onCopy={onCopyCallbackUrl}
-						/>
-						<p className="text-xs text-muted-foreground">
-							{t("external_auth_provider_callback_url_hint")}
-						</p>
-					</div>
-				)}
+				<div className="min-w-0 space-y-2 md:col-span-2">
+					<Label>{t("external_auth_provider_callback_url")}</Label>
+					<CallbackUrlField
+						value={currentCallbackUrl}
+						onCopy={onCopyCallbackUrl}
+					/>
+					<p className="text-xs text-muted-foreground">
+						{t("external_auth_provider_callback_url_hint")}
+					</p>
+					{isCreate ? null : (
+						<div className="mt-4 space-y-2">
+							<Label htmlFor="external-auth-provider-callback-mode">
+								{t("external_auth_provider_callback_mode")}
+							</Label>
+							<Select
+								items={callbackModeOptions}
+								value={form.callbackMode}
+								onValueChange={(value) => {
+									if (value === "legacy" || value === "unified") {
+										onFieldChange("callbackMode", value);
+									}
+								}}
+							>
+								<SelectTrigger id="external-auth-provider-callback-mode">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{callbackModeOptions.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-xs text-muted-foreground">
+								{t("external_auth_provider_callback_mode_hint", {
+									legacy: legacyCallbackUrl,
+									unified: unifiedCallbackUrl,
+								})}
+							</p>
+						</div>
+					)}
+				</div>
 			</div>
 		</section>
 	);

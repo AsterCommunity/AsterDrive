@@ -111,13 +111,13 @@ Recommended onboarding order:
 1. Set `Admin -> System Settings -> Site -> Public Site URL` to the real external access address
 2. Confirm the reverse proxy already handles HTTPS, Host, real client IPs, and large request bodies
 3. Create the application on the identity provider side and prepare the Client ID (plus Client Secret for a confidential client)
-4. Create the provider under `Admin -> External Auth`, then copy the redirect URI AsterDrive generates after saving
-5. Register that redirect URI on the identity provider side
+4. Create the provider under `Admin -> External Auth`, then copy the current callback URI returned by AsterDrive
+5. Register both the unified and legacy URIs on the identity provider side; switch the provider mode only after the unified URI is confirmed
 6. Decide the account binding policies (next section)
 7. Run the full path once with a real account: login, binding, MFA, and email verification
 
 :::caution[Set the public site URL first]
-External auth redirect URIs depend on `Public Site URL`. If it is wrong, identity provider callbacks land on the wrong address. After changing the public site URL, update the redirect URI registered on the provider side too.
+External auth redirect URIs depend on `Public Site URL`. New providers use `/api/v1/auth/external-auth/callback` by default. When upgrading an existing provider, register both the unified URI and its currently displayed legacy URI with the identity provider, then explicitly switch the callback mode on the provider detail page. Legacy compatibility will be removed in 1.0.0. If you change the public site URL, update both registered URIs.
 :::
 
 ## Account Binding Policies

@@ -25,7 +25,6 @@ import type {
 	AdminExternalAuthProviderKindInfo,
 } from "@/types/api";
 import {
-	callbackUrl,
 	ExternalAuthProviderIcon,
 	kindDisplayName,
 	providerAllowedDomainSummary,
@@ -92,7 +91,7 @@ export function ExternalAuthProvidersTableRow({
 	const { t } = useTranslation("admin");
 	const deleting = deletingId === provider.id;
 	const testing = testingId === provider.id;
-	const providerCallbackUrl = callbackUrl(provider.provider_kind, provider.key);
+	const providerCallbackUrl = provider.callback_uri;
 	const primaryEndpoint = providerPrimaryEndpoint(provider);
 	const allowedDomainSummary = providerAllowedDomainSummary(t, provider);
 

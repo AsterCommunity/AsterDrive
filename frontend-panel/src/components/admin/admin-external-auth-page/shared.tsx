@@ -12,7 +12,6 @@ import {
 	parseOffsetSearchParam,
 	parsePageSizeSearchParam,
 } from "@/lib/pagination";
-import { absoluteAppUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
 import type {
 	AdminExternalAuthProviderInfo,
@@ -104,6 +103,7 @@ export interface ExternalAuthProviderFormData {
 	avatarUrlClaim: string;
 	clientId: string;
 	clientSecret: string;
+	callbackMode: "legacy" | "unified";
 	displayName: string;
 	displayNameClaim: string;
 	emailClaim: string;
@@ -144,6 +144,7 @@ export const emptyForm: ExternalAuthProviderFormData = {
 	avatarUrlClaim: "",
 	clientId: "",
 	clientSecret: "",
+	callbackMode: "unified",
 	displayName: "",
 	displayNameClaim: "",
 	emailClaim: "",
@@ -203,6 +204,7 @@ export function formFromProvider(
 		avatarUrlClaim: provider.avatar_url_claim ?? "",
 		clientId: provider.client_id,
 		clientSecret: provider.client_secret ?? "",
+		callbackMode: provider.callback_mode,
 		displayName: provider.display_name,
 		displayNameClaim: provider.display_name_claim ?? "",
 		emailClaim: provider.email_claim ?? "",
@@ -595,6 +597,7 @@ export function createPayload(
 		avatar_url_claim: nullableText(form.avatarUrlClaim),
 		client_id: form.clientId.trim(),
 		client_secret: nullableText(form.clientSecret),
+		callback_mode: "unified",
 		display_name: form.displayName.trim(),
 		display_name_claim: nullableText(form.displayNameClaim),
 		email_claim: nullableText(form.emailClaim),
@@ -634,6 +637,7 @@ export function updatePayload(
 		auto_provision_enabled: form.autoProvisionEnabled,
 		avatar_url_claim: nullableText(form.avatarUrlClaim),
 		client_id: form.clientId.trim(),
+		callback_mode: form.callbackMode,
 		...(isRedactedSecret(form.clientSecret)
 			? {}
 			: { client_secret: nullableText(form.clientSecret) }),
@@ -795,24 +799,6 @@ export function securityModeLabel(
 		return t("external_auth_provider_mode_link");
 	}
 	return t("external_auth_provider_mode_manual");
-}
-
-function callbackPath(
-	providerKind: ExternalAuthProviderKind,
-	providerKey: string,
-) {
-	const key = providerKey.trim();
-	return key
-		? `/api/v1/auth/external-auth/${encodeURIComponent(providerKind)}/${encodeURIComponent(key)}/callback`
-		: null;
-}
-
-export function callbackUrl(
-	providerKind: ExternalAuthProviderKind,
-	providerKey: string,
-) {
-	const path = callbackPath(providerKind, providerKey);
-	return path ? absoluteAppUrl(path) : "";
 }
 
 export function providerPrimaryEndpoint(

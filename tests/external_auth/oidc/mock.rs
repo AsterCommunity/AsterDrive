@@ -29,6 +29,7 @@ pub struct MockOidcProvider {
     pub issuer: String,
     key: Arc<StaticRsaKey>,
     authorization_requests: Arc<Mutex<Vec<AuthorizeRequest>>>,
+    token_redirect_uris: Arc<Mutex<Vec<String>>>,
     token_subject: Arc<Mutex<String>>,
     token_email: Arc<Mutex<Option<String>>>,
     token_email_verified: Arc<Mutex<Option<serde_json::Value>>>,
@@ -67,6 +68,7 @@ impl MockOidcProvider {
             issuer: String::new(),
             key: Arc::new(key),
             authorization_requests: Arc::new(Mutex::new(Vec::new())),
+            token_redirect_uris: Arc::new(Mutex::new(Vec::new())),
             token_subject: Arc::new(Mutex::new("oidc-subject-1".to_string())),
             token_email: Arc::new(Mutex::new(Some("oidc-user@example.com".to_string()))),
             token_email_verified: Arc::new(Mutex::new(Some(serde_json::json!(true)))),
@@ -88,6 +90,15 @@ impl MockOidcProvider {
             .expect("authorize requests lock should not be poisoned")
             .last()
             .expect("authorization request should be recorded")
+            .clone()
+    }
+
+    pub fn last_token_redirect_uri(&self) -> String {
+        self.token_redirect_uris
+            .lock()
+            .expect("token redirect URIs lock should not be poisoned")
+            .last()
+            .expect("token request should be recorded")
             .clone()
     }
 
@@ -345,6 +356,11 @@ async fn mock_token(
         assert_eq!(client_secret, "super-secret");
     }
     assert!(!request.redirect_uri.is_empty());
+    provider
+        .token_redirect_uris
+        .lock()
+        .expect("token redirect URIs lock should not be poisoned")
+        .push(request.redirect_uri.clone());
     assert!(
         request
             .code_verifier

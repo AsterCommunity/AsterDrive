@@ -73,6 +73,7 @@ where
 {
     let mut payload = serde_json::json!({
         "provider_kind": "generic_oauth2",
+        "callback_mode": "legacy",
         "display_name": "Generic OAuth2",
         "authorization_url": format!("{}/authorize", options.base_url),
         "token_url": format!("{}/token", options.base_url),

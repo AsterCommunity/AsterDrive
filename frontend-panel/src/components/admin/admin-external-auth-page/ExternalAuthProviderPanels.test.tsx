@@ -207,6 +207,8 @@ function kind(
 			scopes: "openid email profile",
 		},
 		default_scopes: "openid email profile",
+		unified_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/callback",
 		description: "OIDC sign-in.",
 		display_name: "OpenID Connect",
 		issuer_url_supported: true,
@@ -330,6 +332,13 @@ function provider(
 ): AdminExternalAuthProviderInfo {
 	return {
 		allowed_domains: ["example.com"],
+		callback_mode: "legacy",
+		callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+		legacy_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+		unified_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/callback",
 		authorization_url: null,
 		auto_link_verified_email_enabled: false,
 		auto_provision_enabled: false,
@@ -542,6 +551,45 @@ describe("ExternalAuthProviderPanels", () => {
 		);
 		expect(onFieldChange).toHaveBeenCalledWith("clientId", "client-123");
 		expect(onFieldChange).toHaveBeenCalledWith("clientSecret", "secret");
+	});
+
+	it("renders backend callback URIs and switches callback mode on edit", () => {
+		const onFieldChange = vi.fn();
+		render(
+			<ExternalAuthProviderIdentityPanel
+				connectionMissing={false}
+				formTouched={false}
+				currentCallbackUrl="https://app.example.com/api/v1/auth/external-auth/oidc/example/callback"
+				legacyCallbackUrl="https://app.example.com/api/v1/auth/external-auth/oidc/example/callback"
+				unifiedCallbackUrl="https://app.example.com/api/v1/auth/external-auth/callback"
+				form={form({ callbackMode: "legacy" })}
+				identityMissing={false}
+				isCreate={false}
+				onCopyCallbackUrl={vi.fn()}
+				onFieldChange={onFieldChange}
+				onTestConnection={vi.fn().mockResolvedValue(true)}
+				provider={provider()}
+				providerKindLabel="OpenID Connect"
+				selectedKind={kind()}
+				showIssuerUrl
+				showManualEndpoints
+				testDisabled={false}
+				testResult={null}
+			/>,
+		);
+		expect(
+			screen.getByText(
+				"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText("external_auth_provider_callback_mode_hint"),
+		).toBeInTheDocument();
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_callback_mode"),
+			{ target: { value: "unified" } },
+		);
+		expect(onFieldChange).toHaveBeenCalledWith("callbackMode", "unified");
 	});
 
 	it("renders edit-only identity details and copies callback URLs", () => {

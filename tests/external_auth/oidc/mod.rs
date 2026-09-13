@@ -148,6 +148,7 @@ where
         .insert_header(common::csrf_header_for(admin_token))
         .set_json(serde_json::json!({
             "provider_kind": "oidc",
+            "callback_mode": "legacy",
             "display_name": format!("{} OIDC", options.display_name_prefix),
             "icon_url": "/static/external-auth/mock.svg",
             "issuer_url": options.issuer_url,

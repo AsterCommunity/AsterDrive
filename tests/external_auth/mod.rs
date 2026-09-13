@@ -63,3 +63,26 @@ pub fn assert_external_auth_binding_cookie_cleared<B: MessageBody>(resp: &Servic
     assert_eq!(cookie.same_site(), Some(actix_web::cookie::SameSite::Lax));
     assert_eq!(cookie.max_age().map(|age| age.whole_seconds()), Some(0));
 }
+
+pub async fn finish_unified_external_auth_callback<S, B, E>(
+    app: &S,
+    state_value: &str,
+) -> ServiceResponse<B>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: MessageBody,
+    E: std::fmt::Debug,
+{
+    let callback =
+        format!("/api/v1/auth/external-auth/callback?code=mock-code&state={state_value}");
+    let req = actix_web::test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", external_auth_binding_cookie_header(state_value)))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .to_request();
+    actix_web::test::call_service(app, req).await
+}

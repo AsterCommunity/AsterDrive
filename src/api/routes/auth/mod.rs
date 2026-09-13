@@ -24,7 +24,9 @@ use rand::RngExt;
 
 pub use self::external_auth::{
     confirm_email_verification as confirm_external_auth_email_verification,
-    delete_link as delete_external_auth_link, finish_login as finish_external_auth_login,
+    delete_link as delete_external_auth_link,
+    finish_legacy_login as finish_legacy_external_auth_login,
+    finish_login as finish_external_auth_login,
     link_with_password as link_external_auth_with_password, list_links as list_external_auth_links,
     list_providers as list_external_auth_providers,
     start_email_verification as start_external_auth_email_verification,
@@ -159,10 +161,18 @@ pub fn routes(
                 .route("/{id}", web::delete().to(delete_external_auth_link)),
         )
         .service(
+            web::resource("/external-auth/callback")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::get().to(finish_external_auth_login)),
+        )
+        .service(
             web::scope("/external-auth/{kind}/{provider}")
                 .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
                 .route("/start", web::post().to(start_external_auth_login))
-                .route("/callback", web::get().to(finish_external_auth_login)),
+                .route(
+                    "/callback",
+                    web::get().to(finish_legacy_external_auth_login),
+                ),
         )
         .service(
             web::resource("/refresh")
