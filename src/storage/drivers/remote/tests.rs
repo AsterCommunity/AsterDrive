@@ -3,6 +3,7 @@ use crate::storage::remote_protocol::{
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY, PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY,
     PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY, RemoteStorageCapabilities,
+    RemoteStorageTargetRuntimeCapabilities,
 };
 use actix_web::{App, HttpResponse, HttpServer, web};
 use aster_drive_storage::error::StorageErrorKind;
@@ -140,6 +141,30 @@ fn multipart_planning_uses_remote_compose_limits_not_target_native_limits() {
     assert_eq!(planned.min_part_size, 1);
     assert_eq!(planned.max_part_size, Some(123_456));
     assert_eq!(planned.max_parts, 321);
+}
+
+#[test]
+fn target_runtime_capability_can_disable_range_stream_and_multipart() {
+    let mut capabilities = RemoteStorageCapabilities::current();
+    capabilities
+        .target_runtime_capabilities
+        .push(RemoteStorageTargetRuntimeCapabilities {
+            target_key: "rst-test".to_string(),
+            connector_id: "asterdrive.storage.local".to_string(),
+            applied_revision: 2,
+            range_read: false,
+            stream_upload: false,
+            multipart: None,
+        });
+    let follower = build_follower_with_capabilities(
+        "http://127.0.0.1:1",
+        &serde_json::to_string(&capabilities).expect("capabilities should serialize"),
+    );
+    let driver =
+        RemoteDriver::new(&build_config("base"), &follower).expect("remote driver should build");
+    assert!(!driver.supports_efficient_range());
+    assert!(driver.extensions().stream_upload.is_none());
+    assert!(driver.extensions().multipart.is_none());
 }
 
 async fn spawn_list_server(

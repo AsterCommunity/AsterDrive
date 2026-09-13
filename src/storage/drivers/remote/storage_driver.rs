@@ -50,6 +50,10 @@ impl StorageDriver for RemoteDriver {
             .is_none_or(|capability| capability.range_read)
     }
 
+    fn max_single_put_size(&self) -> Option<u64> {
+        self.max_multipart_object_size
+    }
+
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.client
             .delete(&self.object_key(path))

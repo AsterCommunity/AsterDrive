@@ -99,6 +99,10 @@ impl StorageDriver for S3Driver {
         true
     }
 
+    fn max_single_put_size(&self) -> Option<u64> {
+        Some(5 * 1024 * 1024 * 1024)
+    }
+
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let key = self.full_key(path);
         self.client

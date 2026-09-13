@@ -10,6 +10,61 @@ use aster_drive_storage::{
     StorageConnectorDescriptor, StorageConnectorLocalizationCatalog, StorageDriver,
 };
 
+pub(crate) async fn runtime_capabilities<S: FollowerRuntimeState>(
+    state: &S,
+    binding: &aster_drive_model::entities::master_binding::Model,
+) -> Result<Vec<crate::storage::remote_protocol::RemoteStorageTargetRuntimeCapabilities>> {
+    let targets = super::local_profiles::list(state, binding).await?;
+    let mut capabilities = Vec::with_capacity(targets.len());
+    for target in targets {
+        let resolved =
+            super::target::resolve_target_by_key(state, binding, &target.target_key).await;
+        let (range_read, stream_upload, multipart) = match resolved {
+            Ok(resolved) => {
+                let extensions = resolved.driver.extensions();
+                let multipart = extensions.multipart.map(|driver| {
+                    let capability = driver.capabilities();
+                    let (native_reader_upload, buffered_reader_max_size) = match capability
+                        .upload_mode
+                    {
+                        aster_drive_storage::MultipartUploadMode::NativeStreaming => (true, None),
+                        aster_drive_storage::MultipartUploadMode::Buffered { max_size } => {
+                            (false, Some(max_size))
+                        }
+                    };
+                    crate::storage::remote_protocol::RemoteMultipartCapabilities {
+                        min_part_size: capability.min_part_size,
+                        max_part_size: capability.max_part_size,
+                        max_parts: capability.max_parts,
+                        native_reader_upload,
+                        buffered_reader_max_size,
+                    }
+                });
+                (
+                    resolved.driver.supports_efficient_range(),
+                    extensions.stream_upload.is_some(),
+                    multipart,
+                )
+            }
+            Err(error) => {
+                tracing::warn!(target_key = %target.target_key, error = %error, "remote target capability probe failed");
+                (false, false, None)
+            }
+        };
+        capabilities.push(
+            crate::storage::remote_protocol::RemoteStorageTargetRuntimeCapabilities {
+                target_key: target.target_key,
+                connector_id: target.connector_id,
+                applied_revision: target.applied_revision,
+                range_read,
+                stream_upload,
+                multipart,
+            },
+        );
+    }
+    Ok(capabilities)
+}
+
 pub(crate) fn remote_storage_target_descriptor_from_connector(
     connector: &dyn crate::storage::connectors::StorageConnector,
 ) -> Result<StorageConnectorDescriptor> {

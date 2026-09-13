@@ -113,6 +113,10 @@ macro_rules! delegate_s3_compatible_storage_driver {
                 self.$field.supports_efficient_range()
             }
 
+            fn max_single_put_size(&self) -> Option<u64> {
+                self.$field.max_single_put_size()
+            }
+
             async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
                 self.$field.delete(path).await
             }

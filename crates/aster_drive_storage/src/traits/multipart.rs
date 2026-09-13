@@ -48,7 +48,8 @@ impl MultipartStorageCapabilities {
             max_parts: 10_000,
             max_object_size: None,
             upload_mode: MultipartUploadMode::Buffered {
-                max_size: MAX_DEFAULT_MULTIPART_READER_SIZE as u64,
+                max_size: (MAX_DEFAULT_MULTIPART_READER_SIZE - DEFAULT_MULTIPART_READER_BUFFER_SIZE)
+                    as u64,
             },
         }
     }

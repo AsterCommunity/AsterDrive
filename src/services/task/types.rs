@@ -761,6 +761,15 @@ pub enum StoragePolicyMigrationMultipartUploadMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum StoragePolicyMigrationMultipartBlockReason {
+    ProviderLimits,
+    BufferedHeapBudget,
+    ProviderObjectSize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StoragePolicyMigrationMultipartPlan {
     pub blob_size: i64,
     pub part_size: i64,
@@ -770,7 +779,7 @@ pub struct StoragePolicyMigrationMultipartPlan {
     pub heap_budget: i64,
     pub upload_mode: StoragePolicyMigrationMultipartUploadMode,
     pub can_start: bool,
-    pub reason: Option<String>,
+    pub reason: Option<StoragePolicyMigrationMultipartBlockReason>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

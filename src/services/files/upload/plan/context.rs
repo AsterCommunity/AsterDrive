@@ -130,7 +130,25 @@ fn plan_multipart_upload_with_capabilities(
             "{context} provider minimum part size must be positive"
         )));
     }
-    let configured_chunk_size = configured_chunk_size.max(min_part_size);
+    let provider_max_part_size = capabilities
+        .max_part_size
+        .map(|size| {
+            i64::try_from(size).map_err(|_| {
+                AsterError::validation_error(format!(
+                    "{context} provider maximum part size exceeds the supported integer range"
+                ))
+            })
+        })
+        .transpose()?;
+    if provider_max_part_size.is_some_and(|max| min_part_size > max) {
+        return Err(AsterError::validation_error(format!(
+            "{context} provider minimum part size {min_part_size} exceeds maximum part size {}",
+            provider_max_part_size.unwrap_or_default()
+        )));
+    }
+    let configured_chunk_size = configured_chunk_size
+        .max(min_part_size)
+        .min(provider_max_part_size.unwrap_or(i64::MAX));
     let count_limited_chunk_size = if total_size == 0 {
         min_part_size
     } else {
@@ -143,16 +161,6 @@ fn plan_multipart_upload_with_capabilities(
     let chunk_size = configured_chunk_size.max(count_limited_chunk_size);
     let total_chunks =
         aster_forge_utils::numbers::calc_total_chunks(total_size, chunk_size, context)?;
-    let provider_max_part_size = capabilities
-        .max_part_size
-        .map(|size| {
-            i64::try_from(size).map_err(|_| {
-                AsterError::validation_error(format!(
-                    "{context} provider maximum part size exceeds the supported integer range"
-                ))
-            })
-        })
-        .transpose()?;
     if provider_max_part_size.is_some_and(|max| chunk_size > max) {
         let max = provider_max_part_size.ok_or_else(|| {
             AsterError::internal_error(format!(

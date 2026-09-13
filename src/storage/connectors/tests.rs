@@ -1730,6 +1730,34 @@ fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
 }
 
 #[test]
+fn upload_init_mode_honors_single_put_provider_limit() {
+    let mut policy = policy(
+        S3Connector::ID,
+        s3_config(ObjectStorageUploadStrategy::Presigned),
+    );
+    policy.chunk_size = 8 * 1024 * 1024 * 1024;
+    let transport =
+        StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned);
+    let single_put_limit = 5_u64 * 1024 * 1024 * 1024;
+    assert_eq!(
+        transport.resolve_init_mode_with_single_put_limit(
+            &policy,
+            i64::try_from(single_put_limit).unwrap(),
+            Some(single_put_limit),
+        ),
+        aster_drive_model::types::UploadTransport::Presigned,
+    );
+    assert_eq!(
+        transport.resolve_init_mode_with_single_put_limit(
+            &policy,
+            i64::try_from(single_put_limit + 1).unwrap(),
+            Some(single_put_limit),
+        ),
+        aster_drive_model::types::UploadTransport::PresignedMultipart,
+    );
+}
+
+#[test]
 fn force_server_stream_overrides_client_direct_strategies() {
     assert_eq!(
         StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned)

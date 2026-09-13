@@ -365,6 +365,10 @@ impl StorageDriver for AlibabaOssDriver {
         self.storage.supports_efficient_range()
     }
 
+    fn max_single_put_size(&self) -> Option<u64> {
+        self.storage.max_single_put_size()
+    }
+
     async fn delete(&self, path: &str) -> Result<()> {
         self.storage.delete(path).await
     }

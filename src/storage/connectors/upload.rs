@@ -73,7 +73,16 @@ impl StorageConnectorUploadTransport {
         policy: &storage_policy::Model,
         total_size: i64,
     ) -> UploadTransport {
-        let fits_single_request = self.fits_single_request(policy, total_size);
+        self.resolve_init_mode_with_single_put_limit(policy, total_size, None)
+    }
+
+    pub fn resolve_init_mode_with_single_put_limit(
+        self,
+        policy: &storage_policy::Model,
+        total_size: i64,
+        max_single_put_size: Option<u64>,
+    ) -> UploadTransport {
+        let fits_single_request = self.fits_single_request(policy, total_size, max_single_put_size);
         match (self, fits_single_request) {
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), true)
             | (Self::Remote(RemoteUploadStrategy::Presigned), true) => UploadTransport::Presigned,
@@ -103,16 +112,16 @@ impl StorageConnectorUploadTransport {
         }
 
         match self {
-            Self::Local => self.fits_single_request(policy, declared_size),
+            Self::Local => self.fits_single_request(policy, declared_size, None),
             Self::ObjectStorage(ObjectStorageUploadStrategy::RelayStream) => {
-                self.fits_single_request(policy, declared_size)
+                self.fits_single_request(policy, declared_size, None)
             }
             Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned) => false,
             Self::Remote(RemoteUploadStrategy::RelayStream)
             | Self::Remote(RemoteUploadStrategy::Presigned) => true,
             Self::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay) => true,
             Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect) => false,
-            Self::Sftp => self.fits_single_request(policy, declared_size),
+            Self::Sftp => self.fits_single_request(policy, declared_size, None),
         }
     }
 
@@ -144,8 +153,16 @@ impl StorageConnectorUploadTransport {
         }
     }
 
-    fn fits_single_request(self, policy: &storage_policy::Model, total_size: i64) -> bool {
+    fn fits_single_request(
+        self,
+        policy: &storage_policy::Model,
+        total_size: i64,
+        max_single_put_size: Option<u64>,
+    ) -> bool {
         let chunk_size = self.effective_chunk_size(policy);
-        chunk_size == 0 || total_size <= chunk_size
+        let configured_limit = chunk_size == 0 || total_size <= chunk_size;
+        configured_limit
+            && max_single_put_size
+                .is_none_or(|max| u64::try_from(total_size).is_ok_and(|size| size <= max))
     }
 }

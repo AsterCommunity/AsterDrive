@@ -45,9 +45,15 @@ async fn init_relay_stream_remote_upload(
     ctx: &InitUploadContext,
     transport: PolicyUploadTransport,
 ) -> Result<InitUploadResponse> {
+    let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream {
+    if transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        driver.max_single_put_size(),
+    ) == UploadTransport::Stream
+    {
         tracing::debug!(
             scope = ?ctx.scope,
             policy_id = ctx.policy.id,
@@ -95,7 +101,12 @@ async fn init_presigned_remote_upload(
     let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Presigned {
+    if transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        driver.max_single_put_size(),
+    ) == UploadTransport::Presigned
+    {
         return init_remote_presigned_single_upload(state, ctx, driver.as_ref()).await;
     }
 

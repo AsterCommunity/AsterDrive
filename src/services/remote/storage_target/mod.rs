@@ -14,6 +14,7 @@ mod tests;
 
 pub(crate) use driver::{
     remote_storage_target_connector_catalog, remote_storage_target_descriptor_from_connector,
+    runtime_capabilities,
 };
 pub use local_profiles::{create, delete, list, update};
 pub(crate) use migration::convert_legacy_rows;

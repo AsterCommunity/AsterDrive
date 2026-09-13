@@ -8830,6 +8830,8 @@ export interface components {
          * @enum {string}
          */
         StoragePolicyMigrationMode: "normal" | "recover_available";
+        /** @enum {string} */
+        StoragePolicyMigrationMultipartBlockReason: "provider_limits" | "buffered_heap_budget" | "provider_object_size";
         StoragePolicyMigrationMultipartPlan: {
             /** Format: int64 */
             blob_size: number;
@@ -8844,7 +8846,7 @@ export interface components {
             provider_max_part_size?: number | null;
             /** Format: int64 */
             provider_max_parts: number;
-            reason?: string | null;
+            reason?: null | components["schemas"]["StoragePolicyMigrationMultipartBlockReason"];
             upload_mode: components["schemas"]["StoragePolicyMigrationMultipartUploadMode"];
         };
         /** @enum {string} */

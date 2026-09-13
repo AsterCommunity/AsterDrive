@@ -54,7 +54,12 @@ async fn init_presigned_object_storage_upload(
 
     // 小文件 presigned：客户端直接 PUT 到最终 temp object，不经过服务端 relay，
     // 也不需要 chunk bookkeeping。
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Presigned {
+    if transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        driver.max_single_put_size(),
+    ) == UploadTransport::Presigned
+    {
         return init_presigned_object_storage_single_upload(state, ctx, driver.as_ref()).await;
     }
 
@@ -171,10 +176,16 @@ async fn init_relay_stream_object_storage_upload(
     ctx: &InitUploadContext,
     transport: PolicyUploadTransport,
 ) -> Result<InitUploadResponse> {
+    let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let chunk_size = transport.effective_chunk_size(&ctx.policy);
 
     // relay_stream + 小文件：直接走普通上传接口，让服务端把字节流转发到驱动。
-    if transport.resolve_init_mode(&ctx.policy, ctx.total_size) == UploadTransport::Stream {
+    if transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        driver.max_single_put_size(),
+    ) == UploadTransport::Stream
+    {
         tracing::debug!(
             scope = ?ctx.scope,
             policy_id = ctx.policy.id,

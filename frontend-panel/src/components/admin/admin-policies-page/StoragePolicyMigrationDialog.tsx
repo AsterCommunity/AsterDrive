@@ -82,8 +82,8 @@ export function StoragePolicyMigrationDialog({
 		sourceId !== targetId &&
 		!dryRunLoading &&
 		!submitting;
-	const targetAvailableBytes = dryRun?.target_capacity.available_bytes;
-	const targetTotalBytes = dryRun?.target_capacity.total_bytes;
+	const targetAvailableBytes = dryRun?.target_capacity?.available_bytes;
+	const targetTotalBytes = dryRun?.target_capacity?.total_bytes;
 	const targetCapacityDetail =
 		typeof targetAvailableBytes === "number" &&
 		typeof targetTotalBytes === "number"
@@ -297,7 +297,9 @@ export function StoragePolicyMigrationDialog({
 									</div>
 									{dryRun.multipart_plan.reason ? (
 										<div className="mt-1 text-destructive">
-											{dryRun.multipart_plan.reason}
+											{t(
+												`policy_migration_multipart_reason_${dryRun.multipart_plan.reason}`,
+											)}
 										</div>
 									) : null}
 								</div>

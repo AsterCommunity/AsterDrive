@@ -31,8 +31,9 @@ use super::steps::{
 use super::types::{
     StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
     StoragePolicyMigrationDryRunWarning, StoragePolicyMigrationMode,
-    StoragePolicyMigrationMultipartPlan, StoragePolicyMigrationMultipartUploadMode,
-    StoragePolicyMigrationTaskPayload, StoragePolicyMigrationTaskResult, TaskInfo,
+    StoragePolicyMigrationMultipartBlockReason, StoragePolicyMigrationMultipartPlan,
+    StoragePolicyMigrationMultipartUploadMode, StoragePolicyMigrationTaskPayload,
+    StoragePolicyMigrationTaskResult, TaskInfo,
 };
 use super::{
     TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope,
@@ -132,10 +133,12 @@ fn migration_multipart_part_plan(
             "storage migration multipart minimum part size exceeds i64 range",
         )
     })?;
-    let configured_part_size = configured_part_size.max(min_part_size).clamp(
-        MIGRATION_MULTIPART_MIN_PART_SIZE,
-        MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE,
-    );
+    let configured_part_size = configured_part_size
+        .clamp(
+            MIGRATION_MULTIPART_MIN_PART_SIZE,
+            MIGRATION_MULTIPART_PREFERRED_MAX_PART_SIZE,
+        )
+        .max(min_part_size);
     let count_limited_part_size = if blob_size == 0 {
         configured_part_size
     } else {
@@ -164,17 +167,22 @@ fn migration_multipart_part_plan(
     let provider_size_ok = provider_max_part_size.is_none_or(|max| part_size <= max);
     let reader_size_ok = match capabilities.upload_mode {
         MultipartUploadMode::NativeStreaming => true,
-        MultipartUploadMode::Buffered { max_size } => {
-            i64::try_from(max_size).is_ok_and(|max| part_size <= max)
-        }
+        MultipartUploadMode::Buffered { max_size } => i64::try_from(max_size)
+            .is_ok_and(|max| part_size <= max.min(MIGRATION_MULTIPART_HEAP_BUDGET)),
     };
+    let provider_object_size_ok = capabilities
+        .max_object_size
+        .is_none_or(|max| u64::try_from(blob_size).is_ok_and(|size| size <= max));
     Ok(MigrationMultipartPartPlan {
         part_size,
         part_count,
         provider_max_parts: max_parts,
         provider_max_part_size,
         upload_mode: capabilities.upload_mode,
-        can_start: part_count <= max_parts && provider_size_ok && reader_size_ok,
+        can_start: part_count <= max_parts
+            && provider_size_ok
+            && reader_size_ok
+            && provider_object_size_ok,
     })
 }
 
@@ -191,14 +199,23 @@ fn multipart_plan_for_dry_run(
     let reason = if plan.can_start || !multipart_required {
         None
     } else {
-        Some(match plan.upload_mode {
-            MultipartUploadMode::NativeStreaming => {
-                "provider multipart limits cannot represent this blob size".to_string()
-            }
-            MultipartUploadMode::Buffered { .. } => {
-                "provider multipart reader requires a part larger than its heap budget".to_string()
-            }
-        })
+        Some(
+            if capabilities
+                .max_object_size
+                .is_some_and(|max| u64::try_from(blob_size).is_ok_and(|size| size > max))
+            {
+                StoragePolicyMigrationMultipartBlockReason::ProviderObjectSize
+            } else {
+                match plan.upload_mode {
+                    MultipartUploadMode::NativeStreaming => {
+                        StoragePolicyMigrationMultipartBlockReason::ProviderLimits
+                    }
+                    MultipartUploadMode::Buffered { .. } => {
+                        StoragePolicyMigrationMultipartBlockReason::BufferedHeapBudget
+                    }
+                }
+            },
+        )
     };
     Ok(Some(StoragePolicyMigrationMultipartPlan {
         blob_size,
@@ -230,9 +247,7 @@ pub(crate) async fn create_storage_policy_migration_task(
             && !plan.can_start
         {
             return Err(AsterError::validation_error(
-                plan.reason
-                    .as_deref()
-                    .unwrap_or("target multipart capability cannot represent this migration"),
+                "target multipart capability cannot represent this migration",
             ));
         }
         return Err(AsterError::validation_error(
@@ -1947,6 +1962,31 @@ mod tests {
         let plan = migration_multipart_part_plan(
             10_i64 * 1024 * 1024 * 1024 * 1024,
             64 * 1024 * 1024,
+            capabilities,
+        )
+        .expect("buffered plan should be computed");
+        assert!(!plan.can_start);
+    }
+
+    #[test]
+    fn multipart_part_plan_preserves_provider_minimum_above_preferred_size() {
+        let mut capabilities = native_multipart_capabilities();
+        capabilities.min_part_size = 128 * 1024 * 1024;
+        let plan = migration_multipart_part_plan(128 * 1024 * 1024, 5 * 1024 * 1024, capabilities)
+            .expect("large provider minimum should be preserved");
+        assert_eq!(plan.part_size, 128 * 1024 * 1024);
+        assert!(plan.can_start);
+    }
+
+    #[test]
+    fn multipart_part_plan_caps_buffered_driver_at_migration_heap_budget() {
+        let mut capabilities = native_multipart_capabilities();
+        capabilities.upload_mode = MultipartUploadMode::Buffered {
+            max_size: (MIGRATION_MULTIPART_HEAP_BUDGET * 2) as u64,
+        };
+        let plan = migration_multipart_part_plan(
+            MIGRATION_MULTIPART_HEAP_BUDGET * 10_000 + 1,
+            MIGRATION_MULTIPART_HEAP_BUDGET + 1,
             capabilities,
         )
         .expect("buffered plan should be computed");
