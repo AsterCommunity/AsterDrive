@@ -24,7 +24,9 @@ use aster_drive_storage::traits::driver::{DirectDownloadOptions, DirectDownloadR
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, PresignedUploadStorageDriver,
 };
-use aster_drive_storage::{MapStorageErr, Result};
+use aster_drive_storage::{
+    MapStorageErr, MultipartStorageCapabilities, MultipartUploadMode, Result,
+};
 
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
 pub(super) const MAX_COS_THUMBNAIL_TTL: Duration = Duration::from_secs(5 * 60);
@@ -155,7 +157,17 @@ impl TencentCosDriver {
             S3DriverOptions::virtual_hosted_style(),
             signing::configure_cos_auth,
         )?;
-        let storage = S3CompatibleDriver::from_s3_driver(Arc::new(s3_driver));
+        let storage = S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
+            Arc::new(s3_driver),
+            MultipartStorageCapabilities {
+                // Tencent COS Upload Part official contract: up to 10,000
+                // parts, each 1 MiB..5 GiB; the final part may be smaller.
+                min_part_size: 1024 * 1024,
+                max_part_size: Some(5 * 1024 * 1024 * 1024),
+                max_parts: 10_000,
+                upload_mode: MultipartUploadMode::NativeStreaming,
+            },
+        );
         let client = cos_ci_http_client(&config)?;
 
         Ok(Self {

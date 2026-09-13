@@ -21,6 +21,7 @@ use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_storage::Result;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -182,24 +183,34 @@ impl HuaweiObsDriver {
         )?;
         let bucket = normalized.bucket.clone();
         let addressing_mode = config.addressing_mode;
-        let storage = S3CompatibleDriver::from_s3_driver(Arc::new(S3Driver::new(
-            S3DriverConfig {
-                endpoint: normalized.endpoint,
-                bucket: normalized.bucket,
-                base_path: config.base_path,
-                region: sdk_region(&normalized.region),
-                path_style: false,
-                connect_timeout: config.connect_timeout,
-                read_timeout: config.read_timeout,
-                operation_timeout: config.operation_timeout,
+        let storage = S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
+            Arc::new(S3Driver::new(
+                S3DriverConfig {
+                    endpoint: normalized.endpoint,
+                    bucket: normalized.bucket,
+                    base_path: config.base_path,
+                    region: sdk_region(&normalized.region),
+                    path_style: false,
+                    connect_timeout: config.connect_timeout,
+                    read_timeout: config.read_timeout,
+                    operation_timeout: config.operation_timeout,
+                },
+                S3StaticCredentials {
+                    access_key: credentials.access_key,
+                    secret_key: credentials.secret_key,
+                },
+                S3DriverOptions::virtual_hosted_style(),
+                move |builder| signing::configure_obs_auth(builder, bucket, addressing_mode),
+            )?),
+            MultipartStorageCapabilities {
+                // Huawei OBS UploadPart official contract (2026-09-10):
+                // part size [100 KB, 5 GB], final part [0, 5 GB], number [1, 10000].
+                min_part_size: 100 * 1024,
+                max_part_size: Some(5 * 1024 * 1024 * 1024),
+                max_parts: 10_000,
+                upload_mode: MultipartUploadMode::NativeStreaming,
             },
-            S3StaticCredentials {
-                access_key: credentials.access_key,
-                secret_key: credentials.secret_key,
-            },
-            S3DriverOptions::virtual_hosted_style(),
-            move |builder| signing::configure_obs_auth(builder, bucket, addressing_mode),
-        )?));
+        );
         Ok(Self { storage })
     }
 
