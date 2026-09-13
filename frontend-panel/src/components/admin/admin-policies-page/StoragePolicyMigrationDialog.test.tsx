@@ -60,7 +60,10 @@ const policies = [
 	{ id: 2, name: "Target" },
 ] as StoragePolicy[];
 
-function dryRun(reason: "provider_limits" | "buffered_heap_budget" | null) {
+function dryRun(
+	reason: "provider_limits" | "buffered_heap_budget" | null,
+	uploadMode: "native_streaming" | "buffered" = "native_streaming",
+) {
 	return {
 		can_start: reason === null,
 		content_sha256_blob_count: 0,
@@ -86,7 +89,7 @@ function dryRun(reason: "provider_limits" | "buffered_heap_budget" | null) {
 			provider_max_parts: 10_000,
 			provider_max_part_size: null,
 			reason,
-			upload_mode: "native_streaming",
+			upload_mode: uploadMode,
 		},
 	} as StoragePolicyMigrationDryRun;
 }
@@ -127,6 +130,13 @@ describe("StoragePolicyMigrationDialog", () => {
 			screen.getByText(
 				"policy_migration_multipart_reason_buffered_heap_budget",
 			),
+		).toBeInTheDocument();
+	});
+
+	it("renders the buffered multipart mode", () => {
+		renderDialog(dryRun("provider_limits", "buffered"));
+		expect(
+			screen.getByText("policy_migration_multipart_mode_buffered"),
 		).toBeInTheDocument();
 	});
 });
