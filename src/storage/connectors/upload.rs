@@ -68,14 +68,6 @@ impl StorageConnectorUploadTransport {
     ///
     /// 这里只做调度决策；真正创建 multipart upload、presigned URL 或 session 的逻辑在
     /// upload service 后续步骤和具体 driver 中。
-    pub fn resolve_init_mode(
-        self,
-        policy: &storage_policy::Model,
-        total_size: i64,
-    ) -> UploadTransport {
-        self.resolve_init_mode_with_single_put_limit(policy, total_size, None)
-    }
-
     pub fn resolve_init_mode_with_single_put_limit(
         self,
         policy: &storage_policy::Model,

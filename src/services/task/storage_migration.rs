@@ -205,15 +205,12 @@ fn multipart_plan_for_dry_run(
                 .is_some_and(|max| u64::try_from(blob_size).is_ok_and(|size| size > max))
             {
                 StoragePolicyMigrationMultipartBlockReason::ProviderObjectSize
+            } else if matches!(plan.upload_mode, MultipartUploadMode::Buffered { .. })
+                && plan.part_size > MIGRATION_MULTIPART_HEAP_BUDGET
+            {
+                StoragePolicyMigrationMultipartBlockReason::BufferedHeapBudget
             } else {
-                match plan.upload_mode {
-                    MultipartUploadMode::NativeStreaming => {
-                        StoragePolicyMigrationMultipartBlockReason::ProviderLimits
-                    }
-                    MultipartUploadMode::Buffered { .. } => {
-                        StoragePolicyMigrationMultipartBlockReason::BufferedHeapBudget
-                    }
-                }
+                StoragePolicyMigrationMultipartBlockReason::ProviderLimits
             },
         )
     };
@@ -1991,6 +1988,25 @@ mod tests {
         )
         .expect("buffered plan should be computed");
         assert!(!plan.can_start);
+    }
+
+    #[test]
+    fn multipart_dry_run_classifies_buffered_driver_limit_separately_from_heap_budget() {
+        let mut capabilities = native_multipart_capabilities();
+        capabilities.upload_mode = MultipartUploadMode::Buffered {
+            max_size: (MIGRATION_MULTIPART_HEAP_BUDGET / 2) as u64,
+        };
+        let plan = multipart_plan_for_dry_run(
+            MIGRATION_MULTIPART_HEAP_BUDGET / 2 + 2,
+            MIGRATION_MULTIPART_HEAP_BUDGET / 2 + 1,
+            capabilities,
+        )
+        .expect("dry-run plan should be computed")
+        .expect("non-empty blob should produce a plan");
+        assert_eq!(
+            plan.reason,
+            Some(StoragePolicyMigrationMultipartBlockReason::ProviderLimits)
+        );
     }
 
     #[test]

@@ -51,7 +51,7 @@ impl StorageDriver for RemoteDriver {
     }
 
     fn max_single_put_size(&self) -> Option<u64> {
-        self.max_multipart_object_size
+        self.max_multipart_part_size
     }
 
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
@@ -97,7 +97,9 @@ impl StorageDriver for RemoteDriver {
             && self
                 .target_runtime_capabilities
                 .as_ref()
-                .is_none_or(|capability| capability.stream_upload))
+                .is_none_or(|capability| {
+                    capability.stream_upload && capability.multipart.is_some()
+                }))
         .then_some(self);
         aster_drive_storage::traits::StorageDriverExtensions {
             list: Some(self),

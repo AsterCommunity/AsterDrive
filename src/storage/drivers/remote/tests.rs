@@ -155,7 +155,7 @@ fn target_runtime_capability_can_disable_range_stream_and_multipart() {
             connector_id: "asterdrive.storage.local".to_string(),
             applied_revision: 2,
             range_read: false,
-            stream_upload: false,
+            stream_upload: true,
             multipart: None,
         });
     let follower = build_follower_with_capabilities(
@@ -165,7 +165,7 @@ fn target_runtime_capability_can_disable_range_stream_and_multipart() {
     let driver =
         RemoteDriver::new(&build_config("base"), &follower).expect("remote driver should build");
     assert!(!driver.supports_efficient_range());
-    assert!(driver.extensions().stream_upload.is_none());
+    assert!(driver.extensions().stream_upload.is_some());
     assert!(driver.extensions().multipart.is_none());
 }
 
