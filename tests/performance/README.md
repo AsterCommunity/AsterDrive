@@ -211,6 +211,10 @@ Rust benchmarks cover isolated internal hotspots. They are not a replacement
 for k6 service-level latency tests, but they are useful for catching regressions
 in path and naming helpers used by file, upload, and WebDAV flows.
 
+Benchmark sources are kept together under `tests/benchmarks/`; Cargo keeps the
+stable target names (`path_hotspots`, `webdav_provider_range`, and the issue
+memory targets) through explicit manifest paths.
+
 ```bash
 cargo bench --bench path_hotspots
 ```
@@ -279,6 +283,28 @@ The benchmark target is gated by the existing `benchmarks` feature, so ordinary
 test runs do not execute or compile the large-fixture runner. Workspace
 all-feature/all-target Clippy still compiles it to keep the measurement tooling
 in sync with application APIs.
+
+## Integrity Audit Memory Boundary
+
+Issue `#500` has an ignored Rust benchmark for the storage-object audit. It
+creates a configurable number of local untracked objects, runs the production
+audit with a 16-finding sample cap, and records the allocator baseline, peak,
+end state, allocation count, exact finding total, and maximum path batch.
+Fixture creation is outside the measured interval.
+
+```bash
+ISSUE500_OBJECT_COUNT=10000 \
+cargo nextest run --profile external \
+  --features benchmarks \
+  --test issue_500_integrity_memory \
+  -- --ignored --exact measure_integrity_storage_scan_memory --nocapture
+```
+
+Use `ISSUE500_OBJECT_COUNT=1000000` for the large-instance run. Compare runs
+only when the revision, allocator, database backend, driver, and fixture
+configuration are identical. The benchmark keeps exact totals while bounding
+in-memory finding samples and path batches; it does not suppress detection of
+missing, untracked, or orphaned objects.
 
 ## Folder Tree Mutation Database Plans
 

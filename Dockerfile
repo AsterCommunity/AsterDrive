@@ -20,7 +20,7 @@ ARG CARGO_FEATURES="server,cli"
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
-COPY benches/ benches/
+COPY tests/benchmarks/ tests/benchmarks/
 COPY tests/multi_primary/ tests/multi_primary/
 
 # Pre-build dependencies (cache layer)

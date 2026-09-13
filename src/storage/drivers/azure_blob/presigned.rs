@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use azure_storage_blob::models::BlobContainerClientListBlobsOptions;
 use futures::{StreamExt as _, TryStreamExt as _};
 
-use aster_drive_storage::traits::driver::{DirectDownloadOptions, StoragePathVisitor};
+use aster_drive_storage::traits::driver::{
+    DirectDownloadOptions, StoragePathVisitControl, StoragePathVisitor,
+};
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
 };
@@ -75,8 +77,12 @@ impl ListStorageDriver for AzureBlobDriver {
                 page.map_err(|error| Self::map_azure_error("Azure Blob list failed", error))?;
             if let Some(name) = item.name
                 && let Some(relative) = self.relative_key(&name)
+                && matches!(
+                    visitor.visit_path(relative.to_string()).await?,
+                    StoragePathVisitControl::Stop
+                )
             {
-                visitor.visit_path(relative.to_string())?;
+                break;
             }
         }
         Ok(())
@@ -85,9 +91,13 @@ impl ListStorageDriver for AzureBlobDriver {
 
 struct VecVisitor<'a>(&'a mut Vec<String>);
 
+#[async_trait]
 impl StoragePathVisitor for VecVisitor<'_> {
-    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
         self.0.push(path);
-        Ok(())
+        Ok(StoragePathVisitControl::Continue)
     }
 }

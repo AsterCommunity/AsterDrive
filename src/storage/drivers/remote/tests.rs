@@ -6,7 +6,9 @@ use crate::storage::remote_protocol::{
 };
 use actix_web::{App, HttpResponse, HttpServer, web};
 use aster_drive_storage::error::StorageErrorKind;
-use aster_drive_storage::traits::driver::{DirectDownloadOptions, StorageDriver};
+use aster_drive_storage::traits::driver::{
+    DirectDownloadOptions, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
+};
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
     StreamUploadDriver,
@@ -169,6 +171,54 @@ async fn spawn_list_server(
     }
 }
 
+async fn spawn_paged_list_server(requests: Arc<Mutex<Vec<String>>>) -> TestHttpServer {
+    async fn list_objects(
+        query: web::Query<HashMap<String, String>>,
+        requests: web::Data<Arc<Mutex<Vec<String>>>>,
+    ) -> HttpResponse {
+        let cursor = query.get("cursor").cloned();
+        requests
+            .lock()
+            .expect("paged request lock should not be poisoned")
+            .push(cursor.clone().unwrap_or_default());
+        let items = if cursor.is_none() {
+            vec!["base/paged/one.bin"]
+        } else {
+            vec!["base/paged/two.bin"]
+        };
+        HttpResponse::Ok().json(serde_json::json!({
+            "code": "success",
+            "msg": "",
+            "data": {
+                "items": items,
+                "next_cursor": cursor.is_none().then_some("paged/one.bin")
+            }
+        }))
+    }
+
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("paged remote listener should bind");
+    let addr = listener
+        .local_addr()
+        .expect("paged remote listener should expose local addr");
+    let server = HttpServer::new(move || {
+        App::new().app_data(web::Data::new(requests.clone())).route(
+            "/api/v1/internal/storage/objects",
+            web::get().to(list_objects),
+        )
+    })
+    .listen(listener)
+    .expect("paged remote server should listen")
+    .run();
+    let handle = server.handle();
+    let task = tokio::spawn(server);
+    TestHttpServer {
+        base_url: format!("http://127.0.0.1:{}", addr.port()),
+        handle,
+        task,
+    }
+}
+
 #[test]
 fn new_trims_remote_policy_base_path() {
     let driver = build_driver("http://storage.example.com/", "/base/");
@@ -212,6 +262,41 @@ async fn list_paths_sends_scoped_prefix_and_strips_base_path() {
         vec![Some("base/files".to_string())]
     );
 
+    server.stop().await;
+}
+
+struct CollectingPathVisitor(Vec<String>);
+
+#[async_trait::async_trait]
+impl StoragePathVisitor for CollectingPathVisitor {
+    async fn visit_path(
+        &mut self,
+        path: String,
+    ) -> aster_drive_storage::Result<StoragePathVisitControl> {
+        self.0.push(path);
+        Ok(StoragePathVisitControl::Continue)
+    }
+}
+
+#[tokio::test]
+async fn scan_paths_streams_remote_pages_without_collecting_driver_results() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let server = spawn_paged_list_server(requests.clone()).await;
+    let driver = build_driver(&server.base_url, "/base/");
+    let mut visitor = CollectingPathVisitor(Vec::new());
+
+    driver
+        .scan_paths(Some("paged"), &mut visitor)
+        .await
+        .expect("remote scan should succeed");
+
+    assert_eq!(visitor.0, vec!["paged/one.bin", "paged/two.bin"]);
+    assert_eq!(
+        *requests
+            .lock()
+            .expect("paged request lock should not be poisoned"),
+        vec![String::new(), "paged/one.bin".to_string()]
+    );
     server.stop().await;
 }
 

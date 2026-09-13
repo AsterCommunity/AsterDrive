@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use aster_drive_storage::traits::driver::StoragePathVisitor;
+use aster_drive_storage::traits::driver::{StoragePathVisitControl, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::ListStorageDriver;
 use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
@@ -85,17 +85,34 @@ impl ListStorageDriver for LocalDriver {
                 .unwrap_or(&start)
                 .to_string_lossy()
                 .replace('\\', "/");
-            visitor.visit_path(relative)?;
+            visitor.visit_path(relative).await?;
             return Ok(());
         }
 
-        let mut pending_dirs = vec![start];
-        while let Some(current_dir) = pending_dirs.pop() {
-            let mut entries = tokio::fs::read_dir(&current_dir)
+        let mut pending = vec![start];
+        while let Some(current) = pending.pop() {
+            let metadata = tokio::fs::metadata(&current)
+                .await
+                .map_storage_err_ctx(StorageErrorKind::Transient, "scan local paths metadata")?;
+            if metadata.is_file() {
+                let relative = current
+                    .strip_prefix(&root)
+                    .unwrap_or(&current)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if matches!(
+                    visitor.visit_path(relative).await?,
+                    StoragePathVisitControl::Stop
+                ) {
+                    return Ok(());
+                }
+                continue;
+            }
+
+            let mut entries = tokio::fs::read_dir(&current)
                 .await
                 .map_storage_err_ctx(StorageErrorKind::Transient, "scan local paths read_dir")?;
-            let mut child_dirs = Vec::new();
-            let mut child_files = Vec::new();
+            let mut children = Vec::new();
 
             while let Some(entry) = entries
                 .next_entry()
@@ -108,27 +125,19 @@ impl ListStorageDriver for LocalDriver {
                     "scan local paths file_type",
                 )?;
 
-                if file_type.is_dir() {
-                    child_dirs.push(path);
-                } else if file_type.is_file() {
-                    child_files.push(path);
+                if file_type.is_dir() || file_type.is_file() {
+                    let key = path
+                        .strip_prefix(&root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    children.push((key, path));
                 }
             }
 
-            child_dirs.sort();
-            child_files.sort();
-
-            for file_path in child_files {
-                let relative = file_path
-                    .strip_prefix(&root)
-                    .unwrap_or(&file_path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                visitor.visit_path(relative)?;
-            }
-
-            for child_dir in child_dirs.into_iter().rev() {
-                pending_dirs.push(child_dir);
+            children.sort_by(|left, right| left.0.cmp(&right.0));
+            for (_, child) in children.into_iter().rev() {
+                pending.push(child);
             }
         }
 

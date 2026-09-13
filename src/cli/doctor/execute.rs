@@ -518,8 +518,8 @@ async fn push_deep_checks(
     }
 
     if doctor_scope_enabled(scopes, DoctorDeepScope::RevisionLedger) {
-        checks.push(match crate::services::ops::integrity::audit_revision_ledger(db).await {
-            Ok(issues) if issues.is_empty() => doctor_check(
+        checks.push(match crate::services::ops::integrity::audit_revision_ledger_with_limit(db, 256).await {
+            Ok(issues) if issues.total == 0 => doctor_check(
                 "revision_ledger_integrity",
                 "Revision ledger integrity",
                 DoctorStatus::Ok,
@@ -531,8 +531,8 @@ async fn push_deep_checks(
                 "revision_ledger_integrity",
                 "Revision ledger integrity",
                 DoctorStatus::Fail,
-                format!("{} revision ledger issue(s) detected", issues.len()),
-                issues.into_iter().map(|issue| format!("file {:?} history #{} revision {:?}: {}", issue.file_id, issue.history_id, issue.revision_id, issue.detail)).collect(),
+                format!("{} revision ledger issue(s) detected; showing up to 256 samples", issues.total),
+                issues.samples.into_iter().map(|issue| format!("file {:?} history #{} revision {:?}: {}", issue.file_id, issue.history_id, issue.revision_id, issue.detail)).collect(),
                 Some("Repair the affected file history and current projection before serving DeltaV reads.".to_string()),
             ),
             Err(err) => doctor_check(

@@ -266,7 +266,7 @@ New clients should always send `limit`. A paged response looks like:
   "msg": "",
   "data": {
     "items": ["files/part-001", "files/part-002"],
-    "next_cursor": 2
+    "next_cursor": "files/part-002"
   }
 }
 ```

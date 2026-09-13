@@ -6,7 +6,7 @@ pub mod multipart;
 
 pub use driver::{
     BlobMetadata, DirectDownloadCredentials, DirectDownloadOptions, DirectDownloadRequest,
-    PresignedUploadRequest, StorageDriver, StoragePathVisitor,
+    PresignedUploadRequest, StorageDriver, StoragePathVisitControl, StoragePathVisitor,
 };
 pub use extensions::{
     DirectDownloadStorageDriver, ExactSizeReader, ListStorageDriver, LocalPathStorageDriver,

@@ -2,7 +2,7 @@
     dead_code,
     reason = "the contract test includes the complete benchmark module but exercises only its accounting helpers"
 )]
-#[path = "../benches/webdav_provider_range.rs"]
+#[path = "benchmarks/webdav_provider_range.rs"]
 mod benchmark;
 
 #[tokio::test]
@@ -23,4 +23,14 @@ fn odd_multi_range_preserves_configured_total() {
 #[tokio::test]
 async fn failed_benchmark_cleans_provider_fixture() {
     benchmark::contract_failed_benchmark_cleans_fixture().await;
+}
+
+#[tokio::test]
+async fn unowned_fixture_is_preserved_when_cleanup_is_not_authorized() {
+    benchmark::contract_unowned_fixture_is_preserved().await;
+}
+
+#[test]
+fn missing_baseline_scenario_is_rejected() {
+    benchmark::contract_missing_baseline_scenario_is_rejected();
 }
