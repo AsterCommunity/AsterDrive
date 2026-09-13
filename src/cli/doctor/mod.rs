@@ -407,17 +407,17 @@ async fn doctor_storage_usage_check(
     db: &sea_orm::DatabaseConnection,
     fix: bool,
 ) -> Result<DoctorCheck> {
-    let mut drifts = integrity::audit_storage_usage(db).await?;
-    let detected = drifts.len();
+    const SAMPLE_LIMIT: usize = 256;
+    let mut drifts = integrity::audit_storage_usage_with_limit(db, SAMPLE_LIMIT).await?;
+    let detected = drifts.total;
     let mut fixed = 0usize;
 
-    if fix && !drifts.is_empty() {
-        integrity::fix_storage_usage_drifts(db, &drifts).await?;
-        fixed = drifts.len();
-        drifts = integrity::audit_storage_usage(db).await?;
+    if fix && detected > 0 {
+        fixed = integrity::fix_storage_usage_all(db).await?;
+        drifts = integrity::audit_storage_usage_with_limit(db, SAMPLE_LIMIT).await?;
     }
 
-    if drifts.is_empty() {
+    if drifts.total == 0 {
         let summary = if fixed > 0 {
             format!("fixed {fixed} storage usage mismatch(es)")
         } else {
@@ -438,6 +438,7 @@ async fn doctor_storage_usage_check(
     }
 
     let details = drifts
+        .samples
         .into_iter()
         .map(|drift| {
             format!(
@@ -472,17 +473,18 @@ async fn doctor_blob_ref_count_check(
     fix: bool,
     policy_id: Option<i64>,
 ) -> Result<DoctorCheck> {
-    let mut drifts = integrity::audit_blob_ref_counts(db, policy_id).await?;
-    let detected = drifts.len();
+    const SAMPLE_LIMIT: usize = 256;
+    let mut drifts =
+        integrity::audit_blob_ref_counts_with_limit(db, policy_id, SAMPLE_LIMIT).await?;
+    let detected = drifts.total;
     let mut fixed = 0usize;
 
-    if fix && !drifts.is_empty() {
-        integrity::fix_blob_ref_count_drifts(db, &drifts).await?;
-        fixed = drifts.len();
-        drifts = integrity::audit_blob_ref_counts(db, policy_id).await?;
+    if fix && detected > 0 {
+        fixed = integrity::fix_blob_ref_counts_all(db, policy_id).await?;
+        drifts = integrity::audit_blob_ref_counts_with_limit(db, policy_id, SAMPLE_LIMIT).await?;
     }
 
-    if drifts.is_empty() {
+    if drifts.total == 0 {
         let summary = if fixed > 0 {
             format!("fixed {fixed} blob ref_count mismatch(es)")
         } else {
@@ -507,6 +509,7 @@ async fn doctor_blob_ref_count_check(
     }
 
     let details = drifts
+        .samples
         .into_iter()
         .map(|drift| {
             format!(
@@ -546,8 +549,8 @@ async fn doctor_storage_scan_checks(
 }
 
 async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<DoctorCheck> {
-    let issues = integrity::audit_folder_tree(db).await?;
-    if issues.is_empty() {
+    let issues = integrity::audit_folder_tree_with_limit(db, 256).await?;
+    if issues.total == 0 {
         return Ok(DoctorCheck {
             name: "folder_tree_integrity",
             label: "Folder tree integrity",
@@ -559,9 +562,11 @@ async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<Do
     }
 
     let has_cycle = issues
+        .samples
         .iter()
         .any(|issue| issue.kind == integrity::FolderTreeIssueKind::Cycle);
     let details = issues
+        .samples
         .into_iter()
         .map(|issue| {
             format!(
@@ -581,11 +586,11 @@ async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<Do
         name: "folder_tree_integrity",
         label: "Folder tree integrity",
         status: DoctorStatus::Fail,
-        summary: if has_cycle {
-            "folder tree contains cycles or invalid parent references".to_string()
-        } else {
-            "folder tree contains invalid parent references".to_string()
-        },
+        summary: format!(
+            "{} folder issue(s) detected ({}); showing up to 256 samples",
+            issues.total,
+            if has_cycle { "including cycles" } else { "invalid parent references" }
+        ),
         details,
         suggestion: Some(
             "Fix dangling parent_id values or folder cycles before continuing with bulk move or delete operations."

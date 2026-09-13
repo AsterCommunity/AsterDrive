@@ -12,7 +12,9 @@ use crate::errors::Result;
 use aster_drive_model::types::LocaleTag;
 use aster_drive_storage::StorageCapacityInfo;
 use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::StoragePathVisitor;
 use aster_drive_storage::traits::driver::{BlobMetadata, DirectDownloadOptions};
+use async_trait::async_trait;
 
 use super::errors::remote_api_error_kind;
 use super::models::{
@@ -244,9 +246,19 @@ impl RemoteStorageClient {
     }
 
     pub async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
+        let mut items = Vec::new();
+        let mut visitor = VecVisitor(&mut items);
+        self.scan_paths(prefix, &mut visitor).await?;
+        Ok(items)
+    }
+
+    pub async fn scan_paths(
+        &self,
+        prefix: Option<&str>,
+        visitor: &mut dyn StoragePathVisitor,
+    ) -> Result<()> {
         let prefix = prefix.filter(|value| !value.is_empty());
         let mut cursor: Option<u64> = None;
-        let mut items = Vec::new();
 
         loop {
             let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/objects");
@@ -285,7 +297,12 @@ impl RemoteStorageClient {
             }
 
             let page = envelope.data.unwrap_or_default();
-            items.extend(page.items);
+            for item in page.items {
+                visitor
+                    .visit_path(item)
+                    .await
+                    .map_err(crate::errors::AsterError::from)?;
+            }
             let Some(next_cursor) = page.next_cursor else {
                 break;
             };
@@ -298,7 +315,7 @@ impl RemoteStorageClient {
             cursor = Some(next_cursor);
         }
 
-        Ok(items)
+        Ok(())
     }
 
     pub async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
@@ -618,6 +635,16 @@ impl RemoteStorageClient {
                 self.policy_max_file_size.to_string(),
             )],
         );
+    }
+}
+
+struct VecVisitor<'a>(&'a mut Vec<String>);
+
+#[async_trait]
+impl StoragePathVisitor for VecVisitor<'_> {
+    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+        self.0.push(path);
+        Ok(())
     }
 }
 

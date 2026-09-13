@@ -76,7 +76,7 @@ impl ListStorageDriver for AzureBlobDriver {
             if let Some(name) = item.name
                 && let Some(relative) = self.relative_key(&name)
             {
-                visitor.visit_path(relative.to_string())?;
+                visitor.visit_path(relative.to_string()).await?;
             }
         }
         Ok(())
@@ -85,8 +85,9 @@ impl ListStorageDriver for AzureBlobDriver {
 
 struct VecVisitor<'a>(&'a mut Vec<String>);
 
+#[async_trait]
 impl StoragePathVisitor for VecVisitor<'_> {
-    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.0.push(path);
         Ok(())
     }

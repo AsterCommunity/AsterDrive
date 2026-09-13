@@ -6,7 +6,9 @@ use crate::storage::remote_protocol::{
 };
 use actix_web::{App, HttpResponse, HttpServer, web};
 use aster_drive_storage::error::StorageErrorKind;
-use aster_drive_storage::traits::driver::{DirectDownloadOptions, StorageDriver};
+use aster_drive_storage::traits::driver::{
+    DirectDownloadOptions, StorageDriver, StoragePathVisitor,
+};
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, ListStorageDriver, PresignedUploadStorageDriver,
     StreamUploadDriver,
@@ -212,6 +214,45 @@ async fn list_paths_sends_scoped_prefix_and_strips_base_path() {
         vec![Some("base/files".to_string())]
     );
 
+    server.stop().await;
+}
+
+struct CollectingPathVisitor(Vec<String>);
+
+#[async_trait::async_trait]
+impl StoragePathVisitor for CollectingPathVisitor {
+    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+        self.0.push(path);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn scan_paths_streams_remote_pages_without_collecting_driver_results() {
+    let seen_prefixes = Arc::new(Mutex::new(Vec::new()));
+    let server = spawn_list_server(
+        vec![
+            "base/files/one.bin".to_string(),
+            "base/files/two.bin".to_string(),
+        ],
+        seen_prefixes.clone(),
+    )
+    .await;
+    let driver = build_driver(&server.base_url, "/base/");
+    let mut visitor = CollectingPathVisitor(Vec::new());
+
+    driver
+        .scan_paths(Some("files"), &mut visitor)
+        .await
+        .expect("remote scan should succeed");
+
+    assert_eq!(visitor.0, vec!["files/one.bin", "files/two.bin"]);
+    assert_eq!(
+        *seen_prefixes
+            .lock()
+            .expect("seen_prefixes lock should not be poisoned"),
+        vec![Some("base/files".to_string())]
+    );
     server.stop().await;
 }
 

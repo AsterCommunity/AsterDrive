@@ -85,7 +85,7 @@ impl ListStorageDriver for LocalDriver {
                 .unwrap_or(&start)
                 .to_string_lossy()
                 .replace('\\', "/");
-            visitor.visit_path(relative)?;
+            visitor.visit_path(relative).await?;
             return Ok(());
         }
 
@@ -95,7 +95,6 @@ impl ListStorageDriver for LocalDriver {
                 .await
                 .map_storage_err_ctx(StorageErrorKind::Transient, "scan local paths read_dir")?;
             let mut child_dirs = Vec::new();
-            let mut child_files = Vec::new();
 
             while let Some(entry) = entries
                 .next_entry()
@@ -111,21 +110,16 @@ impl ListStorageDriver for LocalDriver {
                 if file_type.is_dir() {
                     child_dirs.push(path);
                 } else if file_type.is_file() {
-                    child_files.push(path);
+                    let relative = path
+                        .strip_prefix(&root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    visitor.visit_path(relative).await?;
                 }
             }
 
             child_dirs.sort();
-            child_files.sort();
-
-            for file_path in child_files {
-                let relative = file_path
-                    .strip_prefix(&root)
-                    .unwrap_or(&file_path)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                visitor.visit_path(relative)?;
-            }
 
             for child_dir in child_dirs.into_iter().rev() {
                 pending_dirs.push(child_dir);

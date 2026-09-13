@@ -123,8 +123,11 @@ impl PresignedUploadRequest {
     }
 }
 
+#[async_trait]
 pub trait StoragePathVisitor: Send {
-    fn visit_path(&mut self, path: String) -> Result<()>;
+    /// Consumes one object path. Implementations may perform bounded async
+    /// lookups and must avoid retaining the full listing.
+    async fn visit_path(&mut self, path: String) -> Result<()>;
 }
 
 /// 存储驱动核心 trait。

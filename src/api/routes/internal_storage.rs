@@ -19,9 +19,11 @@ use crate::storage::remote_protocol::{
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
 use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::StoragePathVisitor;
 use aster_drive_storage::object_key;
 use aster_drive_storage::{BlobMetadata, StorageDriver};
 use aster_forge_utils::numbers;
+use async_trait::async_trait;
 use futures::StreamExt;
 use serde::Deserialize;
 use tokio_util::io::ReaderStream;
@@ -403,43 +405,40 @@ async fn list_objects(
         .as_deref()
         .map(|value| master_binding::provider_storage_prefix(&ctx.binding, value))
         .transpose()?;
-    let mut items = list_driver
-        .list_paths(prefix.as_deref())
-        .await?
-        .into_iter()
-        .filter_map(|path| {
-            object_key::strip_key_prefix(&ctx.binding.storage_namespace, &path).map(str::to_string)
-        })
-        .collect::<Vec<_>>();
-    let (items, next_cursor) = if let Some(limit) = query.limit {
+    let (limit, start) = if let Some(limit) = query.limit {
         if limit == 0 {
             return Err(AsterError::validation_error(
                 "remote storage list limit must be positive",
             ));
         }
         let start = numbers::u64_to_usize(query.cursor.unwrap_or(0), "remote storage list cursor")
-            .map_err(|_| AsterError::validation_error("remote storage list cursor is too large"))?
-            .min(items.len());
+            .map_err(|_| AsterError::validation_error("remote storage list cursor is too large"))?;
         let limit = numbers::u64_to_usize(limit, "remote storage list limit")
             .map_err(|_| AsterError::validation_error("remote storage list limit is too large"))?;
-        let end = start
-            .saturating_add(limit.min(REMOTE_LIST_PAGE_SIZE))
-            .min(items.len());
-        let next_cursor = if end < items.len() {
-            Some(numbers::usize_to_u64(
-                end,
-                "remote storage list next cursor",
-            )?)
-        } else {
-            None
-        };
-        items.drain(end..);
-        items.drain(..start);
-        (items, next_cursor)
+        (limit.min(REMOTE_LIST_PAGE_SIZE), start)
     } else {
         // Keep the legacy unpaged response for older clients. New clients always send `limit`.
-        (items, None)
+        (usize::MAX, 0)
     };
+    let mut visitor = ObjectPageVisitor {
+        namespace: &ctx.binding.storage_namespace,
+        skip: start,
+        limit,
+        seen: 0,
+        items: Vec::new(),
+    };
+    list_driver
+        .scan_paths(prefix.as_deref(), &mut visitor)
+        .await?;
+    let next_cursor = if query.limit.is_some() && visitor.seen > start + visitor.items.len() {
+        Some(numbers::usize_to_u64(
+            start + visitor.items.len(),
+            "remote storage list next cursor",
+        )?)
+    } else {
+        None
+    };
+    let items = visitor.items;
     tracing::debug!(
         binding_id = ctx.binding.id,
         prefix = ?query.prefix,
@@ -453,6 +452,29 @@ async fn list_objects(
             next_cursor,
         })),
     )
+}
+
+struct ObjectPageVisitor<'a> {
+    namespace: &'a str,
+    skip: usize,
+    limit: usize,
+    seen: usize,
+    items: Vec<String>,
+}
+
+#[async_trait]
+impl StoragePathVisitor for ObjectPageVisitor<'_> {
+    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+        let Some(path) = object_key::strip_key_prefix(self.namespace, &path) else {
+            return Ok(());
+        };
+        let index = self.seen;
+        self.seen = self.seen.saturating_add(1);
+        if index >= self.skip && self.items.len() < self.limit {
+            self.items.push(path.to_string());
+        }
+        Ok(())
+    }
 }
 
 async fn put_object(
@@ -1032,5 +1054,27 @@ mod tests {
             content_length_header(&headers).expect("valid content-length should parse"),
             42
         );
+    }
+
+    #[actix_web::test]
+    async fn object_page_visitor_keeps_cursor_page_bounded() {
+        let mut visitor = ObjectPageVisitor {
+            namespace: "ns",
+            skip: 1,
+            limit: 2,
+            seen: 0,
+            items: Vec::new(),
+        };
+        visitor
+            .visit_path("other/ignored".to_string())
+            .await
+            .unwrap();
+        visitor.visit_path("ns/one".to_string()).await.unwrap();
+        visitor.visit_path("ns/two".to_string()).await.unwrap();
+        visitor.visit_path("ns/three".to_string()).await.unwrap();
+        visitor.visit_path("ns/four".to_string()).await.unwrap();
+
+        assert_eq!(visitor.seen, 4);
+        assert_eq!(visitor.items, vec!["two", "three"]);
     }
 }

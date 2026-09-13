@@ -2,7 +2,7 @@
     dead_code,
     reason = "the contract test includes the complete benchmark module but exercises only its accounting helpers"
 )]
-#[path = "../benches/webdav_provider_range.rs"]
+#[path = "benchmarks/webdav_provider_range.rs"]
 mod benchmark;
 
 #[tokio::test]

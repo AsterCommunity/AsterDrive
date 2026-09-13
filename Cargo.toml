@@ -296,11 +296,13 @@ doctest = false
 
 [[bench]]
 name = "path_hotspots"
+path = "tests/benchmarks/path_hotspots.rs"
 harness = false
 required-features = ["benchmarks"]
 
 [[bench]]
 name = "webdav_provider_range"
+path = "tests/benchmarks/webdav_provider_range.rs"
 harness = false
 required-features = ["benchmarks"]
 
@@ -311,7 +313,12 @@ required-features = ["benchmarks"]
 
 [[test]]
 name = "issue_497_folder_tree_memory"
-path = "tests/issue_497_folder_tree_memory.rs"
+path = "tests/benchmarks/issue_497_folder_tree_memory.rs"
+required-features = ["benchmarks"]
+
+[[test]]
+name = "issue_500_integrity_memory"
+path = "tests/benchmarks/issue_500_integrity_memory.rs"
 required-features = ["benchmarks"]
 
 [[test]]

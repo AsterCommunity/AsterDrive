@@ -644,8 +644,9 @@ struct CollectingVisitor {
     paths: Vec<String>,
 }
 
+#[async_trait::async_trait]
 impl StoragePathVisitor for CollectingVisitor {
-    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.paths.push(path);
         Ok(())
     }

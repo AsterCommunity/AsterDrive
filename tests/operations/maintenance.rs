@@ -1227,6 +1227,8 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
         .put(&current_thumb_path(&orphan_thumb_hash), b"thumb")
         .await
         .unwrap();
+    let live_thumb_path = current_thumb_path(&live_blob.hash);
+    driver.put(&live_thumb_path, b"live thumb").await.unwrap();
     let virtual_empty = file_repo::find_or_create_virtual_empty_blob(
         state.writer_db(),
         file_blob::Model::EMPTY_SHA256,
@@ -1365,6 +1367,31 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
             .iter()
             .any(|issue| issue.path == virtual_empty_orphan_thumb)
     );
+    assert!(
+        storage_report
+            .orphan_thumbnails
+            .iter()
+            .all(|issue| issue.path != live_thumb_path),
+        "known thumbnail path must not be reported as orphan"
+    );
+
+    let bounded_storage_report = integrity::audit_storage_objects_with_finding_limit(
+        state.writer_db(),
+        state.driver_registry.as_ref(),
+        None,
+        aster_drive::config::operations::thumbnail_max_dimension(state.runtime_config()),
+        aster_drive::config::operations::image_preview_max_dimension(state.runtime_config()),
+        Some(0),
+    )
+    .await
+    .unwrap();
+    assert!(bounded_storage_report.findings_truncated);
+    assert!(bounded_storage_report.missing_blob_objects.is_empty());
+    assert!(bounded_storage_report.untracked_objects.is_empty());
+    assert!(bounded_storage_report.orphan_thumbnails.is_empty());
+    assert!(bounded_storage_report.missing_blob_objects_total > 0);
+    assert!(bounded_storage_report.untracked_objects_total > 0);
+    assert!(bounded_storage_report.orphan_thumbnails_total > 0);
 
     let folder_issues = integrity::audit_folder_tree(state.writer_db())
         .await
@@ -1378,6 +1405,79 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
             .iter()
             .any(|issue| issue.kind == integrity::FolderTreeIssueKind::Cycle)
     );
+
+    let usage_summary = integrity::audit_storage_usage_with_limit(state.writer_db(), 0)
+        .await
+        .unwrap();
+    assert_eq!(usage_summary.samples.len(), 0);
+    assert_eq!(usage_summary.total, 1);
+    let ref_summary = integrity::audit_blob_ref_counts_with_limit(state.writer_db(), None, 0)
+        .await
+        .unwrap();
+    assert_eq!(ref_summary.samples.len(), 0);
+    assert!(ref_summary.total >= 1);
+    let ledger_summary = integrity::audit_revision_ledger_with_limit(state.writer_db(), 0)
+        .await
+        .unwrap();
+    assert_eq!(ledger_summary.samples.len(), 0);
+    assert!(ledger_summary.total >= 1);
+
+    let bounded_folder_report = integrity::audit_folder_tree_with_limit(state.writer_db(), 1)
+        .await
+        .unwrap();
+    assert!(bounded_folder_report.total >= 2);
+    assert_eq!(bounded_folder_report.samples.len(), 1);
+
+    let other_user = common::create_test_account(
+        &state,
+        "audituser1-other",
+        "audit1-other@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let foreign_parent = folder_repo::create(
+        state.writer_db(),
+        folder::ActiveModel {
+            name: Set("foreign-parent".to_string()),
+            parent_id: Set(None),
+            team_id: Set(None),
+            owner_user_id: Set(Some(other_user.id)),
+            created_by_user_id: Set(Some(other_user.id)),
+            created_by_username: Set(other_user.username.clone()),
+            policy_id: Set(None),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let cross_scope_child = folder_repo::create(
+        state.writer_db(),
+        folder::ActiveModel {
+            name: Set("cross-scope-child".to_string()),
+            parent_id: Set(Some(foreign_parent.id)),
+            team_id: Set(None),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
+            policy_id: Set(None),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let folder_issues = integrity::audit_folder_tree(state.writer_db())
+        .await
+        .unwrap();
+    assert!(folder_issues.iter().any(|issue| {
+        issue.kind == integrity::FolderTreeIssueKind::CrossScopeParent
+            && issue.folder_id == cross_scope_child.id
+            && issue.parent_id == Some(foreign_parent.id)
+    }));
 }
 
 #[actix_web::test]
@@ -1435,4 +1535,60 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[actix_web::test]
+async fn test_integrity_storage_scan_bounds_path_batch_and_keeps_exact_totals() {
+    use aster_drive::services::ops::integrity::{
+        self, StorageObjectFinding, StorageObjectFindingSink,
+    };
+
+    struct FindingCollector(usize);
+    impl StorageObjectFindingSink for FindingCollector {
+        fn record(&mut self, _finding: StorageObjectFinding) -> aster_drive::errors::Result<()> {
+            self.0 += 1;
+            Ok(())
+        }
+    }
+
+    let state = common::setup().await;
+    let policy = default_policy(&state).await;
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    for index in 0..300 {
+        driver
+            .put(&format!("bounded-untracked/{index:04}.bin"), b"stray")
+            .await
+            .unwrap();
+    }
+
+    let report = integrity::audit_storage_objects_with_finding_limit(
+        state.writer_db(),
+        state.driver_registry.as_ref(),
+        Some(policy.id),
+        aster_drive::config::operations::thumbnail_max_dimension(state.runtime_config()),
+        aster_drive::config::operations::image_preview_max_dimension(state.runtime_config()),
+        Some(5),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.untracked_objects.len(), 5);
+    assert!(report.untracked_objects_total >= 300);
+    assert!(report.findings_truncated);
+    assert!(report.peak_path_batch <= 256);
+
+    let mut collector = FindingCollector(0);
+    let streamed = integrity::audit_storage_objects_with_sink(
+        state.writer_db(),
+        state.driver_registry.as_ref(),
+        Some(policy.id),
+        aster_drive::config::operations::thumbnail_max_dimension(state.runtime_config()),
+        aster_drive::config::operations::image_preview_max_dimension(state.runtime_config()),
+        &mut collector,
+    )
+    .await
+    .unwrap();
+    assert_eq!(collector.0, streamed.untracked_objects_total);
+    assert_eq!(streamed.missing_blob_objects.len(), 0);
+    assert_eq!(streamed.untracked_objects.len(), 0);
 }

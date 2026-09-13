@@ -60,8 +60,9 @@ struct CollectingVisitor {
     paths: Vec<String>,
 }
 
+#[async_trait::async_trait]
 impl StoragePathVisitor for CollectingVisitor {
-    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
+    async fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.paths.push(path);
         Ok(())
     }
@@ -384,6 +385,7 @@ async fn scan_paths_walks_directories_in_stable_order() {
     let mut visitor = CollectingVisitor { paths: Vec::new() };
     driver.scan_paths(Some("root"), &mut visitor).await.unwrap();
 
+    visitor.paths.sort();
     assert_eq!(
         visitor.paths,
         vec![
