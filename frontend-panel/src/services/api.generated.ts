@@ -1239,6 +1239,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/external-auth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["finish_external_auth_login"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/external-auth/email-verification/confirm": {
         parameters: {
             query?: never;
@@ -1342,7 +1358,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["finish_external_auth_login"];
+        get: operations["finish_external_auth_login_legacy"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4366,6 +4382,8 @@ export interface components {
             auto_link_verified_email_enabled: boolean;
             auto_provision_enabled: boolean;
             avatar_url_claim?: string | null;
+            callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
+            callback_uri: string;
             client_id: string;
             client_secret?: string | null;
             client_secret_configured: boolean;
@@ -4381,6 +4399,7 @@ export interface components {
             id: number;
             issuer_url?: string | null;
             key: string;
+            legacy_callback_uri: string;
             options: components["schemas"]["ExternalAuthProviderOptions"];
             protocol: components["schemas"]["ExternalAuthProtocol"];
             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
@@ -4388,6 +4407,7 @@ export interface components {
             scopes: string;
             subject_claim?: string | null;
             token_url?: string | null;
+            unified_callback_uri: string;
             updated_at: string;
             userinfo_url?: string | null;
             username_claim?: string | null;
@@ -5323,6 +5343,7 @@ export interface components {
             auto_link_verified_email_enabled?: boolean | null;
             auto_provision_enabled?: boolean | null;
             avatar_url_claim?: string | null;
+            callback_mode?: null | components["schemas"]["ExternalAuthCallbackMode"];
             client_id: string;
             client_secret?: string | null;
             display_name: string;
@@ -5539,6 +5560,11 @@ export interface components {
                 [key: string]: components["schemas"]["StorageConnectorFieldValue"];
             };
         };
+        /**
+         * @description Callback route selected for newly started external-auth login flows.
+         * @enum {string}
+         */
+        ExternalAuthCallbackMode: "legacy" | "unified";
         ExternalAuthCallbackQuery: {
             code?: string | null;
             error?: string | null;
@@ -6458,6 +6484,8 @@ export interface components {
                 auto_link_verified_email_enabled: boolean;
                 auto_provision_enabled: boolean;
                 avatar_url_claim?: string | null;
+                callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
+                callback_uri: string;
                 client_id: string;
                 client_secret?: string | null;
                 client_secret_configured: boolean;
@@ -6473,6 +6501,7 @@ export interface components {
                 id: number;
                 issuer_url?: string | null;
                 key: string;
+                legacy_callback_uri: string;
                 options: components["schemas"]["ExternalAuthProviderOptions"];
                 protocol: components["schemas"]["ExternalAuthProtocol"];
                 provider_kind: components["schemas"]["ExternalAuthProviderKind"];
@@ -6480,6 +6509,7 @@ export interface components {
                 scopes: string;
                 subject_claim?: string | null;
                 token_url?: string | null;
+                unified_callback_uri: string;
                 updated_at: string;
                 userinfo_url?: string | null;
                 username_claim?: string | null;
@@ -9384,6 +9414,7 @@ export interface components {
             auto_link_verified_email_enabled?: boolean | null;
             auto_provision_enabled?: boolean | null;
             avatar_url_claim?: string | null;
+            callback_mode?: null | components["schemas"]["ExternalAuthCallbackMode"];
             client_id?: string | null;
             client_secret?: string | null;
             display_name?: string | null;
@@ -10432,6 +10463,8 @@ export interface operations {
                                 auto_link_verified_email_enabled: boolean;
                                 auto_provision_enabled: boolean;
                                 avatar_url_claim?: string | null;
+                                callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
+                                callback_uri: string;
                                 client_id: string;
                                 client_secret?: string | null;
                                 client_secret_configured: boolean;
@@ -10447,6 +10480,7 @@ export interface operations {
                                 id: number;
                                 issuer_url?: string | null;
                                 key: string;
+                                legacy_callback_uri: string;
                                 options: components["schemas"]["ExternalAuthProviderOptions"];
                                 protocol: components["schemas"]["ExternalAuthProtocol"];
                                 provider_kind: components["schemas"]["ExternalAuthProviderKind"];
@@ -10454,6 +10488,7 @@ export interface operations {
                                 scopes: string;
                                 subject_claim?: string | null;
                                 token_url?: string | null;
+                                unified_callback_uri: string;
                                 updated_at: string;
                                 userinfo_url?: string | null;
                                 username_claim?: string | null;
@@ -10522,6 +10557,8 @@ export interface operations {
                             auto_link_verified_email_enabled: boolean;
                             auto_provision_enabled: boolean;
                             avatar_url_claim?: string | null;
+                            callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
+                            callback_uri: string;
                             client_id: string;
                             client_secret?: string | null;
                             client_secret_configured: boolean;
@@ -10537,6 +10574,7 @@ export interface operations {
                             id: number;
                             issuer_url?: string | null;
                             key: string;
+                            legacy_callback_uri: string;
                             options: components["schemas"]["ExternalAuthProviderOptions"];
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
@@ -10544,6 +10582,7 @@ export interface operations {
                             scopes: string;
                             subject_claim?: string | null;
                             token_url?: string | null;
+                            unified_callback_uri: string;
                             updated_at: string;
                             userinfo_url?: string | null;
                             username_claim?: string | null;
@@ -10668,6 +10707,8 @@ export interface operations {
                             auto_link_verified_email_enabled: boolean;
                             auto_provision_enabled: boolean;
                             avatar_url_claim?: string | null;
+                            callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
+                            callback_uri: string;
                             client_id: string;
                             client_secret?: string | null;
                             client_secret_configured: boolean;
@@ -10683,6 +10724,7 @@ export interface operations {
                             id: number;
                             issuer_url?: string | null;
                             key: string;
+                            legacy_callback_uri: string;
                             options: components["schemas"]["ExternalAuthProviderOptions"];
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
@@ -10690,6 +10732,7 @@ export interface operations {
                             scopes: string;
                             subject_claim?: string | null;
                             token_url?: string | null;
+                            unified_callback_uri: string;
                             updated_at: string;
                             userinfo_url?: string | null;
                             username_claim?: string | null;
@@ -10794,6 +10837,8 @@ export interface operations {
                             auto_link_verified_email_enabled: boolean;
                             auto_provision_enabled: boolean;
                             avatar_url_claim?: string | null;
+                            callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
+                            callback_uri: string;
                             client_id: string;
                             client_secret?: string | null;
                             client_secret_configured: boolean;
@@ -10809,6 +10854,7 @@ export interface operations {
                             id: number;
                             issuer_url?: string | null;
                             key: string;
+                            legacy_callback_uri: string;
                             options: components["schemas"]["ExternalAuthProviderOptions"];
                             protocol: components["schemas"]["ExternalAuthProtocol"];
                             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
@@ -10816,6 +10862,7 @@ export interface operations {
                             scopes: string;
                             subject_claim?: string | null;
                             token_url?: string | null;
+                            unified_callback_uri: string;
                             updated_at: string;
                             userinfo_url?: string | null;
                             username_claim?: string | null;
@@ -16342,6 +16389,29 @@ export interface operations {
             };
         };
     };
+    finish_external_auth_login: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+                error_description?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invalid external auth callback redirected to login */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     confirm_external_auth_email_verification: {
         parameters: {
             query?: {
@@ -16580,7 +16650,7 @@ export interface operations {
             };
         };
     };
-    finish_external_auth_login: {
+    finish_external_auth_login_legacy: {
         parameters: {
             query?: {
                 code?: string | null;

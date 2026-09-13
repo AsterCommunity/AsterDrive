@@ -3,6 +3,7 @@ use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local;
+use aster_drive_model::types::external_auth_provider::ExternalAuthCallbackMode;
 use aster_forge_api::NullablePatch;
 use aster_forge_external_auth::ExternalAuthProviderKind;
 
@@ -40,7 +41,9 @@ pub(super) fn normalize_email_for_external_auth(value: &str) -> Result<String> {
     Ok(email)
 }
 
-fn callback_path(provider_kind: ExternalAuthProviderKind, provider_key: &str) -> String {
+pub const UNIFIED_CALLBACK_PATH: &str = "/api/v1/auth/external-auth/callback";
+
+fn legacy_callback_path(provider_kind: ExternalAuthProviderKind, provider_key: &str) -> String {
     format!(
         "/api/v1/auth/external-auth/{}/{provider_key}/callback",
         provider_kind.as_str()
@@ -50,14 +53,53 @@ fn callback_path(provider_kind: ExternalAuthProviderKind, provider_key: &str) ->
 pub fn callback_redirect_uri(
     state: &impl SharedRuntimeState,
     req: &actix_web::HttpRequest,
+    callback_mode: ExternalAuthCallbackMode,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
+) -> Result<String> {
+    let path = match callback_mode {
+        ExternalAuthCallbackMode::Legacy => legacy_callback_path(provider_kind, provider_key),
+        ExternalAuthCallbackMode::Unified => UNIFIED_CALLBACK_PATH.to_string(),
+    };
+    callback_uri_for_path(state, req, &path)
+}
+
+pub fn callback_redirect_uris(
+    state: &impl SharedRuntimeState,
+    req: &actix_web::HttpRequest,
+    provider_kind: ExternalAuthProviderKind,
+    provider_key: &str,
+) -> Result<(String, String)> {
+    let legacy_path = legacy_callback_path(provider_kind, provider_key);
+    Ok((
+        callback_uri_or_path_for_request(state, req, &legacy_path),
+        callback_uri_or_path_for_request(state, req, UNIFIED_CALLBACK_PATH),
+    ))
+}
+
+fn callback_uri_or_path_for_request(
+    state: &impl SharedRuntimeState,
+    req: &actix_web::HttpRequest,
+    path: &str,
+) -> String {
+    let conn = req.connection_info();
+    site_url::public_app_url_or_path_for_request(
+        state.runtime_config(),
+        path,
+        conn.scheme(),
+        conn.host(),
+    )
+}
+
+fn callback_uri_for_path(
+    state: &impl SharedRuntimeState,
+    req: &actix_web::HttpRequest,
+    path: &str,
 ) -> Result<String> {
     let conn = req.connection_info();
     let scheme = conn.scheme();
     let host = conn.host();
-    let path = callback_path(provider_kind, provider_key);
-    let uri = site_url::public_app_url_for_request(state.runtime_config(), &path, scheme, host)
+    let uri = site_url::public_app_url_for_request(state.runtime_config(), path, scheme, host)
         .ok_or_else(|| {
             validation_error_with_code(
                 ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
@@ -71,4 +113,18 @@ pub fn callback_redirect_uri(
         ));
     }
     Ok(uri)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_paths_are_mode_specific() {
+        assert_eq!(
+            legacy_callback_path(ExternalAuthProviderKind::Oidc, "provider-key"),
+            "/api/v1/auth/external-auth/oidc/provider-key/callback"
+        );
+        assert_eq!(UNIFIED_CALLBACK_PATH, "/api/v1/auth/external-auth/callback");
+    }
 }

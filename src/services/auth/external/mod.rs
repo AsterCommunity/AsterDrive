@@ -15,6 +15,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use aster_drive_model::entities::user;
+use aster_drive_model::types::external_auth_provider::ExternalAuthCallbackMode;
 use aster_forge_api::NullablePatch;
 use aster_forge_external_auth::{
     ExternalAuthProtocol, ExternalAuthProviderKind, ExternalAuthProviderOptions,
@@ -105,6 +106,16 @@ pub struct ExternalAuthStartLoginResult {
     pub browser_binding: ExternalAuthBrowserBinding,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExternalAuthCallbackRoute {
+    Unified,
+    // TODO(v1.0.0): Remove the legacy callback route after the documented migration window.
+    Legacy {
+        provider_kind: ExternalAuthProviderKind,
+        provider_key: String,
+    },
+}
+
 #[derive(Debug, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct ExternalAuthEmailVerificationStartRequest {
@@ -186,6 +197,10 @@ pub struct AdminExternalAuthProviderInfo {
     pub key: String,
     pub provider_kind: ExternalAuthProviderKind,
     pub protocol: ExternalAuthProtocol,
+    pub callback_mode: ExternalAuthCallbackMode,
+    pub callback_uri: String,
+    pub legacy_callback_uri: String,
+    pub unified_callback_uri: String,
     pub display_name: String,
     pub icon_url: Option<String>,
     pub options: ExternalAuthProviderOptions,
@@ -219,6 +234,7 @@ pub struct AdminExternalAuthProviderInfo {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct CreateExternalAuthProviderInput {
     pub provider_kind: ExternalAuthProviderKind,
+    pub callback_mode: Option<ExternalAuthCallbackMode>,
     pub display_name: String,
     pub icon_url: Option<String>,
     pub options: Option<ExternalAuthProviderOptions>,
@@ -247,6 +263,7 @@ pub struct CreateExternalAuthProviderInput {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct UpdateExternalAuthProviderInput {
+    pub callback_mode: Option<ExternalAuthCallbackMode>,
     pub display_name: Option<String>,
     #[serde(
         default,
@@ -409,6 +426,7 @@ pub struct ExternalAuthLoginAuditDetails<'a> {
 #[derive(Clone, Debug, Serialize)]
 pub struct ExternalAuthProviderAuditDetails<'a> {
     pub key: &'a str,
+    pub callback_mode: ExternalAuthCallbackMode,
     pub icon_url: Option<&'a str>,
     pub issuer_url: Option<&'a str>,
     pub enabled: bool,

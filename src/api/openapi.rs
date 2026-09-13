@@ -45,6 +45,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::auth::external_auth::list_providers,
         crate::api::routes::auth::external_auth::start_login,
         crate::api::routes::auth::external_auth::finish_login,
+        crate::api::routes::auth::external_auth::finish_legacy_login,
         crate::api::routes::auth::external_auth::start_email_verification,
         crate::api::routes::auth::external_auth::link_with_password,
         crate::api::routes::auth::external_auth::confirm_email_verification,

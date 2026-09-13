@@ -23,6 +23,7 @@ fn external_auth_provider_audit_details(
 ) -> Option<serde_json::Value> {
     audit::details(ExternalAuthProviderAuditDetails {
         key: &provider.key,
+        callback_mode: provider.callback_mode,
         icon_url: provider.icon_url.as_deref(),
         issuer_url: provider.issuer_url.as_deref(),
         enabled: provider.enabled,
@@ -54,11 +55,16 @@ struct ExternalAuthProviderTestParamsAuditDetails<'a> {
 )]
 pub async fn list_external_auth_providers(
     state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
     page: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
-    let providers =
-        external::list_admin_providers(state.get_ref(), page.limit_or(50, 100), page.offset())
-            .await?;
+    let providers = external::list_admin_providers(
+        state.get_ref(),
+        &req,
+        page.limit_or(50, 100),
+        page.offset(),
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(providers)))
 }
 
@@ -98,7 +104,7 @@ pub async fn create_external_auth_provider(
     req: HttpRequest,
     body: web::Json<CreateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
-    let provider = external::create_provider(state.get_ref(), body.into_inner()).await?;
+    let provider = external::create_provider(state.get_ref(), &req, body.into_inner()).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -129,9 +135,10 @@ pub async fn create_external_auth_provider(
 )]
 pub async fn get_external_auth_provider(
     state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external::get_admin_provider(state.get_ref(), *path).await?;
+    let provider = external::get_admin_provider(state.get_ref(), &req, *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
 }
 
@@ -158,7 +165,8 @@ pub async fn update_external_auth_provider(
     path: web::Path<i64>,
     body: web::Json<UpdateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
-    let provider = external::update_provider(state.get_ref(), *path, body.into_inner()).await?;
+    let provider =
+        external::update_provider(state.get_ref(), &req, *path, body.into_inner()).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
@@ -193,7 +201,7 @@ pub async fn delete_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external::get_admin_provider(state.get_ref(), *path).await?;
+    let provider = external::get_admin_provider(state.get_ref(), &req, *path).await?;
     external::delete_provider(state.get_ref(), *path).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
@@ -275,7 +283,7 @@ pub async fn test_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external::get_admin_provider(state.get_ref(), *path).await?;
+    let provider = external::get_admin_provider(state.get_ref(), &req, *path).await?;
     let result = external::test_provider(state.get_ref(), *path).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(

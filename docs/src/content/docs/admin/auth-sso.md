@@ -111,13 +111,13 @@ example.com
 1. `管理 -> 系统设置 -> 站点配置 -> 公开站点地址` 填成真实外部访问地址
 2. 确认反向代理已经处理 HTTPS、Host、真实客户端 IP 和大请求体
 3. 在身份提供商侧创建应用，准备 Client ID（confidential client 再准备 Client Secret）
-4. 在 `管理 -> 外部认证` 创建 provider，保存后复制 AsterDrive 生成的重定向 URI
-5. 把重定向 URI 登记到身份提供商侧
+4. 在 `管理 -> 外部认证` 创建 provider，保存后复制 AsterDrive 返回的当前生效 URI
+5. 把统一 URI 和兼容 URI 都登记到身份提供商侧，确认统一 URI 可用后再切换模式
 6. 决定账号绑定策略（见下节）
 7. 用真实账号完整跑一遍登录、绑定、MFA 和邮箱补验路径
 
 :::caution[先配公开站点地址]
-外部认证的重定向 URI 依赖 `公开站点地址`。如果这里没填对，身份提供商回调会落到错误地址。改公开站点地址后，provider 侧登记的 redirect URI 也要同步更新。
+外部认证的重定向 URI 依赖 `公开站点地址`。新 provider 默认使用统一回调 `/api/v1/auth/external-auth/callback`；升级已有 provider 时，先在身份提供商侧同时登记统一 URI 和当前显示的兼容 URI，再在 provider 详情中显式切换回调模式。Legacy 兼容将在 1.0.0 删除。如果公开站点地址填错，身份提供商回调会落到错误地址；改地址后两个 URI 都要同步更新。
 :::
 
 ## 账号绑定策略

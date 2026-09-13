@@ -119,6 +119,13 @@ function provider(
 ): AdminExternalAuthProviderInfo {
 	return {
 		allowed_domains: ["example.com"],
+		callback_mode: "legacy",
+		callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+		legacy_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/oidc/example/callback",
+		unified_callback_uri:
+			"https://app.example.com/api/v1/auth/external-auth/callback",
 		authorization_url: null,
 		auto_link_verified_email_enabled: false,
 		auto_provision_enabled: false,

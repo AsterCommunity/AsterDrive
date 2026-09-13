@@ -93,14 +93,10 @@ pub async fn start_login(
 
 #[aster_forge_api_docs_macros::path(
     get,
-    path = "/api/v1/auth/external-auth/{kind}/{provider}/callback",
+    path = "/api/v1/auth/external-auth/callback",
     tag = "auth",
     operation_id = "finish_external_auth_login",
-    params(
-        ("kind" = String, Path, description = "External auth provider kind"),
-        ("provider" = String, Path, description = "External auth provider key"),
-        ExternalAuthCallbackQuery,
-    ),
+    params(ExternalAuthCallbackQuery),
     responses(
         (status = 302, description = "External auth callback completed and redirected"),
         (status = 302, description = "Invalid external auth callback redirected to login"),
@@ -109,8 +105,41 @@ pub async fn start_login(
 pub async fn finish_login(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
+    query: web::Query<ExternalAuthCallbackQuery>,
+) -> Result<HttpResponse> {
+    finish_login_for_route(state, req, query, None).await
+}
+
+// TODO(v1.0.0): Remove this route after administrators have migrated provider registrations.
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/auth/external-auth/{kind}/{provider}/callback",
+    tag = "auth",
+    operation_id = "finish_external_auth_login_legacy",
+    params(
+        ("kind" = String, Path, description = "External auth provider kind"),
+        ("provider" = String, Path, description = "External auth provider key"),
+        ExternalAuthCallbackQuery,
+    ),
+    responses(
+        (status = 302, description = "Legacy external auth callback completed and redirected"),
+        (status = 302, description = "Invalid external auth callback redirected to login"),
+    ),
+)]
+pub async fn finish_legacy_login(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
     path: web::Path<(String, String)>,
     query: web::Query<ExternalAuthCallbackQuery>,
+) -> Result<HttpResponse> {
+    finish_login_for_route(state, req, query, Some(path.into_inner())).await
+}
+
+async fn finish_login_for_route(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    query: web::Query<ExternalAuthCallbackQuery>,
+    legacy_path: Option<(String, String)>,
 ) -> Result<HttpResponse> {
     let browser_binding_cookie_name = query
         .state
@@ -123,8 +152,8 @@ pub async fn finish_login(
     let response = finish_login_inner(
         state.clone(),
         req,
-        path,
         query,
+        legacy_path,
         browser_binding_secret.as_deref(),
     )
     .await?;
@@ -147,28 +176,35 @@ pub async fn finish_login(
 async fn finish_login_inner(
     state: web::Data<PrimaryAppState>,
     req: HttpRequest,
-    path: web::Path<(String, String)>,
     query: web::Query<ExternalAuthCallbackQuery>,
+    legacy_path: Option<(String, String)>,
     browser_binding_secret: Option<&str>,
 ) -> Result<HttpResponse> {
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    let (kind, provider) = path.into_inner();
-    let provider_kind = match parse_provider_kind(&kind) {
-        Ok(provider_kind) => provider_kind,
-        Err(error) => {
-            return Ok(external_auth_error_redirect_response(
-                state.get_ref(),
-                &error,
-            ));
+    let callback_route = match legacy_path {
+        Some((kind, provider_key)) => {
+            let provider_kind = match parse_provider_kind(&kind) {
+                Ok(provider_kind) => provider_kind,
+                Err(error) => {
+                    return Ok(external_auth_error_redirect_response(
+                        state.get_ref(),
+                        &error,
+                    ));
+                }
+            };
+            external::ExternalAuthCallbackRoute::Legacy {
+                provider_kind,
+                provider_key,
+            }
         }
+        None => external::ExternalAuthCallbackRoute::Unified,
     };
     let result = match external::finish_callback(
         state.get_ref(),
-        provider_kind,
-        &provider,
+        callback_route,
         &query,
         browser_binding_secret,
         audit_info.ip_address.as_deref(),

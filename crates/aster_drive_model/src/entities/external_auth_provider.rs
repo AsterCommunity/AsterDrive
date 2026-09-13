@@ -6,7 +6,9 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::external_auth_provider::StoredExternalAuthProviderOptions;
+use crate::types::external_auth_provider::{
+    ExternalAuthCallbackMode, StoredExternalAuthProviderOptions,
+};
 use aster_forge_external_auth::{ExternalAuthProtocol, ExternalAuthProviderKind};
 
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
@@ -20,6 +22,7 @@ pub struct Model {
     pub icon_url: Option<String>,
     pub provider_kind: ExternalAuthProviderKind,
     pub protocol: ExternalAuthProtocol,
+    pub callback_mode: ExternalAuthCallbackMode,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub options: StoredExternalAuthProviderOptions,
     pub issuer_url: Option<String>,
@@ -57,6 +60,7 @@ impl fmt::Debug for Model {
             .field("icon_url", &self.icon_url)
             .field("provider_kind", &self.provider_kind)
             .field("protocol", &self.protocol)
+            .field("callback_mode", &self.callback_mode)
             .field("options", &"***REDACTED***")
             .field("issuer_url", &self.issuer_url)
             .field("authorization_url", &self.authorization_url)
@@ -133,6 +137,7 @@ mod tests {
             icon_url: None,
             provider_kind: ExternalAuthProviderKind::Microsoft,
             protocol: ExternalAuthProtocol::Oidc,
+            callback_mode: ExternalAuthCallbackMode::Legacy,
             options: StoredExternalAuthProviderOptions(
                 r#"{"microsoft":{"tenant":"secret-tenant"}}"#.to_string(),
             ),

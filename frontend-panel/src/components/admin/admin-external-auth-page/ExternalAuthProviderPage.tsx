@@ -17,7 +17,6 @@ import {
 	ExternalAuthSummaryPanel,
 } from "./ExternalAuthProviderPanels";
 import {
-	callbackUrl,
 	connectionRequirementsMissing,
 	type ExternalAuthCreateStep,
 	type ExternalAuthProviderFieldChange,
@@ -86,7 +85,11 @@ export function ExternalAuthProviderPage({
 	const providerKindLabel = kindDisplayName(t, providerKind, providerKinds);
 	const showIssuerUrl = shouldShowIssuerUrl(selectedKind);
 	const showManualEndpoints = shouldShowManualEndpoints(selectedKind);
-	const currentCallbackUrl = callbackUrl(providerKind, form.key);
+	const currentCallbackUrl = isCreate
+		? (provider?.unified_callback_uri ?? "/api/v1/auth/external-auth/callback")
+		: form.callbackMode === "unified"
+			? (provider?.unified_callback_uri ?? "")
+			: (provider?.legacy_callback_uri ?? "");
 	const identityMissing = !form.displayName.trim();
 	const connectionMissing = connectionRequirementsMissing(form, selectedKind);
 	const testDisabled = submitting || connectionMissing;
@@ -98,6 +101,10 @@ export function ExternalAuthProviderPage({
 	const summaryPanel = (
 		<ExternalAuthSummaryPanel
 			currentCallbackUrl={currentCallbackUrl}
+			legacyCallbackUrl={provider?.legacy_callback_uri ?? ""}
+			unifiedCallbackUrl={
+				provider?.unified_callback_uri ?? "/api/v1/auth/external-auth/callback"
+			}
 			form={form}
 			isCreate={isCreate}
 			providerKind={providerKind}
@@ -110,6 +117,10 @@ export function ExternalAuthProviderPage({
 			connectionMissing={connectionMissing}
 			formTouched={isCreate ? createStepTouched : formTouched}
 			currentCallbackUrl={currentCallbackUrl}
+			legacyCallbackUrl={provider?.legacy_callback_uri ?? ""}
+			unifiedCallbackUrl={
+				provider?.unified_callback_uri ?? "/api/v1/auth/external-auth/callback"
+			}
 			form={form}
 			identityMissing={identityMissing}
 			isCreate={isCreate}

@@ -22,7 +22,8 @@ All paths below are relative to `/api/v1`.
 | `POST` | `/auth/passkeys/login/finish` | Finish passkey login and write auth cookies |
 | `GET` | `/auth/external-auth/providers` | List anonymous-visible external auth providers |
 | `POST` | `/auth/external-auth/{kind}/{provider}/start` | Start external-auth login |
-| `GET` | `/auth/external-auth/{kind}/{provider}/callback` | External-auth callback |
+| `GET` | `/auth/external-auth/callback` | Unified external-auth callback |
+| `GET` | `/auth/external-auth/{kind}/{provider}/callback` | Legacy external-auth callback (TODO: remove in 1.0.0) |
 | `POST` | `/auth/external-auth/email-verification/start` | Send email verification for external-auth fallback |
 | `GET` | `/auth/external-auth/email-verification/confirm` | Finish external-auth email verification and redirect |
 | `POST` | `/auth/external-auth/password-link` | Link external identity to an existing account using local password |
@@ -307,7 +308,7 @@ Anonymous provider list:
 Login flow:
 
 - `POST /auth/external-auth/{kind}/{provider}/start`
-- `GET /auth/external-auth/{kind}/{provider}/callback`
+- `GET /auth/external-auth/callback` or the migration-only `GET /auth/external-auth/{kind}/{provider}/callback`; legacy compatibility is scheduled for removal in 1.0.0.
 
 Fallback / binding flow:
 

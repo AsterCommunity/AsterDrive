@@ -6,6 +6,7 @@ use actix_web::http::StatusCode;
 use actix_web::test;
 use aster_drive::db::repository::external_auth_provider_repo;
 use aster_drive_model::entities::{external_auth_identity, user};
+use aster_drive_model::types::external_auth_provider::ExternalAuthCallbackMode;
 use external_auth::oauth2::*;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, IntoActiveModel};
 use serde_json::Value;
@@ -395,7 +396,7 @@ async fn finish_callback_exchanges_code_fetches_userinfo_and_issues_cookies() {
 
     let state_value =
         start_oauth2_login(&app, &mock_provider, &provider_key, "/settings/security").await;
-    let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
+    let resp = external_auth::finish_unified_external_auth_callback(&app, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()
@@ -499,27 +500,26 @@ async fn github_callback_uses_verified_primary_email_from_email_list() {
     configure_oauth2_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (_admin_token, _) = register_and_login!(app);
-    let provider_model =
-        github_external_auth_provider_model("github-mock", &mock_provider.base_url, true)
-            .insert(state.writer_db())
-            .await
-            .expect("GitHub provider should insert");
+    let mut provider_model =
+        github_external_auth_provider_model("github-mock", &mock_provider.base_url, true);
+    provider_model.callback_mode = Set(ExternalAuthCallbackMode::Unified);
+    let provider_model = provider_model
+        .insert(state.writer_db())
+        .await
+        .expect("GitHub provider should insert");
 
     let state_value = start_github_login(&app, &mock_provider, &provider_model.key, "/files").await;
     let authorize_request = mock_provider.last_authorize_request();
     assert_eq!(
         authorize_request.redirect_uri,
-        format!(
-            "http://localhost:8080/api/v1/auth/external-auth/github/{}/callback",
-            provider_model.key
-        )
+        "http://localhost:8080/api/v1/auth/external-auth/callback"
     );
     assert_eq!(
         authorize_request.scope.as_deref(),
         Some("read:user user:email")
     );
 
-    let resp = finish_github_callback(&app, &provider_model.key, &state_value).await;
+    let resp = external_auth::finish_unified_external_auth_callback(&app, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()
@@ -782,11 +782,13 @@ async fn qq_existing_identity_can_login_without_email() {
         "qq-linked@example.com",
         "password123"
     );
-    let provider_model =
-        qq_external_auth_provider_model("qq-bound-no-email", &mock_provider.base_url, true, true)
-            .insert(state.writer_db())
-            .await
-            .expect("QQ provider should insert");
+    let mut provider_model =
+        qq_external_auth_provider_model("qq-bound-no-email", &mock_provider.base_url, true, true);
+    provider_model.callback_mode = Set(ExternalAuthCallbackMode::Unified);
+    let provider_model = provider_model
+        .insert(state.writer_db())
+        .await
+        .expect("QQ provider should insert");
     external_auth_identity::ActiveModel {
         user_id: Set(linked_user_id),
         provider_id: Set(provider_model.id),
@@ -804,7 +806,11 @@ async fn qq_existing_identity_can_login_without_email() {
     .expect("identity should insert");
 
     let state_value = start_qq_login(&app, &mock_provider, &provider_model.key, "/files").await;
-    let resp = finish_qq_callback(&app, &provider_model.key, &state_value).await;
+    assert_eq!(
+        mock_provider.last_authorize_request().redirect_uri,
+        "http://localhost:8080/api/v1/auth/external-auth/callback"
+    );
+    let resp = external_auth::finish_unified_external_auth_callback(&app, &state_value).await;
     assert_eq!(resp.status(), 302);
     assert_eq!(
         resp.headers()

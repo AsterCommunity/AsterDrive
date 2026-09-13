@@ -42,6 +42,125 @@ const CANONICAL_FILE_REVISION_LEDGER_MIGRATION: &str =
     "m20260813_000001_canonical_file_revision_ledger";
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 const STORAGE_PLACEMENT_PROFILES_MIGRATION: &str = "m20260825_000001_storage_placement_profiles";
+const EXTERNAL_AUTH_CALLBACK_MODE_MIGRATION: &str = "m20260913_000001_external_auth_callback_mode";
+
+async fn assert_external_auth_callback_mode_upgrade_on_backend(db: &DatabaseConnection) {
+    CurrentMigrator::up(
+        db,
+        Some(steps_before_migration(
+            EXTERNAL_AUTH_CALLBACK_MODE_MIGRATION,
+        )),
+    )
+    .await
+    .expect("schema before external-auth callback mode should apply");
+
+    let backend = db.get_database_backend();
+    let legacy_insert = if backend == DbBackend::MySql {
+        "INSERT INTO external_auth_providers \
+         (id, `key`, display_name, provider_kind, protocol, options, client_id, scopes, enabled, \
+          auto_provision_enabled, auto_link_verified_email_enabled, require_email_verified, \
+          created_at, updated_at) \
+         VALUES (60701, 'legacy-provider', 'Legacy provider', 'oidc', 'oidc', '{}', 'client', \
+                 'openid email profile', TRUE, FALSE, FALSE, TRUE, \
+                 '2026-09-13 00:00:00', '2026-09-13 00:00:00')"
+    } else {
+        "INSERT INTO external_auth_providers \
+         (id, key, display_name, provider_kind, protocol, options, client_id, scopes, enabled, \
+          auto_provision_enabled, auto_link_verified_email_enabled, require_email_verified, \
+          created_at, updated_at) \
+         VALUES (60701, 'legacy-provider', 'Legacy provider', 'oidc', 'oidc', '{}', 'client', \
+                 'openid email profile', TRUE, FALSE, FALSE, TRUE, \
+                 '2026-09-13 00:00:00', '2026-09-13 00:00:00')"
+    };
+    db.execute_raw(Statement::from_string(backend, legacy_insert))
+        .await
+        .expect("legacy external-auth provider should insert");
+
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("external-auth callback mode migration should apply");
+    let migrated_mode = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT callback_mode FROM external_auth_providers WHERE id = 60701",
+        ))
+        .await
+        .expect("migrated callback mode should query")
+        .expect("migrated provider should remain")
+        .try_get_by_index::<String>(0)
+        .expect("migrated callback mode should decode");
+    assert_eq!(migrated_mode, "legacy");
+
+    let default_insert = if backend == DbBackend::MySql {
+        "INSERT INTO external_auth_providers \
+         (id, `key`, display_name, provider_kind, protocol, options, client_id, scopes, enabled, \
+          auto_provision_enabled, auto_link_verified_email_enabled, require_email_verified, \
+          created_at, updated_at) \
+         VALUES (60702, 'database-default-provider', 'Database default provider', 'oidc', 'oidc', \
+                 '{}', 'client', 'openid email profile', TRUE, FALSE, FALSE, TRUE, \
+                 '2026-09-13 00:00:00', '2026-09-13 00:00:00')"
+    } else {
+        "INSERT INTO external_auth_providers \
+         (id, key, display_name, provider_kind, protocol, options, client_id, scopes, enabled, \
+          auto_provision_enabled, auto_link_verified_email_enabled, require_email_verified, \
+          created_at, updated_at) \
+         VALUES (60702, 'database-default-provider', 'Database default provider', 'oidc', 'oidc', \
+                 '{}', 'client', 'openid email profile', TRUE, FALSE, FALSE, TRUE, \
+                 '2026-09-13 00:00:00', '2026-09-13 00:00:00')"
+    };
+    db.execute_raw(Statement::from_string(backend, default_insert))
+        .await
+        .expect("post-migration provider should use the database default");
+    let default_mode = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT callback_mode FROM external_auth_providers WHERE id = 60702",
+        ))
+        .await
+        .expect("default callback mode should query")
+        .expect("post-migration provider should exist")
+        .try_get_by_index::<String>(0)
+        .expect("default callback mode should decode");
+    assert_eq!(default_mode, "legacy");
+
+    CurrentMigrator::down(db, Some(1))
+        .await
+        .expect("external-auth callback mode migration should roll back");
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("external-auth callback mode migration should reapply");
+    let remigrated_mode = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT callback_mode FROM external_auth_providers WHERE id = 60701",
+        ))
+        .await
+        .expect("reapplied callback mode should query")
+        .expect("provider should survive callback mode round trip")
+        .try_get_by_index::<String>(0)
+        .expect("reapplied callback mode should decode");
+    assert_eq!(remigrated_mode, "legacy");
+}
+
+#[tokio::test]
+async fn external_auth_callback_mode_upgrades_sqlite() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    assert_external_auth_callback_mode_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn external_auth_callback_mode_upgrades_postgres() {
+    let database_url = common::postgres_empty_test_database_url().await;
+    let db = Database::connect(database_url).await.unwrap();
+    assert_external_auth_callback_mode_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn external_auth_callback_mode_upgrades_mysql() {
+    let database_url = common::mysql_empty_test_database_url().await;
+    let db = Database::connect(database_url).await.unwrap();
+    assert_external_auth_callback_mode_upgrade_on_backend(&db).await;
+}
 
 #[tokio::test]
 async fn storage_placement_migration_preserves_legacy_rule_semantics() {
