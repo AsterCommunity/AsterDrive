@@ -14,6 +14,7 @@ use serde_json::Value;
 #[actix_web::test]
 async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
     let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -88,6 +89,7 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
 async fn admin_create_and_test_generic_oauth2_provider_requires_manual_endpoints() {
     let (mock_provider, server) = start_mock_oauth2_provider().await;
     let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -150,6 +152,7 @@ async fn admin_create_and_test_generic_oauth2_provider_requires_manual_endpoints
 #[actix_web::test]
 async fn admin_create_and_test_github_provider_uses_fixed_endpoints() {
     let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -221,6 +224,7 @@ async fn admin_create_and_test_github_provider_uses_fixed_endpoints() {
 #[actix_web::test]
 async fn admin_create_and_test_qq_provider_uses_fixed_endpoints_and_defaults() {
     let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 

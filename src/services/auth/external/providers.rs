@@ -131,12 +131,12 @@ fn provider_to_admin(
         model.provider_kind.as_str(),
         model.key
     );
-    let legacy_callback_uri = super::normalize::display_callback_uri(state, &origin, &legacy_path);
+    let legacy_callback_uri = super::normalize::display_callback_uri(state, &origin, &legacy_path)?;
     let unified_callback_uri = super::normalize::display_callback_uri(
         state,
         &origin,
         super::normalize::UNIFIED_CALLBACK_PATH,
-    );
+    )?;
     let callback_uri = match model.callback_mode {
         ExternalAuthCallbackMode::Legacy => legacy_callback_uri.clone(),
         ExternalAuthCallbackMode::Unified => unified_callback_uri.clone(),
@@ -508,7 +508,7 @@ pub fn list_provider_kinds_with_origin(
         state,
         &origin,
         super::normalize::UNIFIED_CALLBACK_PATH,
-    );
+    )?;
     let kinds = default_registry()
         .descriptors()
         .into_iter()

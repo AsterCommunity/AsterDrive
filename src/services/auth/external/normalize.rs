@@ -70,11 +70,26 @@ pub fn display_callback_uri(
     state: &impl SharedRuntimeState,
     origin: &ExternalAuthRequestOrigin,
     path: &str,
-) -> String {
-    site_url::public_app_url_for_request(state.runtime_config(), path, &origin.scheme, &origin.host)
-        .unwrap_or_else(|| {
-            site_url::join_origin_and_path(&format!("{}://{}", origin.scheme, origin.host), path)
-        })
+) -> Result<String> {
+    let uri = site_url::public_app_url_for_request(
+        state.runtime_config(),
+        path,
+        &origin.scheme,
+        &origin.host,
+    )
+    .ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
+            "cannot build external auth callback redirect URI; configure public_site_url",
+        )
+    })?;
+    if uri.starts_with('/') {
+        return Err(validation_error_with_code(
+            ApiErrorCode::ExternalAuthCallbackRedirectUriRequired,
+            "external auth callback redirect URI must be absolute; configure public_site_url",
+        ));
+    }
+    Ok(uri)
 }
 
 fn callback_uri_for_path(

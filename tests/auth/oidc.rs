@@ -30,7 +30,7 @@ async fn admin_provider_api_masks_secret_and_public_list_only_shows_enabled() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
     configure_oidc_public_site_url(&state);
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
 
     let created =
@@ -113,7 +113,7 @@ async fn admin_provider_creation_defaults_to_unified_callback_mode() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
     configure_oidc_public_site_url(&state);
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/external-auth/providers")
@@ -142,6 +142,7 @@ async fn admin_provider_creation_defaults_to_unified_callback_mode() {
 async fn admin_cannot_remove_last_external_provider_when_local_methods_are_disabled() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
 
@@ -218,6 +219,7 @@ async fn admin_cannot_remove_last_external_provider_when_local_methods_are_disab
 async fn admin_provider_kind_api_drives_create_contract() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -399,6 +401,7 @@ async fn admin_provider_kind_api_drives_create_contract() {
 async fn admin_update_external_auth_provider_rejects_identity_fields() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -454,6 +457,7 @@ async fn admin_update_external_auth_provider_rejects_identity_fields() {
 async fn admin_create_and_test_google_provider_uses_oidc_defaults() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -529,6 +533,7 @@ async fn admin_create_and_test_google_provider_uses_oidc_defaults() {
 async fn admin_create_and_test_microsoft_provider_uses_oidc_defaults() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -609,6 +614,7 @@ async fn admin_create_and_test_microsoft_provider_uses_oidc_defaults() {
 #[actix_web::test]
 async fn admin_specialized_providers_reject_configurable_connection_urls() {
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -691,6 +697,7 @@ async fn admin_specialized_providers_reject_configurable_connection_urls() {
 #[actix_web::test]
 async fn admin_microsoft_provider_rejects_issuer_url_configuration() {
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state);
     let (admin_token, _) = register_and_login!(app);
 
@@ -754,6 +761,7 @@ async fn admin_microsoft_provider_rejects_issuer_url_configuration() {
 #[actix_web::test]
 async fn admin_microsoft_legacy_issuer_preserves_unparseable_values() {
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
 
@@ -813,6 +821,7 @@ async fn admin_microsoft_legacy_issuer_preserves_unparseable_values() {
 async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
 
@@ -974,11 +983,15 @@ async fn admin_external_auth_provider_test_reports_discovery_failures_as_bad_req
 async fn start_login_requires_public_site_url_for_callback_redirect_uri() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
     let provider_key =
         create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, false)
             .await;
+    state
+        .runtime_config
+        .remove(aster_drive::config::site_url::PUBLIC_SITE_URL_KEY);
     let req = test::TestRequest::post()
         .uri(&format!(
             "/api/v1/auth/external-auth/oidc/{provider_key}/start"

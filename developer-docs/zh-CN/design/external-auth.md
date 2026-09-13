@@ -78,7 +78,7 @@
 4. Driver 生成授权 URL、state、PKCE verifier；OIDC 还会生成 nonce。
 5. 服务端把 state hash、nonce、PKCE verifier、redirect URI 和 return path 写入 `external_auth_login_flows`。
 6. 用户在身份提供商授权后回调 login flow 开始时快照的 `redirect_uri`。统一路由从已校验并原子消费的 flow 解析 `provider_id`；只有兼容旧 URI `/auth/external-auth/{kind}/{provider}/callback` 才额外校验 URL 中的 kind/provider。旧 URI 仅在迁移期保留，TODO：1.0.0 删除。
-7. 服务端按 state hash 原子消费 flow，校验 kind / provider 是否匹配，再调用 driver exchange。
+7. 服务端按 state hash 原子消费 flow；legacy 回调额外校验 URL 中的 kind/provider，一致后调用 driver exchange，统一回调则直接使用 flow 中的 provider 调用 driver。
 8. Driver 返回 `ExternalAuthProfile`，服务层按 `identity_namespace + subject` 解析本地用户。
 9. 找到或创建本地用户后，走 `mfa::complete_primary_login_or_start_mfa()`。
 10. 不需要 MFA 时写 Cookie 并重定向；需要 MFA 时重定向到登录页继续 challenge。
