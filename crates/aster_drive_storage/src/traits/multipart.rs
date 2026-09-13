@@ -30,6 +30,7 @@ pub struct MultipartStorageCapabilities {
     pub min_part_size: u64,
     pub max_part_size: Option<u64>,
     pub max_parts: u64,
+    pub max_object_size: Option<u64>,
     pub upload_mode: MultipartUploadMode,
 }
 
@@ -45,6 +46,7 @@ impl MultipartStorageCapabilities {
             min_part_size: 5 * 1024 * 1024,
             max_part_size: None,
             max_parts: 10_000,
+            max_object_size: None,
             upload_mode: MultipartUploadMode::Buffered {
                 max_size: MAX_DEFAULT_MULTIPART_READER_SIZE as u64,
             },

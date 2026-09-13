@@ -377,6 +377,7 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
             min_part_size: 5 * 1024 * 1024,
             max_part_size: Some(5 * 1024 * 1024 * 1024),
             max_parts: 10_000,
+            max_object_size: None,
             upload_mode: MultipartUploadMode::NativeStreaming,
         }
     }

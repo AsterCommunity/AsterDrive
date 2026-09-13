@@ -227,6 +227,9 @@ impl MultipartStorageDriver for AzureBlobDriver {
             min_part_size: 1,
             max_part_size: Some(super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE),
             max_parts: super::AZURE_BLOCK_BLOB_MAX_BLOCKS,
+            max_object_size: Some(
+                super::AZURE_BLOCK_BLOB_MAX_BLOCK_SIZE * super::AZURE_BLOCK_BLOB_MAX_BLOCKS,
+            ),
             upload_mode: MultipartUploadMode::NativeStreaming,
         }
     }

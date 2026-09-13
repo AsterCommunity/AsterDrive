@@ -27,8 +27,11 @@ pub struct RemoteDriver {
     client: RemoteStorageClient,
     base_path: String,
     supports_capacity: bool,
+    supports_compose: bool,
     uses_reverse_tunnel: bool,
     max_multipart_parts: u64,
+    max_multipart_part_size: Option<u64>,
+    max_multipart_object_size: Option<u64>,
     target_runtime_capabilities: Option<RemoteStorageTargetRuntimeCapabilities>,
 }
 
@@ -64,13 +67,24 @@ impl RemoteDriver {
         resolver.ensure_protocol_compatible("remote storage driver")?;
         let client =
             client.with_policy_context(&config.remote_storage_target_key, config.max_file_size);
-        let max_multipart_parts =
-            RemoteStorageCapabilities::from_stored_json(&follower.last_capabilities)
-                .limits
-                .compose_max_parts
-                .and_then(|value| u64::try_from(value).ok())
-                .filter(|value| *value > 0)
-                .unwrap_or(10_000);
+        let protocol_capabilities =
+            RemoteStorageCapabilities::from_stored_json(&follower.last_capabilities);
+        let max_multipart_parts = protocol_capabilities
+            .limits
+            .compose_max_parts
+            .and_then(|value| u64::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(10_000);
+        let max_multipart_part_size = protocol_capabilities
+            .limits
+            .max_ingress_size
+            .and_then(|value| u64::try_from(value).ok())
+            .filter(|value| *value > 0);
+        let max_multipart_object_size = protocol_capabilities
+            .limits
+            .compose_max_object_size
+            .and_then(|value| u64::try_from(value).ok())
+            .filter(|value| *value > 0);
         let target_runtime_capabilities = resolver
             .target_runtime_capabilities(&config.remote_storage_target_key)
             .cloned();
@@ -78,10 +92,13 @@ impl RemoteDriver {
             client,
             base_path: config.base_path.trim_matches('/').to_string(),
             supports_capacity: resolver.capabilities().supports_capacity,
+            supports_compose: resolver.capabilities().features.compose,
             uses_reverse_tunnel: follower
                 .transport_mode
                 .resolves_to_reverse_tunnel(&follower.base_url),
             max_multipart_parts,
+            max_multipart_part_size,
+            max_multipart_object_size,
             target_runtime_capabilities,
         })
     }

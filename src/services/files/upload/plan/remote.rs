@@ -11,11 +11,11 @@ use crate::services::workspace::storage::{
     PolicyUploadTransport, resolve_policy_upload_transport_for_execution,
 };
 use aster_drive_model::types::{RemoteUploadStrategy, UploadSessionStatus, UploadTransport};
-use aster_forge_utils::numbers;
 
 use super::context::{
     InitUploadContext, MultipartSessionInitParams, UploadSessionRecordParams,
-    init_multipart_session_with_retry, session_kind_for_transport, try_persist_upload_session,
+    init_multipart_session_with_retry, plan_multipart_upload, session_kind_for_transport,
+    try_persist_upload_session,
 };
 
 pub(super) async fn init_remote_upload(
@@ -59,8 +59,12 @@ async fn init_relay_stream_remote_upload(
     }
 
     let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
-    let total_chunks =
-        numbers::calc_total_chunks(ctx.total_size, chunk_size, "remote relay multipart upload")?;
+    let multipart_plan = plan_multipart_upload(
+        ctx.total_size,
+        chunk_size,
+        multipart.as_ref(),
+        "remote relay multipart upload",
+    )?;
 
     init_multipart_session_with_retry(
         state,
@@ -70,8 +74,8 @@ async fn init_relay_stream_remote_upload(
             mode: UploadTransport::Chunked,
             status: UploadSessionStatus::Uploading,
             session_kind: session_kind_for_transport(transport, UploadTransport::Chunked)?,
-            chunk_size,
-            total_chunks,
+            chunk_size: multipart_plan.chunk_size,
+            total_chunks: multipart_plan.total_chunks,
             expires_in: Duration::hours(24),
             log_label: "remote relay multipart",
             abort_db_error_context: "remote upload session DB initialization error",
@@ -96,9 +100,10 @@ async fn init_presigned_remote_upload(
     }
 
     let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
-    let total_chunks = numbers::calc_total_chunks(
+    let multipart_plan = plan_multipart_upload(
         ctx.total_size,
         chunk_size,
+        multipart.as_ref(),
         "remote presigned multipart upload",
     )?;
 
@@ -110,8 +115,8 @@ async fn init_presigned_remote_upload(
             mode: UploadTransport::PresignedMultipart,
             status: UploadSessionStatus::Presigned,
             session_kind: session_kind_for_transport(transport, UploadTransport::PresignedMultipart)?,
-            chunk_size,
-            total_chunks,
+            chunk_size: multipart_plan.chunk_size,
+            total_chunks: multipart_plan.total_chunks,
             expires_in: Duration::hours(24),
             log_label: "remote presigned multipart",
             abort_db_error_context: "remote upload session DB initialization error",

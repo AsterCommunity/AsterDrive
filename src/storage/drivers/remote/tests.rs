@@ -102,6 +102,46 @@ fn build_driver_with_capabilities_err(
     }
 }
 
+#[test]
+fn multipart_planning_uses_remote_compose_limits_not_target_native_limits() {
+    let mut capabilities = RemoteStorageCapabilities::current();
+    capabilities.limits.max_ingress_size = Some(123_456);
+    capabilities.limits.compose_max_parts = Some(321);
+    capabilities.limits.compose_max_object_size = Some(987_654_321);
+    capabilities.target_runtime_capabilities.push(
+        crate::storage::remote_protocol::RemoteStorageTargetRuntimeCapabilities {
+            target_key: "rst-test".to_string(),
+            connector_id: "asterdrive.storage.qiniu".to_string(),
+            applied_revision: 1,
+            range_read: true,
+            stream_upload: true,
+            multipart: Some(
+                crate::storage::remote_protocol::RemoteMultipartCapabilities {
+                    min_part_size: 1024 * 1024,
+                    max_part_size: Some(1024 * 1024 * 1024),
+                    max_parts: 10_000,
+                    native_reader_upload: true,
+                    buffered_reader_max_size: None,
+                },
+            ),
+        },
+    );
+    let follower = build_follower_with_capabilities(
+        "http://127.0.0.1:1",
+        &serde_json::to_string(&capabilities).expect("capabilities should serialize"),
+    );
+    let driver =
+        RemoteDriver::new(&build_config("base"), &follower).expect("remote driver should build");
+    let multipart = driver
+        .extensions()
+        .multipart
+        .expect("remote virtual multipart should be exposed");
+    let planned = multipart.capabilities();
+    assert_eq!(planned.min_part_size, 1);
+    assert_eq!(planned.max_part_size, Some(123_456));
+    assert_eq!(planned.max_parts, 321);
+}
+
 async fn spawn_list_server(
     items: Vec<String>,
     seen_prefixes: Arc<Mutex<Vec<Option<String>>>>,
