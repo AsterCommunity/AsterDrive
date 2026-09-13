@@ -158,6 +158,19 @@ fn exposes_standard_s3_compatible_capabilities() {
     assert!(driver.extensions().native_media_metadata.is_none());
 }
 
+#[test]
+fn exposes_qiniu_official_multipart_limits() {
+    let driver = QiniuDriver::new(config(), credentials()).expect("driver should build");
+    let capability = driver
+        .extensions()
+        .multipart
+        .expect("multipart capability")
+        .capabilities();
+    assert_eq!(capability.min_part_size, 1024 * 1024);
+    assert_eq!(capability.max_part_size, Some(1024 * 1024 * 1024));
+    assert_eq!(capability.max_parts, 10_000);
+}
+
 #[tokio::test]
 async fn presigned_requests_use_sigv4_and_path_style() {
     let driver = QiniuDriver::new(config(), credentials()).expect("driver should build");
