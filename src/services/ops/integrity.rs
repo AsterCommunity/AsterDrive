@@ -1346,12 +1346,14 @@ const FOLDER_PARENT_CACHE_LIMIT: usize = 4096;
 
 struct FolderParentCache {
     nodes: HashMap<i64, Option<FolderNode>>,
+    outcomes: HashMap<i64, Option<i64>>,
 }
 
 impl FolderParentCache {
     fn new() -> Self {
         Self {
             nodes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
+            outcomes: HashMap::with_capacity(FOLDER_PARENT_CACHE_LIMIT),
         }
     }
 
@@ -1363,6 +1365,16 @@ impl FolderParentCache {
             self.nodes.remove(&key);
         }
         self.nodes.insert(id, node);
+    }
+
+    fn record_outcome(&mut self, id: i64, outcome: Option<i64>) {
+        if self.outcomes.len() >= FOLDER_PARENT_CACHE_LIMIT
+            && !self.outcomes.contains_key(&id)
+            && let Some(key) = self.outcomes.keys().next().copied()
+        {
+            self.outcomes.remove(&key);
+        }
+        self.outcomes.insert(id, outcome);
     }
 }
 
@@ -1390,38 +1402,30 @@ async fn find_folder_cycle_representative<C: ConnectionTrait>(
     scope: FolderAuditScope,
     cache: &mut FolderParentCache,
 ) -> Result<Option<i64>> {
-    let mut slow = Some(start);
-    let mut fast = Some(start);
-    let meeting = loop {
-        slow = match slow {
-            Some(id) => next_folder_parent_cached(db, id, scope, cache).await?,
-            None => return Ok(None),
-        };
-        fast = match fast {
-            Some(id) => next_folder_parent_cached(db, id, scope, cache).await?,
-            None => return Ok(None),
-        };
-        fast = match fast {
-            Some(id) => next_folder_parent_cached(db, id, scope, cache).await?,
-            None => return Ok(None),
-        };
-        if let (Some(slow_id), Some(fast_id)) = (slow, fast)
-            && slow_id == fast_id
-        {
-            break slow_id;
-        }
-    };
-
-    let mut representative = meeting;
-    let mut current = next_folder_parent_cached(db, meeting, scope, cache).await?;
+    let mut path = Vec::new();
+    let mut index = HashMap::new();
+    let mut current = Some(start);
     while let Some(id) = current {
-        representative = std::cmp::min(representative, id);
-        if id == meeting {
-            break;
+        if let Some(outcome) = cache.outcomes.get(&id).copied() {
+            return Ok(outcome);
         }
+        if let Some(&cycle_start) = index.get(&id) {
+            let Some(representative) = path[cycle_start..].iter().copied().min() else {
+                return Ok(None);
+            };
+            for path_id in path {
+                cache.record_outcome(path_id, Some(representative));
+            }
+            return Ok(Some(representative));
+        }
+        index.insert(id, path.len());
+        path.push(id);
         current = next_folder_parent_cached(db, id, scope, cache).await?;
     }
-    Ok(Some(representative))
+    for path_id in path {
+        cache.record_outcome(path_id, None);
+    }
+    Ok(None)
 }
 
 async fn audit_folder_tree_partition_bounded<C: ConnectionTrait>(
