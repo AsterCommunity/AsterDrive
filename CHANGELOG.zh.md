@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking
+
+- **异步存储路径 visitor** — `StoragePathVisitor::visit_path` 改为异步方法，使 storage driver 能在不缓冲完整列表的情况下刷出有界 path batch；外部 driver 实现必须将 visitor 方法更新为 `async`。
+
+### Changed
+
+- **统一外部认证回调 URI** — 新建 provider 默认使用 `/api/v1/auth/external-auth/callback`；升级而来的 provider 会继续使用已持久化的 legacy callback 模式，直到管理员同时注册新旧 URI 并显式切换。登录 flow 会固化启动时实际使用的 redirect URI；legacy route 在迁移期间继续可用，并计划于 1.0.0 移除。
+
+- **有界完整性聚合** — `doctor --deep` 现在按有界 owner 分页比较存储用量、按有界 Blob 分页统计引用，并按 workspace scope 检查目录完整性，通过有界 parent chain 检测循环并抽样保留问题。管理端 Blob maintenance task 复用同一套逐页引用计数；storage object 报告以有界 path batch 和 sample 保持精确总数，远端列表则通过 driver 与 follower endpoint 流式返回分页结果。现有任务进度与修复语义保持不变。
+
+- **目录树 keyset 索引** — 新增数据库 migration，为分页删除与恢复遍历使用的个人及团队目录/文件扫描建立复合索引。SQLite、PostgreSQL 和 MySQL 现在都能按 owner 或 team scope、父目录、删除状态与 keyset cursor 使用有界索引范围；升级时只需正常执行数据库 migration。
+
+### Fixed
+
+- **存储迁移 multipart 内存上限** — Storage policy Blob migration 现在分别规划 provider part 限制与本地 heap budget，使用支持重试时重新打开源 range 的有界 reader upload，并在 dry-run preflight 中返回 multipart capability 结果。现有 hash、verification、abort、checkpoint 与 Blob CAS 语义保持不变。
+
+- **上传流精确大小校验** — 内置 stream 与 multipart 上传路径现在校验每个 reader 产生的字节数与声明值完全一致，将过短、超长或负数大小输入作为 precondition failure 拒绝，并在提交前清理 staged attempt。Provider-backed 上传复用同一边界校验；通用 multipart fallback 会拒绝超过 64 MiB 内存预算的 part，不再按无界声明分配内存。
+
 ## [v0.6.0] - 2026-09-12
 
 ### Release Highlights

@@ -7,15 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **Asynchronous storage path visitors** — `StoragePathVisitor::visit_path` is now asynchronous so storage drivers can flush bounded path batches without full-list buffering; external driver implementations must update their visitor method to `async`.
+
 ### Changed
 
 - **Unified external-auth callback URI** — New providers use `/api/v1/auth/external-auth/callback` by default, while upgraded providers remain on the persisted legacy callback mode until an administrator registers both URIs and explicitly switches modes. Login flows snapshot the exact redirect URI used at start; the legacy route remains available during migration and is scheduled for removal in 1.0.0.
 
 - **Bounded integrity aggregation** — `doctor --deep` now compares storage usage in bounded owner pages, blob reference counts in bounded blob pages, and folder integrity per workspace scope with bounded parent-chain cycle checks and sampled findings. The admin Blob maintenance task reuses the same per-page reference-count calculation, while storage-object reports retain exact totals with bounded in-memory path batches and samples; remote listings stream page results through the driver and follower endpoint. Existing task progress and repair semantics are preserved.
 
-### Breaking
-
-- **Asynchronous storage path visitors** — `StoragePathVisitor::visit_path` is now asynchronous so storage drivers can flush bounded path batches without full-list buffering; external driver implementations must update their visitor method to `async`.
+- **Folder-tree keyset indexes** — A database migration adds composite indexes for the personal and team folder/file scans used by paginated delete and restore traversal. Owner or team scope, parent folder, deletion state, and keyset cursor can now be resolved through bounded index ranges across SQLite, PostgreSQL, and MySQL; normal migration execution is the only upgrade action required.
 
 ### Fixed
 
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reader uploads with reopenable source ranges for retries, and exposes multipart
   capability results during dry-run preflight. Existing hash, verification, abort,
   checkpoint, and Blob CAS semantics remain unchanged.
+
+- **Exact upload stream size enforcement** — Built-in stream and multipart upload paths now verify that each reader produces exactly its declared byte count, reject short, oversized, or negative-size input as a precondition failure, and clean up staged attempts before commit. Provider-backed uploads receive the same boundary checks, and the generic multipart fallback rejects parts above its 64 MiB in-memory budget instead of allocating from an unbounded declaration.
 
 ## [v0.6.0] - 2026-09-12
 
