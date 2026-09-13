@@ -16,6 +16,7 @@ use aster_drive_model::types::{
     UploadSessionKind, UploadSessionStatus, UploadTransport,
 };
 use aster_drive_storage::MultipartStorageDriver;
+use aster_drive_storage::MultipartUploadMode;
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {
@@ -70,6 +71,136 @@ pub(super) struct MultipartSessionInitParams {
     pub(super) abort_db_error_context: &'static str,
     pub(super) abort_db_error_message: &'static str,
     pub(super) abort_collision_context: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct MultipartUploadPlan {
+    pub(super) chunk_size: i64,
+    pub(super) total_chunks: i32,
+}
+
+/// Plans a client-visible multipart session against the actual target driver.
+///
+/// The persisted chunk size must satisfy both the provider's part limits and
+/// the driver's reader/buffer contract. This is shared by object-storage and
+/// Remote relay/presigned uploads so initialization cannot accept a plan that
+/// completion will later reject.
+pub(super) fn plan_multipart_upload(
+    total_size: i64,
+    configured_chunk_size: i64,
+    multipart: &dyn MultipartStorageDriver,
+    context: &str,
+) -> Result<MultipartUploadPlan> {
+    plan_multipart_upload_with_capabilities(
+        total_size,
+        configured_chunk_size,
+        multipart.capabilities(),
+        context,
+    )
+}
+
+fn plan_multipart_upload_with_capabilities(
+    total_size: i64,
+    configured_chunk_size: i64,
+    capabilities: aster_drive_storage::MultipartStorageCapabilities,
+    context: &str,
+) -> Result<MultipartUploadPlan> {
+    if total_size < 0 {
+        return Err(AsterError::validation_error(format!(
+            "{context} total_size cannot be negative: {total_size}"
+        )));
+    }
+    let max_parts = i64::try_from(capabilities.max_parts).map_err(|_| {
+        AsterError::validation_error(format!(
+            "{context} provider max parts exceeds the supported integer range"
+        ))
+    })?;
+    if max_parts <= 0 {
+        return Err(AsterError::validation_error(format!(
+            "{context} provider max parts must be positive"
+        )));
+    }
+    let min_part_size = i64::try_from(capabilities.min_part_size).map_err(|_| {
+        AsterError::validation_error(format!(
+            "{context} provider minimum part size exceeds the supported integer range"
+        ))
+    })?;
+    if min_part_size <= 0 {
+        return Err(AsterError::validation_error(format!(
+            "{context} provider minimum part size must be positive"
+        )));
+    }
+    let provider_max_part_size = capabilities
+        .max_part_size
+        .map(|size| {
+            i64::try_from(size).map_err(|_| {
+                AsterError::validation_error(format!(
+                    "{context} provider maximum part size exceeds the supported integer range"
+                ))
+            })
+        })
+        .transpose()?;
+    if provider_max_part_size.is_some_and(|max| min_part_size > max) {
+        return Err(AsterError::validation_error(format!(
+            "{context} provider minimum part size {min_part_size} exceeds maximum part size {}",
+            provider_max_part_size.unwrap_or_default()
+        )));
+    }
+    let configured_chunk_size = configured_chunk_size
+        .max(min_part_size)
+        .min(provider_max_part_size.unwrap_or(i64::MAX));
+    let count_limited_chunk_size = if total_size == 0 {
+        min_part_size
+    } else {
+        total_size.checked_add(max_parts - 1).ok_or_else(|| {
+            AsterError::validation_error(format!(
+                "{context} total_size is too large for provider part planning"
+            ))
+        })? / max_parts
+    };
+    let chunk_size = configured_chunk_size.max(count_limited_chunk_size);
+    let total_chunks =
+        aster_forge_utils::numbers::calc_total_chunks(total_size, chunk_size, context)?;
+    if provider_max_part_size.is_some_and(|max| chunk_size > max) {
+        let max = provider_max_part_size.ok_or_else(|| {
+            AsterError::internal_error(format!(
+                "{context} provider maximum part size disappeared during validation"
+            ))
+        })?;
+        return Err(AsterError::validation_error(format!(
+            "{context} requires chunk size {chunk_size}, exceeding provider maximum part size {max}"
+        )));
+    }
+    if i64::from(total_chunks) > max_parts {
+        return Err(AsterError::validation_error(format!(
+            "{context} requires {total_chunks} parts, exceeding provider maximum {max_parts}"
+        )));
+    }
+    if capabilities
+        .max_object_size
+        .is_some_and(|max| u64::try_from(total_size).is_ok_and(|size| size > max))
+    {
+        let max = capabilities.max_object_size.unwrap_or_default();
+        return Err(AsterError::validation_error(format!(
+            "{context} total size {total_size} exceeds provider maximum object size {max}"
+        )));
+    }
+    if let MultipartUploadMode::Buffered { max_size } = capabilities.upload_mode {
+        let max_size = i64::try_from(max_size).map_err(|_| {
+            AsterError::validation_error(format!(
+                "{context} buffered reader maximum size exceeds the supported integer range"
+            ))
+        })?;
+        if chunk_size > max_size {
+            return Err(AsterError::validation_error(format!(
+                "{context} requires chunk size {chunk_size}, exceeding buffered reader maximum {max_size}"
+            )));
+        }
+    }
+    Ok(MultipartUploadPlan {
+        chunk_size,
+        total_chunks,
+    })
 }
 
 /// Resolves the persisted data plane from connector-owned transport semantics.
@@ -628,12 +759,116 @@ pub(super) fn chunked_upload_response(
 
 #[cfg(test)]
 mod tests {
-    use super::session_kind_for_transport;
+    use super::{plan_multipart_upload_with_capabilities, session_kind_for_transport};
     use crate::services::workspace::storage::PolicyUploadTransport;
     use aster_drive_model::types::{
         ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
         UploadSessionKind, UploadTransport,
     };
+    use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
+
+    fn capabilities(
+        min_part_size: u64,
+        max_part_size: Option<u64>,
+        max_parts: u64,
+        upload_mode: MultipartUploadMode,
+    ) -> MultipartStorageCapabilities {
+        MultipartStorageCapabilities {
+            min_part_size,
+            max_part_size,
+            max_parts,
+            max_object_size: None,
+            upload_mode,
+        }
+    }
+
+    #[test]
+    fn multipart_upload_plan_raises_chunk_to_provider_minimum() {
+        let plan = plan_multipart_upload_with_capabilities(
+            2 * 1024 * 1024,
+            1,
+            capabilities(
+                5 * 1024 * 1024,
+                None,
+                10_000,
+                MultipartUploadMode::NativeStreaming,
+            ),
+            "test multipart",
+        )
+        .expect("plan should succeed");
+        assert_eq!(plan.chunk_size, 5 * 1024 * 1024);
+        assert_eq!(plan.total_chunks, 1);
+    }
+
+    #[test]
+    fn multipart_upload_plan_rejects_provider_part_and_count_limits() {
+        let error = plan_multipart_upload_with_capabilities(
+            21,
+            5,
+            capabilities(1, Some(10), 2, MultipartUploadMode::NativeStreaming),
+            "test multipart",
+        )
+        .expect_err("part size should exceed provider maximum");
+        assert!(error.to_string().contains("maximum part size"));
+
+        let error = plan_multipart_upload_with_capabilities(
+            10,
+            1,
+            capabilities(1, Some(10), 0, MultipartUploadMode::NativeStreaming),
+            "test multipart",
+        )
+        .expect_err("zero max parts should be rejected");
+        assert!(error.to_string().contains("max parts"));
+    }
+
+    #[test]
+    fn multipart_upload_plan_rejects_buffered_reader_overflow_and_accepts_final_short_part() {
+        let plan = plan_multipart_upload_with_capabilities(
+            6,
+            5,
+            capabilities(
+                1,
+                Some(5),
+                10,
+                MultipartUploadMode::Buffered { max_size: 5 },
+            ),
+            "test multipart",
+        )
+        .expect("final part may be shorter than minimum");
+        assert_eq!(plan.total_chunks, 2);
+
+        let error = plan_multipart_upload_with_capabilities(
+            11,
+            6,
+            capabilities(
+                1,
+                Some(20),
+                10,
+                MultipartUploadMode::Buffered { max_size: 5 },
+            ),
+            "test multipart",
+        )
+        .expect_err("buffered fallback should reject oversized chunks");
+        assert!(error.to_string().contains("buffered reader maximum"));
+    }
+
+    #[test]
+    fn multipart_upload_plan_rejects_provider_object_size_limit() {
+        let error = plan_multipart_upload_with_capabilities(
+            101,
+            10,
+            MultipartStorageCapabilities {
+                min_part_size: 1,
+                max_part_size: Some(100),
+                max_parts: 10,
+                max_object_size: Some(100),
+                upload_mode: MultipartUploadMode::NativeStreaming,
+            },
+            "test multipart",
+        )
+        .expect_err("object size should exceed provider maximum");
+        assert!(error.to_string().contains("maximum object size"));
+    }
 
     #[test]
     fn session_kind_mapping_covers_each_connector_transport() {

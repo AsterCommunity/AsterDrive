@@ -117,6 +117,26 @@ fn exposes_s3_shaped_runtime_capabilities_under_obs_signing() {
 }
 
 #[test]
+fn obs_reports_upload_part_limits() {
+    let driver = HuaweiObsDriver::new(
+        config(
+            "https://obs.cn-north-4.myhuaweicloud.com",
+            HuaweiObsAddressingMode::VirtualHosted,
+        ),
+        credentials(),
+    )
+    .expect("valid OBS driver");
+    let capability = driver
+        .extensions()
+        .multipart
+        .expect("multipart capability")
+        .capabilities();
+    assert_eq!(capability.min_part_size, 100 * 1024);
+    assert_eq!(capability.max_part_size, Some(5 * 1024 * 1024 * 1024));
+    assert_eq!(capability.max_parts, 10_000);
+}
+
+#[test]
 fn custom_domain_allows_region_to_be_omitted() {
     let mut config = config(
         "https://files.example.com",

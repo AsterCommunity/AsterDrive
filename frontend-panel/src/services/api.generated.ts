@@ -7519,6 +7519,17 @@ export interface components {
             remote_node_name: string;
             token: string;
         };
+        RemoteMultipartCapabilities: {
+            /** Format: int64 */
+            buffered_reader_max_size?: number | null;
+            /** Format: int64 */
+            max_part_size?: number | null;
+            /** Format: int64 */
+            max_parts: number;
+            /** Format: int64 */
+            min_part_size: number;
+            native_reader_upload: boolean;
+        };
         /** @enum {string} */
         RemoteNodeEnrollmentStatus: "not_started" | "pending" | "redeemed" | "completed" | "expired";
         RemoteNodeInfo: {
@@ -7574,6 +7585,7 @@ export interface components {
             supports_list?: boolean;
             supports_range_read?: boolean;
             supports_stream_upload?: boolean;
+            target_runtime_capabilities?: components["schemas"]["RemoteStorageTargetRuntimeCapabilities"][];
         };
         RemoteStorageFeatureFlags: {
             accept_ranges_header?: boolean;
@@ -7619,6 +7631,20 @@ export interface components {
             name: string;
             target_key: string;
             updated_at: string;
+        };
+        /**
+         * @description Capability snapshot of the connector actually bound to one remote target.
+         *     The primary must prefer this target-scoped value over Remote's generic
+         *     protocol limits when planning storage migration.
+         */
+        RemoteStorageTargetRuntimeCapabilities: {
+            /** Format: int64 */
+            applied_revision: number;
+            connector_id: string;
+            multipart?: null | components["schemas"]["RemoteMultipartCapabilities"];
+            range_read?: boolean;
+            stream_upload?: boolean;
+            target_key: string;
         };
         RemoteTunnelInfo: {
             /** @description Last successful poll or stream handshake persisted by the primary. */
@@ -8798,12 +8824,33 @@ export interface components {
         /** @enum {string} */
         StoragePolicyMigrationCapacityCheck: "sufficient" | "insufficient" | "unsupported" | "unavailable";
         /** @enum {string} */
-        StoragePolicyMigrationDryRunWarning: "target_capacity_unavailable";
+        StoragePolicyMigrationDryRunWarning: "target_capacity_unavailable" | "multipart_capability_unavailable";
         /**
          * @description Product intent applied by a storage-policy migration task.
          * @enum {string}
          */
         StoragePolicyMigrationMode: "normal" | "recover_available";
+        /** @enum {string} */
+        StoragePolicyMigrationMultipartBlockReason: "provider_limits" | "buffered_heap_budget" | "provider_object_size";
+        StoragePolicyMigrationMultipartPlan: {
+            /** Format: int64 */
+            blob_size: number;
+            can_start: boolean;
+            /** Format: int64 */
+            heap_budget: number;
+            /** Format: int64 */
+            part_count: number;
+            /** Format: int64 */
+            part_size: number;
+            /** Format: int64 */
+            provider_max_part_size?: number | null;
+            /** Format: int64 */
+            provider_max_parts: number;
+            reason?: null | components["schemas"]["StoragePolicyMigrationMultipartBlockReason"];
+            upload_mode: components["schemas"]["StoragePolicyMigrationMultipartUploadMode"];
+        };
+        /** @enum {string} */
+        StoragePolicyMigrationMultipartUploadMode: "native_streaming" | "buffered";
         StoragePolicyMigrationTaskPayload: {
             /** @description Migration behavior selected when the immutable task plan was created. */
             mode?: components["schemas"]["StoragePolicyMigrationMode"];
@@ -13395,6 +13442,7 @@ export interface operations {
                             supports_list?: boolean;
                             supports_range_read?: boolean;
                             supports_stream_upload?: boolean;
+                            target_runtime_capabilities?: components["schemas"]["RemoteStorageTargetRuntimeCapabilities"][];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -14322,6 +14370,7 @@ export interface operations {
                             content_sha256_blob_count: number;
                             /** Format: int64 */
                             estimated_copy_blob_count: number;
+                            multipart_plan?: null | components["schemas"]["StoragePolicyMigrationMultipartPlan"];
                             /** Format: int64 */
                             opaque_blob_count: number;
                             /** Format: int64 */

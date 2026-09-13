@@ -36,6 +36,19 @@ impl RemoteCapabilityResolver {
         &self.capabilities
     }
 
+    /// Returns the capability snapshot produced by the connector bound to a
+    /// specific remote storage target. The snapshot is target-scoped; generic
+    /// follower protocol limits remain separate from it.
+    pub fn target_runtime_capabilities(
+        &self,
+        target_key: &str,
+    ) -> Option<&crate::storage::remote_protocol::RemoteStorageTargetRuntimeCapabilities> {
+        self.capabilities
+            .target_runtime_capabilities
+            .iter()
+            .find(|capability| capability.target_key == target_key)
+    }
+
     pub fn ensure_protocol_compatible(&self, context: &str) -> Result<()> {
         self.capabilities.validate_protocol(context)
     }
@@ -309,6 +322,30 @@ mod tests {
                 Some(ApiErrorCode::RemoteStorageTargetConnectorUnsupported)
             );
         }
+    }
+
+    #[test]
+    fn resolver_returns_target_scoped_runtime_capability() {
+        let mut capabilities = RemoteStorageCapabilities::current();
+        capabilities.target_runtime_capabilities.push(
+            crate::storage::remote_protocol::RemoteStorageTargetRuntimeCapabilities {
+                target_key: "target-s3".to_string(),
+                connector_id: "asterdrive.storage.s3".to_string(),
+                applied_revision: 3,
+                range_read: true,
+                stream_upload: true,
+                multipart: None,
+            },
+        );
+        let resolver = RemoteCapabilityResolver::from_capabilities(42, capabilities);
+        assert_eq!(
+            resolver
+                .target_runtime_capabilities("target-s3")
+                .expect("target capability should be found")
+                .connector_id,
+            "asterdrive.storage.s3"
+        );
+        assert!(resolver.target_runtime_capabilities("missing").is_none());
     }
 
     #[test]

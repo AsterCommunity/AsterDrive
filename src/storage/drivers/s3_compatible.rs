@@ -39,11 +39,31 @@ impl PresignedUploadStorageDriver for S3CompatibleDriver {
 
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
+    multipart_capabilities: aster_drive_storage::MultipartStorageCapabilities,
 }
 
 impl S3CompatibleDriver {
     pub fn from_s3_driver(inner: Arc<S3Driver>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            multipart_capabilities: aster_drive_storage::MultipartStorageCapabilities {
+                min_part_size: 5 * 1024 * 1024,
+                max_part_size: Some(5 * 1024 * 1024 * 1024),
+                max_parts: 10_000,
+                max_object_size: None,
+                upload_mode: aster_drive_storage::MultipartUploadMode::NativeStreaming,
+            },
+        }
+    }
+
+    pub fn from_s3_driver_with_multipart_capabilities(
+        inner: Arc<S3Driver>,
+        multipart_capabilities: aster_drive_storage::MultipartStorageCapabilities,
+    ) -> Self {
+        Self {
+            inner,
+            multipart_capabilities,
+        }
     }
 
     pub fn s3_driver(&self) -> Arc<S3Driver> {
@@ -91,6 +111,10 @@ macro_rules! delegate_s3_compatible_storage_driver {
 
             fn supports_efficient_range(&self) -> bool {
                 self.$field.supports_efficient_range()
+            }
+
+            fn max_single_put_size(&self) -> Option<u64> {
+                self.$field.max_single_put_size()
             }
 
             async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
@@ -152,8 +176,38 @@ macro_rules! delegate_s3_compatible_storage_driver {
 
 macro_rules! delegate_s3_compatible_multipart_driver {
     ($driver:ty, $field:ident) => {
+        impl $driver {
+            fn multipart_capabilities_for_migration(
+                &self,
+            ) -> aster_drive_storage::MultipartStorageCapabilities {
+                aster_drive_storage::MultipartStorageDriver::capabilities(&self.$field)
+            }
+        }
+        $crate::storage::drivers::s3_compatible::delegate_s3_compatible_multipart_driver!(
+            @impl $driver, $field
+        );
+    };
+    ($driver:ty, $field:ident, capabilities = $method:ident) => {
+        impl $driver {
+            fn multipart_capabilities_for_migration(
+                &self,
+            ) -> aster_drive_storage::MultipartStorageCapabilities {
+                self.$method()
+            }
+        }
+        $crate::storage::drivers::s3_compatible::delegate_s3_compatible_multipart_driver!(
+            @impl $driver, $field
+        );
+    };
+    (@impl $driver:ty, $field:ident) => {
         #[async_trait::async_trait]
         impl aster_drive_storage::MultipartStorageDriver for $driver {
+            fn capabilities(
+                &self,
+            ) -> aster_drive_storage::traits::multipart::MultipartStorageCapabilities {
+                self.multipart_capabilities_for_migration()
+            }
+
             async fn create_multipart_upload(
                 &self,
                 path: &str,
@@ -246,7 +300,18 @@ pub(super) use delegate_s3_compatible_multipart_driver;
 pub(super) use delegate_s3_compatible_storage_driver;
 
 delegate_s3_compatible_storage_driver!(S3CompatibleDriver, inner);
-delegate_s3_compatible_multipart_driver!(S3CompatibleDriver, inner);
+impl S3CompatibleDriver {
+    fn configured_multipart_capabilities(
+        &self,
+    ) -> aster_drive_storage::MultipartStorageCapabilities {
+        self.multipart_capabilities
+    }
+}
+delegate_s3_compatible_multipart_driver!(
+    S3CompatibleDriver,
+    inner,
+    capabilities = configured_multipart_capabilities
+);
 
 #[cfg(test)]
 mod tests {

@@ -34,10 +34,15 @@ pub(super) async fn init_provider_resumable_upload(
         PolicyUploadTransport::ProviderResumable(strategy) => strategy,
         _ => return Ok(None),
     };
+    let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let mode = match strategy {
         ProviderResumableUploadStrategy::FrontendDirect => UploadTransport::ProviderResumable,
         ProviderResumableUploadStrategy::ServerRelay => {
-            if transport.resolve_init_mode(&ctx.policy, ctx.total_size) != UploadTransport::Chunked
+            if transport.resolve_init_mode_with_single_put_limit(
+                &ctx.policy,
+                ctx.total_size,
+                driver.max_single_put_size(),
+            ) != UploadTransport::Chunked
             {
                 return Ok(None);
             }
@@ -45,7 +50,6 @@ pub(super) async fn init_provider_resumable_upload(
         }
     };
 
-    let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let provider = driver.extensions().provider_resumable.ok_or_else(|| {
         AsterError::storage_driver_error(
             "storage driver does not expose provider resumable upload support",

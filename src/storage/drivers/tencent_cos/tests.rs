@@ -183,6 +183,23 @@ fn s3_compatible_capabilities_are_available_on_cos_driver() {
     assert!(driver.extensions().native_thumbnail.is_some());
 }
 
+#[test]
+fn cos_reports_upload_part_limits() {
+    let driver = TencentCosDriver::new(
+        sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000"),
+        sample_credentials(),
+    )
+    .expect("COS driver");
+    let capability = driver
+        .extensions()
+        .multipart
+        .expect("multipart capability")
+        .capabilities();
+    assert_eq!(capability.min_part_size, 1024 * 1024);
+    assert_eq!(capability.max_part_size, Some(5 * 1024 * 1024 * 1024));
+    assert_eq!(capability.max_parts, 10_000);
+}
+
 #[tokio::test]
 async fn custom_download_base_url_builds_and_signs_the_final_host() {
     let mut config = sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");

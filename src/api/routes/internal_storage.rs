@@ -326,8 +326,10 @@ async fn get_capabilities(
         .iter()
         .map(|connector| connector.descriptor().connector_id.to_string())
         .collect();
-    let capabilities = RemoteStorageCapabilities::current()
+    let mut capabilities = RemoteStorageCapabilities::current()
         .with_remote_storage_target_connector_ids(connector_ids);
+    capabilities.target_runtime_capabilities =
+        storage_target::runtime_capabilities(state.get_ref(), &binding).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
 }
 

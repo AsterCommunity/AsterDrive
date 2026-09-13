@@ -14,6 +14,7 @@ use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::traits::extensions::{
     DirectDownloadStorageDriver, PresignedUploadStorageDriver,
 };
+use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
 
 use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use super::s3_compatible::{
@@ -93,7 +94,19 @@ impl QiniuDriver {
         )?;
 
         Ok(Self {
-            storage: S3CompatibleDriver::from_s3_driver(Arc::new(s3_driver)),
+            storage: S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
+                Arc::new(s3_driver),
+                MultipartStorageCapabilities {
+                    // Qiniu Kodo Multipart Upload v2: non-final parts are
+                    // 1 MiB..1 GiB and each upload has at most 10,000 parts.
+                    // https://developer.qiniu.com/kodo/7458/multipartupload
+                    min_part_size: 1024 * 1024,
+                    max_part_size: Some(1024 * 1024 * 1024),
+                    max_parts: 10_000,
+                    max_object_size: None,
+                    upload_mode: MultipartUploadMode::NativeStreaming,
+                },
+            ),
         })
     }
 

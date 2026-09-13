@@ -82,6 +82,10 @@ impl StorageDriver for AzureBlobDriver {
         true
     }
 
+    fn max_single_put_size(&self) -> Option<u64> {
+        Some(5_000 * 1024 * 1024)
+    }
+
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let client = self.blob_client(path, "d")?;
         match client.delete(None).await {
