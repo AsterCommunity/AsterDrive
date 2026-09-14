@@ -914,6 +914,8 @@ struct UploadSessionSpec<'a> {
     team_id: Option<i64>,
     status: aster_drive_model::types::UploadSessionStatus,
     expires_at: chrono::DateTime<chrono::Utc>,
+    total_size: i64,
+    chunk_size: i64,
     total_chunks: i32,
     received_count: i32,
     session_kind: aster_drive_model::types::UploadSessionKind,
@@ -936,6 +938,8 @@ impl<'a> UploadSessionSpec<'a> {
             team_id: None,
             status,
             expires_at,
+            total_size: 10,
+            chunk_size: 5,
             total_chunks: 0,
             received_count: 0,
             session_kind,
@@ -955,6 +959,12 @@ impl<'a> UploadSessionSpec<'a> {
     fn chunks(mut self, total_chunks: i32, received_count: i32) -> Self {
         self.total_chunks = total_chunks;
         self.received_count = received_count;
+        self
+    }
+
+    fn sizes(mut self, total_size: i64, chunk_size: i64) -> Self {
+        self.total_size = total_size;
+        self.chunk_size = chunk_size;
         self
     }
 
@@ -1007,8 +1017,8 @@ async fn create_upload_session(
             frontend_client_id: Set(None),
             filename: Set("manual-upload.bin".to_string()),
             mime_type: Set("application/octet-stream".to_string()),
-            total_size: Set(10),
-            chunk_size: Set(5),
+            total_size: Set(spec.total_size),
+            chunk_size: Set(spec.chunk_size),
             total_chunks: Set(spec.total_chunks),
             received_count: Set(spec.received_count),
             folder_id: Set(None),
@@ -1030,6 +1040,25 @@ async fn create_upload_session(
     )
     .await
     .unwrap();
+}
+
+async fn create_sparse_staging_file(
+    state: &aster_drive::runtime::PrimaryAppState,
+    upload_id: &str,
+    size: u64,
+    prefix: &[u8],
+) -> String {
+    let dir =
+        aster_forge_utils::paths::upload_temp_dir(&state.config.server.upload_temp_dir, upload_id);
+    tokio::fs::create_dir_all(dir).await.unwrap();
+    let path = aster_drive::services::files::upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        upload_id,
+    );
+    let mut file = std::fs::File::create(&path).unwrap();
+    file.set_len(size).unwrap();
+    std::io::Write::write_all(&mut file, prefix).unwrap();
+    path
 }
 
 #[actix_web::test]
@@ -5146,6 +5175,260 @@ async fn staged_completion_is_not_blocked_by_another_unrecoverable_reservation()
         .is_ok(),
         "the unrelated session must remain available for cancel or expiry cleanup"
     );
+}
+
+#[tokio::test]
+async fn staged_completion_recovers_current_sparse_physical_reservation() {
+    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    const SIZE: i64 = 1024 * 1024;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "stagecomplete",
+        "staging-complete@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .sizes(SIZE, SIZE)
+        .chunks(1, 1),
+    )
+    .await;
+    let path = create_sparse_staging_file(&state, &upload_id, SIZE as u64, b"valid-prefix").await;
+    let before = std::fs::File::open(&path).unwrap();
+    assert!(
+        fs2::FileExt::allocated_size(&before).unwrap() < SIZE as u64,
+        "fixture must begin as a partially allocated sparse file"
+    );
+    drop(before);
+    upload_session_part_repo::upsert_part(
+        state.writer_db(),
+        &upload_id,
+        1,
+        upload::test_support::offset_staging_receipt_etag(),
+        SIZE,
+    )
+    .await
+    .unwrap();
+
+    let completed = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .expect("completion should replenish only the current reservation");
+
+    assert_eq!(completed.size, SIZE);
+    assert!(
+        !tokio::fs::try_exists(path).await.unwrap(),
+        "successful completion must release the replenished reservation"
+    );
+}
+
+#[tokio::test]
+async fn staged_completion_capacity_failure_marks_current_session_failed() {
+    use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    const SIZE: i64 = 1024 * 1024;
+
+    let base_state = common::setup().await;
+    let mut config = (*base_state.config).clone();
+    config.server.upload_temp_min_free_bytes = u64::MAX;
+    let state = aster_drive::runtime::PrimaryAppState {
+        config: Arc::new(config),
+        ..base_state
+    };
+    let user = common::create_test_account(
+        &state,
+        "stagefull",
+        "staging-complete-full@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .sizes(SIZE, SIZE)
+        .chunks(1, 1),
+    )
+    .await;
+    create_sparse_staging_file(&state, &upload_id, SIZE as u64, b"valid-prefix").await;
+    upload_session_part_repo::upsert_part(
+        state.writer_db(),
+        &upload_id,
+        1,
+        upload::test_support::offset_staging_receipt_etag(),
+        SIZE,
+    )
+    .await
+    .unwrap();
+
+    let error = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .expect_err("completion must reject an unreserved current staging file");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::UploadStagingCapacityInsufficient
+    );
+    assert_eq!(
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .unwrap()
+            .status,
+        UploadSessionStatus::Failed
+    );
+}
+
+#[tokio::test]
+async fn failed_global_recovery_is_retried_before_a_staged_chunk_write() {
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    const SIZE: i64 = 1024 * 1024;
+
+    let base_state = common::setup().await;
+    let mut blocked_config = (*base_state.config).clone();
+    blocked_config.server.upload_temp_min_free_bytes = u64::MAX;
+    let blocked_state = aster_drive::runtime::PrimaryAppState {
+        config: Arc::new(blocked_config),
+        ..base_state
+    };
+    let user = common::create_test_account(
+        &blocked_state,
+        "stagerecovery",
+        "staging-recovery-retry@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let blocked_upload_id = new_test_upload_id();
+    let request_upload_id = new_test_upload_id();
+    create_upload_session(
+        &blocked_state,
+        user.id,
+        UploadSessionSpec::new(
+            &blocked_upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .sizes(SIZE, SIZE)
+        .chunks(1, 0),
+    )
+    .await;
+    create_sparse_staging_file(&blocked_state, &blocked_upload_id, SIZE as u64, &[]).await;
+    create_upload_session(
+        &blocked_state,
+        user.id,
+        UploadSessionSpec::new(
+            &request_upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .sizes(SIZE, SIZE)
+        .chunks(1, 0),
+    )
+    .await;
+    let request_path =
+        create_sparse_staging_file(&blocked_state, &request_upload_id, SIZE as u64, &[]).await;
+    let request_file = std::fs::File::options()
+        .write(true)
+        .open(request_path)
+        .unwrap();
+    fs2::FileExt::allocate(&request_file, SIZE as u64).unwrap();
+    drop(request_file);
+    let chunk = vec![7_u8; usize::try_from(SIZE).unwrap()];
+
+    let error =
+        match upload::upload_chunk(&blocked_state, &request_upload_id, 0, user.id, &chunk).await {
+            Ok(_) => panic!("global recovery must reject an incomplete physical reservation"),
+            Err(error) => error,
+        };
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::UploadStagingCapacityInsufficient
+    );
+
+    let mut recovered_config = (*blocked_state.config).clone();
+    recovered_config.server.upload_temp_min_free_bytes = 0;
+    let recovered_state = aster_drive::runtime::PrimaryAppState {
+        config: Arc::new(recovered_config),
+        ..blocked_state.clone()
+    };
+    let response = upload::upload_chunk(&recovered_state, &blocked_upload_id, 0, user.id, &chunk)
+        .await
+        .expect("failed recovery must not mark the root recovered");
+    assert_eq!(response.received_count, 1);
+}
+
+#[tokio::test]
+async fn staged_chunk_rejects_receipts_without_their_reservation_file() {
+    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "stagemissing",
+        "staging-missing@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .chunks(2, 1),
+    )
+    .await;
+    upload_session_part_repo::upsert_part(
+        state.writer_db(),
+        &upload_id,
+        1,
+        upload::test_support::offset_staging_receipt_etag(),
+        5,
+    )
+    .await
+    .unwrap();
+
+    let error = match upload::upload_chunk(&state, &upload_id, 1, user.id, b"67890").await {
+        Ok(_) => panic!("receipt state without its file must block further writes"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.api_error_code(), ApiErrorCode::UploadSessionCorrupted);
+    assert!(error.message().contains("reservation file is missing"));
 }
 
 #[tokio::test]
