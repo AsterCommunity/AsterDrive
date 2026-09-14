@@ -623,6 +623,7 @@ async fn upload_chunk_impl(
         aster_drive_model::types::UploadSessionKind::OffsetStaging
             | aster_drive_model::types::UploadSessionKind::StreamStaging
     ) {
+        staging::ensure_reservations_recovered(state).await?;
         #[cfg(debug_assertions)]
         test_support::rendezvous_before_staging_write_lock(upload_id).await;
         let _chunk_write_lock =
@@ -844,6 +845,7 @@ async fn upload_chunk_payload_impl(
         aster_drive_model::types::UploadSessionKind::OffsetStaging
             | aster_drive_model::types::UploadSessionKind::StreamStaging
     ) {
+        staging::ensure_reservations_recovered(state).await?;
         #[cfg(debug_assertions)]
         test_support::rendezvous_before_staging_write_lock(upload_id).await;
         let _chunk_write_lock =

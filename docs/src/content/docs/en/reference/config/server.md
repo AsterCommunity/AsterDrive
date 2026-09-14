@@ -15,6 +15,7 @@ port = 3000
 workers = 0
 temp_dir = ".tmp"
 upload_temp_dir = ".uploads"
+upload_temp_min_free_bytes = 268435456
 start_mode = "primary"
 
 [server.follower]
@@ -40,6 +41,7 @@ If `data/config.toml` was generated automatically, relative paths are resolved t
 | `workers` | `0` | Worker count. `0` = choose automatically based on CPU. |
 | `temp_dir` | `".tmp"` | General server-side temporary file directory |
 | `upload_temp_dir` | `".uploads"` | Temporary directory for chunked uploads and upload recovery |
+| `upload_temp_min_free_bytes` | `268435456` | Free staging-disk bytes preserved after physical staged-upload allocation; `0` disables the extra margin |
 | `start_mode` | `"primary"` | Node startup role. `primary` is the normal controller; `follower` is a remote storage follower node. |
 | `follower.remote_storage_target_local_root` | `"remote-storage-targets"` | Root directory for `local` remote storage targets managed by the primary on the follower |
 
@@ -55,6 +57,8 @@ If `data/config.toml` was generated automatically, relative paths are resolved t
 :::tip[Move them if you upload large files often]
 By default, they land in `data/.tmp` and `data/.uploads`. If you expect many large uploads, bind these two directories to a local disk with more capacity.
 :::
+
+`offset_staging` / `stream_staging` physically preallocate the complete file during upload initialization instead of creating only a sparse length. Initialization returns 507 when allocation would leave less than `upload_temp_min_free_bytes`; cancellation, completion, and expiry cleanup release those blocks. Keeping a nonzero floor is recommended unless the host provides another disk-reservation mechanism.
 
 ## How to Choose `start_mode`
 
@@ -158,6 +162,7 @@ ASTER__SERVER__PORT=3000
 ASTER__SERVER__WORKERS=0
 ASTER__SERVER__TEMP_DIR=/data/.tmp
 ASTER__SERVER__UPLOAD_TEMP_DIR=/data/.uploads
+ASTER__SERVER__UPLOAD_TEMP_MIN_FREE_BYTES=268435456
 ASTER__SERVER__START_MODE=follower
 ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/data/remote-storage-targets
 ```

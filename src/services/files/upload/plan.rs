@@ -145,7 +145,6 @@ async fn init_upload_for_scope(
         &ctx.policy,
         ctx.routing_decision.execution_preference,
     )?;
-    materialize_upload_target(state, &mut ctx).await?;
     let target_driver = state.driver_registry().get_driver(&ctx.policy)?;
     let max_single_put_size = target_driver.max_single_put_size();
     let planned_mode = transport.resolve_init_mode_with_single_put_limit(
@@ -154,8 +153,19 @@ async fn init_upload_for_scope(
         max_single_put_size,
     );
     let data_plane = upload_data_plane_label(transport, planned_mode);
+    let mut staging_admission = if data_plane == "staged" {
+        let session_kind = session_kind_for_transport(transport, UploadTransport::Chunked)?;
+        deployment::validate_upload_session_kind(state.config(), session_kind)?;
+        Some(state.driver_registry().staging_capacity().lock().await)
+    } else {
+        None
+    };
 
     let result: Result<InitUploadResponse> = async {
+        if let Some(admission) = staging_admission.as_deref_mut() {
+            staging::preflight(state, admission, ctx.total_size).await?;
+        }
+        materialize_upload_target(state, &mut ctx).await?;
         if planned_mode == UploadTransport::Stream
             && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
         {
@@ -170,7 +180,7 @@ async fn init_upload_for_scope(
         if let Some(response) = remote::init_remote_upload(state, &ctx).await? {
             return Ok(response);
         }
-        init_chunked_upload_session(state, &ctx).await
+        init_chunked_upload_session(state, &ctx, staging_admission.as_deref_mut()).await
     }
     .await;
 
@@ -247,6 +257,7 @@ fn record_upload_session_if_created(
 async fn init_chunked_upload_session(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
+    staging_admission: Option<&mut crate::storage::staging_capacity::StagingCapacityState>,
 ) -> Result<InitUploadResponse> {
     // 本地 / 其他非 direct 场景：服务端维护 upload session，并预创建格式专用的
     // `.offset-staging-v1` 文件。每个 Chunk PUT 按 offset 写入并登记 DB receipt，Complete
@@ -261,6 +272,11 @@ async fn init_chunked_upload_session(
     let expires_at = Utc::now() + Duration::hours(24);
     let session_kind = session_kind_for_transport(transport, UploadTransport::Chunked)?;
     deployment::validate_upload_session_kind(state.config(), session_kind)?;
+    let staging_admission = staging_admission.ok_or_else(|| {
+        crate::errors::AsterError::internal_error(
+            "staged upload initialization is missing its capacity admission guard",
+        )
+    })?;
 
     let upload_id = with_unique_upload_id(|upload_id| async {
         let inserted = try_persist_upload_session(
@@ -296,7 +312,9 @@ async fn init_chunked_upload_session(
     })
     .await?;
 
-    if let Err(error) = prepare_chunked_upload_staging_file(state, &upload_id, ctx.total_size).await
+    if let Err(error) =
+        prepare_chunked_upload_staging_file(state, staging_admission, &upload_id, ctx.total_size)
+            .await
     {
         let temp_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, &upload_id);
         aster_forge_utils::fs::cleanup_temp_dir(&temp_dir).await;
@@ -331,6 +349,7 @@ async fn init_chunked_upload_session(
 
 async fn prepare_chunked_upload_staging_file(
     state: &PrimaryAppState,
+    staging_admission: &mut crate::storage::staging_capacity::StagingCapacityState,
     upload_id: &str,
     total_size: i64,
 ) -> Result<()> {
@@ -340,7 +359,7 @@ async fn prepare_chunked_upload_staging_file(
         .map_aster_err_ctx("create temp dir", |message| {
             chunk_upload_error_with_code(ApiErrorCode::UploadTempDirCreateFailed, message)
         })?;
-    staging::prepare(state, upload_id, total_size).await?;
+    staging::prepare(state, staging_admission, upload_id, total_size).await?;
     Ok(())
 }
 

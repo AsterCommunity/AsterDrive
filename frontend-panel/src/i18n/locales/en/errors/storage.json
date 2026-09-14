@@ -2,6 +2,7 @@
 	"storage_quota_exceeded": "Not enough storage space available",
 	"upload_target_capacity_insufficient": "The selected storage targets do not have enough available capacity",
 	"upload_capacity_unavailable": "Storage capacity is temporarily unavailable. Try again shortly",
+	"upload_staging_capacity_insufficient": "The server upload staging disk does not have enough free capacity",
 	"storage_auth_failed": "Storage authentication failed. Check the configured access credentials",
 	"storage_permission_denied": "The storage backend denied this operation. Check its permissions",
 	"storage_misconfigured": "The storage configuration is invalid or incomplete. Check the connection settings",

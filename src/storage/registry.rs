@@ -4,6 +4,7 @@ use super::capacity::CapacityProbeCoordinator;
 #[cfg(any(test, debug_assertions))]
 use super::drivers::s3::S3Driver;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
+use super::staging_capacity::StagingCapacityCoordinator;
 use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, master_binding_repo, policy_repo};
 use crate::errors::{AsterError, Result};
@@ -59,6 +60,7 @@ pub struct DriverRegistry {
     metrics: SharedMetricsRecorder,
     remote_protocol: RwLock<Option<Arc<RemoteProtocolRuntime>>>,
     capacity_probes: CapacityProbeCoordinator,
+    staging_capacity: StagingCapacityCoordinator,
 }
 
 const STORAGE_CONNECTOR_METRIC_LABEL: &str = "storage_connector";
@@ -83,6 +85,7 @@ impl DriverRegistry {
             metrics,
             remote_protocol: RwLock::new(None),
             capacity_probes: CapacityProbeCoordinator::new(),
+            staging_capacity: StagingCapacityCoordinator::new(),
         }
     }
 
@@ -92,6 +95,10 @@ impl DriverRegistry {
 
     pub(crate) fn connectors(&self) -> &StorageConnectorRegistry {
         &self.connectors
+    }
+
+    pub(crate) fn staging_capacity(&self) -> &StagingCapacityCoordinator {
+        &self.staging_capacity
     }
 
     /// Reload the policy routing snapshot through the same connector registry

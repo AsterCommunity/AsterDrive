@@ -299,8 +299,9 @@ define_errors! {
     // ========== E064: 资源或请求语义冲突 ==========
     Conflict("E064", "Conflict"),
 
-    // ========== E065: 上传容量准入 ==========
+    // ========== E065-E066: 上传容量准入 ==========
     UploadTargetCapacityInsufficient("E065", "Upload Target Capacity Insufficient"),
+    UploadStagingCapacityInsufficient("E066", "Upload Staging Capacity Insufficient"),
 }
 
 impl AsterError {
@@ -376,6 +377,9 @@ impl AsterError {
             Self::UploadTargetCapacityInsufficient(_) => {
                 ApiErrorCode::UploadTargetCapacityInsufficient
             }
+            Self::UploadStagingCapacityInsufficient(_) => {
+                ApiErrorCode::UploadStagingCapacityInsufficient
+            }
         }
     }
 
@@ -430,6 +434,7 @@ impl AsterError {
 
             Self::UploadAssembling(_) => StatusCode::ACCEPTED,
             Self::UploadTargetCapacityInsufficient(_) => StatusCode::INSUFFICIENT_STORAGE,
+            Self::UploadStagingCapacityInsufficient(_) => StatusCode::INSUFFICIENT_STORAGE,
             Self::StorageDriverError(_)
                 if self.api_error_code_override()
                     == Some(ApiErrorCode::UploadCapacityUnavailable) =>
@@ -718,6 +723,7 @@ impl AsterError {
             Self::StorageQuotaExceeded(_)
             | Self::OperationResourceLimitExceeded(_)
             | Self::UploadTargetCapacityInsufficient(_)
+            | Self::UploadStagingCapacityInsufficient(_)
             | Self::RateLimited(_)
             | Self::MailNotConfigured(_)
             | Self::MailDeliveryFailed(_) => ResponseLogLevel::Warn,
@@ -1245,6 +1251,18 @@ mod tests {
         assert_eq!(insufficient.http_status(), StatusCode::INSUFFICIENT_STORAGE);
         assert!(!insufficient.api_error_info().retryable);
         assert_eq!(insufficient.response_log_level(), ResponseLogLevel::Warn);
+
+        let staging = AsterError::upload_staging_capacity_insufficient(
+            "staging requires 10 bytes but only 9 remain",
+        );
+        assert_eq!(staging.code(), "E066");
+        assert_eq!(
+            staging.api_error_code(),
+            ApiErrorCode::UploadStagingCapacityInsufficient
+        );
+        assert_eq!(staging.http_status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert!(!staging.api_error_info().retryable);
+        assert_eq!(staging.response_log_level(), ResponseLogLevel::Warn);
 
         let unavailable = AsterError::from(aster_drive_storage::StorageError::new(
             StorageErrorKind::Transient,

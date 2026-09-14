@@ -48,7 +48,9 @@
 
 容量探测使用 `DriverRegistry` 所有的请求驱动协调器，不运行周期扫描。协调器缓存原始 observation 而不是特定文件大小的 assessment；同 policy probe 使用 singleflight，跨 policy probe 受全局并发限制。每个 driver 提供 `StorageCapacityProbePolicy`：Local 使用 fresh 2 秒、充足值 stale 30 秒、negative 250 毫秒和固定 2 秒 timeout；OneDrive 与 Remote 使用 fresh 30 秒、充足值 stale 5 分钟、negative 1 秒，并允许 connector 将 timeout 配置为 2 至 30 秒（默认 10 秒）。stale 不足或不可用值先刷新确认，避免旧低水位误报。刷新失败时保留最后一个可用 observation，小请求可以继续使用 stale 充足值，而该 observation 对更大请求显示不足时返回最新探测错误。policy/credential/driver 失效会同步清除对应 observation，probe 任务独立于 HTTP 请求取消并记录失败与时延。
 
-`OffsetStaging` / `StreamStaging` 的实际临时空间预算与 reservation 仍由 Issue #593 的后续独立实现负责；`set_len` 只建立 offset 文件布局，不视为物理磁盘预留。
+`OffsetStaging` / `StreamStaging` 在 session Init 返回前，对 `upload_temp_dir` 所在文件系统执行串行容量准入，并通过 `fs2::FileExt::allocate` 预留完整 `total_size` 的物理块；单纯 `set_len` 形成的稀疏文件不再视为 reservation。准入保证分配后仍保留 `server.upload_temp_min_free_bytes`（默认 256 MiB）的 safety floor，恰好满足 `required + floor` 时允许，空间不足返回稳定的 `upload.staging_capacity_insufficient`（HTTP 507），并清理 session、临时目录和 Init 创建的相对路径目录。`0` 可关闭 safety floor，但不会关闭物理预分配。
+
+staged session 在 cluster profile 下仍被拒绝，因此 reservation coordinator 只需串行化单 Primary 内的容量检查和分配，不建立重复的数据库 ledger；`upload_sessions.session_kind + total_size + status` 是重启恢复的 durable 事实源。进程首次 Init、Chunk PUT 或 Complete 触达 staging 时，会读取 active staged session，并按文件当前 `allocated_size` 只补足缺失物理块。成功 Complete、Cancel、过期清理和强制 policy cleanup 删除 session 临时目录时，文件系统同时释放 reservation。
 
 ## Stream upload attempt 契约
 

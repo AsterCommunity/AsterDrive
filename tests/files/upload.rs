@@ -186,6 +186,45 @@ async fn create_capacity_test_local_policy(
         .unwrap()
 }
 
+async fn create_sftp_staging_policy(
+    state: &aster_drive::runtime::PrimaryAppState,
+) -> aster_drive_model::entities::storage_policy::Model {
+    let created = aster_drive::services::storage_policy::policy::create(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: "SFTP staging reservation".to_string(),
+            connection: aster_drive::storage::StoragePolicyConnectionInput {
+                storage: aster_drive::storage::StorageConnectionInput {
+                    connector_config: common::connector_envelope(
+                        "asterdrive.storage.sftp",
+                        serde_json::json!({
+                            "endpoint": "sftp://storage.example.test:22",
+                            "base_path": "uploads",
+                            "sftp_host_key_fingerprint": null
+                        }),
+                    ),
+                    credential: aster_drive::storage::StorageConnectorCredentialInput::Static(
+                        serde_json::json!({
+                            "sftp_username": "test-user",
+                            "sftp_password": "test-password"
+                        }),
+                    ),
+                },
+                behavior: aster_drive_storage::StoragePolicyBehaviorConfig::default(),
+            },
+            max_file_size: 0,
+            chunk_size: Some(TEST_CHUNK_SIZE as i64),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .unwrap();
+    policy_repo::find_by_id(state.writer_db(), created.id)
+        .await
+        .unwrap()
+}
+
 async fn assign_capacity_test_group(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,
@@ -4845,6 +4884,283 @@ async fn test_chunked_init_persists_explicit_offset_staging_kind() {
             .await
             .unwrap();
     assert_eq!(session.session_kind, UploadSessionKind::OffsetStaging);
+
+    let staging_path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        response.upload_id.as_deref().unwrap(),
+    );
+    let staging_file = std::fs::File::open(&staging_path).unwrap();
+    assert!(
+        fs2::FileExt::allocated_size(&staging_file).unwrap() >= 10 * 1024 * 1024,
+        "successful staged init must reserve physical blocks, not only sparse length"
+    );
+    drop(staging_file);
+    upload::cancel_upload(&state, response.upload_id.as_deref().unwrap(), user.id)
+        .await
+        .unwrap();
+    assert!(
+        !tokio::fs::try_exists(staging_path).await.unwrap(),
+        "cancel must release the physical staging reservation"
+    );
+}
+
+#[tokio::test]
+async fn staged_init_rejects_safety_floor_violation_without_session_or_folder_side_effects() {
+    use aster_drive::db::repository::{folder_repo, policy_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+
+    let base_state = common::setup().await;
+    let mut config = (*base_state.config).clone();
+    let rejected_staging_root =
+        std::path::Path::new(&config.server.upload_temp_dir).join("capacity-rejected-root");
+    config.server.upload_temp_dir = rejected_staging_root.to_string_lossy().into_owned();
+    config.server.upload_temp_min_free_bytes = u64::MAX;
+    let state = aster_drive::runtime::PrimaryAppState {
+        config: Arc::new(config),
+        ..base_state
+    };
+    let user = common::create_test_account(
+        &state,
+        "stagingfull",
+        "staging-full@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default local policy should exist");
+
+    let error = match upload::init_upload(
+        &state,
+        user.id,
+        "staging-full.bin",
+        10 * 1024 * 1024,
+        None,
+        Some("staging-rejected/nested/staging-full.bin"),
+    )
+    .await
+    {
+        Ok(_) => panic!("safety floor must reject a physical staging reservation"),
+        Err(error) => error,
+    };
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::UploadStagingCapacityInsufficient
+    );
+    assert_eq!(
+        error.http_status(),
+        actix_web::http::StatusCode::INSUFFICIENT_STORAGE
+    );
+    assert!(!error.api_error_info().retryable);
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0,
+        "failed reservation must remove its durable session"
+    );
+    assert!(
+        folder_repo::find_by_name_in_parent(state.writer_db(), user.id, None, "staging-rejected",)
+            .await
+            .unwrap()
+            .is_none(),
+        "failed reservation must compensate relative-path folders"
+    );
+    assert!(
+        !rejected_staging_root.exists(),
+        "capacity preflight must not create the staging root"
+    );
+}
+
+#[tokio::test]
+async fn resumed_staged_chunk_recovers_physical_reservation_for_active_sparse_session() {
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "stagingrecover",
+        "staging-recover@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let old_upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &old_upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .chunks(2, 0),
+    )
+    .await;
+    let old_dir = aster_forge_utils::paths::upload_temp_dir(
+        &state.config.server.upload_temp_dir,
+        &old_upload_id,
+    );
+    tokio::fs::create_dir_all(&old_dir).await.unwrap();
+    let old_path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        &old_upload_id,
+    );
+    std::fs::File::create(&old_path)
+        .unwrap()
+        .set_len(10)
+        .unwrap();
+
+    upload::upload_chunk(&state, &old_upload_id, 0, user.id, b"12345")
+        .await
+        .expect("resumed chunk should recover old reservations first");
+
+    let old_file = std::fs::File::open(old_path).unwrap();
+    assert!(
+        fs2::FileExt::allocated_size(&old_file).unwrap() >= 10,
+        "active sparse session must regain physical allocation after runtime restart"
+    );
+}
+
+#[tokio::test]
+async fn resumed_staged_chunk_recreates_unstarted_reservation_after_init_crash() {
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "stagecrash",
+        "staging-crash@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
+        )
+        .chunks(2, 0),
+    )
+    .await;
+
+    upload::upload_chunk(&state, &upload_id, 0, user.id, b"12345")
+        .await
+        .expect("resume should recreate a reservation missing after init persistence");
+
+    let path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        &upload_id,
+    );
+    let file = std::fs::File::open(&path).unwrap();
+    assert!(fs2::FileExt::allocated_size(&file).unwrap() >= 10);
+    assert_eq!(&std::fs::read(path).unwrap()[..5], b"12345");
+}
+
+#[tokio::test]
+async fn concurrent_staged_init_creates_independent_physical_reservations() {
+    use aster_drive::services::files::upload;
+
+    let state = Arc::new(common::setup().await);
+    let user = common::create_test_account(
+        state.as_ref(),
+        "stageconcurrent",
+        "staging-concurrent@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let first_state = state.clone();
+    let second_state = state.clone();
+
+    let (first, second) = tokio::join!(
+        upload::init_upload(
+            first_state.as_ref(),
+            user.id,
+            "concurrent-a.bin",
+            10 * 1024 * 1024,
+            None,
+            None,
+        ),
+        upload::init_upload(
+            second_state.as_ref(),
+            user.id,
+            "concurrent-b.bin",
+            10 * 1024 * 1024,
+            None,
+            None,
+        ),
+    );
+
+    for response in [first.unwrap(), second.unwrap()] {
+        let path = upload::test_support::offset_staging_file_path(
+            &state.config.server.upload_temp_dir,
+            response.upload_id.as_deref().unwrap(),
+        );
+        let file = std::fs::File::open(path).unwrap();
+        assert!(fs2::FileExt::allocated_size(&file).unwrap() >= 10 * 1024 * 1024);
+        drop(file);
+        upload::cancel_upload(
+            state.as_ref(),
+            response.upload_id.as_deref().unwrap(),
+            user.id,
+        )
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn sftp_stream_staging_uses_the_same_physical_reservation_contract() {
+    use aster_drive::services::files::upload;
+
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "sftpstage", "sftp-staging@test.com", "password123")
+            .await
+            .unwrap();
+    let policy = create_sftp_staging_policy(&state).await;
+    assign_capacity_test_group(&state, user.id, &[policy.id], Default::default()).await;
+
+    let response = upload::init_upload(
+        &state,
+        user.id,
+        "sftp-staging.bin",
+        10 * 1024 * 1024,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let session = aster_drive::db::repository::upload_session_repo::find_by_id(
+        state.writer_db(),
+        response.upload_id.as_deref().unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(session.policy_id, policy.id);
+    assert_eq!(session.session_kind, UploadSessionKind::StreamStaging);
+    let path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        &session.id,
+    );
+    let file = std::fs::File::open(path).unwrap();
+    assert!(fs2::FileExt::allocated_size(&file).unwrap() >= 10 * 1024 * 1024);
+    drop(file);
+    upload::cancel_upload(&state, &session.id, user.id)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

@@ -15,6 +15,7 @@ port = 3000
 workers = 0
 temp_dir = ".tmp"
 upload_temp_dir = ".uploads"
+upload_temp_min_free_bytes = 268435456
 start_mode = "primary"
 
 [server.follower]
@@ -40,6 +41,7 @@ remote_storage_target_local_root = "remote-storage-targets"
 | `workers` | `0` | 工作线程数；`0` = 按 CPU 自动 |
 | `temp_dir` | `".tmp"` | 服务端通用临时文件目录 |
 | `upload_temp_dir` | `".uploads"` | 分片上传 / 上传恢复用的临时目录 |
+| `upload_temp_min_free_bytes` | `268435456` | staged 上传预分配后必须保留的临时盘字节数；`0` 表示不保留额外余量 |
 | `start_mode` | `"primary"` | 节点启动角色；`primary` 是普通主控，`follower` 是远程存储从节点 |
 | `follower.remote_storage_target_local_root` | `"remote-storage-targets"` | follower 上由主控管理的 `local` 远程存储目标根目录 |
 
@@ -55,6 +57,8 @@ remote_storage_target_local_root = "remote-storage-targets"
 :::tip[经常上传大文件就挪一下]
 默认会落到 `data/.tmp` 和 `data/.uploads`。如果你预计大量大文件上传，把这两个目录绑到容量更充足的本地盘。
 :::
+
+`offset_staging` / `stream_staging` 会在上传初始化时真实预分配完整文件，而不是只创建稀疏文件长度。空间不足或预分配后会低于 `upload_temp_min_free_bytes` 时，初始化直接返回 507；取消、完成或过期清理会释放这些块。除非宿主机另有磁盘保留机制，不建议把该值设为 `0`。
 
 ## `start_mode` 怎么选
 
@@ -158,6 +162,7 @@ ASTER__SERVER__PORT=3000
 ASTER__SERVER__WORKERS=0
 ASTER__SERVER__TEMP_DIR=/data/.tmp
 ASTER__SERVER__UPLOAD_TEMP_DIR=/data/.uploads
+ASTER__SERVER__UPLOAD_TEMP_MIN_FREE_BYTES=268435456
 ASTER__SERVER__START_MODE=follower
 ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/data/remote-storage-targets
 ```

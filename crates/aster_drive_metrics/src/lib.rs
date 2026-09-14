@@ -87,6 +87,9 @@ pub trait MetricsRecorder: Send + Sync {
     /// Records the bounded outcome of one upload target capacity assessment.
     fn record_upload_capacity_admission(&self, outcome: &'static str) {}
 
+    /// Records the bounded outcome of one physical upload-staging reservation.
+    fn record_upload_staging_capacity_admission(&self, outcome: &'static str) {}
+
     /// Records how upload admission obtained a capacity observation.
     fn record_storage_capacity_probe_cache(&self, outcome: &'static str) {}
 
@@ -275,6 +278,12 @@ mod product {
                 "upload",
                 "capacity_admissions_total",
                 "Upload target capacity assessment outcomes.",
+                &["outcome"],
+            ),
+            upload_staging_capacity_admissions: counter(
+                "upload",
+                "staging_capacity_admissions_total",
+                "Physical upload-staging reservation outcomes.",
                 &["outcome"],
             ),
             storage_capacity_probe_cache: counter(
@@ -661,6 +670,14 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_upload_staging_capacity_admission(&self, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product
+                .upload_staging_capacity_admissions
+                .inc(&[outcome], 1);
+        }
+    }
+
     fn record_storage_capacity_probe_cache(&self, outcome: &'static str) {
         if let Some(product) = self.product {
             product.storage_capacity_probe_cache.inc(&[outcome], 1);
@@ -954,6 +971,9 @@ mod tests {
         for outcome in ["sufficient", "insufficient", "unsupported", "unavailable"] {
             recorder.record_upload_capacity_admission(outcome);
         }
+        for outcome in ["sufficient", "insufficient", "unavailable", "recovered"] {
+            recorder.record_upload_staging_capacity_admission(outcome);
+        }
         for outcome in [
             "fresh",
             "stale_sufficient",
@@ -982,6 +1002,8 @@ mod tests {
         assert!(body.contains("outcome=\"insufficient\""));
         assert!(body.contains("outcome=\"unsupported\""));
         assert!(body.contains("outcome=\"unavailable\""));
+        assert!(body.contains("upload_staging_capacity_admissions_total"));
+        assert!(body.contains("outcome=\"recovered\""));
         assert!(body.contains("storage_capacity_probe_cache_total"));
         assert!(body.contains("outcome=\"stale_sufficient\""));
         assert!(body.contains("outcome=\"stale_after_error\""));

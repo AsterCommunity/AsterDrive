@@ -163,6 +163,7 @@ For upload failures, first identify the stage:
 - `upload.temp_dir_create_failed`, `upload.temp_file_write_failed`, `upload.local_staging_write_failed`, `upload.assembly_io_failed`: server temporary directory, staging area, or disk write failed.
 - `upload.target_capacity_insufficient`: every placement candidate checked so far conclusively lacks the declared upload bytes; add capacity or configure another eligible target.
 - `upload.capacity_unavailable`: capacity should be observable, but the current probe produced no usable conclusion and no fallback target remained; retry after the target recovers.
+- `upload.staging_capacity_insufficient`: the Primary cannot physically reserve the declared file size in `upload_temp_dir` while preserving `upload_temp_min_free_bytes`; free or move the temporary disk, lower the safety floor deliberately, or use a non-staged upload mode.
 
 Users can retry once. If it repeats, administrators should check:
 

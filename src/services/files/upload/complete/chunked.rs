@@ -38,6 +38,7 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = state.writer_db();
+    staging::ensure_reservations_recovered(state).await?;
     let created = run_upload_completion_stage(
         db,
         &session,

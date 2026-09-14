@@ -163,6 +163,7 @@ Passkey 相关错误：
 - `upload.temp_dir_create_failed`、`upload.temp_file_write_failed`、`upload.local_staging_write_failed`、`upload.assembly_io_failed`：服务器临时目录、暂存区或磁盘写入失败。
 - `upload.target_capacity_insufficient`：已检查的 placement 候选均明确缺少声明上传大小所需的容量；需要释放容量或配置其他 eligible target。
 - `upload.capacity_unavailable`：目标本应支持容量观测，但本次未得到可用结论且没有剩余 fallback target；目标恢复后重试。
+- `upload.staging_capacity_insufficient`：Primary 无法在保留 `upload_temp_min_free_bytes` 的同时，在 `upload_temp_dir` 为声明大小完成物理预分配；需要清理或迁移临时盘、明确调低 safety floor，或改用不依赖 staging 的上传模式。
 
 用户可以先重试一次。反复失败时，管理员重点查：
 

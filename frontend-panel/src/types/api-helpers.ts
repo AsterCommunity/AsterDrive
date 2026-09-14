@@ -43,6 +43,7 @@ export const ApiErrorCode = {
 	UploadAssemblyFailed: "upload.assembly_failed",
 	UploadTargetCapacityInsufficient: "upload.target_capacity_insufficient",
 	UploadCapacityUnavailable: "upload.capacity_unavailable",
+	UploadStagingCapacityInsufficient: "upload.staging_capacity_insufficient",
 	ThumbnailFailed: "thumbnail.failed",
 	ResourceLocked: "resource.locked",
 	PreconditionFailed: "precondition_failed",
