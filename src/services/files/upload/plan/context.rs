@@ -466,7 +466,23 @@ fn capacity_unavailable_error(policy_id: i64, error: AsterError) -> AsterError {
             .unwrap_or("unknown"),
         "upload target capacity observation is unavailable"
     );
-    error.with_api_error_code(ApiErrorCode::UploadCapacityUnavailable)
+    if matches!(
+        error.storage_error_kind(),
+        Some(
+            aster_drive_storage::StorageErrorKind::Transient
+                | aster_drive_storage::StorageErrorKind::RateLimited
+        )
+    ) {
+        return error.with_api_error_code(ApiErrorCode::UploadCapacityUnavailable);
+    }
+    if matches!(&error, AsterError::InternalError(_)) {
+        return AsterError::from(aster_drive_storage::storage_driver_error(
+            aster_drive_storage::StorageErrorKind::Transient,
+            format!("capacity probe coordination failed: {}", error.message()),
+        ))
+        .with_api_error_code(ApiErrorCode::UploadCapacityUnavailable);
+    }
+    error
 }
 
 async fn resolve_upload_target(
@@ -855,13 +871,77 @@ pub(super) fn chunked_upload_response(
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_multipart_upload_with_capabilities, session_kind_for_transport};
+    use super::{
+        capacity_unavailable_error, plan_multipart_upload_with_capabilities,
+        session_kind_for_transport,
+    };
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::errors::AsterError;
     use crate::services::workspace::storage::PolicyUploadTransport;
     use aster_drive_model::types::{
         ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
         UploadSessionKind, UploadTransport,
     };
     use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
+
+    #[test]
+    fn capacity_error_normalization_only_marks_transient_probe_failures_retryable() {
+        for error in [
+            AsterError::internal_error("probe completed without publishing an observation"),
+            AsterError::from(aster_drive_storage::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Transient,
+                "provider timeout",
+            )),
+            AsterError::from(aster_drive_storage::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::RateLimited,
+                "provider throttled",
+            )),
+        ] {
+            let normalized = capacity_unavailable_error(7, error);
+            assert_eq!(
+                normalized.api_error_code(),
+                ApiErrorCode::UploadCapacityUnavailable
+            );
+            assert_eq!(
+                normalized.http_status(),
+                actix_web::http::StatusCode::SERVICE_UNAVAILABLE
+            );
+            assert!(normalized.api_error_info().retryable);
+            assert!(matches!(
+                normalized.storage_error_kind(),
+                Some(
+                    aster_drive_storage::StorageErrorKind::Transient
+                        | aster_drive_storage::StorageErrorKind::RateLimited
+                )
+            ));
+        }
+
+        for (error, expected_code, expected_status) in [
+            (
+                AsterError::validation_error("negative required bytes"),
+                ApiErrorCode::BadRequest,
+                actix_web::http::StatusCode::BAD_REQUEST,
+            ),
+            (
+                AsterError::precondition_failed("remote node is disabled"),
+                ApiErrorCode::PreconditionFailed,
+                actix_web::http::StatusCode::PRECONDITION_FAILED,
+            ),
+            (
+                AsterError::from(aster_drive_storage::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
+                    "invalid probe policy",
+                )),
+                ApiErrorCode::StorageMisconfigured,
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            let preserved = capacity_unavailable_error(7, error);
+            assert_eq!(preserved.api_error_code(), expected_code);
+            assert_eq!(preserved.http_status(), expected_status);
+            assert!(!preserved.api_error_info().retryable);
+        }
+    }
 
     fn capabilities(
         min_part_size: u64,

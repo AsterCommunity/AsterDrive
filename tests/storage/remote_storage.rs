@@ -737,6 +737,12 @@ async fn seed_remote_capabilities(
     state.driver_registry.invalidate_all();
 }
 
+fn remote_capabilities_without_capacity_endpoint() -> RemoteStorageCapabilities {
+    let mut capabilities = RemoteStorageCapabilities::current();
+    capabilities.supports_capacity = false;
+    capabilities
+}
+
 async fn set_policy_max_file_size(
     state: &aster_drive::runtime::PrimaryAppState,
     policy: &storage_policy::Model,
@@ -1725,7 +1731,7 @@ async fn setup_browser_presigned_cors_fixture(
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current(),
+        remote_capabilities_without_capacity_endpoint(),
     )
     .await;
 
@@ -7741,7 +7747,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current(),
+        remote_capabilities_without_capacity_endpoint(),
     )
     .await;
 
@@ -8583,7 +8589,7 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current(),
+        remote_capabilities_without_capacity_endpoint(),
     )
     .await;
 
@@ -8703,7 +8709,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current(),
+        remote_capabilities_without_capacity_endpoint(),
     )
     .await;
 

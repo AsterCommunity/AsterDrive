@@ -5069,6 +5069,86 @@ async fn resumed_staged_chunk_recreates_unstarted_reservation_after_init_crash()
 }
 
 #[tokio::test]
+async fn staged_completion_is_not_blocked_by_another_unrecoverable_reservation() {
+    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+
+    let base_state = common::setup().await;
+    let mut config = (*base_state.config).clone();
+    config.server.upload_temp_min_free_bytes = u64::MAX;
+    let state = aster_drive::runtime::PrimaryAppState {
+        config: Arc::new(config),
+        ..base_state
+    };
+    let user = common::create_test_account(
+        &state,
+        "stageisolated",
+        "staging-isolated@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let current_id = new_test_upload_id();
+    let blocked_id = new_test_upload_id();
+    for upload_id in [&current_id, &blocked_id] {
+        create_upload_session(
+            &state,
+            user.id,
+            UploadSessionSpec::new(
+                upload_id,
+                UploadSessionStatus::Uploading,
+                chrono::Utc::now() + chrono::Duration::hours(1),
+                UploadSessionKind::OffsetStaging,
+            )
+            .chunks(2, if upload_id == &current_id { 2 } else { 0 }),
+        )
+        .await;
+        let dir = aster_forge_utils::paths::upload_temp_dir(
+            &state.config.server.upload_temp_dir,
+            upload_id,
+        );
+        tokio::fs::create_dir_all(dir).await.unwrap();
+        let path = upload::test_support::offset_staging_file_path(
+            &state.config.server.upload_temp_dir,
+            upload_id,
+        );
+        let mut file = std::fs::File::create(path).unwrap();
+        file.set_len(10).unwrap();
+        if upload_id == &current_id {
+            fs2::FileExt::allocate(&file, 10).unwrap();
+            std::io::Write::write_all(&mut file, b"1234567890").unwrap();
+        }
+    }
+    for part_number in [1, 2] {
+        upload_session_part_repo::upsert_part(
+            state.writer_db(),
+            &current_id,
+            part_number,
+            upload::test_support::offset_staging_receipt_etag(),
+            5,
+        )
+        .await
+        .unwrap();
+    }
+
+    let completed = upload::complete_upload(&state, &current_id, user.id, None)
+        .await
+        .expect("another session's failed recovery must not block current completion");
+
+    assert_eq!(completed.size, 10);
+    assert!(
+        aster_drive::db::repository::upload_session_repo::find_by_id(
+            state.writer_db(),
+            &blocked_id,
+        )
+        .await
+        .is_ok(),
+        "the unrelated session must remain available for cancel or expiry cleanup"
+    );
+}
+
+#[tokio::test]
 async fn concurrent_staged_init_creates_independent_physical_reservations() {
     use aster_drive::services::files::upload;
 
@@ -5447,7 +5527,11 @@ async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
     let error = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .expect_err("missing explicit staging file must fail completion");
-    assert!(error.message().contains("stat chunk staging file"));
+    assert!(
+        error
+            .message()
+            .contains("staging reservation file is missing")
+    );
 }
 
 #[tokio::test]

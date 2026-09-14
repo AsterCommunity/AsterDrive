@@ -2,7 +2,7 @@
 
 This document captures the provider-resumable upload finalization contract. The complete upload service still owns session-kind validation, quota accounting, verified blob finalization, retry behavior, and cleanup. This page records the storage-path rules consumed by both frontend-direct and server-relay provider sessions.
 
-All non-empty file uploads now start with an upload session that freezes filename, MIME type, declared size, placement, policy, and transport before consuming content. The legacy ordinary HTTP multipart upload endpoint has been removed.
+All non-empty uploads through the public file-upload API now start at `/files/upload/init`, which creates a session that freezes filename, MIME type, declared size, placement, policy, and transport before consuming content. The legacy ordinary HTTP multipart upload endpoint has been removed. The regular multipart/server, local-direct, and streaming-direct entries later in the matrix are internal upload/workspace-storage data planes without independent public HTTP entry points; a session body may delegate to the internal streaming-direct path after Init.
 
 ## Upload Capacity Admission
 

@@ -1,6 +1,6 @@
 # 上传完成契约矩阵
 
-本文档记录 AsterDrive 当前上传链路的完成契约。非空文件统一使用 upload session：先由 `upload::plan` 固化文件名、MIME、大小、placement、policy 和 transport，再由 stream body、chunk、presigned 或 provider-resumable 数据面写入，最后在上传服务内完成收口。旧的普通 HTTP multipart 上传入口已经移除。
+本文档记录 AsterDrive 当前上传链路的完成契约。公开文件上传 API 的非空文件统一从 `/files/upload/init` 创建 upload session：先由 `upload::plan` 固化文件名、MIME、大小、placement、policy 和 transport，再由 stream body、chunk、presigned 或 provider-resumable 数据面写入，最后在上传服务内完成收口。旧的普通 HTTP multipart 上传入口已经移除。后文矩阵中的 regular multipart/server path、local direct 和 streaming direct 是 upload/workspace storage 内部数据面，没有独立公开 HTTP 入口；session body 可以在 Init 后委托给 streaming direct 内部路径。
 
 最终落文件时必须保持三个不变量：
 

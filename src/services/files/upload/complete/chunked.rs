@@ -38,13 +38,13 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = state.writer_db();
-    staging::ensure_reservations_recovered(state).await?;
     let created = run_upload_completion_stage(
         db,
         &session,
         UploadSessionStatus::Uploading,
         "completed upload session",
         async {
+            staging::ensure_session_reservation(state, &session).await?;
             let policy = state
                 .policy_snapshot()
                 .get_policy_or_err(session.policy_id)?;

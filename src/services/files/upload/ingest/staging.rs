@@ -139,6 +139,87 @@ pub(crate) async fn ensure_reservations_recovered(
     Ok(())
 }
 
+pub(crate) async fn ensure_session_reservation(
+    state: &crate::runtime::PrimaryAppState,
+    session: &upload_session::Model,
+) -> Result<()> {
+    let root = PathBuf::from(&state.config().server.upload_temp_dir);
+    let _admission = state.driver_registry().staging_capacity().lock().await;
+    ensure_staging_root(&root).await?;
+    let path = PathBuf::from(file_path(state, &session.id));
+    if !tokio::fs::try_exists(&path).await.map_aster_err_ctx(
+        "inspect current staging reservation",
+        |message| {
+            crate::errors::upload_assembly_error_with_code(
+                ApiErrorCode::UploadAssemblyIoFailed,
+                message,
+            )
+        },
+    )? {
+        return Err(crate::errors::upload_assembly_error_with_code(
+            ApiErrorCode::UploadAssemblyIoFailed,
+            "current upload staging reservation file is missing",
+        ));
+    }
+    let metadata = tokio::fs::metadata(&path).await.map_aster_err_ctx(
+        "inspect current staging reservation size",
+        |message| {
+            crate::errors::upload_assembly_error_with_code(
+                ApiErrorCode::UploadAssemblyIoFailed,
+                message,
+            )
+        },
+    )?;
+    let expected_size = i64_to_u64(session.total_size, "chunk staging total size")?;
+    if !metadata.is_file() || metadata.len() != expected_size {
+        return Err(crate::errors::upload_assembly_error_with_code(
+            ApiErrorCode::UploadAssemblyIoFailed,
+            format!(
+                "current upload staging file size mismatch: expected {expected_size}, got {}",
+                metadata.len()
+            ),
+        ));
+    }
+    match physically_allocate(
+        &root,
+        &path,
+        session.total_size,
+        false,
+        staging_safety_floor(state),
+    )
+    .await
+    {
+        Ok(PhysicalAllocation::Allocated { additional_bytes }) => {
+            if additional_bytes > 0 {
+                state
+                    .metrics()
+                    .record_upload_staging_capacity_admission("recovered");
+            }
+            Ok(())
+        }
+        Ok(PhysicalAllocation::Insufficient {
+            additional_bytes,
+            available_bytes,
+            safety_floor_bytes,
+        }) => {
+            state
+                .metrics()
+                .record_upload_staging_capacity_admission("insufficient");
+            Err(staging_capacity_insufficient_error(
+                additional_bytes,
+                available_bytes,
+                safety_floor_bytes,
+            ))
+        }
+        Err(error) => {
+            state
+                .metrics()
+                .record_upload_staging_capacity_admission("unavailable");
+            Err(error)
+        }
+    }
+}
+
 async fn ensure_staging_root(root: &StdPath) -> Result<()> {
     tokio::fs::create_dir_all(root)
         .await
@@ -211,12 +292,13 @@ async fn recover_active_reservations(
             },
         )?;
         if !exists && session.received_count > 0 {
-            tracing::warn!(
-                upload_id = %session.id,
-                received_count = session.received_count,
-                "active staged upload is missing its reservation file"
-            );
-            continue;
+            return Err(crate::errors::upload_assembly_error_with_code(
+                ApiErrorCode::UploadSessionCorrupted,
+                format!(
+                    "active staged upload {} has {} receipt(s) but its reservation file is missing",
+                    session.id, session.received_count
+                ),
+            ));
         }
         if !exists {
             let session_temp_dir =
