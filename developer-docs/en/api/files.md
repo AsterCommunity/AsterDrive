@@ -71,6 +71,10 @@ The frontend never sees an additional `relay_stream` mode. Actual transfer strat
 - `relay_stream`: `init` returns `stream` / `chunked`; the server relays bytes straight to object storage or a follower
 - `presigned`: `init` returns `presigned` / `presigned_multipart`
 
+Before creating a session, provider upload, or directory side effect, init performs target-capacity admission. Local, OneDrive, and Remote targets that advertise capacity observation use their current available bytes: an exact fit is accepted, while a conclusively insufficient target is excluded and placement tries the next candidate. Exhausting conclusively insufficient candidates returns `upload.target_capacity_insufficient` (HTTP 507). An unavailable observation with no remaining target returns retryable `upload.capacity_unavailable` (HTTP 503). S3-compatible, OSS, COS, Qiniu, Huawei OBS, Azure Blob, and SFTP have no portable capacity API; `unsupported` is a normal capability result and init proceeds while relying on the actual data-plane outcome.
+
+Capacity admission is a fast-fail snapshot, not a cross-request space reservation. The final workspace quota remains protected by the completion transaction's SQL CAS. Capacity-probe caching/coalescing and physical staged-space reservation remain tracked by Issue #593.
+
 Object-storage and remote uploads fall back to `relay_stream` by default. Legacy `{"presigned_upload":true}` and `{"s3_upload_strategy":"presigned"}` are accepted as compatibility inputs for object-storage presigned upload; new clients should send `{"object_storage_upload_strategy":"presigned"}`.
 
 Presigned browser uploads require usable CORS on the object storage or follower internal storage endpoint. Azure Blob presigned upload uses SAS URLs and requires `x-ms-blob-type: BlockBlob`; S3-compatible, Tencent COS, and Remote multipart parts usually require returned ETags. Remote presigned upload only works for directly reachable remote nodes; reverse-tunnel remote nodes reject `remote_upload_strategy = "presigned"`.

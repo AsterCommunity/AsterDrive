@@ -298,6 +298,9 @@ define_errors! {
 
     // ========== E064: 资源或请求语义冲突 ==========
     Conflict("E064", "Conflict"),
+
+    // ========== E065: 上传容量准入 ==========
+    UploadTargetCapacityInsufficient("E065", "Upload Target Capacity Insufficient"),
 }
 
 impl AsterError {
@@ -370,16 +373,21 @@ impl AsterError {
             Self::ResourceLocked(_) => ApiErrorCode::ResourceLocked,
             Self::PreconditionFailed(_) => ApiErrorCode::PreconditionFailed,
             Self::UploadAssembling(_) => ApiErrorCode::UploadAssembling,
+            Self::UploadTargetCapacityInsufficient(_) => {
+                ApiErrorCode::UploadTargetCapacityInsufficient
+            }
         }
     }
 
     pub(crate) fn api_error_retryable(&self) -> bool {
         match self {
             Self::RateLimited(_) | Self::UploadAssembling(_) => true,
-            Self::StorageDriverError(_) => matches!(
-                self.storage_error_kind(),
-                Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited)
-            ),
+            Self::StorageDriverError(_) => {
+                matches!(
+                    self.storage_error_kind(),
+                    Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited)
+                ) || self.api_error_code_override() == Some(ApiErrorCode::UploadCapacityUnavailable)
+            }
             _ => false,
         }
     }
@@ -421,6 +429,13 @@ impl AsterError {
             Self::PreconditionFailed(_) => StatusCode::PRECONDITION_FAILED,
 
             Self::UploadAssembling(_) => StatusCode::ACCEPTED,
+            Self::UploadTargetCapacityInsufficient(_) => StatusCode::INSUFFICIENT_STORAGE,
+            Self::StorageDriverError(_)
+                if self.api_error_code_override()
+                    == Some(ApiErrorCode::UploadCapacityUnavailable) =>
+            {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::RecordNotFound(_)
             | Self::FileNotFound(_)
             | Self::StoragePolicyNotFound(_)
@@ -702,9 +717,16 @@ impl AsterError {
             // 507 在这里表示用户配额耗尽，属于可预期业务限制，不按服务故障记录。
             Self::StorageQuotaExceeded(_)
             | Self::OperationResourceLimitExceeded(_)
+            | Self::UploadTargetCapacityInsufficient(_)
             | Self::RateLimited(_)
             | Self::MailNotConfigured(_)
             | Self::MailDeliveryFailed(_) => ResponseLogLevel::Warn,
+            Self::StorageDriverError(_)
+                if self.api_error_code_override()
+                    == Some(ApiErrorCode::UploadCapacityUnavailable) =>
+            {
+                ResponseLogLevel::Warn
+            }
             _ => {
                 let status = self.http_status();
                 if status.is_server_error() {
@@ -1208,6 +1230,34 @@ mod tests {
         let err = AsterError::storage_quota_exceeded("quota 1024, used 1000, need 100");
         assert_eq!(err.http_status(), StatusCode::INSUFFICIENT_STORAGE);
         assert_eq!(err.response_log_level(), ResponseLogLevel::Warn);
+    }
+
+    #[test]
+    fn upload_capacity_errors_have_stable_status_retry_and_logging_semantics() {
+        let insufficient = AsterError::upload_target_capacity_insufficient(
+            "target has 9 bytes available but upload requires 10 bytes",
+        );
+        assert_eq!(insufficient.code(), "E065");
+        assert_eq!(
+            insufficient.api_error_code(),
+            ApiErrorCode::UploadTargetCapacityInsufficient
+        );
+        assert_eq!(insufficient.http_status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert!(!insufficient.api_error_info().retryable);
+        assert_eq!(insufficient.response_log_level(), ResponseLogLevel::Warn);
+
+        let unavailable = AsterError::from(aster_drive_storage::StorageError::new(
+            StorageErrorKind::Transient,
+            "capacity probe timed out",
+        ))
+        .with_api_error_code(ApiErrorCode::UploadCapacityUnavailable);
+        assert_eq!(
+            unavailable.api_error_code(),
+            ApiErrorCode::UploadCapacityUnavailable
+        );
+        assert_eq!(unavailable.http_status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(unavailable.api_error_info().retryable);
+        assert_eq!(unavailable.response_log_level(), ResponseLogLevel::Warn);
     }
 
     #[test]

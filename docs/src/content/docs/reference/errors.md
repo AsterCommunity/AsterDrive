@@ -161,6 +161,8 @@ Passkey 相关错误：
 - `upload.chunk_number_out_of_range` / `upload.part_number_out_of_range` / `upload.part_numbers_too_many`：客户端提交的分片编号不符合规则。
 - `upload.chunk_size_mismatch` / `upload.request_size_mismatch` / `upload.final_object_size_mismatch`：声明大小和实际大小不一致。
 - `upload.temp_dir_create_failed`、`upload.temp_file_write_failed`、`upload.local_staging_write_failed`、`upload.assembly_io_failed`：服务器临时目录、暂存区或磁盘写入失败。
+- `upload.target_capacity_insufficient`：已检查的 placement 候选均明确缺少声明上传大小所需的容量；需要释放容量或配置其他 eligible target。
+- `upload.capacity_unavailable`：目标本应支持容量观测，但本次未得到可用结论且没有剩余 fallback target；目标恢复后重试。
 
 用户可以先重试一次。反复失败时，管理员重点查：
 

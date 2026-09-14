@@ -70,10 +70,41 @@ pub(crate) async fn resolve_blob_policy_for_write(
     resolve_blob_policy_for_write_on(state, state.writer_db(), request).await
 }
 
+pub(crate) async fn resolve_blob_policy_for_write_with_exclusions(
+    state: &PrimaryAppState,
+    request: BlobPolicyRequest<'_>,
+    dynamic_exclusions: &[(
+        i64,
+        crate::services::storage_policy::policy::placement::TargetExclusionReason,
+    )],
+) -> Result<BlobPolicyResolution> {
+    resolve_blob_policy_for_write_on_internal(
+        state,
+        state.writer_db(),
+        request,
+        dynamic_exclusions,
+        false,
+    )
+    .await
+}
+
 pub(crate) async fn resolve_blob_policy_for_write_on<C: sea_orm::ConnectionTrait>(
     state: &PrimaryAppState,
     db: &C,
     request: BlobPolicyRequest<'_>,
+) -> Result<BlobPolicyResolution> {
+    resolve_blob_policy_for_write_on_internal(state, db, request, &[], true).await
+}
+
+async fn resolve_blob_policy_for_write_on_internal<C: sea_orm::ConnectionTrait>(
+    state: &PrimaryAppState,
+    db: &C,
+    request: BlobPolicyRequest<'_>,
+    dynamic_exclusions: &[(
+        i64,
+        crate::services::storage_policy::policy::placement::TargetExclusionReason,
+    )],
+    record_routing: bool,
 ) -> Result<BlobPolicyResolution> {
     if let Some(existing_file_id) = request.existing_file_id {
         let file = crate::services::workspace::scope::verify_file_access(
@@ -101,11 +132,10 @@ pub(crate) async fn resolve_blob_policy_for_write_on<C: sea_orm::ConnectionTrait
     let (policy, routing_decision) = resolve_new_blob_policy_from_snapshot(
         state,
         db,
-        request.scope,
+        &request,
         folder_hint,
-        request.filename,
-        request.file_size,
-        request.mime_type,
+        dynamic_exclusions,
+        record_routing,
     )
     .await?;
     Ok(BlobPolicyResolution {
@@ -150,16 +180,18 @@ impl From<folder::Model> for VerifiedFolderPolicyHint {
 async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
     state: &impl SharedRuntimeState,
     fallback_db: &C,
-    scope: WorkspaceStorageScope,
+    request: &BlobPolicyRequest<'_>,
     folder: Option<VerifiedFolderPolicyHint>,
-    filename: &str,
-    file_size: i64,
-    mime_type: &str,
+    dynamic_exclusions: &[(
+        i64,
+        crate::services::storage_policy::policy::placement::TargetExclusionReason,
+    )],
+    record_routing: bool,
 ) -> Result<(
     aster_drive_model::entities::storage_policy::Model,
     StorageRoutingDecision,
 )> {
-    let profile_id = match scope {
+    let profile_id = match request.scope {
         WorkspaceStorageScope::Personal { user_id } => state
             .policy_snapshot()
             .require_user_policy_group_id(user_id)?,
@@ -179,8 +211,12 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
             }
         },
     };
-    let context =
-        StoragePlacementContext::from_filename(profile_id, filename, file_size, mime_type);
+    let context = StoragePlacementContext::from_filename(
+        profile_id,
+        request.filename,
+        request.file_size,
+        request.mime_type,
+    );
     let folder_override = folder
         .and_then(|hint| hint.policy_id())
         .map(|policy_id| -> Result<FolderPlacementOverride> {
@@ -196,54 +232,66 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
         .transpose()?;
     if let Some(folder) = folder_override.as_ref()
         && folder.policy_max_file_size > 0
-        && file_size > folder.policy_max_file_size
+        && request.file_size > folder.policy_max_file_size
     {
         return Err(AsterError::file_too_large(format!(
             "file size {} exceeds limit {}",
-            file_size, folder.policy_max_file_size
+            request.file_size, folder.policy_max_file_size
         )));
     }
-    let decision = match state.policy_snapshot().resolve_placement(
+    let decision = match state.policy_snapshot().resolve_placement_with_exclusions(
         profile_id,
         &context,
         folder_override.as_ref(),
+        dynamic_exclusions,
     ) {
         Ok(decision) => decision,
         Err(error) => {
-            state.metrics().record_storage_routing("none", error.code());
-            state.metrics().record_storage_routing_detail(
-                &profile_id.to_string(),
-                "none",
-                "none",
-                "none",
-                error.code(),
-            );
+            if record_routing {
+                state.metrics().record_storage_routing("none", error.code());
+                state.metrics().record_storage_routing_detail(
+                    &profile_id.to_string(),
+                    "none",
+                    "none",
+                    "none",
+                    error.code(),
+                );
+            }
             return Err(error);
         }
     };
-    state.metrics().record_storage_routing(
-        decision.selection_mode.as_str(),
-        if decision.folder_override {
-            "folder_override"
-        } else {
-            "selected"
-        },
-    );
+    if record_routing {
+        record_storage_routing_decision(state, &decision);
+    }
+    let policy = state
+        .policy_snapshot()
+        .get_policy_or_err(decision.policy_id)?;
+    Ok((policy, decision))
+}
+
+pub(crate) fn record_storage_routing_decision(
+    state: &impl SharedRuntimeState,
+    decision: &StorageRoutingDecision,
+) {
+    let outcome = if decision.folder_override {
+        "folder_override"
+    } else if decision.excluded_targets.is_empty() {
+        "selected"
+    } else {
+        "target_fallback"
+    };
+    state
+        .metrics()
+        .record_storage_routing(decision.selection_mode.as_str(), outcome);
     let rule_id = decision
         .rule_id
         .map_or_else(|| "none".to_string(), |id| id.to_string());
-    let profile_id = decision.profile_id.to_string();
-    let policy_id = decision.policy_id.to_string();
     state.metrics().record_storage_routing_detail(
-        &profile_id,
+        &decision.profile_id.to_string(),
         &rule_id,
-        &policy_id,
+        &decision.policy_id.to_string(),
         decision.selection_mode.as_str(),
-        if decision.folder_override {
-            "folder_override"
-        } else {
-            "selected"
-        },
+        outcome,
     );
     tracing::debug!(
         placement_profile_id = decision.profile_id,
@@ -255,10 +303,6 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
         excluded_target_count = decision.excluded_targets.len(),
         "storage placement decision selected"
     );
-    let policy = state
-        .policy_snapshot()
-        .get_policy_or_err(decision.policy_id)?;
-    Ok((policy, decision))
 }
 
 pub(crate) async fn resolve_verified_folder_policy_hint(

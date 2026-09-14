@@ -657,6 +657,17 @@ pub(crate) fn streaming_direct_upload_eligible(
         .supports_streaming_direct_upload(policy, declared_size))
 }
 
+pub(crate) fn policy_supports_capacity_observation(
+    registry: &StorageConnectorRegistry,
+    policy: &storage_policy::Model,
+) -> Result<bool> {
+    Ok(registry
+        .require_policy(policy)?
+        .descriptor()
+        .capabilities
+        .capacity)
+}
+
 pub(crate) async fn cleanup_snapshot_for_policy<S: StorageConnectorRuntimeState + Sync>(
     registry: &StorageConnectorRegistry,
     state: &S,

@@ -463,18 +463,17 @@ fn migration_capacity_check(
     capacity: &aster_drive_storage::StorageCapacityInfo,
     required_bytes: i64,
 ) -> StoragePolicyMigrationCapacityCheck {
-    match capacity.status {
-        aster_drive_storage::StorageCapacityStatus::Supported => match capacity.available_bytes {
-            Some(available) if available >= required_bytes => {
-                StoragePolicyMigrationCapacityCheck::Sufficient
-            }
-            Some(_) => StoragePolicyMigrationCapacityCheck::Insufficient,
-            None => StoragePolicyMigrationCapacityCheck::Unavailable,
-        },
-        aster_drive_storage::StorageCapacityStatus::Unsupported => {
+    match capacity.assess(required_bytes) {
+        aster_drive_storage::StorageCapacityAssessment::Sufficient { .. } => {
+            StoragePolicyMigrationCapacityCheck::Sufficient
+        }
+        aster_drive_storage::StorageCapacityAssessment::Insufficient { .. } => {
+            StoragePolicyMigrationCapacityCheck::Insufficient
+        }
+        aster_drive_storage::StorageCapacityAssessment::Unsupported => {
             StoragePolicyMigrationCapacityCheck::Unsupported
         }
-        aster_drive_storage::StorageCapacityStatus::Unavailable => {
+        aster_drive_storage::StorageCapacityAssessment::Unavailable => {
             StoragePolicyMigrationCapacityCheck::Unavailable
         }
     }

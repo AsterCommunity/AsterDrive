@@ -366,6 +366,33 @@ impl PolicySnapshot {
         })
     }
 
+    pub fn resolve_placement_with_exclusions(
+        &self,
+        profile_id: i64,
+        context: &crate::services::storage_policy::policy::placement::StoragePlacementContext,
+        folder_override: Option<
+            &crate::services::storage_policy::policy::placement::FolderPlacementOverride,
+        >,
+        dynamic_exclusions: &[(
+            i64,
+            crate::services::storage_policy::policy::placement::TargetExclusionReason,
+        )],
+    ) -> Result<crate::services::storage_policy::policy::placement::StorageRoutingDecision> {
+        let profile = self.get_placement_profile(profile_id).ok_or_else(|| {
+            AsterError::storage_policy_not_found(format!("placement profile #{profile_id}"))
+        })?;
+        crate::services::storage_policy::policy::placement::resolve_placement_with_exclusions(
+            &profile,
+            context,
+            folder_override,
+            dynamic_exclusions,
+            None,
+        )
+        .map_err(|rejection| {
+            AsterError::validation_error(format!("{}: {}", rejection.code(), profile_id))
+        })
+    }
+
     pub fn resolve_team_policy_group_id(&self, team_id: i64) -> Option<i64> {
         self.snapshot
             .read()

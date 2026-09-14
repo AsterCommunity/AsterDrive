@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Capacity-aware upload placement** — Upload initialization now classifies target capacity as sufficient, insufficient, unsupported, or unavailable before creating sessions or provider-side state. Conclusively insufficient and temporarily unavailable targets participate in the existing placement fallback rules, while connectors without a portable capacity API skip runtime probes and rely on the data-plane result. Exhausted candidates return distinct stable 507 or retryable 503 errors; upload data-plane and capacity outcomes are observable without high-cardinality labels.
+
 - **Unified external-auth callback URI** — New providers use `/api/v1/auth/external-auth/callback` by default, while upgraded providers remain on the persisted legacy callback mode until an administrator registers both URIs and explicitly switches modes. Login flows snapshot the exact redirect URI used at start; the legacy route remains available during migration and is scheduled for removal in 1.0.0.
 
 - **Bounded integrity aggregation** — `doctor --deep` now compares storage usage in bounded owner pages, blob reference counts in bounded blob pages, and folder integrity per workspace scope with bounded parent-chain cycle checks and sampled findings. The admin Blob maintenance task reuses the same per-page reference-count calculation, while storage-object reports retain exact totals with bounded in-memory path batches and samples; remote listings stream page results through the driver and follower endpoint. Existing task progress and repair semantics are preserved.

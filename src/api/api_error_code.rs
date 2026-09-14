@@ -79,6 +79,8 @@ define_api_error_codes! {
     UploadSessionExpired => "upload.session_expired",
     ChunkUploadFailed => "upload.chunk_failed",
     UploadAssemblyFailed => "upload.assembly_failed",
+    UploadTargetCapacityInsufficient => "upload.target_capacity_insufficient",
+    UploadCapacityUnavailable => "upload.capacity_unavailable",
     ThumbnailFailed => "thumbnail.failed",
     ResourceLocked => "resource.locked",
     PreconditionFailed => "precondition_failed",

@@ -144,12 +144,17 @@ impl<R: AsyncRead + Unpin> AsyncRead for ExactSizeReader<R> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum StorageCapacityStatus {
+    /// The backend exposes a meaningful capacity observation for this configured storage space.
     Supported,
+    /// The backend has no reliable, portable capacity observation API. This is a stable
+    /// capability result, not a transient failure, and callers may continue by policy.
     Unsupported,
+    /// The backend normally exposes capacity, but the current observation did not provide usable
+    /// capacity data. Callers should treat this as an inconclusive, potentially retryable result.
     Unavailable,
 }
 
@@ -257,6 +262,27 @@ pub struct StorageCapacityInfo {
     pub observed_at: DateTime<Utc>,
 }
 
+/// Result of comparing one capacity observation with the bytes required by an operation.
+///
+/// This is deliberately separate from reservation: capacity observations are snapshots and
+/// cannot guarantee that another writer will not consume space before the data plane commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageCapacityAssessment {
+    /// The observation is conclusive and the currently available bytes cover the requested size.
+    Sufficient { available_bytes: i64 },
+    /// The observation is conclusive and the requested size exceeds the currently available bytes.
+    Insufficient {
+        required_bytes: i64,
+        available_bytes: i64,
+    },
+    /// This backend does not expose a reliable capacity observation. This does not imply that the
+    /// write will fail; the caller may continue and rely on the data-plane result.
+    Unsupported,
+    /// Capacity should be observable, but the current probe failed or returned incomplete data.
+    /// The caller has no capacity conclusion and should retry or select another target.
+    Unavailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadCapabilities {
     /// Provider 标识，例如 `microsoft_graph`。
@@ -347,6 +373,24 @@ impl StorageCapacityInfo {
             used_bytes: None,
             source: source.into(),
             observed_at: Utc::now(),
+        }
+    }
+
+    /// Compare this observation with an operation's required bytes without implying a reservation.
+    pub fn assess(&self, required_bytes: i64) -> StorageCapacityAssessment {
+        match self.status {
+            StorageCapacityStatus::Supported => match self.available_bytes {
+                Some(available_bytes) if available_bytes >= required_bytes => {
+                    StorageCapacityAssessment::Sufficient { available_bytes }
+                }
+                Some(available_bytes) => StorageCapacityAssessment::Insufficient {
+                    required_bytes,
+                    available_bytes,
+                },
+                None => StorageCapacityAssessment::Unavailable,
+            },
+            StorageCapacityStatus::Unsupported => StorageCapacityAssessment::Unsupported,
+            StorageCapacityStatus::Unavailable => StorageCapacityAssessment::Unavailable,
         }
     }
 }
@@ -534,8 +578,8 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExactSizeReader, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-        checked_upload_size,
+        ExactSizeReader, StorageCapacityAssessment, StorageCapacityInfo, StorageCapacityStatus,
+        StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, checked_upload_size,
     };
     use crate::error::{Result, StorageErrorKind};
     use async_trait::async_trait;
@@ -586,6 +630,50 @@ mod tests {
             i64::MAX as u64
         );
         assert!(checked_upload_size(-1, "size").is_err());
+    }
+
+    fn capacity(
+        status: StorageCapacityStatus,
+        available_bytes: Option<i64>,
+    ) -> StorageCapacityInfo {
+        StorageCapacityInfo {
+            status,
+            total_bytes: None,
+            available_bytes,
+            used_bytes: None,
+            source: "test".to_string(),
+            observed_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn capacity_assessment_covers_exact_insufficient_and_inconclusive_boundaries() {
+        assert_eq!(
+            capacity(StorageCapacityStatus::Supported, Some(10)).assess(10),
+            StorageCapacityAssessment::Sufficient {
+                available_bytes: 10
+            }
+        );
+        assert_eq!(
+            capacity(StorageCapacityStatus::Supported, Some(9)).assess(10),
+            StorageCapacityAssessment::Insufficient {
+                required_bytes: 10,
+                available_bytes: 9,
+            }
+        );
+        assert_eq!(
+            capacity(StorageCapacityStatus::Supported, None).assess(10),
+            StorageCapacityAssessment::Unavailable
+        );
+        assert_eq!(
+            capacity(StorageCapacityStatus::Unsupported, None).assess(10),
+            StorageCapacityAssessment::Unsupported
+        );
+        assert_eq!(
+            capacity(StorageCapacityStatus::Unavailable, Some(100)).assess(10),
+            StorageCapacityAssessment::Unavailable,
+            "an unavailable status must not trust stray byte fields"
+        );
     }
     use tokio::sync::Barrier;
 

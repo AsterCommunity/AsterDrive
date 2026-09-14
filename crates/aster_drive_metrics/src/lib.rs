@@ -84,6 +84,12 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records the bounded outcome of one upload target capacity assessment.
+    fn record_upload_capacity_admission(&self, outcome: &'static str) {}
+
+    /// Records the selected upload data plane after initialization succeeds or fails.
+    fn record_upload_data_plane(&self, data_plane: &'static str, status: &'static str) {}
+
     /// Records a background-task status transition.
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {}
 
@@ -258,6 +264,18 @@ mod product {
                 "routing_details_total",
                 "Storage placement decisions by bounded topology identifiers.",
                 &["profile", "rule", "policy", "selection", "outcome"],
+            ),
+            upload_capacity_admissions: counter(
+                "upload",
+                "capacity_admissions_total",
+                "Upload target capacity assessment outcomes.",
+                &["outcome"],
+            ),
+            upload_data_planes: counter(
+                "upload",
+                "data_planes_total",
+                "Upload initialization outcomes by selected data plane.",
+                &["data_plane", "status"],
             ),
             storage_driver_operations: counter(
                 "storage_driver",
@@ -618,6 +636,18 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_upload_capacity_admission(&self, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product.upload_capacity_admissions.inc(&[outcome], 1);
+        }
+    }
+
+    fn record_upload_data_plane(&self, data_plane: &'static str, status: &'static str) {
+        if let Some(product) = self.product {
+            product.upload_data_planes.inc(&[data_plane, status], 1);
+        }
+    }
+
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {
         self.forge.record_background_task_transition(kind, status);
     }
@@ -874,5 +904,34 @@ mod tests {
         assert!(body.contains("kind=\"expected\""));
         assert!(body.contains("le=\"10737418240\""));
         assert!(body.contains("stream_upload_active 0"));
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn upload_admission_metrics_use_bounded_status_labels() {
+        use std::sync::Arc;
+
+        use aster_forge_metrics::prometheus::{
+            PrometheusMetricsRecorder, export_metrics, init_metrics,
+        };
+
+        init_metrics().expect("Prometheus registry should initialize before product metrics");
+        let recorder = super::DriveMetricsRecorder::new(Arc::new(PrometheusMetricsRecorder));
+
+        for outcome in ["sufficient", "insufficient", "unsupported", "unavailable"] {
+            recorder.record_upload_capacity_admission(outcome);
+        }
+        recorder.record_upload_data_plane("streaming_direct", "success");
+        recorder.record_upload_data_plane("staged", "failure");
+
+        let body = export_metrics().expect("Drive upload admission metrics should export");
+        assert!(body.contains("upload_capacity_admissions_total"));
+        assert!(body.contains("outcome=\"sufficient\""));
+        assert!(body.contains("outcome=\"insufficient\""));
+        assert!(body.contains("outcome=\"unsupported\""));
+        assert!(body.contains("outcome=\"unavailable\""));
+        assert!(body.contains("upload_data_planes_total"));
+        assert!(body.contains("data_plane=\"streaming_direct\""));
+        assert!(body.contains("data_plane=\"staged\""));
     }
 }

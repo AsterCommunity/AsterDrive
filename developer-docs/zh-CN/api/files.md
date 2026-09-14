@@ -75,6 +75,10 @@
 - `relay_stream`：`init` 返回 `stream` / `chunked`，服务端直接把字节流中继到对象存储 / follower
 - `presigned`：`init` 才会返回 `presigned` / `presigned_multipart`
 
+init 在创建 session、provider upload 或目录副作用前执行目标容量准入。Local、OneDrive 和声明支持容量观测的 Remote target 会使用当前可用字节：恰好满足声明大小时允许；明确不足时排除当前 target，并按 placement 规则尝试后续 target。所有候选均明确不足时返回 `upload.target_capacity_insufficient`（HTTP 507）；观测暂不可用且没有后续 target 时返回可重试的 `upload.capacity_unavailable`（HTTP 503）。S3-compatible、OSS、COS、Qiniu、Huawei OBS、Azure Blob 和 SFTP 没有可移植容量接口，`unsupported` 是正常能力结果，init 会继续并由实际数据面结果兜底。
+
+容量准入是 fast-fail 快照，不是跨请求的空间 reservation；最终 workspace quota 仍由完成事务的 SQL CAS 保证。容量探测的短期缓存/请求合并，以及 staged 临时盘的物理空间 reservation，继续由 Issue #593 跟踪。
+
 缺省时对象存储和 Remote 上传都会回退为 `relay_stream`。旧配置 `{"presigned_upload":true}` 和 `{"s3_upload_strategy":"presigned"}` 仍作为兼容输入接受；新客户端应发送 `{"object_storage_upload_strategy":"presigned"}`。旧的 `{"s3_upload_strategy":"proxy_tempfile"}` 会回退为 `relay_stream`。使用预签名模式时，对象存储侧或 follower 内部存储接口还必须配置好浏览器可用的 CORS。Azure Blob 预签名上传使用 SAS URL，客户端必须带 `x-ms-blob-type: BlockBlob`；S3-compatible、Tencent COS 和 Remote multipart part 通常要求回传 ETag。Remote 预签名上传只适用于可直连的远端节点；如果远端节点解析为 reverse tunnel，服务端会拒绝 `remote_upload_strategy = "presigned"` 这类策略组合。
 
 ### Stream、分片和完成阶段

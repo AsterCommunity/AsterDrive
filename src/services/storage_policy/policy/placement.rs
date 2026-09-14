@@ -142,6 +142,10 @@ pub enum TargetExclusionReason {
     Incompatible,
     #[serde(rename = "policy_max_file_size_exceeded")]
     PolicyFileSizeExceeded,
+    #[serde(rename = "capacity_insufficient")]
+    CapacityInsufficient,
+    #[serde(rename = "capacity_unavailable")]
+    CapacityUnavailable,
 }
 
 impl TargetExclusionReason {
@@ -151,6 +155,8 @@ impl TargetExclusionReason {
             Self::Unavailable => "target_unavailable",
             Self::Incompatible => "target_incompatible",
             Self::PolicyFileSizeExceeded => "policy_max_file_size_exceeded",
+            Self::CapacityInsufficient => "capacity_insufficient",
+            Self::CapacityUnavailable => "capacity_unavailable",
         }
     }
 }
@@ -382,7 +388,27 @@ pub fn resolve_placement_with_random(
     folder_override: Option<&FolderPlacementOverride>,
     random_draw: Option<u64>,
 ) -> Result<StorageRoutingDecision, PlacementRejection> {
-    match resolve_placement_internal(profile, context, folder_override, random_draw) {
+    resolve_placement_with_exclusions(profile, context, folder_override, &[], random_draw)
+}
+
+/// Resolve placement while excluding targets discovered to be unsuitable by an outer
+/// admission phase (for example, a live capacity probe). The placement engine remains
+/// deterministic and free of driver I/O; callers may repeat this function after adding
+/// exclusions to obtain rule/target fallback behavior.
+pub fn resolve_placement_with_exclusions(
+    profile: &CompiledPlacementProfile,
+    context: &StoragePlacementContext,
+    folder_override: Option<&FolderPlacementOverride>,
+    dynamic_exclusions: &[(i64, TargetExclusionReason)],
+    random_draw: Option<u64>,
+) -> Result<StorageRoutingDecision, PlacementRejection> {
+    match resolve_placement_internal(
+        profile,
+        context,
+        folder_override,
+        dynamic_exclusions,
+        random_draw,
+    ) {
         PlacementResolution::Selected(decision) => Ok(decision),
         PlacementResolution::Rejected { rejection, .. } => Err(rejection),
     }
@@ -400,7 +426,7 @@ pub fn simulate_placement(
         compound_extension: context.compound_extension.clone(),
         category: context.category,
     };
-    match resolve_placement_internal(profile, context, folder_override, None) {
+    match resolve_placement_internal(profile, context, folder_override, &[], None) {
         PlacementResolution::Selected(decision) => StoragePlacementSimulationResult {
             classification,
             admitted: true,
@@ -428,6 +454,7 @@ fn resolve_placement_internal(
     profile: &CompiledPlacementProfile,
     context: &StoragePlacementContext,
     folder_override: Option<&FolderPlacementOverride>,
+    dynamic_exclusions: &[(i64, TargetExclusionReason)],
     random_draw: Option<u64>,
 ) -> PlacementResolution {
     let rejected = |rejection| PlacementResolution::Rejected {
@@ -451,6 +478,16 @@ fn resolve_placement_internal(
         }
         if folder.policy_max_file_size > 0 && context.file_size > folder.policy_max_file_size {
             return rejected(PlacementRejection::FolderPolicyFileTooLarge);
+        }
+        if let Some((_, reason)) = dynamic_exclusions
+            .iter()
+            .find(|(policy_id, _)| *policy_id == folder.policy_id)
+        {
+            return PlacementResolution::Rejected {
+                rejection: PlacementRejection::NoEligibleTarget,
+                evaluated_rules: Vec::new(),
+                excluded_targets: vec![(folder.policy_id, *reason)],
+            };
         }
         return PlacementResolution::Selected(StorageRoutingDecision {
             profile_id: profile.id,
@@ -483,7 +520,11 @@ fn resolve_placement_internal(
         });
         let mut eligible = Vec::new();
         for target in &rule.targets {
-            match target.eligible_for(context.file_size) {
+            let dynamic_exclusion = dynamic_exclusions
+                .iter()
+                .find(|(policy_id, _)| *policy_id == target.policy_id)
+                .map(|(_, reason)| *reason);
+            match dynamic_exclusion.map_or_else(|| target.eligible_for(context.file_size), Err) {
                 Ok(()) => eligible.push(target),
                 Err(reason) => excluded_targets.push((target.policy_id, reason)),
             }
@@ -848,6 +889,130 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_capacity_exclusion_uses_next_target_in_stable_order() {
+        let mut profile = profile();
+        profile.rules[0].targets.push(PlacementTarget {
+            id: 2,
+            policy_id: 102,
+            weight: 100,
+            stable_order: 2,
+            accepting_new_writes: true,
+            policy_max_file_size: 0,
+            exclusion: None,
+        });
+
+        let decision = resolve_placement_with_exclusions(
+            &profile,
+            &context("file.bin", 10),
+            None,
+            &[(101, TargetExclusionReason::CapacityInsufficient)],
+            None,
+        )
+        .expect("second target should be selected");
+
+        assert_eq!(decision.policy_id, 102);
+        assert_eq!(
+            decision.excluded_targets,
+            vec![(101, TargetExclusionReason::CapacityInsufficient)]
+        );
+    }
+
+    #[test]
+    fn dynamic_capacity_exclusion_respects_reject_and_next_rule() {
+        let mut profile = profile();
+        profile.rules.push(PlacementRule {
+            id: 12,
+            name: "Rule 2".to_string(),
+            description: String::new(),
+            priority: 2,
+            is_enabled: true,
+            matcher: PlacementMatcher::default(),
+            selection_mode: PlacementSelectionMode::FirstAvailable,
+            unavailable_behavior: PlacementUnavailableBehavior::NextRule,
+            targets: vec![PlacementTarget {
+                id: 2,
+                policy_id: 102,
+                weight: 100,
+                stable_order: 1,
+                accepting_new_writes: true,
+                policy_max_file_size: 0,
+                exclusion: None,
+            }],
+        });
+        let exclusions = [(101, TargetExclusionReason::CapacityUnavailable)];
+
+        let decision = resolve_placement_with_exclusions(
+            &profile,
+            &context("file.bin", 10),
+            None,
+            &exclusions,
+            None,
+        )
+        .expect("next-rule behavior should fall through");
+        assert_eq!(decision.policy_id, 102);
+
+        profile.rules[0].unavailable_behavior = PlacementUnavailableBehavior::Reject;
+        assert_eq!(
+            resolve_placement_with_exclusions(
+                &profile,
+                &context("file.bin", 10),
+                None,
+                &exclusions,
+                None,
+            )
+            .unwrap_err(),
+            PlacementRejection::NoEligibleTarget
+        );
+    }
+
+    #[test]
+    fn weighted_random_reweights_after_dynamic_capacity_exclusion() {
+        let mut profile = profile();
+        profile.rules[0].selection_mode = PlacementSelectionMode::WeightedRandom;
+        profile.rules[0].targets.push(PlacementTarget {
+            id: 2,
+            policy_id: 102,
+            weight: 1,
+            stable_order: 2,
+            accepting_new_writes: true,
+            policy_max_file_size: 0,
+            exclusion: None,
+        });
+
+        for draw in [0, 1, u64::MAX] {
+            let decision = resolve_placement_with_exclusions(
+                &profile,
+                &context("file.bin", 10),
+                None,
+                &[(101, TargetExclusionReason::CapacityInsufficient)],
+                Some(draw),
+            )
+            .expect("remaining weighted target should be selected");
+            assert_eq!(decision.policy_id, 102);
+        }
+    }
+
+    #[test]
+    fn folder_override_reports_dynamic_capacity_exclusion() {
+        let folder = FolderPlacementOverride {
+            policy_id: 202,
+            policy_max_file_size: 0,
+            is_available: true,
+        };
+        assert_eq!(
+            resolve_placement_with_exclusions(
+                &profile(),
+                &context("file.bin", 10),
+                Some(&folder),
+                &[(202, TargetExclusionReason::CapacityInsufficient)],
+                None,
+            )
+            .unwrap_err(),
+            PlacementRejection::NoEligibleTarget
+        );
+    }
+
+    #[test]
     fn compile_rejects_invalid_range_and_duplicate_extensions() {
         assert!(
             compile_matcher(PlacementMatcher {
@@ -902,6 +1067,14 @@ mod tests {
         assert_eq!(
             TargetExclusionReason::PolicyFileSizeExceeded.code(),
             "policy_max_file_size_exceeded"
+        );
+        assert_eq!(
+            TargetExclusionReason::CapacityInsufficient.code(),
+            "capacity_insufficient"
+        );
+        assert_eq!(
+            TargetExclusionReason::CapacityUnavailable.code(),
+            "capacity_unavailable"
         );
         assert_eq!(
             PlacementRejection::NoMatchingRule.code(),
@@ -1119,6 +1292,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&TargetExclusionReason::PolicyFileSizeExceeded).unwrap(),
             "\"policy_max_file_size_exceeded\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TargetExclusionReason::CapacityInsufficient).unwrap(),
+            "\"capacity_insufficient\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TargetExclusionReason::CapacityUnavailable).unwrap(),
+            "\"capacity_unavailable\""
         );
     }
 

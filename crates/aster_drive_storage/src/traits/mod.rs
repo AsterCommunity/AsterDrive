@@ -14,9 +14,9 @@ pub use extensions::{
     NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedUploadStorageDriver,
     ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageCapacityInfo, StorageCapacityStatus,
-    StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
-    checked_upload_size, exact_size_error_kind,
+    ProviderResumableUploadStatus, StorageCapacityAssessment, StorageCapacityInfo,
+    StorageCapacityStatus, StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup,
+    StreamUploadDriver, checked_upload_size, exact_size_error_kind,
 };
 pub use multipart::{
     MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,

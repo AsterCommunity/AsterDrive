@@ -42,7 +42,10 @@ struct UploadDataPlaneProbe {
     multipart_calls: AtomicUsize,
     presigned_calls: AtomicUsize,
     provider_calls: AtomicUsize,
+    capacity_calls: AtomicUsize,
     capacity_available: Option<i64>,
+    capacity_status: Option<StorageCapacityStatus>,
+    capacity_error_kind: Option<StorageErrorKind>,
     multipart_capabilities: Option<MultipartStorageCapabilities>,
     multipart_create_succeeds: bool,
 }
@@ -125,6 +128,20 @@ impl StorageDriver for UploadDataPlaneProbe {
     }
 
     async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
+        self.capacity_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(kind) = self.capacity_error_kind {
+            return Err(StorageError::new(kind, "injected capacity probe failure"));
+        }
+        if let Some(status) = self.capacity_status {
+            return Ok(StorageCapacityInfo {
+                status,
+                total_bytes: self.capacity_available,
+                available_bytes: self.capacity_available,
+                used_bytes: None,
+                source: "test".to_string(),
+                observed_at: chrono::Utc::now(),
+            });
+        }
         let Some(available_bytes) = self.capacity_available else {
             return Err(StorageError::new(
                 StorageErrorKind::Unsupported,
@@ -140,6 +157,91 @@ impl StorageDriver for UploadDataPlaneProbe {
             observed_at: chrono::Utc::now(),
         })
     }
+}
+
+async fn create_capacity_test_local_policy(
+    state: &aster_drive::runtime::PrimaryAppState,
+    name: &str,
+) -> aster_drive_model::entities::storage_policy::Model {
+    let base_path = std::env::temp_dir().join(format!(
+        "asterdrive-capacity-policy-{}",
+        uuid::Uuid::new_v4()
+    ));
+    tokio::fs::create_dir_all(&base_path).await.unwrap();
+    let created = aster_drive::services::storage_policy::policy::create(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection: common::local_connection(base_path.to_string_lossy().into_owned()),
+            max_file_size: 0,
+            chunk_size: Some(TEST_CHUNK_SIZE as i64),
+            is_default: false,
+            allowed_types: None,
+        },
+    )
+    .await
+    .unwrap();
+    policy_repo::find_by_id(state.writer_db(), created.id)
+        .await
+        .unwrap()
+}
+
+async fn assign_capacity_test_group(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user_id: i64,
+    policy_ids: &[i64],
+    unavailable_behavior: aster_drive::services::storage_policy::policy::placement::PlacementUnavailableBehavior,
+) {
+    let group = aster_drive::services::storage_policy::policy::create_group(
+        state,
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
+            name: format!("Capacity Test Group {}", uuid::Uuid::new_v4()),
+            description: None,
+            is_enabled: true,
+            is_default: false,
+            admission: None,
+            execution_preference: None,
+            rules: Some(
+                vec![aster_drive::services::storage_policy::policy::StoragePlacementRuleInput {
+                name: "Capacity candidates".to_string(),
+                description: None,
+                priority: 1,
+                is_enabled: true,
+                matcher: Default::default(),
+                selection_mode: Default::default(),
+                unavailable_behavior,
+                targets: policy_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(index, policy_id)| {
+                        aster_drive::services::storage_policy::policy::StoragePlacementTargetInput {
+                            policy_id: *policy_id,
+                            weight: 100,
+                            accepting_new_writes: true,
+                            stable_order: i32::try_from(index + 1).unwrap(),
+                        }
+                    })
+                    .collect(),
+            }],
+            ),
+        },
+    )
+    .await
+    .unwrap();
+    aster_drive::services::user::account::update(
+        state,
+        aster_drive::services::user::account::UpdateUserInput {
+            id: user_id,
+            email_verified: None,
+            role: None,
+            status: None,
+            must_change_password: None,
+            storage_quota: None,
+            policy_group_id: Some(group.id),
+        },
+    )
+    .await
+    .unwrap();
 }
 
 #[async_trait]
@@ -2172,7 +2274,7 @@ async fn test_zero_byte_upload_init_requires_file_creation_endpoint() {
 }
 
 #[actix_web::test]
-async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_session() {
+async fn upload_init_skips_capacity_probe_for_known_unsupported_connector() {
     use aster_drive::db::repository::upload_session_repo;
 
     let state = common::setup().await;
@@ -2196,49 +2298,7 @@ async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "filename": "too-large.bin",
-            "relative_path": "capacity-rejected/too-large.bin",
-            "total_size": 4
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_server_error());
-    assert_eq!(
-        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
-            .await
-            .unwrap(),
-        0
-    );
-    assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
-    driver.assert_no_data_plane_calls();
-    let user =
-        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
-            .await
-            .unwrap()
-            .unwrap();
-    let folder = aster_drive::db::repository::folder_repo::find_by_name_in_parent(
-        state.writer_db(),
-        user.id,
-        None,
-        "capacity-rejected",
-    )
-    .await
-    .unwrap();
-    assert!(folder.is_none());
-
-    let exact_driver = Arc::new(UploadDataPlaneProbe {
-        capacity_available: Some(4),
-        ..Default::default()
-    });
-    state
-        .driver_registry
-        .insert_for_test(policy.id, exact_driver.clone());
-    let req = test::TestRequest::post()
-        .uri("/api/v1/files/upload/init")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({
-            "filename": "exact-fit.bin",
+            "filename": "unsupported-capacity.bin",
             "total_size": 4
         }))
         .to_request();
@@ -2250,7 +2310,325 @@ async fn test_upload_init_rejects_insufficient_target_capacity_without_creating_
             .unwrap(),
         1
     );
-    exact_driver.assert_no_data_plane_calls();
+    assert_eq!(driver.capacity_calls.load(Ordering::SeqCst), 0);
+    driver.assert_no_data_plane_calls();
+}
+
+#[actix_web::test]
+async fn upload_capacity_admission_falls_back_before_creating_session_or_target_side_effects() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "capacityfallback",
+        "capacity-fallback@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let first = create_capacity_test_local_policy(&state, "Capacity Full").await;
+    let second = create_capacity_test_local_policy(&state, "Capacity Available").await;
+    assign_capacity_test_group(&state, user.id, &[first.id, second.id], Default::default()).await;
+
+    let first_driver = Arc::new(UploadDataPlaneProbe {
+        capacity_available: Some(3),
+        ..Default::default()
+    });
+    let second_driver = Arc::new(UploadDataPlaneProbe {
+        capacity_available: Some(4),
+        ..Default::default()
+    });
+    state
+        .driver_registry
+        .insert_for_test(first.id, first_driver.clone());
+    state
+        .driver_registry
+        .insert_for_test(second.id, second_driver.clone());
+
+    let init = upload::init_upload(&state, user.id, "fallback.bin", 4, None, None)
+        .await
+        .expect("capacity admission should use the second target");
+    let session = upload_session_repo::find_by_id(
+        state.writer_db(),
+        init.upload_id.as_deref().expect("stream session id"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(session.policy_id, second.id);
+    assert_eq!(first_driver.capacity_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(second_driver.capacity_calls.load(Ordering::SeqCst), 1);
+    first_driver.assert_no_data_plane_calls();
+    second_driver.assert_no_data_plane_calls();
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), first.id)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[actix_web::test]
+async fn upload_capacity_admission_classifies_terminal_boundaries_without_side_effects() {
+    use aster_drive::db::repository::{folder_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+
+    for (case, first_status, first_available, second_available, expected_code, expected_status) in [
+        (
+            "insufficient",
+            StorageCapacityStatus::Supported,
+            Some(3),
+            Some(2),
+            ApiErrorCode::UploadTargetCapacityInsufficient,
+            actix_web::http::StatusCode::INSUFFICIENT_STORAGE,
+        ),
+        (
+            "unavailable",
+            StorageCapacityStatus::Unavailable,
+            None,
+            Some(2),
+            ApiErrorCode::UploadCapacityUnavailable,
+            actix_web::http::StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            &format!("cap{}", &case[..case.len().min(10)]),
+            &format!("capacity-{case}@test.com"),
+            "password123",
+        )
+        .await
+        .unwrap();
+        let first = create_capacity_test_local_policy(&state, &format!("First {case}")).await;
+        let second = create_capacity_test_local_policy(&state, &format!("Second {case}")).await;
+        assign_capacity_test_group(&state, user.id, &[first.id, second.id], Default::default())
+            .await;
+        let first_driver = Arc::new(UploadDataPlaneProbe {
+            capacity_available: first_available,
+            capacity_status: Some(first_status),
+            ..Default::default()
+        });
+        let second_driver = Arc::new(UploadDataPlaneProbe {
+            capacity_available: second_available,
+            ..Default::default()
+        });
+        state
+            .driver_registry
+            .insert_for_test(first.id, first_driver.clone());
+        state
+            .driver_registry
+            .insert_for_test(second.id, second_driver.clone());
+
+        let error = match upload::init_upload(
+            &state,
+            user.id,
+            "terminal.bin",
+            4,
+            None,
+            Some(&format!("capacity-{case}/terminal.bin")),
+        )
+        .await
+        {
+            Ok(_) => panic!("all capacity candidates should be rejected for {case}"),
+            Err(error) => error,
+        };
+        assert_eq!(error.api_error_code(), expected_code, "{case}");
+        assert_eq!(error.http_status(), expected_status, "{case}");
+        assert_eq!(
+            error.api_error_info().retryable,
+            expected_code == ApiErrorCode::UploadCapacityUnavailable,
+            "{case}"
+        );
+        assert_eq!(
+            upload_session_repo::count_by_policy(state.writer_db(), first.id)
+                .await
+                .unwrap()
+                + upload_session_repo::count_by_policy(state.writer_db(), second.id)
+                    .await
+                    .unwrap(),
+            0,
+            "{case}"
+        );
+        assert!(
+            folder_repo::find_by_name_in_parent(
+                state.writer_db(),
+                user.id,
+                None,
+                &format!("capacity-{case}"),
+            )
+            .await
+            .unwrap()
+            .is_none(),
+            "{case}"
+        );
+        first_driver.assert_no_data_plane_calls();
+        second_driver.assert_no_data_plane_calls();
+    }
+}
+
+#[actix_web::test]
+async fn supported_connector_distinguishes_unsupported_unavailable_and_exact_fit() {
+    use aster_drive::services::files::upload;
+
+    for (case, status, available, error_kind, expected) in [
+        (
+            "unsupported",
+            None,
+            None,
+            Some(StorageErrorKind::Unsupported),
+            Ok(()),
+        ),
+        (
+            "incomplete",
+            Some(StorageCapacityStatus::Supported),
+            None,
+            None,
+            Err(ApiErrorCode::UploadCapacityUnavailable),
+        ),
+        (
+            "probe-error",
+            None,
+            None,
+            Some(StorageErrorKind::Transient),
+            Err(ApiErrorCode::UploadCapacityUnavailable),
+        ),
+        (
+            "exact-fit",
+            Some(StorageCapacityStatus::Supported),
+            Some(4),
+            None,
+            Ok(()),
+        ),
+    ] {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            &format!("caps{}", &case[..case.len().min(10)]),
+            &format!("capacity-single-{case}@test.com"),
+            "password123",
+        )
+        .await
+        .unwrap();
+        let policy = create_capacity_test_local_policy(&state, &format!("Single {case}")).await;
+        assign_capacity_test_group(&state, user.id, &[policy.id], Default::default()).await;
+        let driver = Arc::new(UploadDataPlaneProbe {
+            capacity_available: available,
+            capacity_status: status,
+            capacity_error_kind: error_kind,
+            ..Default::default()
+        });
+        state
+            .driver_registry
+            .insert_for_test(policy.id, driver.clone());
+
+        let result = upload::init_upload(&state, user.id, "single.bin", 4, None, None).await;
+        match expected {
+            Ok(()) => assert!(result.is_ok(), "{case}"),
+            Err(code) => match result {
+                Ok(_) => panic!("{case} should be rejected"),
+                Err(error) => assert_eq!(error.api_error_code(), code, "{case}"),
+            },
+        }
+        assert_eq!(driver.capacity_calls.load(Ordering::SeqCst), 1, "{case}");
+        driver.assert_no_data_plane_calls();
+    }
+}
+
+#[actix_web::test]
+async fn upload_capacity_unavailable_falls_back_to_exact_fit_target() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "capunavailfb",
+        "capacity-unavailable-fallback@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let first = create_capacity_test_local_policy(&state, "Unavailable first").await;
+    let second = create_capacity_test_local_policy(&state, "Exact second").await;
+    assign_capacity_test_group(&state, user.id, &[first.id, second.id], Default::default()).await;
+    let unavailable_driver = Arc::new(UploadDataPlaneProbe {
+        capacity_status: Some(StorageCapacityStatus::Unavailable),
+        ..Default::default()
+    });
+    let exact_driver = Arc::new(UploadDataPlaneProbe {
+        capacity_available: Some(4),
+        ..Default::default()
+    });
+    state
+        .driver_registry
+        .insert_for_test(first.id, unavailable_driver);
+    state
+        .driver_registry
+        .insert_for_test(second.id, exact_driver);
+
+    let init = upload::init_upload(&state, user.id, "fallback.bin", 4, None, None)
+        .await
+        .unwrap();
+    let session =
+        upload_session_repo::find_by_id(state.writer_db(), init.upload_id.as_deref().unwrap())
+            .await
+            .unwrap();
+    assert_eq!(session.policy_id, second.id);
+}
+
+#[actix_web::test]
+async fn folder_policy_override_capacity_failure_does_not_fall_back_to_group_target() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::{folder, upload};
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "capfolder",
+        "capacity-folder@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let override_policy = create_capacity_test_local_policy(&state, "Folder capacity").await;
+    let folder = folder::create(&state, user.id, "capacity-folder", None)
+        .await
+        .unwrap();
+    let mut folder_active =
+        aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder.id)
+            .await
+            .unwrap()
+            .into_active_model();
+    folder_active.policy_id = Set(Some(override_policy.id));
+    folder_active.update(state.writer_db()).await.unwrap();
+    let driver = Arc::new(UploadDataPlaneProbe {
+        capacity_available: Some(3),
+        ..Default::default()
+    });
+    state
+        .driver_registry
+        .insert_for_test(override_policy.id, driver.clone());
+
+    let error =
+        match upload::init_upload(&state, user.id, "folder.bin", 4, Some(folder.id), None).await {
+            Ok(_) => panic!("folder override with insufficient capacity should be rejected"),
+            Err(error) => error,
+        };
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::UploadTargetCapacityInsufficient
+    );
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), override_policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(driver.capacity_calls.load(Ordering::SeqCst), 1);
+    driver.assert_no_data_plane_calls();
 }
 
 #[tokio::test]

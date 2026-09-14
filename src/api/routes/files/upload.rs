@@ -26,6 +26,8 @@ fn upload_file_created_response(file: FileInfo) -> HttpResponse {
     responses(
         (status = 201, description = "Upload session created", body = inline(ApiResponse<upload::InitUploadResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 503, description = "Target capacity observation is temporarily unavailable"),
+        (status = 507, description = "Eligible targets have insufficient capacity"),
     ),
     security(("bearer" = [])),
 )]
@@ -287,6 +289,8 @@ pub async fn presign_parts(
         (status = 201, description = "Team upload session created", body = inline(ApiResponse<upload::InitUploadResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
+        (status = 503, description = "Target capacity observation is temporarily unavailable"),
+        (status = 507, description = "Eligible targets have insufficient capacity"),
     ),
     security(("bearer" = [])),
 )]

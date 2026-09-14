@@ -32,9 +32,9 @@ use aster_forge_utils::numbers;
 use aster_forge_utils::paths;
 
 use self::context::{
-    InitUploadContext, UploadSessionRecordParams, init_stream_session, materialize_upload_target,
-    resolve_init_upload_context, session_kind_for_transport, try_persist_upload_session,
-    validate_storage_capacity,
+    InitUploadContext, UploadSessionRecordParams, admit_upload_capacity, init_stream_session,
+    materialize_upload_target, resolve_init_upload_context, session_kind_for_transport,
+    try_persist_upload_session,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,29 +133,30 @@ async fn init_upload_for_scope(
     );
 
     let mut ctx = resolve_init_upload_context(state, scope, params).await?;
-    let transport = resolve_policy_upload_transport_for_execution(
-        state.driver_registry().connectors(),
-        &ctx.policy,
-        ctx.routing_decision.execution_preference,
-    )?;
-
     if ctx.total_size == 0 {
         return Err(crate::errors::AsterError::validation_error(
             "zero-byte files must be created through /files/new",
         ));
     }
 
-    validate_storage_capacity(state, &ctx.policy, ctx.total_size).await?;
+    admit_upload_capacity(state, &mut ctx).await?;
+    let transport = resolve_policy_upload_transport_for_execution(
+        state.driver_registry().connectors(),
+        &ctx.policy,
+        ctx.routing_decision.execution_preference,
+    )?;
     materialize_upload_target(state, &mut ctx).await?;
     let target_driver = state.driver_registry().get_driver(&ctx.policy)?;
     let max_single_put_size = target_driver.max_single_put_size();
+    let planned_mode = transport.resolve_init_mode_with_single_put_limit(
+        &ctx.policy,
+        ctx.total_size,
+        max_single_put_size,
+    );
+    let data_plane = upload_data_plane_label(transport, planned_mode);
 
     let result: Result<InitUploadResponse> = async {
-        if transport.resolve_init_mode_with_single_put_limit(
-            &ctx.policy,
-            ctx.total_size,
-            max_single_put_size,
-        ) == UploadTransport::Stream
+        if planned_mode == UploadTransport::Stream
             && transport.supports_streaming_direct_upload(&ctx.policy, ctx.total_size)
         {
             return init_stream_session(state, &ctx).await;
@@ -175,13 +176,60 @@ async fn init_upload_for_scope(
 
     match result {
         Ok(response) => {
+            state
+                .metrics()
+                .record_upload_data_plane(data_plane, "success");
             record_upload_session_if_created(state, &response);
             Ok(response)
         }
         Err(error) => {
+            state
+                .metrics()
+                .record_upload_data_plane(data_plane, "failure");
             context::cleanup_created_folders(state, &ctx).await;
             Err(error)
         }
+    }
+}
+
+fn upload_data_plane_label(
+    transport: crate::services::workspace::storage::PolicyUploadTransport,
+    mode: UploadTransport,
+) -> &'static str {
+    use aster_drive_model::types::{
+        ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+    };
+
+    match (transport, mode) {
+        (_, UploadTransport::Stream) => "streaming_direct",
+        (
+            crate::services::workspace::storage::PolicyUploadTransport::Local
+            | crate::services::workspace::storage::PolicyUploadTransport::Sftp,
+            UploadTransport::Chunked,
+        ) => "staged",
+        (
+            crate::services::workspace::storage::PolicyUploadTransport::ObjectStorage(
+                ObjectStorageUploadStrategy::RelayStream,
+            )
+            | crate::services::workspace::storage::PolicyUploadTransport::Remote(
+                RemoteUploadStrategy::RelayStream,
+            ),
+            UploadTransport::Chunked,
+        ) => "connector_multipart",
+        (
+            crate::services::workspace::storage::PolicyUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::ServerRelay,
+            ),
+            UploadTransport::Chunked,
+        ) => "provider_relay",
+        (_, UploadTransport::Presigned | UploadTransport::PresignedMultipart)
+        | (
+            crate::services::workspace::storage::PolicyUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::FrontendDirect,
+            ),
+            UploadTransport::ProviderResumable,
+        ) => "client_direct",
+        _ => "invalid",
     }
 }
 
@@ -347,4 +395,71 @@ pub async fn init_upload_for_team_with_frontend_client(
     params: InitUploadParams<'_>,
 ) -> Result<InitUploadResponse> {
     init_upload_for_scope(state, team_scope(team_id, user_id), params).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::upload_data_plane_label;
+    use crate::services::workspace::storage::PolicyUploadTransport;
+    use aster_drive_model::types::{
+        ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+        UploadTransport,
+    };
+
+    #[test]
+    fn upload_data_plane_labels_cover_every_transport_family() {
+        for (transport, mode, expected) in [
+            (
+                PolicyUploadTransport::Local,
+                UploadTransport::Stream,
+                "streaming_direct",
+            ),
+            (
+                PolicyUploadTransport::Local,
+                UploadTransport::Chunked,
+                "staged",
+            ),
+            (
+                PolicyUploadTransport::Sftp,
+                UploadTransport::Chunked,
+                "staged",
+            ),
+            (
+                PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
+                UploadTransport::Chunked,
+                "connector_multipart",
+            ),
+            (
+                PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+                UploadTransport::Chunked,
+                "connector_multipart",
+            ),
+            (
+                PolicyUploadTransport::ProviderResumable(
+                    ProviderResumableUploadStrategy::ServerRelay,
+                ),
+                UploadTransport::Chunked,
+                "provider_relay",
+            ),
+            (
+                PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+                UploadTransport::Presigned,
+                "client_direct",
+            ),
+            (
+                PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+                UploadTransport::PresignedMultipart,
+                "client_direct",
+            ),
+            (
+                PolicyUploadTransport::ProviderResumable(
+                    ProviderResumableUploadStrategy::FrontendDirect,
+                ),
+                UploadTransport::ProviderResumable,
+                "client_direct",
+            ),
+        ] {
+            assert_eq!(upload_data_plane_label(transport, mode), expected);
+        }
+    }
 }

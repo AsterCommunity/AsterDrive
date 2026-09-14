@@ -181,6 +181,27 @@ async fn capacity_info_reports_filesystem_space_for_base_path() {
 }
 
 #[tokio::test]
+async fn capacity_info_uses_existing_ancestor_for_uncreated_storage_root() {
+    let parent = unique_temp_dir("capacity-uncreated-root-test");
+    tokio::fs::create_dir_all(&parent).await.unwrap();
+    let base = parent.join("not-created").join("nested");
+    let driver = super::LocalDriver::new(base.to_str().unwrap()).unwrap();
+
+    let capacity = driver
+        .capacity_info()
+        .await
+        .expect("capacity should use the filesystem that will contain the storage root");
+
+    assert_eq!(capacity.status, StorageCapacityStatus::Supported);
+    assert!(capacity.available_bytes.is_some_and(|bytes| bytes > 0));
+    assert!(
+        !base.exists(),
+        "capacity observation must not create the policy root"
+    );
+    tokio::fs::remove_dir_all(parent).await.unwrap();
+}
+
+#[tokio::test]
 async fn promote_local_file_if_absent_does_not_overwrite_existing_target() {
     let base = unique_temp_dir("local-promote-test");
     tokio::fs::create_dir_all(&base).await.unwrap();

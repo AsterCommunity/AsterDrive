@@ -2,6 +2,20 @@
 
 This document captures the provider-resumable upload finalization contract. The complete upload service still owns session-kind validation, quota accounting, verified blob finalization, retry behavior, and cleanup. This page records the storage-path rules consumed by both frontend-direct and server-relay provider sessions.
 
+All non-empty file uploads now start with an upload session that freezes filename, MIME type, declared size, placement, policy, and transport before consuming content. The legacy ordinary HTTP multipart upload endpoint has been removed.
+
+## Upload Capacity Admission
+
+Capacity observation and operation-specific assessment are separate contracts:
+
+- `StorageCapacityStatus` is the observation returned by driver, admin, and Remote wire contracts: `supported` means reliable data is present, `unsupported` means the connector has no portable capacity API, and `unavailable` means capacity should be observable but this attempt produced no usable data.
+- `StorageCapacityAssessment` compares an observation with the declared size and yields `sufficient`, `insufficient`, `unsupported`, or `unavailable`. Migration and upload paths reuse this assessment instead of interpreting `available_bytes` independently.
+- For a conclusively insufficient or currently unavailable candidate, the upload planner adds a request-local target exclusion and reruns the existing placement rules. Only the final policy, transport, and session kind are frozen.
+- `unsupported` is a valid capability result, so upload continues and relies on the data-plane result. `unavailable` has no capacity conclusion, so the planner prefers another target and returns a retryable error when none remains.
+- Capacity is a fast-fail snapshot, not a cross-request reservation. The final workspace quota is protected by the transactional SQL CAS; target capacity still relies on driver write outcomes and existing cleanup/finalization contracts.
+
+Capacity-probe timeout, singleflight, short caching, and physical temporary-space budgeting/reservation for `OffsetStaging` / `StreamStaging` remain separate follow-up work in Issue #593. `set_len` establishes the offset-file layout only and is not treated as physical disk reservation.
+
 ## Provider Resumable Upload
 
 OneDrive and similar providers expose a stateful upload session whose progress can be queried. The connector selects one of two data paths:
