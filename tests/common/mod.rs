@@ -102,6 +102,12 @@ pub struct TestRemoteConnectorConfigV1 {
     pub remote_storage_target_key: Option<String>,
     pub remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy,
     pub remote_upload_strategy: aster_drive_model::types::RemoteUploadStrategy,
+    #[serde(default = "default_capacity_probe_timeout_secs")]
+    pub capacity_probe_timeout_secs: u64,
+}
+
+fn default_capacity_probe_timeout_secs() -> u64 {
+    10
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -318,6 +324,7 @@ pub fn remote_connection(
                     remote_storage_target_key,
                     remote_download_strategy,
                     remote_upload_strategy,
+                    capacity_probe_timeout_secs: default_capacity_probe_timeout_secs(),
                 },
             ),
             credential: aster_drive::storage::StorageConnectorCredentialInput::None,
@@ -341,6 +348,7 @@ pub fn remote_connector_config(
             remote_storage_target_key,
             remote_download_strategy,
             remote_upload_strategy,
+            capacity_probe_timeout_secs: default_capacity_probe_timeout_secs(),
         },
     )
 }

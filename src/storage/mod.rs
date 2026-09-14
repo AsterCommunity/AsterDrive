@@ -4,6 +4,7 @@
 //! `aster_drive_storage` crate. This module keeps the product-owned connectors, concrete drivers,
 //! registry, policy snapshot, and remote-node runtime integration.
 
+mod capacity;
 pub mod connectors;
 pub mod drivers;
 pub(crate) mod io_limits;
@@ -12,6 +13,7 @@ pub mod policy_snapshot;
 pub mod read_probe;
 pub mod registry;
 pub mod remote_protocol;
+pub(crate) mod staging_capacity;
 pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     StorageConnectionInput, StorageConnectorActionOutput, StorageConnectorActionResult,

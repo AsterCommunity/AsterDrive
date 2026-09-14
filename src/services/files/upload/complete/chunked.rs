@@ -44,6 +44,7 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
         UploadSessionStatus::Uploading,
         "completed upload session",
         async {
+            staging::ensure_session_reservation(state, &session).await?;
             let policy = state
                 .policy_snapshot()
                 .get_policy_or_err(session.policy_id)?;

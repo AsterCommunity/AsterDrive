@@ -1,5 +1,8 @@
 {
 	"storage_quota_exceeded": "存储空间不足",
+	"upload_target_capacity_insufficient": "可用存储目标的剩余容量不足",
+	"upload_capacity_unavailable": "暂时未能确认存储容量，请稍后重试",
+	"upload_staging_capacity_insufficient": "服务器上传临时盘剩余容量不足",
 	"storage_auth_failed": "存储认证失败，请检查访问凭证或密钥配置",
 	"storage_permission_denied": "存储拒绝了当前操作，请检查权限配置",
 	"storage_misconfigured": "存储配置无效或不完整，请检查连接参数",

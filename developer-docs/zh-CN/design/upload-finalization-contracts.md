@@ -1,11 +1,6 @@
 # 上传完成契约矩阵
 
-本文档记录 AsterDrive 当前上传链路的完成契约。它是 issue #369 的开发者向基线，不改变公开 API，也不声明已经完成统一重构。
-
-上传路径分成两组：
-
-- 普通 HTTP multipart 上传：入口在 `storage::multipart`，直接在一次请求内落到正式文件。
-- upload session 型上传：入口在 `upload::{init, chunk, complete}`，先持久化 `upload_session`，complete 阶段再把临时对象或 staging 文件收口成正式文件。
+本文档记录 AsterDrive 当前上传链路的完成契约。公开文件上传 API 的非空文件统一从 `/files/upload/init` 创建 upload session：先由 `upload::plan` 固化文件名、MIME、大小、placement、policy 和 transport，再由 stream body、chunk、presigned 或 provider-resumable 数据面写入，最后在上传服务内完成收口。旧的普通 HTTP multipart 上传入口已经移除。后文矩阵中的 regular multipart/server path、local direct 和 streaming direct 是 upload/workspace storage 内部数据面，没有独立公开 HTTP 入口；session body 可以在 Init 后委托给 streaming direct 内部路径。
 
 最终落文件时必须保持三个不变量：
 
@@ -17,8 +12,8 @@
 
 | 锚点 | 当前职责 | 备注 |
 | --- | --- | --- |
-| `storage::store_from_temp_with_hints` | 从服务端临时文件创建或覆盖文件；可走本地 dedup 或 non-dedup preuploaded blob | 普通 multipart server path、local direct 会落到这里 |
-| `storage::store_preuploaded_nondedup` | 从已经写入 driver 的 non-dedup blob 创建或覆盖文件 | streaming direct 会落到这里 |
+| `storage::store_from_temp_with_hints` | 从服务端临时文件创建或覆盖文件；可走本地 dedup 或 non-dedup preuploaded blob | Local staged、WebDAV 和其他明确需要临时文件的内部写入使用 |
+| `storage::store_preuploaded_nondedup` | 从已经写入 driver 的 non-dedup blob 创建或覆盖文件 | session streaming direct 会落到这里 |
 | `storage_core::finalize_upload_session_blob_with_actor_username` | 在一个 DB 边界里创建文件、更新配额、把 session 标记 completed | local chunked、stream relay chunked 直接使用 |
 | `storage_core::finalize_upload_session_file` | 为 opaque object 找到或创建 blob，再调用 session finalize，并发布 storage change event | presigned single、presigned object multipart、relay object multipart、provider resumable 使用 |
 | `upload::shared::run_upload_completion_stage` | complete 前把 session 从 expected status 切到 assembling；失败后按错误类型恢复或标 failed | 所有 upload session complete 路径共享 |
@@ -37,9 +32,25 @@
 
 当前 `VerifiedUploadedBlob` 覆盖 presigned single、presigned object multipart、relay object multipart、provider direct/relay resumable、local chunked 和 stream relay chunked。
 
-`src/services/workspace/storage/store/contract.rs` 定义非 session 型 `store_from_temp` 路径使用的 `VerifiedTempStoreBlob`，覆盖普通 multipart/server path 和 local direct 最终进入 `store_from_temp_with_hints` 的落账契约。它把 content-addressed dedup、preuploaded non-dedup、staged dedup rollback、preuploaded cleanup 这些以前散在 `persist.rs` 里的约定集中起来。
+`src/services/workspace/storage/store/contract.rs` 定义 `store_from_temp` 路径使用的 `VerifiedTempStoreBlob`，覆盖 Local staged、WebDAV 和其他明确以临时文件进入 `store_from_temp_with_hints` 的落账契约。它把 content-addressed dedup、preuploaded non-dedup、staged dedup rollback、preuploaded cleanup 这些以前散在 `persist.rs` 里的约定集中起来。
 
 `storage::store_preuploaded_nondedup` 使用本地 `VerifiedPreuploadedNondedupStoreBlob` 覆盖 streaming direct 的最终落账契约，校验 verified size、policy、storage path 和 prepared blob 一致后再进入 DB finalization。
+
+## 上传容量准入
+
+容量观测与操作判断分层表达：
+
+- `StorageCapacityStatus` 是 driver、管理 API 和 Remote wire contract 返回的一次观测状态：`supported` 表示有可靠观测，`unsupported` 表示 connector 没有可移植容量接口，`unavailable` 表示本应可观测但本次没有得到可用数据。
+- `StorageCapacityAssessment` 使用声明大小评估一次观测，得到 `sufficient`、`insufficient`、`unsupported` 或 `unavailable`。迁移与上传必须复用同一判断，不各自解释 `available_bytes`。
+- upload planner 对明确不足或暂不可用的候选 target 增加本次请求的动态 exclusion，再按原 placement 规则选择后续 target；最终 policy、transport 和 session kind 只固化一次。
+- `unsupported` 是合法能力结果，上传继续并依赖实际数据面结果；`unavailable` 没有容量结论，优先回退其他 target，无候选时返回可重试错误。
+- 容量观测是 fast-fail 快照，不是跨请求 reservation。workspace quota 最终由事务中的 SQL CAS 保证，目标容量仍由 driver 写入结果和现有 cleanup/finalize 契约兜底。
+
+容量探测使用 `DriverRegistry` 所有的请求驱动协调器，不运行周期扫描。协调器缓存原始 observation 而不是特定文件大小的 assessment；同 policy probe 使用 singleflight，跨 policy probe 受全局并发限制。每个 driver 提供 `StorageCapacityProbePolicy`：Local 使用 fresh 2 秒、充足值 stale 30 秒、negative 250 毫秒和固定 2 秒 timeout；OneDrive 与 Remote 使用 fresh 30 秒、充足值 stale 5 分钟、negative 1 秒，并允许 connector 将 timeout 配置为 2 至 30 秒（默认 10 秒）。stale 不足或不可用值先刷新确认，避免旧低水位误报。刷新失败时保留最后一个可用 observation，小请求可以继续使用 stale 充足值，而该 observation 对更大请求显示不足时返回最新探测错误。policy/credential/driver 失效会同步清除对应 observation，probe 任务独立于 HTTP 请求取消并记录失败与时延。
+
+`OffsetStaging` / `StreamStaging` 在 session Init 返回前，对 `upload_temp_dir` 所在文件系统执行串行容量准入，并通过 `fs2::FileExt::allocate` 预留完整 `total_size` 的物理块；单纯 `set_len` 形成的稀疏文件不再视为 reservation。准入保证分配后仍保留 `server.upload_temp_min_free_bytes`（默认 256 MiB）的 safety floor，恰好满足 `required + floor` 时允许，空间不足返回稳定的 `upload.staging_capacity_insufficient`（HTTP 507），并清理 session、临时目录和 Init 创建的相对路径目录。`0` 可关闭 safety floor，但不会关闭物理预分配。
+
+staged session 在 cluster profile 下仍被拒绝，因此 reservation coordinator 只需串行化单 Primary 内的容量检查和分配，不建立重复的数据库 ledger；`upload_sessions.session_kind + total_size + status` 是重启恢复的 durable 事实源。进程首次 Init、Chunk PUT 或 Complete 触达 staging 时，会读取 active staged session，并按文件当前 `allocated_size` 只补足缺失物理块。成功 Complete、Cancel、过期清理和强制 policy cleanup 删除 session 临时目录时，文件系统同时释放 reservation。
 
 ## Stream upload attempt 契约
 

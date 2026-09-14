@@ -298,6 +298,10 @@ define_errors! {
 
     // ========== E064: 资源或请求语义冲突 ==========
     Conflict("E064", "Conflict"),
+
+    // ========== E065-E066: 上传容量准入 ==========
+    UploadTargetCapacityInsufficient("E065", "Upload Target Capacity Insufficient"),
+    UploadStagingCapacityInsufficient("E066", "Upload Staging Capacity Insufficient"),
 }
 
 impl AsterError {
@@ -370,16 +374,24 @@ impl AsterError {
             Self::ResourceLocked(_) => ApiErrorCode::ResourceLocked,
             Self::PreconditionFailed(_) => ApiErrorCode::PreconditionFailed,
             Self::UploadAssembling(_) => ApiErrorCode::UploadAssembling,
+            Self::UploadTargetCapacityInsufficient(_) => {
+                ApiErrorCode::UploadTargetCapacityInsufficient
+            }
+            Self::UploadStagingCapacityInsufficient(_) => {
+                ApiErrorCode::UploadStagingCapacityInsufficient
+            }
         }
     }
 
     pub(crate) fn api_error_retryable(&self) -> bool {
         match self {
             Self::RateLimited(_) | Self::UploadAssembling(_) => true,
-            Self::StorageDriverError(_) => matches!(
-                self.storage_error_kind(),
-                Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited)
-            ),
+            Self::StorageDriverError(_) => {
+                matches!(
+                    self.storage_error_kind(),
+                    Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited)
+                ) || self.api_error_code_override() == Some(ApiErrorCode::UploadCapacityUnavailable)
+            }
             _ => false,
         }
     }
@@ -421,6 +433,14 @@ impl AsterError {
             Self::PreconditionFailed(_) => StatusCode::PRECONDITION_FAILED,
 
             Self::UploadAssembling(_) => StatusCode::ACCEPTED,
+            Self::UploadTargetCapacityInsufficient(_) => StatusCode::INSUFFICIENT_STORAGE,
+            Self::UploadStagingCapacityInsufficient(_) => StatusCode::INSUFFICIENT_STORAGE,
+            Self::StorageDriverError(_)
+                if self.api_error_code_override()
+                    == Some(ApiErrorCode::UploadCapacityUnavailable) =>
+            {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::RecordNotFound(_)
             | Self::FileNotFound(_)
             | Self::StoragePolicyNotFound(_)
@@ -702,9 +722,17 @@ impl AsterError {
             // 507 在这里表示用户配额耗尽，属于可预期业务限制，不按服务故障记录。
             Self::StorageQuotaExceeded(_)
             | Self::OperationResourceLimitExceeded(_)
+            | Self::UploadTargetCapacityInsufficient(_)
+            | Self::UploadStagingCapacityInsufficient(_)
             | Self::RateLimited(_)
             | Self::MailNotConfigured(_)
             | Self::MailDeliveryFailed(_) => ResponseLogLevel::Warn,
+            Self::StorageDriverError(_)
+                if self.api_error_code_override()
+                    == Some(ApiErrorCode::UploadCapacityUnavailable) =>
+            {
+                ResponseLogLevel::Warn
+            }
             _ => {
                 let status = self.http_status();
                 if status.is_server_error() {
@@ -725,6 +753,9 @@ impl AsterError {
     fn client_message(&self) -> String {
         if matches!(self, Self::StorageDriverError(_)) {
             return self.error_type().to_string();
+        }
+        if matches!(self, Self::UploadStagingCapacityInsufficient(_)) {
+            return "upload staging capacity is insufficient".to_string();
         }
         match self.response_log_level() {
             ResponseLogLevel::Error => self.error_type().to_string(),
@@ -1208,6 +1239,74 @@ mod tests {
         let err = AsterError::storage_quota_exceeded("quota 1024, used 1000, need 100");
         assert_eq!(err.http_status(), StatusCode::INSUFFICIENT_STORAGE);
         assert_eq!(err.response_log_level(), ResponseLogLevel::Warn);
+    }
+
+    #[test]
+    fn upload_capacity_errors_have_stable_status_retry_and_logging_semantics() {
+        let insufficient = AsterError::upload_target_capacity_insufficient(
+            "target has 9 bytes available but upload requires 10 bytes",
+        );
+        assert_eq!(insufficient.code(), "E065");
+        assert_eq!(
+            insufficient.api_error_code(),
+            ApiErrorCode::UploadTargetCapacityInsufficient
+        );
+        assert_eq!(insufficient.http_status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert!(!insufficient.api_error_info().retryable);
+        assert_eq!(insufficient.response_log_level(), ResponseLogLevel::Warn);
+
+        let staging = AsterError::upload_staging_capacity_insufficient(
+            "staging requires 10 bytes but only 9 remain",
+        );
+        assert_eq!(staging.code(), "E066");
+        assert_eq!(
+            staging.api_error_code(),
+            ApiErrorCode::UploadStagingCapacityInsufficient
+        );
+        assert_eq!(staging.http_status(), StatusCode::INSUFFICIENT_STORAGE);
+        assert!(!staging.api_error_info().retryable);
+        assert_eq!(staging.response_log_level(), ResponseLogLevel::Warn);
+        assert_eq!(
+            staging.client_message(),
+            "upload staging capacity is insufficient"
+        );
+        assert!(staging.message().contains("10"));
+        assert!(staging.message().contains("9"));
+
+        let unavailable = AsterError::from(aster_drive_storage::StorageError::new(
+            StorageErrorKind::Transient,
+            "capacity probe timed out",
+        ))
+        .with_api_error_code(ApiErrorCode::UploadCapacityUnavailable);
+        assert_eq!(
+            unavailable.api_error_code(),
+            ApiErrorCode::UploadCapacityUnavailable
+        );
+        assert_eq!(unavailable.http_status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(unavailable.api_error_info().retryable);
+        assert_eq!(unavailable.response_log_level(), ResponseLogLevel::Warn);
+    }
+
+    #[tokio::test]
+    async fn staging_capacity_response_hides_filesystem_details() {
+        let error = AsterError::upload_staging_capacity_insufficient(
+            "upload staging requires 1234567 additional bytes, but the filesystem has 7654321 bytes available with a 268435456-byte safety floor",
+        );
+
+        let response = actix_web::ResponseError::error_response(&error);
+        assert_eq!(response.status(), StatusCode::INSUFFICIENT_STORAGE);
+        let value: serde_json::Value =
+            serde_json::from_slice(&body::to_bytes(response.into_body()).await.unwrap()).unwrap();
+
+        assert_eq!(value["code"], "upload.staging_capacity_insufficient");
+        assert_eq!(value["msg"], "upload staging capacity is insufficient");
+        let serialized = value.to_string();
+        for private_detail in ["1234567", "7654321", "268435456"] {
+            assert!(!serialized.contains(private_detail));
+        }
+        assert!(error.message().contains("1234567"));
+        assert!(error.message().contains("7654321"));
+        assert!(error.message().contains("268435456"));
     }
 
     #[test]

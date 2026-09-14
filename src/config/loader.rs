@@ -335,6 +335,7 @@ mod tests {
         assert_eq!(cfg.server.start_mode, NodeRuntimeMode::Primary);
         assert_eq!(cfg.server.temp_dir, DEFAULT_TEMP_DIR);
         assert_eq!(cfg.server.upload_temp_dir, DEFAULT_UPLOAD_TEMP_DIR);
+        assert_eq!(cfg.server.upload_temp_min_free_bytes, 256 * 1024 * 1024);
         assert_eq!(
             cfg.server.follower.remote_storage_target_local_root,
             "data/remote-storage-targets"
@@ -348,6 +349,7 @@ mod tests {
         assert!(generated.contains(r#"url = "sqlite://asterdrive.db?mode=rwc""#));
         assert!(generated.contains(r#"temp_dir = ".tmp""#));
         assert!(generated.contains(r#"upload_temp_dir = ".uploads""#));
+        assert!(generated.contains("upload_temp_min_free_bytes = 268435456"));
         assert!(generated.contains("[server.follower]"));
         assert!(
             generated.contains(r#"remote_storage_target_local_root = "remote-storage-targets""#)

@@ -38,6 +38,7 @@ fn build_config(base_path: &str) -> RemoteDriverConfig {
         base_path: base_path.to_string(),
         remote_storage_target_key: "rst-test".to_string(),
         max_file_size: 0,
+        capacity_probe_timeout: Duration::from_secs(10),
     }
 }
 
@@ -103,6 +104,28 @@ fn build_driver_with_capabilities_err(
         Ok(_) => panic!("remote driver should reject capabilities"),
         Err(error) => error,
     }
+}
+
+#[test]
+fn capacity_probe_policy_uses_the_configured_network_timeout() {
+    let mut config = build_config("base");
+    config.capacity_probe_timeout = Duration::from_secs(29);
+    let driver = RemoteDriver::new(
+        &config,
+        &build_follower_with_capabilities(
+            "http://127.0.0.1:9",
+            &serde_json::to_string(&RemoteStorageCapabilities::current())
+                .expect("current capabilities should serialize"),
+        ),
+    )
+    .expect("remote driver should build");
+
+    let policy = driver.capacity_probe_policy();
+
+    assert_eq!(policy.fresh_for, Duration::from_secs(30));
+    assert_eq!(policy.stale_for, Duration::from_secs(5 * 60));
+    assert_eq!(policy.negative_for, Duration::from_secs(1));
+    assert_eq!(policy.probe_timeout, Duration::from_secs(29));
 }
 
 #[test]

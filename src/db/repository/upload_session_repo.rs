@@ -350,6 +350,24 @@ pub async fn find_expired<C: ConnectionTrait>(db: &C) -> Result<Vec<upload_sessi
         .map_err(AsterError::from)
 }
 
+/// Active sessions whose remaining writes depend on a physically reserved Primary staging file.
+pub async fn find_active_staged<C: ConnectionTrait>(db: &C) -> Result<Vec<upload_session::Model>> {
+    let now = chrono::Utc::now();
+    UploadSession::find()
+        .filter(upload_session::Column::ExpiresAt.gt(now))
+        .filter(upload_session::Column::Status.is_in([
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Assembling,
+        ]))
+        .filter(upload_session::Column::SessionKind.is_in([
+            UploadSessionKind::OffsetStaging,
+            UploadSessionKind::StreamStaging,
+        ]))
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_by_team<C: ConnectionTrait>(
     db: &C,
     team_id: i64,

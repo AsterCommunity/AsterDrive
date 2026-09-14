@@ -31,7 +31,10 @@ use aster_drive_storage::{
 };
 use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error};
 
-use super::common::{StorageTransferDirection, transfer_strategy_field};
+use super::common::{
+    StorageTransferDirection, capacity_probe_timeout_field, default_capacity_probe_timeout_secs,
+    transfer_strategy_field,
+};
 use super::{
     RemotePolicyBindingProjection, StorageConnector, StorageConnectorCredentialInput,
     StorageConnectorIcon, StorageConnectorUploadTransport, StoragePolicyCleanupDriverSnapshot,
@@ -102,6 +105,9 @@ aster_drive_storage::storage_connector_schema! {
         pub remote_upload_strategy: RemoteUploadStrategy => transfer_strategy_field(
             "remote_upload_strategy", StorageTransferDirection::Upload,
         ),
+        #[serde(default = "default_capacity_probe_timeout_secs")]
+        /// Maximum time spent acquiring a probe slot and querying remote-node capacity.
+        pub capacity_probe_timeout_secs: u64 => capacity_probe_timeout_field(),
         }
         credentials none
     }
@@ -148,6 +154,9 @@ impl RemoteConnector {
             base_path: config.base_path.clone(),
             remote_storage_target_key: remote_storage_target_key.to_string(),
             max_file_size,
+            capacity_probe_timeout: std::time::Duration::from_secs(
+                config.capacity_probe_timeout_secs,
+            ),
         })
     }
 }

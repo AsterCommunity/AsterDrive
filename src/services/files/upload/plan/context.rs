@@ -1,22 +1,23 @@
 use chrono::{DateTime, Duration, Utc};
 use sea_orm::Set;
 
+use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::session::responses::InitUploadResponse;
 use crate::services::files::upload::session::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
 use crate::services::storage_policy::policy::placement::StorageRoutingDecision;
+use crate::services::storage_policy::policy::placement::TargetExclusionReason;
 use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
 use aster_drive_model::entities::{storage_policy, upload_session};
 use aster_drive_model::types::{
     ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
     UploadSessionKind, UploadSessionStatus, UploadTransport,
 };
-use aster_drive_storage::MultipartStorageDriver;
-use aster_drive_storage::MultipartUploadMode;
+use aster_drive_storage::{MultipartStorageDriver, MultipartUploadMode, StorageCapacityAssessment};
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {
@@ -288,7 +289,7 @@ pub(super) async fn resolve_init_upload_context(
         "resolved upload session target"
     );
 
-    let resolution = storage::resolve_blob_policy_for_write(
+    let resolution = storage::resolve_blob_policy_for_write_with_exclusions(
         state,
         storage::BlobPolicyRequest {
             scope,
@@ -299,6 +300,7 @@ pub(super) async fn resolve_init_upload_context(
             mime_type: &mime_type,
             existing_file_id: None,
         },
+        &[],
     )
     .await?;
     let policy = resolution.policy;
@@ -339,38 +341,148 @@ fn resolve_upload_mime_type(filename: &str, declared: Option<&str>) -> Result<St
         .to_string())
 }
 
-pub(super) async fn validate_storage_capacity(
+pub(super) async fn admit_upload_capacity(
     state: &PrimaryAppState,
-    policy: &storage_policy::Model,
-    total_size: i64,
+    ctx: &mut InitUploadContext,
 ) -> Result<()> {
-    let capacity = match state
-        .driver_registry()
-        .get_driver(policy)?
-        .capacity_info()
-        .await
-    {
-        Ok(capacity) => capacity,
-        Err(error) => {
-            tracing::warn!(
-                policy_id = policy.id,
-                error = %error,
-                "storage capacity preflight unavailable; continuing without reservation"
-            );
-            return Ok(());
-        }
-    };
-    if capacity.status == aster_drive_storage::traits::extensions::StorageCapacityStatus::Supported
-        && capacity
-            .available_bytes
-            .is_some_and(|available| available < total_size)
-    {
-        return Err(AsterError::storage_driver_error(format!(
-            "storage policy #{} has insufficient capacity for a {total_size} byte upload",
-            policy.id
-        )));
+    let mut dynamic_exclusions = Vec::new();
+    let mut insufficient_error = None;
+    let mut unavailable_error = None;
+
+    loop {
+        let policy_id = ctx.policy.id;
+        let assessment = state
+            .driver_registry()
+            .assess_capacity(&ctx.policy, ctx.total_size)
+            .await;
+        let exclusion = match assessment {
+            Ok(StorageCapacityAssessment::Sufficient { available_bytes }) => {
+                state
+                    .metrics()
+                    .record_upload_capacity_admission("sufficient");
+                tracing::debug!(
+                    policy_id,
+                    required_bytes = ctx.total_size,
+                    available_bytes,
+                    "upload target capacity admission succeeded"
+                );
+                storage::record_storage_routing_decision(state, &ctx.routing_decision);
+                return Ok(());
+            }
+            Ok(StorageCapacityAssessment::Unsupported) => {
+                state
+                    .metrics()
+                    .record_upload_capacity_admission("unsupported");
+                tracing::debug!(
+                    policy_id,
+                    connector_id = %ctx.policy.connector_id,
+                    "upload target does not expose capacity observation; relying on data-plane result"
+                );
+                storage::record_storage_routing_decision(state, &ctx.routing_decision);
+                return Ok(());
+            }
+            Ok(StorageCapacityAssessment::Insufficient {
+                required_bytes,
+                available_bytes,
+            }) => {
+                state
+                    .metrics()
+                    .record_upload_capacity_admission("insufficient");
+                insufficient_error.get_or_insert_with(|| {
+                    AsterError::upload_target_capacity_insufficient(format!(
+                        "storage policy #{policy_id} has {available_bytes} bytes available but upload requires {required_bytes} bytes"
+                    ))
+                });
+                TargetExclusionReason::CapacityInsufficient
+            }
+            Ok(StorageCapacityAssessment::Unavailable) => {
+                state
+                    .metrics()
+                    .record_upload_capacity_admission("unavailable");
+                unavailable_error.get_or_insert_with(|| {
+                    AsterError::from(aster_drive_storage::storage_driver_error(
+                        aster_drive_storage::StorageErrorKind::Transient,
+                        "capacity probe returned no usable available byte count",
+                    ))
+                    .with_api_error_code(ApiErrorCode::UploadCapacityUnavailable)
+                });
+                TargetExclusionReason::CapacityUnavailable
+            }
+            Err(error) => {
+                state
+                    .metrics()
+                    .record_upload_capacity_admission("unavailable");
+                unavailable_error
+                    .get_or_insert_with(|| capacity_unavailable_error(policy_id, error));
+                TargetExclusionReason::CapacityUnavailable
+            }
+        };
+
+        dynamic_exclusions.push((policy_id, exclusion));
+        tracing::warn!(
+            policy_id,
+            exclusion = exclusion.code(),
+            excluded_target_count = dynamic_exclusions.len(),
+            "upload target excluded by capacity admission"
+        );
+
+        let resolution = storage::resolve_blob_policy_for_write_with_exclusions(
+            state,
+            storage::BlobPolicyRequest {
+                scope: ctx.scope,
+                folder_id: ctx.target.folder_id,
+                folder_hint: ctx.target.folder,
+                filename: &ctx.target.filename,
+                file_size: ctx.total_size,
+                mime_type: &ctx.mime_type,
+                existing_file_id: None,
+            },
+            &dynamic_exclusions,
+        )
+        .await;
+        let Ok(resolution) = resolution else {
+            state
+                .metrics()
+                .record_storage_routing("none", exclusion.code());
+            return Err(unavailable_error.or(insufficient_error).unwrap_or_else(|| {
+                AsterError::internal_error("capacity admission ended without a terminal error")
+            }));
+        };
+        let routing_decision = resolution.routing_decision.ok_or_else(|| {
+            AsterError::storage_policy_not_found("new blob placement decision is missing")
+        })?;
+        ctx.policy = resolution.policy;
+        ctx.routing_decision = routing_decision;
+        validate_policy_upload_size(&ctx.policy, ctx.total_size)?;
     }
-    Ok(())
+}
+
+fn capacity_unavailable_error(policy_id: i64, error: AsterError) -> AsterError {
+    tracing::warn!(
+        policy_id,
+        error_kind = error
+            .storage_error_kind()
+            .map(aster_drive_storage::StorageErrorKind::as_str)
+            .unwrap_or("unknown"),
+        "upload target capacity observation is unavailable"
+    );
+    if matches!(
+        error.storage_error_kind(),
+        Some(
+            aster_drive_storage::StorageErrorKind::Transient
+                | aster_drive_storage::StorageErrorKind::RateLimited
+        )
+    ) {
+        return error.with_api_error_code(ApiErrorCode::UploadCapacityUnavailable);
+    }
+    if matches!(&error, AsterError::InternalError(_)) {
+        return AsterError::from(aster_drive_storage::storage_driver_error(
+            aster_drive_storage::StorageErrorKind::Transient,
+            format!("capacity probe coordination failed: {}", error.message()),
+        ))
+        .with_api_error_code(ApiErrorCode::UploadCapacityUnavailable);
+    }
+    error
 }
 
 async fn resolve_upload_target(
@@ -759,13 +871,77 @@ pub(super) fn chunked_upload_response(
 
 #[cfg(test)]
 mod tests {
-    use super::{plan_multipart_upload_with_capabilities, session_kind_for_transport};
+    use super::{
+        capacity_unavailable_error, plan_multipart_upload_with_capabilities,
+        session_kind_for_transport,
+    };
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::errors::AsterError;
     use crate::services::workspace::storage::PolicyUploadTransport;
     use aster_drive_model::types::{
         ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
         UploadSessionKind, UploadTransport,
     };
     use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
+
+    #[test]
+    fn capacity_error_normalization_only_marks_transient_probe_failures_retryable() {
+        for error in [
+            AsterError::internal_error("probe completed without publishing an observation"),
+            AsterError::from(aster_drive_storage::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Transient,
+                "provider timeout",
+            )),
+            AsterError::from(aster_drive_storage::storage_driver_error(
+                aster_drive_storage::StorageErrorKind::RateLimited,
+                "provider throttled",
+            )),
+        ] {
+            let normalized = capacity_unavailable_error(7, error);
+            assert_eq!(
+                normalized.api_error_code(),
+                ApiErrorCode::UploadCapacityUnavailable
+            );
+            assert_eq!(
+                normalized.http_status(),
+                actix_web::http::StatusCode::SERVICE_UNAVAILABLE
+            );
+            assert!(normalized.api_error_info().retryable);
+            assert!(matches!(
+                normalized.storage_error_kind(),
+                Some(
+                    aster_drive_storage::StorageErrorKind::Transient
+                        | aster_drive_storage::StorageErrorKind::RateLimited
+                )
+            ));
+        }
+
+        for (error, expected_code, expected_status) in [
+            (
+                AsterError::validation_error("negative required bytes"),
+                ApiErrorCode::BadRequest,
+                actix_web::http::StatusCode::BAD_REQUEST,
+            ),
+            (
+                AsterError::precondition_failed("remote node is disabled"),
+                ApiErrorCode::PreconditionFailed,
+                actix_web::http::StatusCode::PRECONDITION_FAILED,
+            ),
+            (
+                AsterError::from(aster_drive_storage::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
+                    "invalid probe policy",
+                )),
+                ApiErrorCode::StorageMisconfigured,
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+        ] {
+            let preserved = capacity_unavailable_error(7, error);
+            assert_eq!(preserved.api_error_code(), expected_code);
+            assert_eq!(preserved.http_status(), expected_status);
+            assert!(!preserved.api_error_info().retryable);
+        }
+    }
 
     fn capabilities(
         min_part_size: u64,

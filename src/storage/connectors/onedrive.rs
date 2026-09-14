@@ -39,7 +39,10 @@ use aster_drive_storage::{
 };
 use aster_forge_utils::id;
 
-use super::common::unsupported_draft_connection_test_error;
+use super::common::{
+    capacity_probe_timeout_field, default_capacity_probe_timeout_secs,
+    unsupported_draft_connection_test_error,
+};
 use super::{
     StorageAuthorizationFailureReason, StorageConnector, StorageConnectorAuthorizationAudit,
     StorageConnectorAuthorizationCallback, StorageConnectorAuthorizationError,
@@ -162,6 +165,11 @@ aster_drive_storage::storage_connector_schema! {
                 ),
             ],
             "provider_native",
+        ),
+        #[serde(default = "default_capacity_probe_timeout_secs")]
+        /// Maximum time spent acquiring a probe slot and querying Microsoft Graph capacity.
+        pub capacity_probe_timeout_secs: u64 => mark_onedrive_advanced(
+            capacity_probe_timeout_field()
         ),
         pub cloud: MicrosoftGraphCloud => {
             let mut field = onedrive_select_field(
@@ -1548,6 +1556,7 @@ impl StorageConnector for OneDriveConnector {
             root_item_id,
             config.base_path,
             policy.chunk_size,
+            std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
         )))
     }
 
@@ -1677,6 +1686,7 @@ impl StorageConnector for OneDriveConnector {
             credential.root_item_id.clone(),
             connector_config.base_path,
             policy.chunk_size,
+            std::time::Duration::from_secs(connector_config.capacity_probe_timeout_secs),
         )))
     }
 }
@@ -1838,6 +1848,7 @@ mod tests {
             provider_resumable_upload_strategy: ProviderResumableUploadStrategy::ServerRelay,
             provider_download_strategy: ProviderDownloadStrategy::ServerRelay,
             provider_download_filename_mode: ProviderDownloadFilenameMode::ProviderNative,
+            capacity_probe_timeout_secs: default_capacity_probe_timeout_secs(),
             cloud: MicrosoftGraphCloud::Global,
             account_mode,
             tenant: tenant.map(ToOwned::to_owned),

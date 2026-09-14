@@ -9,6 +9,7 @@ port = 3000
 workers = 0  # 0 = auto (num_cpus)
 temp_dir = ".tmp"
 upload_temp_dir = ".uploads"
+upload_temp_min_free_bytes = 268435456  # 256 MiB safety floor after staged-upload reservation; 0 disables the floor
 start_mode = "primary"  # "primary" | "follower"
 
 [server.follower]

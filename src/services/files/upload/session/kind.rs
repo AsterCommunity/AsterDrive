@@ -102,9 +102,27 @@ pub(crate) fn scheduling_for_kind(kind: UploadSessionKind) -> Option<UploadSched
     }
 }
 
+pub(crate) const fn data_plane_label_for_kind(kind: UploadSessionKind) -> &'static str {
+    match kind {
+        UploadSessionKind::Stream => "streaming_direct",
+        UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => "staged",
+        UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
+            "connector_multipart"
+        }
+        UploadSessionKind::ProviderRelayResumable => "provider_relay",
+        UploadSessionKind::ProviderPresignedSingle
+        | UploadSessionKind::ProviderPresignedMultipart
+        | UploadSessionKind::RemotePresignedSingle
+        | UploadSessionKind::RemotePresignedMultipart
+        | UploadSessionKind::ProviderDirectResumable => "client_direct",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{mode_for_kind, scheduling_for_kind, validate_persisted_kind};
+    use super::{
+        data_plane_label_for_kind, mode_for_kind, scheduling_for_kind, validate_persisted_kind,
+    };
     use aster_drive_model::entities::upload_session;
     use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus, UploadTransport};
 
@@ -173,6 +191,34 @@ mod tests {
             mode_for_kind(UploadSessionKind::ProviderRelayResumable),
             UploadTransport::Chunked
         );
+    }
+
+    #[test]
+    fn data_plane_labels_cover_every_persisted_session_kind() {
+        for (kind, expected) in [
+            (UploadSessionKind::Stream, "streaming_direct"),
+            (UploadSessionKind::OffsetStaging, "staged"),
+            (UploadSessionKind::StreamStaging, "staged"),
+            (
+                UploadSessionKind::ProviderRelayMultipart,
+                "connector_multipart",
+            ),
+            (
+                UploadSessionKind::RemoteRelayMultipart,
+                "connector_multipart",
+            ),
+            (UploadSessionKind::ProviderRelayResumable, "provider_relay"),
+            (UploadSessionKind::ProviderPresignedSingle, "client_direct"),
+            (
+                UploadSessionKind::ProviderPresignedMultipart,
+                "client_direct",
+            ),
+            (UploadSessionKind::RemotePresignedSingle, "client_direct"),
+            (UploadSessionKind::RemotePresignedMultipart, "client_direct"),
+            (UploadSessionKind::ProviderDirectResumable, "client_direct"),
+        ] {
+            assert_eq!(data_plane_label_for_kind(kind), expected);
+        }
     }
 
     #[test]

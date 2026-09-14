@@ -2,6 +2,24 @@
 
 This document captures the provider-resumable upload finalization contract. The complete upload service still owns session-kind validation, quota accounting, verified blob finalization, retry behavior, and cleanup. This page records the storage-path rules consumed by both frontend-direct and server-relay provider sessions.
 
+All non-empty uploads through the public file-upload API now start at `/files/upload/init`, which creates a session that freezes filename, MIME type, declared size, placement, policy, and transport before consuming content. The legacy ordinary HTTP multipart upload endpoint has been removed. The regular multipart/server, local-direct, and streaming-direct entries later in the matrix are internal upload/workspace-storage data planes without independent public HTTP entry points; a session body may delegate to the internal streaming-direct path after Init.
+
+## Upload Capacity Admission
+
+Capacity observation and operation-specific assessment are separate contracts:
+
+- `StorageCapacityStatus` is the observation returned by driver, admin, and Remote wire contracts: `supported` means reliable data is present, `unsupported` means the connector has no portable capacity API, and `unavailable` means capacity should be observable but this attempt produced no usable data.
+- `StorageCapacityAssessment` compares an observation with the declared size and yields `sufficient`, `insufficient`, `unsupported`, or `unavailable`. Migration and upload paths reuse this assessment instead of interpreting `available_bytes` independently.
+- For a conclusively insufficient or currently unavailable candidate, the upload planner adds a request-local target exclusion and reruns the existing placement rules. Only the final policy, transport, and session kind are frozen.
+- `unsupported` is a valid capability result, so upload continues and relies on the data-plane result. `unavailable` has no capacity conclusion, so the planner prefers another target and returns a retryable error when none remains.
+- Capacity is a fast-fail snapshot, not a cross-request reservation. The final workspace quota is protected by the transactional SQL CAS; target capacity still relies on driver write outcomes and existing cleanup/finalization contracts.
+
+Capacity probes use a demand-driven coordinator owned by `DriverRegistry`, with no periodic scan. It caches raw observations rather than size-specific assessments, coalesces probes per policy, and bounds concurrency across policies. Each driver owns a `StorageCapacityProbePolicy`: Local uses a two-second fresh window, 30-second sufficient stale window, 250-millisecond negative window, and fixed two-second timeout; OneDrive and Remote use a 30-second fresh window, five-minute sufficient stale window, one-second negative window, and a connector-configurable timeout from two to 30 seconds (default ten). Stale insufficient or unavailable decisions require refresh confirmation. A failed refresh preserves the last usable observation for requests it still classifies as sufficient, while larger requests receive the latest probe failure instead of a stale rejection. Policy, credential, and driver invalidation clears the observation, and probe tasks survive HTTP request cancellation while recording failure and latency.
+
+Before session Init returns, `OffsetStaging` / `StreamStaging` serialize capacity admission against the filesystem containing `upload_temp_dir` and use `fs2::FileExt::allocate` to reserve physical blocks for the complete `total_size`; a sparse length created by `set_len` is no longer treated as a reservation. Admission keeps the configured `server.upload_temp_min_free_bytes` safety floor (256 MiB by default), accepts an exact `required + floor` fit, and returns stable `upload.staging_capacity_insufficient` (HTTP 507) while cleaning the session, temporary directory, and Init-created relative-path directories when space is insufficient. Setting the floor to `0` disables the margin, not physical preallocation.
+
+Cluster deployments still reject staged session kinds, so the reservation coordinator only serializes capacity checks and allocation within the owning single Primary and does not introduce a duplicate database ledger. `upload_sessions.session_kind + total_size + status` remains the durable recovery source. The first staged Init, Chunk PUT, or Complete after process start reloads active staged sessions and allocates only the physical bytes missing according to each file's `allocated_size`. Successful completion, cancellation, expiry cleanup, and forced policy cleanup release the reservation by deleting the session temporary directory.
+
 ## Provider Resumable Upload
 
 OneDrive and similar providers expose a stateful upload session whose progress can be queried. The connector selects one of two data paths:

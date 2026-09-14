@@ -52,6 +52,9 @@ pub struct ServerConfig {
     pub temp_dir: String,
     #[serde(default = "ServerConfig::default_upload_temp_dir")]
     pub upload_temp_dir: String,
+    /// Bytes kept free on the upload staging filesystem after each physical reservation.
+    #[serde(default = "ServerConfig::default_upload_temp_min_free_bytes")]
+    pub upload_temp_min_free_bytes: u64,
     #[serde(default)]
     pub follower: ServerFollowerConfig,
     /// 节点静态启动角色。改动后需要重启进程。
@@ -92,6 +95,7 @@ impl Default for ServerConfig {
             workers: 0,
             temp_dir: Self::default_temp_dir(),
             upload_temp_dir: Self::default_upload_temp_dir(),
+            upload_temp_min_free_bytes: Self::default_upload_temp_min_free_bytes(),
             follower: ServerFollowerConfig::default(),
             start_mode: crate::config::node_mode::NodeRuntimeMode::Primary,
         }
@@ -110,6 +114,9 @@ impl ServerConfig {
     }
     fn default_upload_temp_dir() -> String {
         crate::config::paths::DEFAULT_CONFIG_UPLOAD_TEMP_DIR.to_string()
+    }
+    fn default_upload_temp_min_free_bytes() -> u64 {
+        256 * 1024 * 1024
     }
 }
 
@@ -356,4 +363,24 @@ fn nonzero_u64_or_min(value: u64) -> NonZeroU64 {
 
 fn nonzero_u32_or_min(value: u32) -> NonZeroU32 {
     NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn upload_staging_safety_floor_defaults_and_accepts_zero() {
+        let default: Config = toml::from_str("").unwrap();
+        assert_eq!(default.server.upload_temp_min_free_bytes, 256 * 1024 * 1024);
+
+        let disabled: Config =
+            toml::from_str("[server]\nupload_temp_min_free_bytes = 0\n").unwrap();
+        assert_eq!(disabled.server.upload_temp_min_free_bytes, 0);
+
+        assert!(
+            toml::from_str::<Config>("[server]\nupload_temp_min_free_bytes = -1\n").is_err(),
+            "negative safety floors must be rejected by the static config schema"
+        );
+    }
 }

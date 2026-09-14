@@ -84,6 +84,21 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records the bounded outcome of one upload target capacity assessment.
+    fn record_upload_capacity_admission(&self, outcome: &'static str) {}
+
+    /// Records the bounded outcome of one physical upload-staging reservation.
+    fn record_upload_staging_capacity_admission(&self, outcome: &'static str) {}
+
+    /// Records how upload admission obtained a capacity observation.
+    fn record_storage_capacity_probe_cache(&self, outcome: &'static str) {}
+
+    /// Records one provider capacity probe and its bounded outcome.
+    fn record_storage_capacity_probe(&self, outcome: &'static str, duration_seconds: f64) {}
+
+    /// Records the selected upload data plane after initialization succeeds or fails.
+    fn record_upload_data_plane(&self, data_plane: &'static str, status: &'static str) {}
+
     /// Records a background-task status transition.
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {}
 
@@ -258,6 +273,37 @@ mod product {
                 "routing_details_total",
                 "Storage placement decisions by bounded topology identifiers.",
                 &["profile", "rule", "policy", "selection", "outcome"],
+            ),
+            upload_capacity_admissions: counter(
+                "upload",
+                "capacity_admissions_total",
+                "Upload target capacity assessment outcomes.",
+                &["outcome"],
+            ),
+            upload_staging_capacity_admissions: counter(
+                "upload",
+                "staging_capacity_admissions_total",
+                "Physical upload-staging reservation outcomes.",
+                &["outcome"],
+            ),
+            storage_capacity_probe_cache: counter(
+                "storage",
+                "capacity_probe_cache_total",
+                "Capacity observation cache decisions.",
+                &["outcome"],
+            ),
+            storage_capacity_probe_duration: histogram_with_buckets(
+                "storage",
+                "capacity_probe_duration_seconds",
+                "Storage capacity probe duration by bounded outcome.",
+                &["outcome"],
+                &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0],
+            ),
+            upload_data_planes: counter(
+                "upload",
+                "data_planes_total",
+                "Upload initialization outcomes by selected data plane.",
+                &["data_plane", "status"],
             ),
             storage_driver_operations: counter(
                 "storage_driver",
@@ -618,6 +664,40 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_upload_capacity_admission(&self, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product.upload_capacity_admissions.inc(&[outcome], 1);
+        }
+    }
+
+    fn record_upload_staging_capacity_admission(&self, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product
+                .upload_staging_capacity_admissions
+                .inc(&[outcome], 1);
+        }
+    }
+
+    fn record_storage_capacity_probe_cache(&self, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product.storage_capacity_probe_cache.inc(&[outcome], 1);
+        }
+    }
+
+    fn record_storage_capacity_probe(&self, outcome: &'static str, duration_seconds: f64) {
+        if let Some(product) = self.product {
+            product
+                .storage_capacity_probe_duration
+                .observe(&[outcome], duration_seconds);
+        }
+    }
+
+    fn record_upload_data_plane(&self, data_plane: &'static str, status: &'static str) {
+        if let Some(product) = self.product {
+            product.upload_data_planes.inc(&[data_plane, status], 1);
+        }
+    }
+
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {
         self.forge.record_background_task_transition(kind, status);
     }
@@ -874,5 +954,64 @@ mod tests {
         assert!(body.contains("kind=\"expected\""));
         assert!(body.contains("le=\"10737418240\""));
         assert!(body.contains("stream_upload_active 0"));
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn upload_admission_metrics_use_bounded_status_labels() {
+        use std::sync::Arc;
+
+        use aster_forge_metrics::prometheus::{
+            PrometheusMetricsRecorder, export_metrics, init_metrics,
+        };
+
+        init_metrics().expect("Prometheus registry should initialize before product metrics");
+        let recorder = super::DriveMetricsRecorder::new(Arc::new(PrometheusMetricsRecorder));
+
+        for outcome in ["sufficient", "insufficient", "unsupported", "unavailable"] {
+            recorder.record_upload_capacity_admission(outcome);
+        }
+        for outcome in ["sufficient", "insufficient", "unavailable", "recovered"] {
+            recorder.record_upload_staging_capacity_admission(outcome);
+        }
+        for outcome in [
+            "fresh",
+            "stale_sufficient",
+            "stale_after_error",
+            "confirm_refresh",
+            "cold",
+            "descriptor_unsupported",
+        ] {
+            recorder.record_storage_capacity_probe_cache(outcome);
+        }
+        for outcome in [
+            "supported",
+            "unsupported",
+            "unavailable",
+            "failure",
+            "timeout",
+        ] {
+            recorder.record_storage_capacity_probe(outcome, 0.01);
+        }
+        recorder.record_upload_data_plane("streaming_direct", "success");
+        recorder.record_upload_data_plane("staged", "failure");
+
+        let body = export_metrics().expect("Drive upload admission metrics should export");
+        assert!(body.contains("upload_capacity_admissions_total"));
+        assert!(body.contains("outcome=\"sufficient\""));
+        assert!(body.contains("outcome=\"insufficient\""));
+        assert!(body.contains("outcome=\"unsupported\""));
+        assert!(body.contains("outcome=\"unavailable\""));
+        assert!(body.contains("upload_staging_capacity_admissions_total"));
+        assert!(body.contains("outcome=\"recovered\""));
+        assert!(body.contains("storage_capacity_probe_cache_total"));
+        assert!(body.contains("outcome=\"stale_sufficient\""));
+        assert!(body.contains("outcome=\"stale_after_error\""));
+        assert!(body.contains("outcome=\"descriptor_unsupported\""));
+        assert!(body.contains("storage_capacity_probe_duration_seconds_bucket"));
+        assert!(body.contains("outcome=\"timeout\""));
+        assert!(body.contains("upload_data_planes_total"));
+        assert!(body.contains("data_plane=\"streaming_direct\""));
+        assert!(body.contains("data_plane=\"staged\""));
     }
 }

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **容量感知的上传放置** — 上传初始化现在会在创建 session 或 provider 侧状态前，将目标容量明确评估为充足、不足、不支持或暂不可用。明确不足和暂不可用的 target 会进入现有 placement fallback；没有可移植容量接口的 connector 跳过运行时探测并依赖实际数据面结果。容量探测按请求驱动，对同一 policy 合并并发请求、限制全局并发并独立于请求取消；driver 按探测成本提供 fresh/stale/negative window，OneDrive 和 Remote 提供有界探测超时配置，stale 充足值使用 stale-while-revalidate，旧的拒绝结论必须刷新确认。候选耗尽时分别返回稳定的 507 或可重试 503；数据面、缓存决策、探测耗时与容量结果均使用低基数指标记录。
+
+- **上传暂存空间物理预留** — `OffsetStaging` 和 `StreamStaging` 现在会串行执行临时文件系统容量准入，并在 Init 成功前为完整声明大小真实分配物理块，同时默认保留可配置的 256 MiB 空闲安全余量。暂存空间不足时返回稳定的 507，且不留下 session、临时目录或 Init 创建的相对路径目录；进程重启后首次 staged Init、Chunk PUT 或 Complete 会恢复 active session 的缺失物理预留，完成、取消和过期清理继续通过删除临时目录释放空间。
+
 - **统一外部认证回调 URI** — 新建 provider 默认使用 `/api/v1/auth/external-auth/callback`；升级而来的 provider 会继续使用已持久化的 legacy callback 模式，直到管理员同时注册新旧 URI 并显式切换。登录 flow 会固化启动时实际使用的 redirect URI；legacy route 在迁移期间继续可用，并计划于 1.0.0 移除。
 
 - **有界完整性聚合** — `doctor --deep` 现在按有界 owner 分页比较存储用量、按有界 Blob 分页统计引用，并按 workspace scope 检查目录完整性，通过有界 parent chain 检测循环并抽样保留问题。管理端 Blob maintenance task 复用同一套逐页引用计数；storage object 报告以有界 path batch 和 sample 保持精确总数，远端列表则通过 driver 与 follower endpoint 流式返回分页结果。现有任务进度与修复语义保持不变。

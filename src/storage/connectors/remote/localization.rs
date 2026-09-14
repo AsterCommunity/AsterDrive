@@ -1,6 +1,16 @@
 use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
+    aster_drive_storage::storage_connector_message!(
+        "capacity_probe_timeout_secs",
+        "Capacity probe timeout (seconds)",
+        "容量探测超时（秒）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "capacity_probe_timeout_secs_desc",
+        "Maximum time allowed for a remote target capacity observation, including the primary-to-follower round trip. It does not change upload or download timeouts.",
+        "远程目标容量观测允许的最长时间，包含 Primary 到 Follower 的往返耗时。此设置不改变上传或下载超时。",
+    ),
     aster_drive_storage::storage_connector_message!("driver_type_remote", "Remote", "远程节点"),
     aster_drive_storage::storage_connector_message!(
         "policy_edit_context_remote_desc",

@@ -26,6 +26,9 @@ pub(super) async fn complete_upload_impl_with_audit(
     // completion writes the upload audit event.
     let should_log = should_log_upload_completion(&session);
     let upload_id = session.id.clone();
+    let data_plane = crate::services::files::upload::session::kind::data_plane_label_for_kind(
+        session.session_kind,
+    );
     let complete_started_at = Instant::now();
     let file = complete_upload_impl_with_hints(state, session, parts, hints).await?;
     let complete_elapsed_ms = complete_started_at.elapsed().as_millis();
@@ -40,9 +43,11 @@ pub(super) async fn complete_upload_impl_with_audit(
                 user_id: audit_ctx.user_id,
             },
         };
-        let details =
+        let details = super::super::audit_details_with_data_plane(
             crate::services::files::file::audit_location_details_for_model(state, scope, &file)
-                .await;
+                .await,
+            data_plane,
+        );
         audit::log_with_details(
             state,
             audit_ctx,
@@ -50,7 +55,7 @@ pub(super) async fn complete_upload_impl_with_audit(
             crate::services::ops::audit::AuditEntityType::File,
             Some(file.id),
             Some(&file.name),
-            || details.clone(),
+            || Some(details.clone()),
         )
         .await;
         tracing::debug!(

@@ -35,3 +35,43 @@ pub use session::{
     list_recoverable_sessions, list_recoverable_sessions_for_team, presign_parts,
     presign_parts_for_team,
 };
+
+fn audit_details_with_data_plane(
+    details: Option<serde_json::Value>,
+    data_plane: &'static str,
+) -> serde_json::Value {
+    let mut details = details.unwrap_or_else(|| serde_json::json!({}));
+    if !details.is_object() {
+        details = serde_json::json!({});
+    }
+    if let Some(object) = details.as_object_mut() {
+        object.insert(
+            "upload_data_plane".to_string(),
+            serde_json::json!(data_plane),
+        );
+    }
+    details
+}
+
+#[cfg(test)]
+mod tests {
+    use super::audit_details_with_data_plane;
+
+    #[test]
+    fn upload_audit_data_plane_preserves_object_and_normalizes_invalid_details() {
+        let details = audit_details_with_data_plane(
+            Some(serde_json::json!({"path": "/report.bin"})),
+            "staged",
+        );
+        assert_eq!(details["path"], "/report.bin");
+        assert_eq!(details["upload_data_plane"], "staged");
+
+        for input in [None, Some(serde_json::json!(["invalid"]))] {
+            let details = audit_details_with_data_plane(input, "streaming_direct");
+            assert_eq!(
+                details,
+                serde_json::json!({"upload_data_plane": "streaming_direct"})
+            );
+        }
+    }
+}

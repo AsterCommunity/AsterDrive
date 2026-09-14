@@ -8,9 +8,9 @@ use aster_drive_model::types::{
 };
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorBadgeRgb, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorFieldScope, StorageConnectorFieldUpdateBehavior,
-    StorageConnectorObjectNamingMode, StorageConnectorSelectDataSource,
-    StorageConnectorSelectValueKind,
+    StorageConnectorFieldDefaultValue, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorFieldUpdateBehavior, StorageConnectorObjectNamingMode,
+    StorageConnectorSelectDataSource, StorageConnectorSelectValueKind,
 };
 use aster_drive_storage::{ConnectorConfigEnvelope, ConnectorId, StoragePolicyBehaviorConfig};
 use sea_orm::ActiveModelTrait;
@@ -275,6 +275,7 @@ fn remote_config(upload: RemoteUploadStrategy) -> RemoteConnectorConfigV1 {
         remote_storage_target_key: Some("rst_test".to_string()),
         remote_download_strategy: RemoteDownloadStrategy::RelayStream,
         remote_upload_strategy: upload,
+        capacity_probe_timeout_secs: super::common::DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS,
     }
 }
 
@@ -287,6 +288,7 @@ fn onedrive_config(
         provider_resumable_upload_strategy: strategy,
         provider_download_strategy: ProviderDownloadStrategy::ServerRelay,
         provider_download_filename_mode: ProviderDownloadFilenameMode::ProviderNative,
+        capacity_probe_timeout_secs: super::common::DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS,
         cloud: MicrosoftGraphCloud::Global,
         account_mode,
         tenant: None,
@@ -1031,6 +1033,139 @@ fn built_in_connector_capacity_claims_match_runtime_probe_support() {
             "{connector_id} should not advertise a portable capacity probe"
         );
     }
+}
+
+#[test]
+fn network_capacity_probe_timeout_descriptor_is_shared_and_local_stays_fixed() {
+    for connector_id in [OneDriveConnector::ID, RemoteConnector::ID] {
+        let descriptor = descriptor(connector_id);
+        let field = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "capacity_probe_timeout_secs")
+            .unwrap_or_else(|| panic!("{connector_id} must expose capacity probe timeout"));
+
+        assert_eq!(field.kind, StorageConnectorFieldKind::Number);
+        assert_eq!(
+            field.default_value,
+            Some(StorageConnectorFieldDefaultValue::Integer(10))
+        );
+        assert_eq!(field.validation.min_integer, Some(2));
+        assert_eq!(field.validation.max_integer, Some(30));
+        assert_eq!(
+            field.help_key.as_deref(),
+            Some("capacity_probe_timeout_secs_desc")
+        );
+    }
+
+    assert!(
+        descriptor(LocalConnector::ID)
+            .fields
+            .iter()
+            .all(|field| field.name != "capacity_probe_timeout_secs"),
+        "local capacity probes use a fixed driver-owned timeout"
+    );
+}
+
+#[test]
+fn network_capacity_probe_timeout_defaults_and_enforces_integer_boundaries() {
+    let cases = [
+        (
+            OneDriveConnector::ID,
+            serde_json::to_value(onedrive_config(
+                ProviderResumableUploadStrategy::ServerRelay,
+                OneDriveAccountMode::Personal,
+            ))
+            .expect("OneDrive config should serialize"),
+        ),
+        (
+            RemoteConnector::ID,
+            serde_json::to_value(remote_config(RemoteUploadStrategy::RelayStream))
+                .expect("remote config should serialize"),
+        ),
+    ];
+
+    for (connector_id, config) in cases {
+        let mut values = serde_json::from_value::<BTreeMap<String, serde_json::Value>>(config)
+            .expect("typed config should serialize to a field map");
+        values.remove("capacity_probe_timeout_secs");
+        let normalized = connector(connector_id)
+            .validate_connector_config(&ConnectorConfigEnvelope::new(
+                ConnectorId::declared(connector_id),
+                1,
+                values.clone(),
+            ))
+            .expect("missing timeout should receive the connector default");
+        assert_eq!(
+            normalized.values.get("capacity_probe_timeout_secs"),
+            Some(&serde_json::json!(10)),
+            "{connector_id}"
+        );
+
+        for timeout in [2, 30] {
+            values.insert(
+                "capacity_probe_timeout_secs".to_string(),
+                serde_json::json!(timeout),
+            );
+            let normalized = connector(connector_id)
+                .validate_connector_config(&ConnectorConfigEnvelope::new(
+                    ConnectorId::declared(connector_id),
+                    1,
+                    values.clone(),
+                ))
+                .unwrap_or_else(|error| {
+                    panic!("{connector_id} should accept timeout {timeout}: {error}")
+                });
+            assert_eq!(
+                normalized.values.get("capacity_probe_timeout_secs"),
+                Some(&serde_json::json!(timeout))
+            );
+        }
+
+        for invalid in [
+            serde_json::json!(1),
+            serde_json::json!(31),
+            serde_json::json!(2.5),
+        ] {
+            values.insert("capacity_probe_timeout_secs".to_string(), invalid.clone());
+            assert!(
+                connector(connector_id)
+                    .validate_connector_config(&ConnectorConfigEnvelope::new(
+                        ConnectorId::declared(connector_id),
+                        1,
+                        values.clone(),
+                    ))
+                    .is_err(),
+                "{connector_id} must reject timeout {invalid}"
+            );
+        }
+    }
+}
+
+#[test]
+fn legacy_network_connector_configs_decode_with_the_default_probe_timeout() {
+    let mut onedrive = serde_json::to_value(onedrive_config(
+        ProviderResumableUploadStrategy::ServerRelay,
+        OneDriveAccountMode::Personal,
+    ))
+    .expect("OneDrive config should serialize");
+    onedrive
+        .as_object_mut()
+        .expect("OneDrive config should be an object")
+        .remove("capacity_probe_timeout_secs");
+    let onedrive: OneDriveConnectorConfigV1 =
+        serde_json::from_value(onedrive).expect("legacy OneDrive config should decode");
+    assert_eq!(onedrive.capacity_probe_timeout_secs, 10);
+
+    let mut remote = serde_json::to_value(remote_config(RemoteUploadStrategy::RelayStream))
+        .expect("remote config should serialize");
+    remote
+        .as_object_mut()
+        .expect("remote config should be an object")
+        .remove("capacity_probe_timeout_secs");
+    let remote: RemoteConnectorConfigV1 =
+        serde_json::from_value(remote).expect("legacy remote config should decode");
+    assert_eq!(remote.capacity_probe_timeout_secs, 10);
 }
 
 #[test]

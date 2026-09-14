@@ -1,8 +1,10 @@
 //! 存储子模块：`registry`。
 
+use super::capacity::CapacityProbeCoordinator;
 #[cfg(any(test, debug_assertions))]
 use super::drivers::s3::S3Driver;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
+use super::staging_capacity::StagingCapacityCoordinator;
 use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, master_binding_repo, policy_repo};
 use crate::errors::{AsterError, Result};
@@ -57,6 +59,8 @@ pub struct DriverRegistry {
     connectors: Arc<StorageConnectorRegistry>,
     metrics: SharedMetricsRecorder,
     remote_protocol: RwLock<Option<Arc<RemoteProtocolRuntime>>>,
+    capacity_probes: CapacityProbeCoordinator,
+    staging_capacity: StagingCapacityCoordinator,
 }
 
 const STORAGE_CONNECTOR_METRIC_LABEL: &str = "storage_connector";
@@ -80,6 +84,8 @@ impl DriverRegistry {
             connectors,
             metrics,
             remote_protocol: RwLock::new(None),
+            capacity_probes: CapacityProbeCoordinator::new(),
+            staging_capacity: StagingCapacityCoordinator::new(),
         }
     }
 
@@ -89,6 +95,10 @@ impl DriverRegistry {
 
     pub(crate) fn connectors(&self) -> &StorageConnectorRegistry {
         &self.connectors
+    }
+
+    pub(crate) fn staging_capacity(&self) -> &StagingCapacityCoordinator {
+        &self.staging_capacity
     }
 
     /// Reload the policy routing snapshot through the same connector registry
@@ -104,6 +114,32 @@ impl DriverRegistry {
     /// 根据 StoragePolicy 获取或创建 driver（惰性实例化）
     pub fn get_driver(&self, policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
         Ok(self.get_entry(policy)?.storage_driver())
+    }
+
+    pub(crate) async fn assess_capacity(
+        &self,
+        policy: &storage_policy::Model,
+        required_bytes: i64,
+    ) -> Result<aster_drive_storage::StorageCapacityAssessment> {
+        if !self
+            .connectors()
+            .require_policy(policy)?
+            .descriptor()
+            .capabilities
+            .capacity
+        {
+            self.metrics
+                .record_storage_capacity_probe_cache("descriptor_unsupported");
+            return Ok(aster_drive_storage::StorageCapacityAssessment::Unsupported);
+        }
+        self.capacity_probes
+            .assess(
+                policy,
+                self.get_driver(policy)?,
+                required_bytes,
+                self.metrics.clone(),
+            )
+            .await
     }
 
     pub(crate) fn get_cached_driver(&self, policy_id: i64) -> Option<Arc<dyn StorageDriver>> {
@@ -145,11 +181,13 @@ impl DriverRegistry {
     pub fn invalidate(&self, policy_id: i64) {
         let _guard = self.driver_init_lock.lock();
         self.drivers.remove(&policy_id);
+        self.capacity_probes.invalidate(policy_id);
     }
 
     pub fn invalidate_all(&self) {
         let _guard = self.driver_init_lock.lock();
         self.drivers.clear();
+        self.capacity_probes.invalidate_all();
     }
 
     pub async fn reload_primary_state(
@@ -287,6 +325,7 @@ impl DriverRegistry {
 
     #[cfg(any(test, debug_assertions))]
     pub fn insert_for_test(&self, policy_id: i64, driver: Arc<dyn StorageDriver>) {
+        self.capacity_probes.invalidate(policy_id);
         self.drivers.insert(
             policy_id,
             DriverEntry {
@@ -301,6 +340,7 @@ impl DriverRegistry {
     where
         T: StorageDriver + MultipartStorageDriver + 'static,
     {
+        self.capacity_probes.invalidate(policy_id);
         let storage: Arc<dyn StorageDriver> = driver.clone();
         let multipart: Arc<dyn MultipartStorageDriver> = driver;
         self.drivers.insert(
@@ -318,6 +358,7 @@ impl DriverRegistry {
     /// provided `Arc<S3Driver>` being the stored storage and multipart object.
     #[cfg(any(test, debug_assertions))]
     pub fn insert_s3_for_test(&self, policy_id: i64, driver: Arc<S3Driver>) {
+        self.capacity_probes.invalidate(policy_id);
         let storage: Arc<dyn StorageDriver> = driver.clone();
         let multipart: Arc<dyn MultipartStorageDriver> = driver;
         self.drivers.insert(

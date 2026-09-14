@@ -464,6 +464,7 @@ async fn seed_remote_node_fixture(db: &DatabaseConnection) {
                     remote_storage_target_key: Some("migration-target".to_string()),
                     remote_download_strategy: RemoteDownloadStrategy::RelayStream,
                     remote_upload_strategy: RemoteUploadStrategy::RelayStream,
+                    capacity_probe_timeout_secs: 10,
                 },
                 aster_drive_storage::StoragePolicyBehaviorConfig::default(),
             )),

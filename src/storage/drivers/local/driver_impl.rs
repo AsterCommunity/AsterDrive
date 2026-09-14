@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncRead, AsyncSeekExt};
 
 use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
@@ -133,9 +134,10 @@ impl StorageDriver for LocalDriver {
     async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
         let base_path = self.base_path.clone();
         tokio::task::spawn_blocking(move || {
-            let total = fs2::total_space(&base_path)
+            let probe_path = nearest_existing_capacity_path(&base_path)?;
+            let total = fs2::total_space(&probe_path)
                 .map_storage_err_ctx(StorageErrorKind::Transient, "local capacity total_space")?;
-            let available = fs2::available_space(&base_path).map_storage_err_ctx(
+            let available = fs2::available_space(&probe_path).map_storage_err_ctx(
                 StorageErrorKind::Transient,
                 "local capacity available_space",
             )?;
@@ -160,6 +162,36 @@ impl StorageDriver for LocalDriver {
         })
         .await
         .map_storage_err_ctx(StorageErrorKind::Transient, "local capacity task")?
+    }
+
+    fn capacity_probe_policy(&self) -> aster_drive_storage::StorageCapacityProbePolicy {
+        aster_drive_storage::StorageCapacityProbePolicy::local()
+    }
+}
+
+fn nearest_existing_capacity_path(base_path: &Path) -> aster_drive_storage::Result<PathBuf> {
+    let mut candidate = base_path;
+    loop {
+        match std::fs::metadata(candidate) {
+            Ok(_) => return Ok(candidate.to_path_buf()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                candidate = candidate.parent().ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        format!(
+                            "local capacity path has no existing ancestor: {}",
+                            base_path.display()
+                        ),
+                    )
+                })?;
+            }
+            Err(error) => {
+                return Err(error).map_storage_err_ctx(
+                    StorageErrorKind::Transient,
+                    "inspect local capacity path",
+                );
+            }
+        }
     }
 }
 

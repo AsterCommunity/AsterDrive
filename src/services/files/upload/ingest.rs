@@ -102,8 +102,10 @@ pub(crate) async fn ingest_stream(
 
     record_stream_completion_metric(state, true);
 
-    let details =
-        crate::services::files::file::audit_location_details_for_model(state, scope, &file).await;
+    let details = super::audit_details_with_data_plane(
+        crate::services::files::file::audit_location_details_for_model(state, scope, &file).await,
+        "streaming_direct",
+    );
     audit::log_with_details(
         state,
         audit_ctx,
@@ -111,7 +113,7 @@ pub(crate) async fn ingest_stream(
         crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        || details.clone(),
+        || Some(details.clone()),
     )
     .await;
     Ok(file.into())
