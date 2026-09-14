@@ -36,6 +36,7 @@ pub struct OneDriveDriver {
     root_item_id: String,
     base_path: String,
     policy_chunk_size: i64,
+    capacity_probe_timeout: std::time::Duration,
 }
 
 // Microsoft Graph documents the simple PUT content limit as 250 MB, not 250 MiB.
@@ -104,6 +105,7 @@ impl OneDriveDriver {
         root_item_id: impl Into<String>,
         base_path: impl Into<String>,
         policy_chunk_size: i64,
+        capacity_probe_timeout: std::time::Duration,
     ) -> Self {
         Self {
             client,
@@ -111,6 +113,7 @@ impl OneDriveDriver {
             root_item_id: root_item_id.into(),
             base_path: base_path.into(),
             policy_chunk_size,
+            capacity_probe_timeout,
         }
     }
 
@@ -511,6 +514,10 @@ impl StorageDriver for OneDriveDriver {
 
     async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
         self.client.capacity_info(&self.drive_id).await
+    }
+
+    fn capacity_probe_policy(&self) -> aster_drive_storage::StorageCapacityProbePolicy {
+        aster_drive_storage::StorageCapacityProbePolicy::network(self.capacity_probe_timeout)
     }
 }
 
@@ -937,7 +944,14 @@ mod tests {
         let client =
             MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
                 .expect("Graph client should build");
-        OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024)
+        OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            5 * 1024 * 1024,
+            Duration::from_secs(10),
+        )
     }
 
     #[test]
@@ -946,6 +960,30 @@ mod tests {
         assert!(can_use_graph_simple_upload(250_000_000));
         assert!(!can_use_graph_simple_upload(250_000_001));
         assert!(!can_use_graph_simple_upload(250 * 1024 * 1024));
+    }
+
+    #[test]
+    fn capacity_probe_policy_uses_the_configured_network_timeout() {
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            "https://graph.example.test",
+            "token",
+        ))
+        .expect("Graph client should build");
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            5 * 1024 * 1024,
+            Duration::from_secs(23),
+        );
+
+        let policy = driver.capacity_probe_policy();
+
+        assert_eq!(policy.fresh_for, Duration::from_secs(30));
+        assert_eq!(policy.stale_for, Duration::from_secs(5 * 60));
+        assert_eq!(policy.negative_for, Duration::from_secs(1));
+        assert_eq!(policy.probe_timeout, Duration::from_secs(23));
     }
 
     #[test]
@@ -1010,6 +1048,7 @@ mod tests {
             "root-id",
             "",
             GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES as i64,
+            Duration::from_secs(10),
         );
         let boundary = GRAPH_SIMPLE_UPLOAD_IN_MEMORY_MAX_BYTES;
 
@@ -1060,7 +1099,14 @@ mod tests {
         let client =
             MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
                 .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            1,
+            Duration::from_secs(10),
+        );
         let attempt = StreamUploadAttempt::new(NAMED_PATH, 2).unwrap();
 
         driver
@@ -1107,7 +1153,14 @@ mod tests {
         let client =
             MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
                 .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            1,
+            Duration::from_secs(10),
+        );
 
         driver
             .put_reader(NAMED_PATH, Box::new(tokio::io::empty()), 2)
@@ -1170,7 +1223,14 @@ mod tests {
         let client =
             MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
                 .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            1,
+            Duration::from_secs(10),
+        );
         let attempt = StreamUploadAttempt::new(NAMED_PATH, 2).unwrap();
         let stage_driver = driver.clone();
         let stage_attempt = attempt.clone();
@@ -1214,7 +1274,14 @@ mod tests {
         let client =
             MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
                 .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            1,
+            Duration::from_secs(10),
+        );
         let attempt = StreamUploadAttempt::new(NAMED_PATH, 2).unwrap();
         let stage_driver = driver.clone();
         let stage_attempt = attempt.clone();
@@ -1313,7 +1380,14 @@ mod tests {
             "token",
         ))
         .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            5 * 1024 * 1024,
+            Duration::from_secs(10),
+        );
 
         let provider_resumable = driver
             .extensions()
@@ -1349,7 +1423,14 @@ mod tests {
             "token",
         ))
         .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            5 * 1024 * 1024,
+            Duration::from_secs(10),
+        );
         let provider = driver
             .extensions()
             .provider_resumable
@@ -1387,7 +1468,14 @@ mod tests {
             "token",
         ))
         .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            5 * 1024 * 1024,
+            Duration::from_secs(10),
+        );
         let options = aster_drive_storage::traits::driver::DirectDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             require_download_name_match: true,
@@ -1612,7 +1700,14 @@ mod tests {
         let client =
             MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(&server.base_url, "token"))
                 .expect("Graph client should build");
-        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 1);
+        let driver = OneDriveDriver::new(
+            client,
+            "drive-id",
+            "root-id",
+            "",
+            1,
+            Duration::from_secs(10),
+        );
 
         driver
             .put_reader(NAMED_PATH, Box::new(tokio::io::empty()), 2)

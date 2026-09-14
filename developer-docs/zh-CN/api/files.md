@@ -77,7 +77,7 @@
 
 init 在创建 session、provider upload 或目录副作用前执行目标容量准入。Local、OneDrive 和声明支持容量观测的 Remote target 会使用当前可用字节：恰好满足声明大小时允许；明确不足时排除当前 target，并按 placement 规则尝试后续 target。所有候选均明确不足时返回 `upload.target_capacity_insufficient`（HTTP 507）；观测暂不可用且没有后续 target 时返回可重试的 `upload.capacity_unavailable`（HTTP 503）。S3-compatible、OSS、COS、Qiniu、Huawei OBS、Azure Blob 和 SFTP 没有可移植容量接口，`unsupported` 是正常能力结果，init 会继续并由实际数据面结果兜底。
 
-容量准入是 fast-fail 快照，不是跨请求的空间 reservation；最终 workspace quota 仍由完成事务的 SQL CAS 保证。容量观测按请求驱动，不运行周期扫描：同一 policy 的并发探测合并为一次，所有 policy 共享有界 probe 并发，探测有 2 秒上限。可靠观测在 2 秒 fresh window 内直接复用；最多 30 秒的 stale 充足观测立即放行并触发一次后台刷新；stale 不足或不可用结果必须等待刷新确认后才拒绝。暂时错误只短缓存 250 毫秒，且刷新任务独立于发起请求，客户端取消不会终止共享探测。staged 临时盘的物理空间 reservation 继续由 Issue #593 跟踪。
+容量准入是 fast-fail 快照，不是跨请求的空间 reservation；最终 workspace quota 仍由完成事务的 SQL CAS 保证。容量观测按请求驱动，不运行周期扫描：同一 policy 的并发探测合并为一次，所有 policy 共享有界 probe 并发，fresh/stale/negative window 与 timeout 由 driver 按探测成本决定。Local 观测 fresh 2 秒、充足结果最多 stale 30 秒；OneDrive 和 Remote 观测 fresh 30 秒、充足结果最多 stale 5 分钟并通过 stale-while-revalidate 刷新。stale 不足或不可用结果必须等待刷新确认后才拒绝。Local 固定使用 2 秒 timeout；OneDrive 和 Remote 默认 10 秒，并提供 2 至 30 秒的 connector 配置。暂时错误使用短期 driver-owned negative cache，且刷新任务独立于发起请求，客户端取消不会终止共享探测。staged 临时盘的物理空间 reservation 继续由 Issue #593 跟踪。
 
 缺省时对象存储和 Remote 上传都会回退为 `relay_stream`。旧配置 `{"presigned_upload":true}` 和 `{"s3_upload_strategy":"presigned"}` 仍作为兼容输入接受；新客户端应发送 `{"object_storage_upload_strategy":"presigned"}`。旧的 `{"s3_upload_strategy":"proxy_tempfile"}` 会回退为 `relay_stream`。使用预签名模式时，对象存储侧或 follower 内部存储接口还必须配置好浏览器可用的 CORS。Azure Blob 预签名上传使用 SAS URL，客户端必须带 `x-ms-blob-type: BlockBlob`；S3-compatible、Tencent COS 和 Remote multipart part 通常要求回传 ETag。Remote 预签名上传只适用于可直连的远端节点；如果远端节点解析为 reverse tunnel，服务端会拒绝 `remote_upload_strategy = "presigned"` 这类策略组合。
 

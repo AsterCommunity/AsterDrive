@@ -262,6 +262,72 @@ pub struct StorageCapacityInfo {
     pub observed_at: DateTime<Utc>,
 }
 
+/// Runtime policy controlling demand-driven capacity observation.
+///
+/// Drivers own these defaults because local filesystem probes and remote provider control-plane
+/// calls have materially different cost and latency. Connector configuration may override the
+/// probe timeout, while freshness windows remain driver-owned operational policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StorageCapacityProbePolicy {
+    /// Duration for which a conclusive observation is used without refreshing.
+    pub fresh_for: Duration,
+    /// Maximum age of a sufficient observation served through stale-while-revalidate.
+    pub stale_for: Duration,
+    /// Duration for which unavailable observations and probe errors suppress another probe.
+    pub negative_for: Duration,
+    /// Total deadline covering probe concurrency admission and provider I/O.
+    pub probe_timeout: Duration,
+}
+
+impl StorageCapacityProbePolicy {
+    /// Low-latency profile for filesystem-local capacity observations.
+    pub const fn local() -> Self {
+        Self {
+            fresh_for: Duration::from_secs(2),
+            stale_for: Duration::from_secs(30),
+            negative_for: Duration::from_millis(250),
+            probe_timeout: Duration::from_secs(2),
+        }
+    }
+
+    /// Higher-latency profile for provider control-plane capacity observations.
+    pub const fn network(probe_timeout: Duration) -> Self {
+        Self {
+            fresh_for: Duration::from_secs(30),
+            stale_for: Duration::from_secs(5 * 60),
+            negative_for: Duration::from_secs(1),
+            probe_timeout,
+        }
+    }
+
+    /// Validate a driver-provided policy before it controls request latency or cache lifetime.
+    pub fn validate(self) -> Result<Self> {
+        if self.fresh_for.is_zero()
+            || self.stale_for.is_zero()
+            || self.negative_for.is_zero()
+            || self.probe_timeout.is_zero()
+        {
+            return Err(crate::error::storage_driver_error(
+                crate::error::StorageErrorKind::Misconfigured,
+                "storage capacity probe policy durations must be positive",
+            ));
+        }
+        if self.fresh_for > self.stale_for {
+            return Err(crate::error::storage_driver_error(
+                crate::error::StorageErrorKind::Misconfigured,
+                "storage capacity probe fresh duration must not exceed stale duration",
+            ));
+        }
+        Ok(self)
+    }
+}
+
+impl Default for StorageCapacityProbePolicy {
+    fn default() -> Self {
+        Self::network(Duration::from_secs(10))
+    }
+}
+
 /// Result of comparing one capacity observation with the bytes required by an operation.
 ///
 /// This is deliberately separate from reservation: capacity observations are snapshots and
@@ -578,8 +644,9 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExactSizeReader, StorageCapacityAssessment, StorageCapacityInfo, StorageCapacityStatus,
-        StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, checked_upload_size,
+        ExactSizeReader, StorageCapacityAssessment, StorageCapacityInfo,
+        StorageCapacityProbePolicy, StorageCapacityStatus, StreamUploadAttempt,
+        StreamUploadCleanup, StreamUploadDriver, checked_upload_size,
     };
     use crate::error::{Result, StorageErrorKind};
     use async_trait::async_trait;
@@ -674,6 +741,47 @@ mod tests {
             StorageCapacityAssessment::Unavailable,
             "an unavailable status must not trust stray byte fields"
         );
+    }
+
+    #[test]
+    fn capacity_probe_policies_validate_local_network_and_invalid_boundaries() {
+        let local = StorageCapacityProbePolicy::local().validate().unwrap();
+        assert_eq!(local.fresh_for, std::time::Duration::from_secs(2));
+        assert_eq!(local.stale_for, std::time::Duration::from_secs(30));
+
+        let network = StorageCapacityProbePolicy::network(std::time::Duration::from_secs(17))
+            .validate()
+            .unwrap();
+        assert_eq!(network.fresh_for, std::time::Duration::from_secs(30));
+        assert_eq!(network.stale_for, std::time::Duration::from_secs(300));
+        assert_eq!(network.probe_timeout, std::time::Duration::from_secs(17));
+
+        for invalid in [
+            StorageCapacityProbePolicy {
+                fresh_for: std::time::Duration::ZERO,
+                ..network
+            },
+            StorageCapacityProbePolicy {
+                stale_for: std::time::Duration::ZERO,
+                ..network
+            },
+            StorageCapacityProbePolicy {
+                negative_for: std::time::Duration::ZERO,
+                ..network
+            },
+            StorageCapacityProbePolicy {
+                probe_timeout: std::time::Duration::ZERO,
+                ..network
+            },
+            StorageCapacityProbePolicy {
+                fresh_for: std::time::Duration::from_secs(31),
+                stale_for: std::time::Duration::from_secs(30),
+                ..network
+            },
+        ] {
+            let error = invalid.validate().expect_err("invalid policy must fail");
+            assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+        }
     }
     use tokio::sync::Barrier;
 

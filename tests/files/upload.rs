@@ -759,6 +759,7 @@ async fn install_probe_remote_policy_with_upload_strategy(
             remote_storage_target_key: Some("probe-target".to_string()),
             remote_download_strategy: aster_drive_model::types::RemoteDownloadStrategy::RelayStream,
             remote_upload_strategy: upload_strategy,
+            capacity_probe_timeout_secs: 10,
         },
         aster_drive_storage::StoragePolicyBehaviorConfig::default(),
     ));
@@ -1311,6 +1312,7 @@ async fn create_dead_remote_policy(
                         aster_drive_model::types::RemoteDownloadStrategy::RelayStream,
                     remote_upload_strategy:
                         aster_drive_model::types::RemoteUploadStrategy::RelayStream,
+                    capacity_probe_timeout_secs: 10,
                 },
                 aster_drive_storage::StoragePolicyBehaviorConfig::default(),
             )),

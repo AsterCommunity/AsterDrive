@@ -202,6 +202,7 @@ pub(crate) fn onedrive_policy_with_download(
             provider_resumable_upload_strategy: ProviderResumableUploadStrategy::ServerRelay,
             provider_download_strategy: download_strategy,
             provider_download_filename_mode: download_filename_mode,
+            capacity_probe_timeout_secs: super::common::DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS,
             cloud: MicrosoftGraphCloud::Global,
             account_mode,
             tenant: None,
@@ -229,6 +230,7 @@ pub(crate) fn remote_policy(
             remote_storage_target_key: Some("rst-test".to_string()),
             remote_download_strategy: download_strategy,
             remote_upload_strategy: upload_strategy,
+            capacity_probe_timeout_secs: super::common::DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS,
         },
         StoragePolicyBehaviorConfig::default(),
     )
@@ -267,6 +269,7 @@ pub(crate) fn remote_connection(
                     remote_storage_target_key,
                     remote_download_strategy: RemoteDownloadStrategy::RelayStream,
                     remote_upload_strategy: RemoteUploadStrategy::RelayStream,
+                    capacity_probe_timeout_secs: super::common::DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS,
                 },
             ),
             credential: StorageConnectorCredentialInput::None,

@@ -1,6 +1,16 @@
 use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
+    aster_drive_storage::storage_connector_message!(
+        "capacity_probe_timeout_secs",
+        "Capacity probe timeout (seconds)",
+        "容量探测超时（秒）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "capacity_probe_timeout_secs_desc",
+        "Maximum time allowed for a Microsoft Graph capacity observation. Increase this for high-latency proxies or regions; it does not change upload or download timeouts.",
+        "Microsoft Graph 容量观测允许的最长时间。高延迟代理或地区可适当调高；此设置不改变上传或下载超时。",
+    ),
     aster_drive_storage::storage_connector_message!("account_mode", "Account mode", "账户模式",),
     aster_drive_storage::storage_connector_message!(
         "onedrive_account_mode_desc",

@@ -180,6 +180,18 @@ async fn capacity_info_reports_filesystem_space_for_base_path() {
     let _ = tokio::fs::remove_dir_all(&base).await;
 }
 
+#[test]
+fn capacity_probe_policy_uses_the_low_latency_local_profile() {
+    let driver = super::LocalDriver::new("./data/uploads").unwrap();
+
+    let policy = driver.capacity_probe_policy();
+
+    assert_eq!(policy.fresh_for, std::time::Duration::from_secs(2));
+    assert_eq!(policy.stale_for, std::time::Duration::from_secs(30));
+    assert_eq!(policy.negative_for, std::time::Duration::from_millis(250));
+    assert_eq!(policy.probe_timeout, std::time::Duration::from_secs(2));
+}
+
 #[tokio::test]
 async fn capacity_info_uses_existing_ancestor_for_uncreated_storage_root() {
     let parent = unique_temp_dir("capacity-uncreated-root-test");

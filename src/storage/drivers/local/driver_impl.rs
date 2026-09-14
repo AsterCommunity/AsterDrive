@@ -163,6 +163,10 @@ impl StorageDriver for LocalDriver {
         .await
         .map_storage_err_ctx(StorageErrorKind::Transient, "local capacity task")?
     }
+
+    fn capacity_probe_policy(&self) -> aster_drive_storage::StorageCapacityProbePolicy {
+        aster_drive_storage::StorageCapacityProbePolicy::local()
+    }
 }
 
 fn nearest_existing_capacity_path(base_path: &Path) -> aster_drive_storage::Result<PathBuf> {

@@ -252,6 +252,11 @@ pub trait StorageDriver: Send + Sync {
             "storage driver does not support capacity observability",
         ))
     }
+
+    /// Runtime freshness and timeout policy for demand-driven capacity probes.
+    fn capacity_probe_policy(&self) -> super::extensions::StorageCapacityProbePolicy {
+        super::extensions::StorageCapacityProbePolicy::default()
+    }
 }
 
 #[cfg(test)]
@@ -464,5 +469,17 @@ mod tests {
                 .message()
                 .contains("does not support capacity observability")
         );
+    }
+
+    #[test]
+    fn default_capacity_probe_policy_uses_the_network_profile() {
+        let driver = MemoryDriver::new(b"data");
+
+        let policy = driver.capacity_probe_policy();
+
+        assert_eq!(policy.fresh_for, std::time::Duration::from_secs(30));
+        assert_eq!(policy.stale_for, std::time::Duration::from_secs(5 * 60));
+        assert_eq!(policy.negative_for, std::time::Duration::from_secs(1));
+        assert_eq!(policy.probe_timeout, std::time::Duration::from_secs(10));
     }
 }

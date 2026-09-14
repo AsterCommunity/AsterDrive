@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::{
-    StorageCapacityAssessment, StorageCapacityInfo, StorageCapacityStatus, StorageDriver,
-    StorageErrorKind,
+    StorageCapacityAssessment, StorageCapacityInfo, StorageCapacityProbePolicy,
+    StorageCapacityStatus, StorageDriver, StorageErrorKind,
 };
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
@@ -22,13 +22,8 @@ use tokio::sync::{Mutex, Notify, Semaphore};
 
 use crate::errors::{AsterError, Result};
 
-const SUPPORTED_FRESH_FOR: Duration = Duration::from_secs(2);
-const INCONCLUSIVE_FRESH_FOR: Duration = Duration::from_millis(250);
-const UNSUPPORTED_FRESH_FOR: Duration = Duration::from_secs(30);
-const SUFFICIENT_STALE_FOR: Duration = Duration::from_secs(30);
-const CAPACITY_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
-const CAPACITY_PROBE_WAIT_TIMEOUT: Duration = Duration::from_millis(2_250);
 const MAX_CONCURRENT_CAPACITY_PROBES: usize = 8;
+const CAPACITY_PROBE_WAIT_GRACE: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CapacityPolicyIdentity {
@@ -56,18 +51,18 @@ impl CachedCapacityObservation {
         self.cached_at.elapsed()
     }
 
-    fn fresh_for(&self) -> Duration {
+    fn fresh_for(&self, probe_policy: StorageCapacityProbePolicy) -> Duration {
         match &self.result {
             Ok(capacity) => match capacity.status {
                 StorageCapacityStatus::Supported if capacity.available_bytes.is_some() => {
-                    SUPPORTED_FRESH_FOR
+                    probe_policy.fresh_for
                 }
-                StorageCapacityStatus::Unsupported => UNSUPPORTED_FRESH_FOR,
+                StorageCapacityStatus::Unsupported => probe_policy.stale_for,
                 StorageCapacityStatus::Supported | StorageCapacityStatus::Unavailable => {
-                    INCONCLUSIVE_FRESH_FOR
+                    probe_policy.negative_for
                 }
             },
-            Err(_) => INCONCLUSIVE_FRESH_FOR,
+            Err(_) => probe_policy.negative_for,
         }
     }
 
@@ -80,8 +75,9 @@ impl CachedCapacityObservation {
     fn stale_sufficient_assessment(
         &self,
         required_bytes: i64,
+        probe_policy: StorageCapacityProbePolicy,
     ) -> Option<StorageCapacityAssessment> {
-        if self.age() > SUFFICIENT_STALE_FOR {
+        if self.age() > probe_policy.stale_for {
             return None;
         }
         match self.assessment(required_bytes) {
@@ -156,40 +152,20 @@ impl CapacityProbeState {
     }
 }
 
-#[derive(Clone, Copy)]
-struct CapacityProbeLimits {
-    probe_timeout: Duration,
-    wait_timeout: Duration,
-}
-
-impl Default for CapacityProbeLimits {
-    fn default() -> Self {
-        Self {
-            probe_timeout: CAPACITY_PROBE_TIMEOUT,
-            wait_timeout: CAPACITY_PROBE_WAIT_TIMEOUT,
-        }
-    }
-}
-
 pub(crate) struct CapacityProbeCoordinator {
     states: DashMap<i64, Arc<CapacityProbeState>>,
     probe_limit: Arc<Semaphore>,
-    limits: CapacityProbeLimits,
 }
 
 impl CapacityProbeCoordinator {
     pub(crate) fn new() -> Self {
-        Self::with_limits(
-            MAX_CONCURRENT_CAPACITY_PROBES,
-            CapacityProbeLimits::default(),
-        )
+        Self::with_max_concurrent_probes(MAX_CONCURRENT_CAPACITY_PROBES)
     }
 
-    fn with_limits(max_concurrent_probes: usize, limits: CapacityProbeLimits) -> Self {
+    fn with_max_concurrent_probes(max_concurrent_probes: usize) -> Self {
         Self {
             states: DashMap::new(),
             probe_limit: Arc::new(Semaphore::new(max_concurrent_probes.max(1))),
-            limits,
         }
     }
 
@@ -213,17 +189,20 @@ impl CapacityProbeCoordinator {
                 "capacity assessment required_bytes must be non-negative",
             ));
         }
+        let probe_policy = driver
+            .capacity_probe_policy()
+            .validate()
+            .map_err(AsterError::from)?;
 
         let state = self.state_for(policy);
         let cache = state.cache();
         if let Some(latest) = cache.latest.as_ref()
-            && latest.age() <= latest.fresh_for()
+            && latest.age() <= latest.fresh_for(probe_policy)
         {
             if !latest.usable_observation()
-                && let Some(stale) = cache
-                    .last_usable
-                    .as_ref()
-                    .and_then(|usable| usable.stale_sufficient_assessment(required_bytes))
+                && let Some(stale) = cache.last_usable.as_ref().and_then(|usable| {
+                    usable.stale_sufficient_assessment(required_bytes, probe_policy)
+                })
             {
                 metrics.record_storage_capacity_probe_cache("stale_after_error");
                 return Ok(stale);
@@ -234,7 +213,7 @@ impl CapacityProbeCoordinator {
         if let Some(assessment) = cache
             .last_usable
             .as_ref()
-            .and_then(|usable| usable.stale_sufficient_assessment(required_bytes))
+            .and_then(|usable| usable.stale_sufficient_assessment(required_bytes, probe_policy))
         {
             metrics.record_storage_capacity_probe_cache("stale_sufficient");
             self.trigger_refresh(
@@ -243,6 +222,7 @@ impl CapacityProbeCoordinator {
                 state,
                 driver,
                 metrics,
+                probe_policy,
             );
             return Ok(assessment);
         }
@@ -252,15 +232,8 @@ impl CapacityProbeCoordinator {
             metrics.record_storage_capacity_probe_cache("cold");
         }
 
-        self.refresh_and_wait(
-            policy.id,
-            policy.connector_id.clone(),
-            state,
-            driver,
-            required_bytes,
-            metrics,
-        )
-        .await
+        self.refresh_and_wait(policy, state, driver, required_bytes, metrics, probe_policy)
+            .await
     }
 
     fn state_for(&self, policy: &storage_policy::Model) -> Arc<CapacityProbeState> {
@@ -285,21 +258,32 @@ impl CapacityProbeCoordinator {
 
     async fn refresh_and_wait(
         &self,
-        policy_id: i64,
-        connector_id: String,
+        policy: &storage_policy::Model,
         state: Arc<CapacityProbeState>,
         driver: Arc<dyn StorageDriver>,
         required_bytes: i64,
         metrics: SharedMetricsRecorder,
+        probe_policy: StorageCapacityProbePolicy,
     ) -> Result<StorageCapacityAssessment> {
         let baseline_version = state.version();
         let notified = state.refresh_notify.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
-        self.trigger_refresh(policy_id, connector_id, state.clone(), driver, metrics);
+        self.trigger_refresh(
+            policy.id,
+            policy.connector_id.clone(),
+            state.clone(),
+            driver,
+            metrics,
+            probe_policy,
+        );
 
+        let wait_timeout = probe_policy
+            .probe_timeout
+            .checked_add(CAPACITY_PROBE_WAIT_GRACE)
+            .unwrap_or(probe_policy.probe_timeout);
         if state.version() == baseline_version
-            && tokio::time::timeout(self.limits.wait_timeout, &mut notified)
+            && tokio::time::timeout(wait_timeout, &mut notified)
                 .await
                 .is_err()
         {
@@ -325,12 +309,13 @@ impl CapacityProbeCoordinator {
         state: Arc<CapacityProbeState>,
         driver: Arc<dyn StorageDriver>,
         metrics: SharedMetricsRecorder,
+        probe_policy: StorageCapacityProbePolicy,
     ) {
         let Ok(refresh_guard) = state.refresh_lock.clone().try_lock_owned() else {
             return;
         };
         let probe_limit = self.probe_limit.clone();
-        let probe_timeout = self.limits.probe_timeout;
+        let probe_timeout = probe_policy.probe_timeout;
         tokio::spawn(async move {
             let _refresh_guard = refresh_guard;
             let started_at = Instant::now();
@@ -424,6 +409,7 @@ mod tests {
         fallback: aster_drive_storage::Result<StorageCapacityInfo>,
         delay: Duration,
         concurrency: Arc<ProbeConcurrency>,
+        probe_policy: StorageCapacityProbePolicy,
     }
 
     impl ProbeDriver {
@@ -438,11 +424,22 @@ mod tests {
                 fallback,
                 delay,
                 concurrency: Arc::new(ProbeConcurrency::default()),
+                probe_policy: StorageCapacityProbePolicy {
+                    fresh_for: Duration::from_millis(10),
+                    stale_for: Duration::from_millis(500),
+                    negative_for: Duration::from_millis(10),
+                    probe_timeout: Duration::from_millis(100),
+                },
             }
         }
 
         fn with_concurrency(mut self, concurrency: Arc<ProbeConcurrency>) -> Self {
             self.concurrency = concurrency;
+            self
+        }
+
+        fn with_probe_timeout(mut self, probe_timeout: Duration) -> Self {
+            self.probe_policy.probe_timeout = probe_timeout;
             self
         }
     }
@@ -495,6 +492,10 @@ mod tests {
                 .pop_front()
                 .unwrap_or_else(|| self.fallback.clone())
         }
+
+        fn capacity_probe_policy(&self) -> StorageCapacityProbePolicy {
+            self.probe_policy
+        }
     }
 
     fn capacity(
@@ -532,13 +533,7 @@ mod tests {
     }
 
     fn coordinator(max_concurrent: usize) -> CapacityProbeCoordinator {
-        CapacityProbeCoordinator::with_limits(
-            max_concurrent,
-            CapacityProbeLimits {
-                probe_timeout: Duration::from_millis(100),
-                wait_timeout: Duration::from_millis(150),
-            },
-        )
+        CapacityProbeCoordinator::with_max_concurrent_probes(max_concurrent)
     }
 
     fn sufficient(bytes: i64) -> aster_drive_storage::Result<StorageCapacityInfo> {
@@ -571,6 +566,21 @@ mod tests {
         })
         .await
         .expect("capacity probe should start");
+    }
+
+    async fn wait_for_version(
+        coordinator: &CapacityProbeCoordinator,
+        policy_id: i64,
+        expected: u64,
+    ) {
+        let state = coordinator.states.get(&policy_id).unwrap().clone();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while state.version() < expected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("capacity probe result should be published");
     }
 
     #[tokio::test]
@@ -671,7 +681,7 @@ mod tests {
             )
             .await
             .unwrap();
-        force_cached_age(&coordinator, policy.id, Duration::from_secs(3));
+        force_cached_age(&coordinator, policy.id, Duration::from_millis(20));
 
         let stale = tokio::time::timeout(
             Duration::from_millis(50),
@@ -690,7 +700,8 @@ mod tests {
             StorageCapacityAssessment::Sufficient { .. }
         ));
         wait_for_calls(&driver, 2).await;
-        tokio::time::sleep(Duration::from_millis(90)).await;
+        wait_for_version(&coordinator, policy.id, 2).await;
+        force_cached_age(&coordinator, policy.id, Duration::ZERO);
         assert!(matches!(
             coordinator
                 .assess(
@@ -724,7 +735,7 @@ mod tests {
             )
             .await
             .unwrap();
-        force_cached_age(&coordinator, policy.id, Duration::from_secs(3));
+        force_cached_age(&coordinator, policy.id, Duration::from_millis(20));
 
         assert!(matches!(
             coordinator
@@ -739,7 +750,8 @@ mod tests {
             StorageCapacityAssessment::Sufficient { .. }
         ));
         wait_for_calls(&driver, 2).await;
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        wait_for_version(&coordinator, policy.id, 2).await;
+        force_cached_age(&coordinator, policy.id, Duration::ZERO);
 
         assert!(matches!(
             coordinator
@@ -790,7 +802,7 @@ mod tests {
             first,
             StorageCapacityAssessment::Insufficient { .. }
         ));
-        force_cached_age(&coordinator, policy.id, Duration::from_secs(3));
+        force_cached_age(&coordinator, policy.id, Duration::from_millis(20));
 
         let confirmed = coordinator
             .assess(
@@ -841,7 +853,7 @@ mod tests {
         );
         assert_eq!(driver.calls.load(Ordering::SeqCst), 1);
 
-        force_cached_age(&coordinator, policy.id, Duration::from_secs(1));
+        force_cached_age(&coordinator, policy.id, Duration::from_millis(20));
         assert!(matches!(
             coordinator
                 .assess(
@@ -888,19 +900,12 @@ mod tests {
 
     #[tokio::test]
     async fn probe_timeout_is_bounded_and_retryable() {
-        let coordinator = CapacityProbeCoordinator::with_limits(
-            1,
-            CapacityProbeLimits {
-                probe_timeout: Duration::from_millis(20),
-                wait_timeout: Duration::from_millis(50),
-            },
-        );
+        let coordinator = CapacityProbeCoordinator::with_max_concurrent_probes(1);
         let policy = policy(7);
-        let driver = Arc::new(ProbeDriver::new(
-            vec![],
-            sufficient(100),
-            Duration::from_millis(100),
-        ));
+        let driver = Arc::new(
+            ProbeDriver::new(vec![], sufficient(100), Duration::from_millis(100))
+                .with_probe_timeout(Duration::from_millis(20)),
+        );
 
         let started_at = Instant::now();
         let error = coordinator

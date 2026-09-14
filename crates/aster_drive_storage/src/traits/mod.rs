@@ -15,8 +15,9 @@ pub use extensions::{
     ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageCapacityAssessment, StorageCapacityInfo,
-    StorageCapacityStatus, StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup,
-    StreamUploadDriver, checked_upload_size, exact_size_error_kind,
+    StorageCapacityProbePolicy, StorageCapacityStatus, StorageDriverExtensions,
+    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, checked_upload_size,
+    exact_size_error_kind,
 };
 pub use multipart::{
     MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,

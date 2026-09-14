@@ -85,6 +85,10 @@ impl StorageDriver for RemoteDriver {
         self.client.capacity_info().await.map_err(Into::into)
     }
 
+    fn capacity_probe_policy(&self) -> aster_drive_storage::StorageCapacityProbePolicy {
+        aster_drive_storage::StorageCapacityProbePolicy::network(self.capacity_probe_timeout)
+    }
+
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         let stream_upload: Option<&dyn StreamUploadDriver> =
             match self.target_runtime_capabilities.as_ref() {

@@ -83,6 +83,7 @@ pub use traits::{
     ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageCapacityAssessment, StorageCapacityInfo,
-    StorageCapacityStatus, StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup,
-    StreamUploadDriver, UploadedMultipartPart, checked_upload_size, exact_size_error_kind,
+    StorageCapacityProbePolicy, StorageCapacityStatus, StorageDriverExtensions,
+    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, UploadedMultipartPart,
+    checked_upload_size, exact_size_error_kind,
 };

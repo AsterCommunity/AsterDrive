@@ -4,7 +4,8 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
     StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorFieldDescriptor,
-    StorageConnectorFieldScope, StorageConnectorSelectOptionInput, storage_connector_select_field,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorSelectOptionInput,
+    storage_connector_field, storage_connector_select_field,
 };
 use aster_drive_storage::{
     ConnectorConfigEnvelope, ConnectorId, StorageConnectorActionSchema,
@@ -16,6 +17,30 @@ use serde::{Serialize, de::DeserializeOwned};
 use super::StorageConnectorCredentialInput;
 
 const STATIC_CREDENTIAL_CLEANUP_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub(super) const DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS: u64 = 10;
+pub(super) const MIN_CAPACITY_PROBE_TIMEOUT_SECS: i64 = 2;
+pub(super) const MAX_CAPACITY_PROBE_TIMEOUT_SECS: i64 = 30;
+
+pub(super) const fn default_capacity_probe_timeout_secs() -> u64 {
+    DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS
+}
+
+pub(super) fn capacity_probe_timeout_field() -> StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_field(
+        "capacity_probe_timeout_secs",
+        StorageConnectorFieldScope::ConnectorConfig,
+        StorageConnectorFieldKind::Number,
+        false,
+        false,
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(
+        DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS as i64,
+    ));
+    field.validation.min_integer = Some(MIN_CAPACITY_PROBE_TIMEOUT_SECS);
+    field.validation.max_integer = Some(MAX_CAPACITY_PROBE_TIMEOUT_SECS);
+    field.help_key = Some("capacity_probe_timeout_secs_desc".to_string());
+    field
+}
 
 pub(super) fn normalize_download_base_url(value: &str) -> Result<String> {
     let trimmed = value.trim();

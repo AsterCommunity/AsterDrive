@@ -21,6 +21,8 @@ pub struct RemoteDriverConfig {
     pub base_path: String,
     pub remote_storage_target_key: String,
     pub max_file_size: i64,
+    /// Maximum time spent acquiring a probe slot and querying remote-node capacity.
+    pub capacity_probe_timeout: std::time::Duration,
 }
 
 pub struct RemoteDriver {
@@ -33,6 +35,7 @@ pub struct RemoteDriver {
     max_multipart_part_size: Option<u64>,
     max_multipart_object_size: Option<u64>,
     target_runtime_capabilities: Option<RemoteStorageTargetRuntimeCapabilities>,
+    capacity_probe_timeout: std::time::Duration,
 }
 
 impl RemoteDriver {
@@ -100,6 +103,7 @@ impl RemoteDriver {
             max_multipart_part_size,
             max_multipart_object_size,
             target_runtime_capabilities,
+            capacity_probe_timeout: config.capacity_probe_timeout,
         })
     }
 

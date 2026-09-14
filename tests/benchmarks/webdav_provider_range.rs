@@ -625,6 +625,7 @@ fn build_onedrive_provider() -> BenchResult<ProviderBuild> {
         root_item_id.clone(),
         base_path.clone(),
         10 * 1024 * 1024,
+        std::time::Duration::from_secs(10),
     );
     Ok(ProviderBuild::Ready(ProviderFixture {
         provider: "onedrive".to_string(),
@@ -723,6 +724,7 @@ fn build_remote_provider() -> BenchResult<ProviderBuild> {
             base_path: base_path.clone(),
             remote_storage_target_key: target_key.clone(),
             max_file_size: 0,
+            capacity_probe_timeout: std::time::Duration::from_secs(10),
         },
         &follower,
     )?;
