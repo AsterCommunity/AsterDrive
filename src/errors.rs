@@ -754,6 +754,9 @@ impl AsterError {
         if matches!(self, Self::StorageDriverError(_)) {
             return self.error_type().to_string();
         }
+        if matches!(self, Self::UploadStagingCapacityInsufficient(_)) {
+            return "upload staging capacity is insufficient".to_string();
+        }
         match self.response_log_level() {
             ResponseLogLevel::Error => self.error_type().to_string(),
             ResponseLogLevel::Warn | ResponseLogLevel::Skip => self.message().to_string(),
@@ -1263,6 +1266,12 @@ mod tests {
         assert_eq!(staging.http_status(), StatusCode::INSUFFICIENT_STORAGE);
         assert!(!staging.api_error_info().retryable);
         assert_eq!(staging.response_log_level(), ResponseLogLevel::Warn);
+        assert_eq!(
+            staging.client_message(),
+            "upload staging capacity is insufficient"
+        );
+        assert!(staging.message().contains("10"));
+        assert!(staging.message().contains("9"));
 
         let unavailable = AsterError::from(aster_drive_storage::StorageError::new(
             StorageErrorKind::Transient,
@@ -1276,6 +1285,28 @@ mod tests {
         assert_eq!(unavailable.http_status(), StatusCode::SERVICE_UNAVAILABLE);
         assert!(unavailable.api_error_info().retryable);
         assert_eq!(unavailable.response_log_level(), ResponseLogLevel::Warn);
+    }
+
+    #[tokio::test]
+    async fn staging_capacity_response_hides_filesystem_details() {
+        let error = AsterError::upload_staging_capacity_insufficient(
+            "upload staging requires 1234567 additional bytes, but the filesystem has 7654321 bytes available with a 268435456-byte safety floor",
+        );
+
+        let response = actix_web::ResponseError::error_response(&error);
+        assert_eq!(response.status(), StatusCode::INSUFFICIENT_STORAGE);
+        let value: serde_json::Value =
+            serde_json::from_slice(&body::to_bytes(response.into_body()).await.unwrap()).unwrap();
+
+        assert_eq!(value["code"], "upload.staging_capacity_insufficient");
+        assert_eq!(value["msg"], "upload staging capacity is insufficient");
+        let serialized = value.to_string();
+        for private_detail in ["1234567", "7654321", "268435456"] {
+            assert!(!serialized.contains(private_detail));
+        }
+        assert!(error.message().contains("1234567"));
+        assert!(error.message().contains("7654321"));
+        assert!(error.message().contains("268435456"));
     }
 
     #[test]
