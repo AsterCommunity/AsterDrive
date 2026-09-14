@@ -17,10 +17,7 @@ use aster_drive_model::types::{
     ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
     UploadSessionKind, UploadSessionStatus, UploadTransport,
 };
-use aster_drive_storage::{
-    MultipartStorageDriver, MultipartUploadMode, StorageCapacityAssessment, StorageError,
-    StorageErrorKind,
-};
+use aster_drive_storage::{MultipartStorageDriver, MultipartUploadMode, StorageCapacityAssessment};
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {
@@ -354,7 +351,10 @@ pub(super) async fn admit_upload_capacity(
 
     loop {
         let policy_id = ctx.policy.id;
-        let assessment = assess_policy_capacity(state, &ctx.policy, ctx.total_size).await;
+        let assessment = state
+            .driver_registry()
+            .assess_capacity(&ctx.policy, ctx.total_size)
+            .await;
         let exclusion = match assessment {
             Ok(StorageCapacityAssessment::Sufficient { available_bytes }) => {
                 state
@@ -400,13 +400,11 @@ pub(super) async fn admit_upload_capacity(
                     .metrics()
                     .record_upload_capacity_admission("unavailable");
                 unavailable_error.get_or_insert_with(|| {
-                    capacity_unavailable_error(
-                        policy_id,
-                        StorageError::new(
-                            StorageErrorKind::Transient,
-                            "capacity probe returned no usable available byte count",
-                        ),
-                    )
+                    AsterError::from(aster_drive_storage::storage_driver_error(
+                        aster_drive_storage::StorageErrorKind::Transient,
+                        "capacity probe returned no usable available byte count",
+                    ))
+                    .with_api_error_code(ApiErrorCode::UploadCapacityUnavailable)
                 });
                 TargetExclusionReason::CapacityUnavailable
             }
@@ -459,40 +457,16 @@ pub(super) async fn admit_upload_capacity(
     }
 }
 
-async fn assess_policy_capacity(
-    state: &PrimaryAppState,
-    policy: &storage_policy::Model,
-    required_bytes: i64,
-) -> std::result::Result<StorageCapacityAssessment, StorageError> {
-    if !crate::storage::connectors::policy_supports_capacity_observation(
-        state.driver_registry().connectors(),
-        policy,
-    )
-    .map_err(StorageError::from)?
-    {
-        return Ok(StorageCapacityAssessment::Unsupported);
-    }
-    let driver = state
-        .driver_registry()
-        .get_driver(policy)
-        .map_err(StorageError::from)?;
-    match driver.capacity_info().await {
-        Ok(capacity) => Ok(capacity.assess(required_bytes)),
-        Err(error) if error.kind() == StorageErrorKind::Unsupported => {
-            Ok(StorageCapacityAssessment::Unsupported)
-        }
-        Err(error) => Err(error),
-    }
-}
-
-fn capacity_unavailable_error(policy_id: i64, error: StorageError) -> AsterError {
-    let kind = error.kind();
+fn capacity_unavailable_error(policy_id: i64, error: AsterError) -> AsterError {
     tracing::warn!(
         policy_id,
-        error_kind = kind.as_str(),
-        "upload target capacity observation is unavailable: {error}"
+        error_kind = error
+            .storage_error_kind()
+            .map(aster_drive_storage::StorageErrorKind::as_str)
+            .unwrap_or("unknown"),
+        "upload target capacity observation is unavailable"
     );
-    AsterError::from(error).with_api_error_code(ApiErrorCode::UploadCapacityUnavailable)
+    error.with_api_error_code(ApiErrorCode::UploadCapacityUnavailable)
 }
 
 async fn resolve_upload_target(

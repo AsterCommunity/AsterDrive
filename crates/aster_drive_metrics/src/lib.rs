@@ -87,6 +87,12 @@ pub trait MetricsRecorder: Send + Sync {
     /// Records the bounded outcome of one upload target capacity assessment.
     fn record_upload_capacity_admission(&self, outcome: &'static str) {}
 
+    /// Records how upload admission obtained a capacity observation.
+    fn record_storage_capacity_probe_cache(&self, outcome: &'static str) {}
+
+    /// Records one provider capacity probe and its bounded outcome.
+    fn record_storage_capacity_probe(&self, outcome: &'static str, duration_seconds: f64) {}
+
     /// Records the selected upload data plane after initialization succeeds or fails.
     fn record_upload_data_plane(&self, data_plane: &'static str, status: &'static str) {}
 
@@ -270,6 +276,19 @@ mod product {
                 "capacity_admissions_total",
                 "Upload target capacity assessment outcomes.",
                 &["outcome"],
+            ),
+            storage_capacity_probe_cache: counter(
+                "storage",
+                "capacity_probe_cache_total",
+                "Capacity observation cache decisions.",
+                &["outcome"],
+            ),
+            storage_capacity_probe_duration: histogram_with_buckets(
+                "storage",
+                "capacity_probe_duration_seconds",
+                "Storage capacity probe duration by bounded outcome.",
+                &["outcome"],
+                &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0],
             ),
             upload_data_planes: counter(
                 "upload",
@@ -642,6 +661,20 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
+    fn record_storage_capacity_probe_cache(&self, outcome: &'static str) {
+        if let Some(product) = self.product {
+            product.storage_capacity_probe_cache.inc(&[outcome], 1);
+        }
+    }
+
+    fn record_storage_capacity_probe(&self, outcome: &'static str, duration_seconds: f64) {
+        if let Some(product) = self.product {
+            product
+                .storage_capacity_probe_duration
+                .observe(&[outcome], duration_seconds);
+        }
+    }
+
     fn record_upload_data_plane(&self, data_plane: &'static str, status: &'static str) {
         if let Some(product) = self.product {
             product.upload_data_planes.inc(&[data_plane, status], 1);
@@ -921,6 +954,25 @@ mod tests {
         for outcome in ["sufficient", "insufficient", "unsupported", "unavailable"] {
             recorder.record_upload_capacity_admission(outcome);
         }
+        for outcome in [
+            "fresh",
+            "stale_sufficient",
+            "stale_after_error",
+            "confirm_refresh",
+            "cold",
+            "descriptor_unsupported",
+        ] {
+            recorder.record_storage_capacity_probe_cache(outcome);
+        }
+        for outcome in [
+            "supported",
+            "unsupported",
+            "unavailable",
+            "failure",
+            "timeout",
+        ] {
+            recorder.record_storage_capacity_probe(outcome, 0.01);
+        }
         recorder.record_upload_data_plane("streaming_direct", "success");
         recorder.record_upload_data_plane("staged", "failure");
 
@@ -930,6 +982,12 @@ mod tests {
         assert!(body.contains("outcome=\"insufficient\""));
         assert!(body.contains("outcome=\"unsupported\""));
         assert!(body.contains("outcome=\"unavailable\""));
+        assert!(body.contains("storage_capacity_probe_cache_total"));
+        assert!(body.contains("outcome=\"stale_sufficient\""));
+        assert!(body.contains("outcome=\"stale_after_error\""));
+        assert!(body.contains("outcome=\"descriptor_unsupported\""));
+        assert!(body.contains("storage_capacity_probe_duration_seconds_bucket"));
+        assert!(body.contains("outcome=\"timeout\""));
         assert!(body.contains("upload_data_planes_total"));
         assert!(body.contains("data_plane=\"streaming_direct\""));
         assert!(body.contains("data_plane=\"staged\""));

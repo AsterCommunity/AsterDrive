@@ -4,6 +4,7 @@
 //! `aster_drive_storage` crate. This module keeps the product-owned connectors, concrete drivers,
 //! registry, policy snapshot, and remote-node runtime integration.
 
+mod capacity;
 pub mod connectors;
 pub mod drivers;
 pub(crate) mod io_limits;

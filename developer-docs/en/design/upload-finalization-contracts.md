@@ -14,7 +14,9 @@ Capacity observation and operation-specific assessment are separate contracts:
 - `unsupported` is a valid capability result, so upload continues and relies on the data-plane result. `unavailable` has no capacity conclusion, so the planner prefers another target and returns a retryable error when none remains.
 - Capacity is a fast-fail snapshot, not a cross-request reservation. The final workspace quota is protected by the transactional SQL CAS; target capacity still relies on driver write outcomes and existing cleanup/finalization contracts.
 
-Capacity-probe timeout, singleflight, short caching, and physical temporary-space budgeting/reservation for `OffsetStaging` / `StreamStaging` remain separate follow-up work in Issue #593. `set_len` establishes the offset-file layout only and is not treated as physical disk reservation.
+Capacity probes use a demand-driven coordinator owned by `DriverRegistry`, with no periodic scan. It caches raw observations rather than size-specific assessments, coalesces probes per policy, bounds concurrency across policies, and applies a two-second timeout. Reliable observations are fresh for two seconds. A sufficient observation can serve requests for up to 30 seconds using stale-while-revalidate; stale insufficient or unavailable decisions require refresh confirmation. Failures are cached for only 250 milliseconds. A failed refresh preserves the last usable observation for requests it still classifies as sufficient, while larger requests receive the latest probe failure instead of a stale rejection. Policy, credential, and driver invalidation clears the observation, and probe tasks survive HTTP request cancellation while recording failure and latency.
+
+Physical temporary-space budgeting and reservation for `OffsetStaging` / `StreamStaging` remain separate follow-up work in Issue #593. `set_len` establishes the offset-file layout only and is not treated as physical disk reservation.
 
 ## Provider Resumable Upload
 

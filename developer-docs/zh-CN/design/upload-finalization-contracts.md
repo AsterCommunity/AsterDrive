@@ -46,7 +46,9 @@
 - `unsupported` 是合法能力结果，上传继续并依赖实际数据面结果；`unavailable` 没有容量结论，优先回退其他 target，无候选时返回可重试错误。
 - 容量观测是 fast-fail 快照，不是跨请求 reservation。workspace quota 最终由事务中的 SQL CAS 保证，目标容量仍由 driver 写入结果和现有 cleanup/finalize 契约兜底。
 
-容量探测的 timeout、singleflight、短期缓存，以及 `OffsetStaging` / `StreamStaging` 的实际临时空间预算与 reservation，由 Issue #593 的后续独立实现负责；`set_len` 只建立 offset 文件布局，不视为物理磁盘预留。
+容量探测使用 `DriverRegistry` 所有的请求驱动协调器，不运行周期扫描。协调器缓存原始 observation 而不是特定文件大小的 assessment；同 policy probe 使用 singleflight，跨 policy probe 受全局并发限制并带 2 秒 timeout。可靠 observation fresh 2 秒；stale 充足值在 30 秒内通过 stale-while-revalidate 服务当前请求；stale 不足或不可用值先刷新确认，避免旧低水位误报。错误结果只缓存 250 毫秒；刷新失败时保留最后一个可用 observation，小请求可以继续使用 stale 充足值，而该 observation 对更大请求显示不足时返回最新探测错误。policy/credential/driver 失效会同步清除对应 observation，probe 任务独立于 HTTP 请求取消并记录失败与时延。
+
+`OffsetStaging` / `StreamStaging` 的实际临时空间预算与 reservation 仍由 Issue #593 的后续独立实现负责；`set_len` 只建立 offset 文件布局，不视为物理磁盘预留。
 
 ## Stream upload attempt 契约
 
