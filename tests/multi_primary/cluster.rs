@@ -1990,7 +1990,10 @@ async fn cluster_local_filesystem_upload_is_cross_primary_and_race_safe() {
         .update(&database)
         .await
         .expect("force cluster filesystem upload expiry");
-    let expiry_deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+    // Primary A may have owned the scheduler lease when it was terminated above.
+    // Allow standby takeover plus the cleanup task's configured jitter before
+    // treating missing expiry cleanup as a failure.
+    let expiry_deadline = tokio::time::Instant::now() + Duration::from_secs(90);
     loop {
         let (status, _) = upload_progress(
             &client,
