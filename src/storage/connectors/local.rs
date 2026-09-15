@@ -76,7 +76,7 @@ impl LocalConnector {
         StorageConnectorDescriptor {
             connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "Local filesystem".to_string(),
-            description: "Server-local filesystem storage policy".to_string(),
+            description: "Filesystem storage policy managed by the deployment".to_string(),
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
                 label_key: "driver_type_local",
                 description_key: "policy_wizard_local_storage_desc",
@@ -89,7 +89,7 @@ impl LocalConnector {
                 base_path_placeholder: DEFAULT_LOCAL_STORAGE_PATH,
             }),
             credential_mode: LocalConnectorConfigV1::credential_mode(),
-            deployment_scope: StorageConnectorDeploymentScope::InstanceLocal,
+            deployment_scope: StorageConnectorDeploymentScope::DeploymentManaged,
             supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,

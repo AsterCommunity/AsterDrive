@@ -23,7 +23,7 @@ Many upload problems look like "the file won't upload" but are actually the wron
 
 ## Choosing Uploads for a Cluster Deployment
 
-If your site runs multi-Primary (cluster profile), fewer upload paths are available than on a single instance: upload modes that keep temporary state on one node are rejected when the session is created. This is not a problem with your file — it is a deployment topology limit, and a rejection leaves no leftover upload session or staging files behind; just upload again over an available path.
+If your site runs multi-Primary (cluster profile), every upload path must use a shared data plane. With a `local`/filesystem policy, administrators must share both the policy path and upload staging directory across all Primaries. Once configured correctly, initialization, chunks, progress, and completion may reach different Primaries. Mount or permission failures are deployment problems rather than problems with the file itself.
 
 You do not need to diagnose which case a rejection belongs to; available paths are still decided automatically by the policy group and storage policy. The administrator-side restriction list and its reasons are in [Multi-Instance and Load Balancing](/en/deploy/multi-instance/).
 

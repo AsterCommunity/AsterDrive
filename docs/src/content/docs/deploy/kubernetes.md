@@ -22,7 +22,7 @@ StatefulSet 在这里仅用于稳定 DNS。权威状态仍在共享数据库、R
 
 1. 一套所有 Primary 共用的 PostgreSQL 或 MySQL，cluster 不接受 SQLite。
 2. 一套 Redis，同时供 cache 和 config sync 使用。
-3. 一套所有 Primary 可访问的存储策略，例如 S3-compatible、Azure Blob、OneDrive 或 remote Follower；cluster 不接受 local policy。
+3. 一套所有 Primary 可访问的存储策略，例如 S3-compatible、Azure Blob、OneDrive、remote Follower，或正确挂载的 `local`/filesystem policy。
 4. 一个支持 `ReadWriteMany` 的 PVC，用于共享默认头像目录 `/data/avatar`。不使用上传头像时可以移除这项挂载。
 5. 一组在所有 Primary 上完全一致的认证和加密密钥。
 6. 一个只在集群可信网络内可达的 Primary 间内部端点，以及至少 32 个字符的共享内部代理密钥。
@@ -43,7 +43,7 @@ Pod 收到终止信号前先执行 10 秒 `preStop` 等待 endpoint 摘流量，
 
 示例给每个 Pod 单独的 `emptyDir` 作为 `/data`，再用 RWX PVC 覆盖 `/data/avatar`。这样 config 和临时目录不会被多个进程并发写入，头像仍可跨实例读取。
 
-不要把共享 PVC 当作启用 local policy 或 Pod-local staging 的办法。cluster 会按驱动和上传策略拒绝这些路径；共享对象存储或 connector-native multipart 才是多 Primary 上传的数据面。
+使用 `local`/filesystem policy 时，把 policy `base_path` 和 `server.upload_temp_dir` 分别挂载为所有 Primary 共享可见的持久卷；两者不要求同一个 PVC。相同路径的独立 Pod 卷不构成共享数据面，文件系统还需满足跨节点可见性、`fsync`、原子 rename/delete 和 advisory lock 契约。
 
 ## Ingress
 

@@ -13,7 +13,7 @@ title: "存储后端"
 <!-- storage-connectors:index:start -->
 | 后端 | Connector ID | 部署范围 | 适合场景 | 教程 |
 | --- | --- | --- | --- | --- |
-| 本机 | `asterdrive.storage.local` | 单实例本地 | 单机、NAS、小团队、最少依赖 | [本机](/admin/storage-backends/local/) |
+| 本机 | `asterdrive.storage.local` | 部署管理 | 单机、NAS、小团队、最少依赖 | [本机](/admin/storage-backends/local/) |
 | S3 | `asterdrive.storage.s3` | Primary 间共享 | S3 兼容对象存储、外部 bucket 和大文件 | [S3](/admin/storage-backends/s3/) |
 | 阿里云 OSS | `asterdrive.storage.alibaba_oss` | Primary 间共享 | 阿里云 OSS 原生 V4 签名、内外网 endpoint 分流或 CNAME | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) |
 | SFTP | `asterdrive.storage.sftp` | Primary 间共享 | SSH/SFTP 文件服务器和服务端流式读写 | [SFTP](/admin/storage-backends/sftp/) |
@@ -25,7 +25,7 @@ title: "存储后端"
 | 七牛云 Kodo | `asterdrive.storage.qiniu` | Primary 间共享 | 带官方 endpoint 诊断的七牛云 Kodo S3 空间 | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:index:end -->
 
-多 Primary（cluster profile）的默认策略必须由所有 Primary 访问，`local` 不能作为默认策略；详见 [存储策略与策略组](/admin/storage-policies/#第一次启动后默认会有什么)。
+多 Primary（cluster profile）的默认策略必须由所有 Primary 访问；`local` 可以作为默认策略，但部署者必须共享 policy 路径和 `upload_temp_dir`。详见 [存储策略与策略组](/admin/storage-policies/#第一次启动后默认会有什么)。
 
 各后端的直传能力、容量观测、原生处理和凭据模式对比，以及 `relay_stream` 与 `presigned` 怎么选，见 [存储能力矩阵](/reference/storage-matrix/)。
 

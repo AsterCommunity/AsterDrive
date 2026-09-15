@@ -1,5 +1,6 @@
 //! Real multi-primary acceptance tests backed by PostgreSQL and Redis.
 
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -51,6 +52,7 @@ const INTERNAL_PROXY_SECRET: &str =
 const DATABASE_FAULT_ROLE_PASSWORD: &str = "AsterDriveDatabaseFault399";
 const S3_CONNECTOR_ID: &str = "asterdrive.storage.s3";
 const SFTP_CONNECTOR_ID: &str = "asterdrive.storage.sftp";
+const LOCAL_CONNECTOR_ID: &str = "asterdrive.storage.local";
 const CONNECTOR_SCHEMA_VERSION: u32 = 1;
 const CONNECTOR_CREDENTIAL_FORMAT_VERSION: u32 = 1;
 const STORAGE_CREDENTIAL_INFO: &[u8] = b"asterdrive:storage-credential-token:v1";
@@ -119,9 +121,9 @@ struct MultiPrimarySftpConnectorConfigV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MultiPrimarySftpStaticCredentialsV1 {
-    sftp_username: String,
-    sftp_password: String,
+struct MultiPrimaryLocalConnectorConfigV1 {
+    base_path: String,
+    content_dedup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -418,6 +420,8 @@ struct SharedServices {
     database_url: String,
     redis_url: String,
     config_topic: String,
+    filesystem_root: PathBuf,
+    upload_temp_dir: PathBuf,
 }
 
 impl SharedServices {
@@ -460,6 +464,20 @@ impl SharedServices {
             .expect("close isolated database seed connection");
 
         let redis = RedisTestContainer::start(suite).await;
+        let filesystem_root = std::env::temp_dir().join(format!(
+            "asterdrive-multi-primary-filesystem-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let upload_temp_dir = std::env::temp_dir().join(format!(
+            "asterdrive-multi-primary-staging-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        tokio::fs::create_dir_all(&filesystem_root)
+            .await
+            .expect("create shared filesystem policy root");
+        tokio::fs::create_dir_all(&upload_temp_dir)
+            .await
+            .expect("create shared upload staging root");
 
         Self {
             database_url,
@@ -472,6 +490,8 @@ impl SharedServices {
                 "aster_drive.multi_primary_e2e.{}",
                 uuid::Uuid::new_v4().simple()
             ),
+            filesystem_root,
+            upload_temp_dir,
         }
     }
 
@@ -481,6 +501,8 @@ impl SharedServices {
 
     async fn cleanup_database(&self) {
         self.database.cleanup().await;
+        let _ = tokio::fs::remove_dir_all(&self.filesystem_root).await;
+        let _ = tokio::fs::remove_dir_all(&self.upload_temp_dir).await;
     }
 
     async fn create_database_fault_role(&self) -> DatabaseFaultRole {
@@ -621,38 +643,34 @@ async fn seed_runtime_config(database: &DatabaseConnection, smtp_port: u16) {
     }
 }
 
-async fn configure_default_sftp_policy(database: &DatabaseConnection) -> i64 {
+async fn configure_default_local_policy(
+    database: &DatabaseConnection,
+    base_path: &std::path::Path,
+    content_dedup: bool,
+) -> i64 {
     let policy = aster_drive::db::repository::policy_repo::find_default(database)
         .await
         .expect("load default E2E storage policy")
         .expect("default E2E storage policy should exist");
     let policy_id = policy.id;
     let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
-    active.connector_id = Set(SFTP_CONNECTOR_ID.to_string());
+    active.connector_id = Set(LOCAL_CONNECTOR_ID.to_string());
     active.storage_config = Set(encode_multi_primary_policy_config(
-        SFTP_CONNECTOR_ID,
-        MultiPrimarySftpConnectorConfigV1 {
-            endpoint: "sftp://127.0.0.1:22".to_string(),
-            base_path: String::new(),
-            sftp_host_key_fingerprint: None,
+        LOCAL_CONNECTOR_ID,
+        MultiPrimaryLocalConnectorConfigV1 {
+            base_path: base_path.to_string_lossy().into_owned(),
+            content_dedup,
         },
     ));
     active
         .update(database)
         .await
-        .expect("configure default SFTP policy for cluster staging E2E");
-    let credential = persist_multi_primary_connector_credential(
-        database,
-        policy_id,
-        SFTP_CONNECTOR_ID,
-        &MultiPrimarySftpStaticCredentialsV1 {
-            sftp_username: "asterdrive-e2e".to_string(),
-            sftp_password: "unused-before-staging-validation".to_string(),
-        },
+        .expect("configure default local policy for cluster filesystem E2E");
+    aster_drive::db::repository::storage_policy_connector_credential_repo::delete_by_policy(
+        database, policy_id,
     )
-    .await;
-    assert_eq!(credential.connector_id, SFTP_CONNECTOR_ID);
-    assert_eq!(credential.revision, 2);
+    .await
+    .expect("remove previous object-storage credentials from local policy");
     policy_id
 }
 
@@ -715,6 +733,7 @@ impl ServerProcess {
             .env("ASTER__SERVER__HOST", "127.0.0.1")
             .env("ASTER__SERVER__PORT", port.to_string())
             .env("ASTER__SERVER__WORKERS", "1")
+            .env("ASTER__SERVER__UPLOAD_TEMP_DIR", &services.upload_temp_dir)
             .env("ASTER__DATABASE__URL", database_url)
             .env("ASTER__DATABASE__POOL_SIZE", database_pool_size.to_string())
             .env("ASTER__CACHE__BACKEND", "redis")
@@ -905,6 +924,132 @@ async fn login(
     access_token.unwrap_or_else(|| {
         panic!("login response for {identifier} omitted aster_access: {login_body}")
     })
+}
+
+async fn init_chunked_upload(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    access_token: &str,
+    filename: &str,
+    total_size: usize,
+) -> Value {
+    let response = client
+        .post(format!("{}/api/v1/files/upload/init", server.base_url()))
+        .bearer_auth(access_token)
+        .json(&json!({
+            "filename": filename,
+            "total_size": i64::try_from(total_size).expect("test upload size should fit i64"),
+        }))
+        .send()
+        .await
+        .expect("send cluster filesystem upload init");
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .expect("decode cluster filesystem upload init response");
+    assert_eq!(status, reqwest::StatusCode::CREATED, "{body}");
+    assert_eq!(body["data"]["mode"], "chunked", "{body}");
+    body["data"].clone()
+}
+
+async fn put_upload_chunk(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    access_token: &str,
+    upload_id: &str,
+    chunk_number: i32,
+    body: Vec<u8>,
+) -> Value {
+    let response = client
+        .put(format!(
+            "{}/api/v1/files/upload/{upload_id}/{chunk_number}",
+            server.base_url()
+        ))
+        .bearer_auth(access_token)
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(body)
+        .send()
+        .await
+        .expect("send cluster filesystem upload chunk");
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .expect("decode cluster filesystem chunk response");
+    assert_eq!(status, reqwest::StatusCode::OK, "{body}");
+    body["data"].clone()
+}
+
+async fn upload_progress(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    access_token: &str,
+    upload_id: &str,
+) -> (reqwest::StatusCode, Value) {
+    let response = client
+        .get(format!(
+            "{}/api/v1/files/upload/{upload_id}",
+            server.base_url()
+        ))
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .expect("query cluster filesystem upload progress");
+    let status = response.status();
+    let body = response
+        .json()
+        .await
+        .expect("decode cluster filesystem upload progress");
+    (status, body)
+}
+
+async fn complete_upload_request(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    access_token: &str,
+    upload_id: &str,
+) -> (reqwest::StatusCode, Value) {
+    let response = client
+        .post(format!(
+            "{}/api/v1/files/upload/{upload_id}/complete",
+            server.base_url()
+        ))
+        .bearer_auth(access_token)
+        .json(&json!({}))
+        .send()
+        .await
+        .expect("complete cluster filesystem upload");
+    let status = response.status();
+    let body = response
+        .json()
+        .await
+        .expect("decode cluster filesystem completion response");
+    (status, body)
+}
+
+async fn download_file(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    access_token: &str,
+    file_id: i64,
+) -> Vec<u8> {
+    let response = client
+        .get(format!(
+            "{}/api/v1/files/{file_id}/download",
+            server.base_url()
+        ))
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .expect("download cluster filesystem file");
+    let status = response.status();
+    let body = response
+        .bytes()
+        .await
+        .expect("read cluster filesystem download body");
+    assert_eq!(status, reqwest::StatusCode::OK, "{body:?}");
+    body.to_vec()
 }
 
 fn cookie_value(response: &reqwest::Response, name: &str) -> Option<String> {
@@ -1603,13 +1748,22 @@ async fn stale_fencing_proxy_response(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires Docker and two real AsterDrive primary processes"]
-async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging() {
+async fn cluster_local_filesystem_upload_is_cross_primary_and_race_safe() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    let policy_id = configure_default_sftp_policy(&database).await;
+    let policy_id =
+        configure_default_local_policy(&database, &services.filesystem_root, true).await;
+    aster_drive::db::repository::config_repo::upsert_with_actor(
+        &database,
+        aster_drive::config::definitions::MAINTENANCE_CLEANUP_INTERVAL_SECS_KEY,
+        "1",
+        None,
+    )
+    .await
+    .expect("accelerate upload cleanup for cluster filesystem E2E");
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(30))
         .build()
         .expect("build cluster upload E2E HTTP client");
 
@@ -1618,71 +1772,258 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
     let access_token = setup_and_login(&client, &primary_a).await;
     let mut primary_b = ServerProcess::spawn("primary-b", &services);
     wait_for_health(&client, &mut primary_b).await;
+    let chunk_size = 5_242_880usize;
+    let payload = [vec![b'A'; chunk_size], vec![b'B'; chunk_size]].concat();
+    let init = init_chunked_upload(
+        &client,
+        &primary_a,
+        &access_token,
+        "cross-primary-local.bin",
+        payload.len(),
+    )
+    .await;
+    let upload_id = init["upload_id"]
+        .as_str()
+        .expect("chunked init should return upload_id");
+    assert_eq!(init["chunk_size"], i64::try_from(chunk_size).unwrap());
+    assert_eq!(init["total_chunks"], 2);
 
-    let baseline = client
-        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+    let duplicate_a = put_upload_chunk(
+        &client,
+        &primary_a,
+        &access_token,
+        upload_id,
+        0,
+        payload[..chunk_size].to_vec(),
+    );
+    let duplicate_b = put_upload_chunk(
+        &client,
+        &primary_b,
+        &access_token,
+        upload_id,
+        0,
+        payload[..chunk_size].to_vec(),
+    );
+    let (duplicate_a, duplicate_b) = tokio::join!(duplicate_a, duplicate_b);
+    assert_eq!(duplicate_a["total_chunks"], 2);
+    assert_eq!(duplicate_b["total_chunks"], 2);
+    let (progress_status, progress) =
+        upload_progress(&client, &primary_b, &access_token, upload_id).await;
+    assert_eq!(progress_status, reqwest::StatusCode::OK, "{progress}");
+    assert_eq!(progress["data"]["received_count"], 1);
+    assert_eq!(progress["data"]["chunks_on_disk"], json!([0]));
+
+    primary_a.terminate();
+    put_upload_chunk(
+        &client,
+        &primary_b,
+        &access_token,
+        upload_id,
+        1,
+        payload[chunk_size..].to_vec(),
+    )
+    .await;
+    let (complete_status, completed) =
+        complete_upload_request(&client, &primary_b, &access_token, upload_id).await;
+    assert_eq!(complete_status, reqwest::StatusCode::CREATED, "{completed}");
+    let first_file_id = completed["data"]["id"]
+        .as_i64()
+        .expect("completion should return file id");
+    let first_blob_id = completed["data"]["blob_id"]
+        .as_i64()
+        .expect("completion should return blob id");
+    assert_eq!(
+        download_file(&client, &primary_b, &access_token, first_file_id).await,
+        payload
+    );
+
+    let mut primary_a_replacement = ServerProcess::spawn("primary-a-replacement", &services);
+    wait_for_health(&client, &mut primary_a_replacement).await;
+    let second_init = init_chunked_upload(
+        &client,
+        &primary_b,
+        &access_token,
+        "cross-primary-local-dedup.bin",
+        payload.len(),
+    )
+    .await;
+    let second_upload_id = second_init["upload_id"]
+        .as_str()
+        .expect("second chunked init should return upload_id");
+    put_upload_chunk(
+        &client,
+        &primary_b,
+        &access_token,
+        second_upload_id,
+        0,
+        payload[..chunk_size].to_vec(),
+    )
+    .await;
+    put_upload_chunk(
+        &client,
+        &primary_a_replacement,
+        &access_token,
+        second_upload_id,
+        1,
+        payload[chunk_size..].to_vec(),
+    )
+    .await;
+
+    let complete_a = complete_upload_request(
+        &client,
+        &primary_a_replacement,
+        &access_token,
+        second_upload_id,
+    );
+    let complete_b = complete_upload_request(&client, &primary_b, &access_token, second_upload_id);
+    let (complete_a, complete_b) = tokio::join!(complete_a, complete_b);
+    let completion_results = [complete_a, complete_b];
+    assert!(
+        completion_results.iter().all(|(status, _)| {
+            *status == reqwest::StatusCode::CREATED || *status == reqwest::StatusCode::CONFLICT
+        }),
+        "concurrent completion should either publish or observe the active assembly: {completion_results:?}"
+    );
+    let created = completion_results
+        .into_iter()
+        .filter(|(status, _)| *status == reqwest::StatusCode::CREATED)
+        .collect::<Vec<_>>();
+    assert!(!created.is_empty(), "one completion request must publish");
+    let authoritative_file_id = created[0].1["data"]["id"]
+        .as_i64()
+        .expect("concurrent completion should return file id");
+    assert!(
+        created
+            .iter()
+            .all(|(_, body)| body["data"]["id"] == authoritative_file_id),
+        "idempotent completion responses must identify one authoritative file"
+    );
+    let retry = complete_upload_request(
+        &client,
+        &primary_a_replacement,
+        &access_token,
+        second_upload_id,
+    )
+    .await;
+    assert_eq!(retry.0, reqwest::StatusCode::CREATED, "{}", retry.1);
+    assert_eq!(retry.1["data"]["blob_id"], first_blob_id);
+    assert_eq!(
+        download_file(
+            &client,
+            &primary_a_replacement,
+            &access_token,
+            retry.1["data"]["id"].as_i64().expect("retry file id"),
+        )
+        .await,
+        payload,
+        "deduplicated completion must preserve the uploaded bytes"
+    );
+
+    let canceled = init_chunked_upload(
+        &client,
+        &primary_b,
+        &access_token,
+        "cross-primary-canceled.bin",
+        chunk_size * 2,
+    )
+    .await;
+    let canceled_upload_id = canceled["upload_id"]
+        .as_str()
+        .expect("canceled session upload id");
+    put_upload_chunk(
+        &client,
+        &primary_a_replacement,
+        &access_token,
+        canceled_upload_id,
+        0,
+        vec![b'C'; chunk_size],
+    )
+    .await;
+    let cancel_response = client
+        .delete(format!(
+            "{}/api/v1/files/upload/{canceled_upload_id}",
+            primary_b.base_url()
+        ))
         .bearer_auth(&access_token)
-        .json(&json!({
-            "filename": "cross-primary-policy-limit.bin",
-            "total_size": 2,
-        }))
         .send()
         .await
-        .expect("send baseline upload init through primary B");
-    let baseline_body: Value = baseline
-        .json()
-        .await
-        .expect("decode baseline upload init response from primary B");
+        .expect("cancel cross-primary staged upload");
+    assert_eq!(cancel_response.status(), reqwest::StatusCode::OK);
     assert!(
-        !baseline_body
-            .to_string()
-            .contains("placement_no_eligible_target"),
-        "primary B baseline must have an eligible placement target: {baseline_body}"
+        tokio::fs::metadata(aster_forge_utils::paths::upload_temp_dir(
+            services.upload_temp_dir.to_string_lossy().as_ref(),
+            canceled_upload_id,
+        ))
+        .await
+        .is_err(),
+        "cancellation on another Primary should remove shared staging"
     );
-    let session_count_before_rejected_init =
-        aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
+
+    let expired = init_chunked_upload(
+        &client,
+        &primary_a_replacement,
+        &access_token,
+        "cross-primary-expired.bin",
+        chunk_size * 2,
+    )
+    .await;
+    let expired_upload_id = expired["upload_id"]
+        .as_str()
+        .expect("expired session upload id");
+    put_upload_chunk(
+        &client,
+        &primary_b,
+        &access_token,
+        expired_upload_id,
+        0,
+        vec![b'D'; chunk_size],
+    )
+    .await;
+    let session =
+        aster_drive::db::repository::upload_session_repo::find_by_id(&database, expired_upload_id)
             .await
-            .expect("count baseline cluster upload sessions");
-
-    let response = client
-        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
-        .bearer_auth(&access_token)
-        .json(&json!({
-            "filename": "cluster-stream-staging.bin",
-            "total_size": 10 * 1024 * 1024,
-        }))
-        .send()
+            .expect("load session before forcing expiry");
+    let mut expired_session: aster_drive_model::entities::upload_session::ActiveModel =
+        session.into();
+    expired_session.expires_at = Set(Utc::now() - chrono::Duration::seconds(1));
+    expired_session
+        .update(&database)
         .await
-        .expect("send upload init to second primary");
-    let status = response.status();
-    let body: Value = response
-        .json()
+        .expect("force cluster filesystem upload expiry");
+    let expiry_deadline = tokio::time::Instant::now() + Duration::from_secs(45);
+    loop {
+        let (status, _) = upload_progress(
+            &client,
+            &primary_a_replacement,
+            &access_token,
+            expired_upload_id,
+        )
+        .await;
+        let staging_exists = tokio::fs::metadata(aster_forge_utils::paths::upload_temp_dir(
+            services.upload_temp_dir.to_string_lossy().as_ref(),
+            expired_upload_id,
+        ))
         .await
-        .expect("decode cluster staging rejection response");
-    assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "{body}");
-    assert_eq!(body["code"], "bad_request");
-    assert!(
-        body["msg"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("stream_staging")
-    );
-    assert!(
-        body["msg"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("Pod-local staging")
-    );
+        .is_ok();
+        if status == reqwest::StatusCode::NOT_FOUND && !staging_exists {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < expiry_deadline,
+            "cluster upload cleanup did not remove the expired session and shared staging"
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
     assert_eq!(
         aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
             .await
             .expect("count cluster staging sessions"),
-        session_count_before_rejected_init,
-        "rejected cluster staging init must not persist an additional session"
+        2,
+        "only the two completed sessions should remain"
     );
 
-    primary_a.terminate();
     primary_b.terminate();
+    primary_a_replacement.terminate();
     database
         .close()
         .await
@@ -1763,12 +2104,11 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
             .iter()
             .any(|connector| connector["connector_id"] == "asterdrive.storage.s3")
     );
-    assert!(
-        !setup_connectors
-            .iter()
-            .any(|connector| connector["connector_id"] == "asterdrive.storage.local"),
-        "cluster setup catalog must not advertise instance-local storage"
-    );
+    let setup_local = setup_connectors
+        .iter()
+        .find(|connector| connector["connector_id"] == "asterdrive.storage.local")
+        .expect("cluster setup catalog should expose deployment-managed filesystem storage");
+    assert_eq!(setup_local["deployment_scope"], "deployment_managed");
     let setup_onedrive = setup_connectors
         .iter()
         .find(|connector| connector["connector_id"] == "asterdrive.storage.onedrive")
@@ -1796,46 +2136,6 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
             .iter()
             .any(|connector| connector["connector_id"] == "asterdrive.storage.local"),
         "management catalog must retain Local metadata for existing-policy inspection"
-    );
-
-    let rejected_local_response = client
-        .post(format!("{}/api/v1/admin/policies", primary_b.base_url()))
-        .bearer_auth(&access_token)
-        .json(&json!({
-            "name": "Rejected Pod Local",
-            "connection": {
-                "connector_config": {
-                    "format_version": 1,
-                    "connector_id": "asterdrive.storage.local",
-                    "schema_version": 1,
-                    "values": {
-                        "base_path": "./data/uploads",
-                        "content_dedup": false
-                    }
-                },
-                "behavior": {},
-                "credential": { "mode": "none" }
-            },
-            "max_file_size": 0,
-            "chunk_size": 5_242_880,
-            "is_default": true
-        }))
-        .send()
-        .await
-        .expect("reject first instance-local policy through primary B");
-    assert_eq!(
-        rejected_local_response.status(),
-        reqwest::StatusCode::BAD_REQUEST
-    );
-    let rejected_local_body: Value = rejected_local_response
-        .json()
-        .await
-        .expect("decode rejected instance-local policy response");
-    assert!(
-        rejected_local_body["msg"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("instance_local")
     );
 
     let create_initial_policy = |primary: &ServerProcess, name: &str| {

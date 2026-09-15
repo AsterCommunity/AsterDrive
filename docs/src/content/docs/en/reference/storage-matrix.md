@@ -12,7 +12,7 @@ Per-backend onboarding steps live in the [Storage Backends](/en/admin/storage-ba
 <!-- storage-connectors:matrix:start -->
 | Backend | Deployment scope | Browser direct upload | Direct download | Capacity | Storage-native processing | Credential mode |
 | --- | --- | --- | --- | --- | --- | --- |
-| [Local](/en/admin/storage-backends/local/) | Instance-local | No | No | Yes | No | None |
+| [Local](/en/admin/storage-backends/local/) | Deployment-managed | No | No | Yes | No | None |
 | [S3](/en/admin/storage-backends/s3/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
 | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
 | [SFTP](/en/admin/storage-backends/sftp/) | Shared across Primary instances | No | No | No | No | Static secret |

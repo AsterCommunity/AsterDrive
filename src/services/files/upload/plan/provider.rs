@@ -71,7 +71,6 @@ pub(super) async fn init_provider_resumable_upload(
     let total_chunks =
         numbers::calc_total_chunks(ctx.total_size, chunk_size, "provider resumable upload")?;
     let session_kind = session_kind_for_transport(transport, mode)?;
-    crate::services::ops::deployment::validate_upload_session_kind(state.config(), session_kind)?;
 
     let response = with_unique_upload_id(|upload_id| async {
         let temp_key = crate::services::workspace::storage::nondedup_storage_path_for_policy(

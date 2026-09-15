@@ -200,23 +200,19 @@ pub(crate) async fn transition_upload_session_to_assembling<C: ConnectionTrait>(
             if session.status == expected_status && session.expires_at <= now {
                 return Err(AsterError::upload_session_expired("session expired"));
             }
-            return Err(upload_assembly_error_with_code(
-                ApiErrorCode::UploadStatusConflict,
-                format!(
-                    "session status is '{:?}', expected '{}'",
-                    session.status,
-                    upload_session_status_label(expected_status)
-                ),
-            ));
-        }
-        return Err(upload_assembly_error_with_code(
-            ApiErrorCode::UploadStatusConflict,
-            format!(
+            return Err(AsterError::conflict(format!(
                 "session status is '{:?}', expected '{}'",
-                actual_status,
+                session.status,
                 upload_session_status_label(expected_status)
-            ),
-        ));
+            ))
+            .with_api_error_code(ApiErrorCode::UploadStatusConflict));
+        }
+        return Err(AsterError::conflict(format!(
+            "session status is '{:?}', expected '{}'",
+            actual_status,
+            upload_session_status_label(expected_status)
+        ))
+        .with_api_error_code(ApiErrorCode::UploadStatusConflict));
     }
     Ok(())
 }

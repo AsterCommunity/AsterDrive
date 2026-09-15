@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **集群中的部署管理文件系统存储** — 现有 `asterdrive.storage.local` connector 现在声明为 `deployment_managed`，多 Primary 部署无需新增重复的共享文件系统 connector 即可使用。部署者负责把每条 policy 路径和 `server.upload_temp_dir` 挂载为共享文件系统，并保证所需的跨实例可见性、持久化、原子 rename/delete 和 advisory lock 语义。Staged upload 继续使用数据库 receipt、完成 claim、lease、清理和重试契约；并发完成冲突现在使用 HTTP 409 和稳定 `upload.status_conflict` 错误码。
+
 - **容量感知的上传放置** — 上传初始化现在会在创建 session 或 provider 侧状态前，将目标容量明确评估为充足、不足、不支持或暂不可用。明确不足和暂不可用的 target 会进入现有 placement fallback；没有可移植容量接口的 connector 跳过运行时探测并依赖实际数据面结果。容量探测按请求驱动，对同一 policy 合并并发请求、限制全局并发并独立于请求取消；driver 按探测成本提供 fresh/stale/negative window，OneDrive 和 Remote 提供有界探测超时配置，stale 充足值使用 stale-while-revalidate，旧的拒绝结论必须刷新确认。候选耗尽时分别返回稳定的 507 或可重试 503；数据面、缓存决策、探测耗时与容量结果均使用低基数指标记录。
 
 - **上传暂存空间物理预留** — `OffsetStaging` 和 `StreamStaging` 现在会串行执行临时文件系统容量准入，并在 Init 成功前为完整声明大小真实分配物理块，同时默认保留可配置的 256 MiB 空闲安全余量。暂存空间不足时返回稳定的 507，且不留下 session、临时目录或 Init 创建的相对路径目录；进程重启后首次 staged Init、Chunk PUT 或 Complete 会恢复 active session 的缺失物理预留，完成、取消和过期清理继续通过删除临时目录释放空间。

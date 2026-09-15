@@ -49,6 +49,10 @@ remote_storage_target_local_root = "remote-storage-targets"
 
 `temp_dir` 和 `upload_temp_dir` 直接影响本地磁盘占用，主要消耗在：
 
+:::caution[cluster 必须共享上传暂存目录]
+多 Primary 部署使用 offset/stream staging 时，每个 Primary 的 `upload_temp_dir` 必须指向同一个共享数据面。相同路径字符串但彼此独立的 Pod 本地卷不成立。共享文件系统需要提供跨实例读写可见性、`fsync`、原子 rename/delete 和 advisory lock 语义；挂载与后端选择由部署者负责。
+:::
+
 - 大文件分片上传
 - 上传恢复（断点续传）
 - 本地存储的临时拼装

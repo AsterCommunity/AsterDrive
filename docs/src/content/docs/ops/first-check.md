@@ -20,7 +20,7 @@ AsterDrive 第一次成功启动后，会自动完成一批基础准备工作。
 - 初始化后台系统设置的内置默认项
 - 启动邮件派发、后台任务派发、周期清理和底层文件一致性检查任务
 
-single 可以在管理端创建 `local` 策略，例如把绝对路径设为 `/data/uploads`；cluster 则必须选择所有 Primary 都能访问的对象存储、SFTP 或远程 Follower 等数据面。两种 profile 的 setup API、策略创建、默认组回填和 readiness 状态迁移完全相同，差异只由 deployment capability 校验表达。
+single 可以在管理端创建 `local` 策略，例如把绝对路径设为 `/data/uploads`；cluster 同样可以使用 `local`，但部署者必须保证 policy 路径和 `upload_temp_dir` 对所有 Primary 共享。对象存储、SFTP 和远程 Follower 也必须由所有 Primary 访问。两种 profile 的 setup API、策略创建、默认组回填和 readiness 状态迁移完全相同。
 
 首次写入的内置系统设置，会覆盖这些类别：
 

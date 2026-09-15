@@ -12,7 +12,7 @@ title: "存储能力矩阵"
 <!-- storage-connectors:matrix:start -->
 | 后端 | 部署范围 | 浏览器直传 | 直连下载 | 容量观测 | 存储原生处理 | 凭据模式 |
 | --- | --- | --- | --- | --- | --- | --- |
-| [本机](/admin/storage-backends/local/) | 单实例本地 | 不支持 | 不支持 | 支持 | 不支持 | 无 connector 凭据 |
+| [本机](/admin/storage-backends/local/) | 部署管理 | 不支持 | 不支持 | 支持 | 不支持 | 无 connector 凭据 |
 | [S3](/admin/storage-backends/s3/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
 | [阿里云 OSS](/admin/storage-backends/alibaba-oss/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
 | [SFTP](/admin/storage-backends/sftp/) | Primary 间共享 | 不支持 | 不支持 | 不支持 | 不支持 | 静态密钥 |

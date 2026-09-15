@@ -472,6 +472,10 @@ fn deployment_scope(
             "Instance-local"
         }
         (StorageConnectorDeploymentScope::InstanceLocal, DocumentationLocale::Zh) => "单实例本地",
+        (StorageConnectorDeploymentScope::DeploymentManaged, DocumentationLocale::En) => {
+            "Deployment-managed"
+        }
+        (StorageConnectorDeploymentScope::DeploymentManaged, DocumentationLocale::Zh) => "部署管理",
         (
             StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
             DocumentationLocale::En,

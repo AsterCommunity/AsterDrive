@@ -15,7 +15,7 @@
           "zh": "单机、NAS、小团队、最少依赖"
         }
       },
-      "deployment_scope": "instance_local",
+      "deployment_scope": "deployment_managed",
       "supports_initial_setup": true,
       "credential_mode": "none",
       "capabilities": {

@@ -42,19 +42,21 @@ description: AsterDrive 多 Primary 负载均衡部署契约，覆盖共享依�
 
 ## 存储与上传限制
 
-cluster 模式会直接拒绝创建或保留 `local` 存储策略。即使每个 Pod 使用相同路径名，或底层准备了 RWX/NFS 挂载，当前版本仍按驱动类型拒绝 `local` policy；共享文件系统目前只适合 `avatar_dir` 等明确记录的本地目录，不会把 `local` policy 变成 cluster 支持路径。
+cluster 模式允许使用现有 `local` 存储策略，但它属于部署管理的数据面：每个 Primary 必须把该 policy 的 `base_path` 挂载到同一共享文件系统，并把 `server.upload_temp_dir` 配成所有 Primary 共享可见的暂存目录。两者可以位于不同共享文件系统，不要求同一 mount。
+
+共享文件系统必须提供 AsterDrive 使用的跨实例读写可见性、`fsync`、原子 rename/delete 和 advisory lock 语义。AsterDrive 不根据相同路径字符串或 RWX 声明推断挂载正确，也不通过一次启动探测替部署者认证后端的长期一致性。独立 Pod 本地卷即使路径相同也违反该契约。
 
 | 存储路径 | cluster 行为 |
 | --- | --- |
 | S3-compatible、腾讯云 COS、Azure Blob | connector-native multipart、预签名和浏览器直传可用 |
 | OneDrive | provider resumable 的服务端中继或浏览器直传可用 |
 | 远程 Follower | relay / presigned 可用；reverse tunnel 还需要内部代理配置 |
-| SFTP | 所有 Primary 都能访问同一 SFTP 服务时可用于单请求直传；需要 stream staging 的可恢复分片上传会被拒绝 |
-| `local` policy | cluster 中拒绝创建、启用或通过拓扑检查 |
+| SFTP | 所有 Primary 都能访问同一 SFTP 服务时可用；需要 stream staging 的可恢复分片上传还要求共享 `upload_temp_dir` |
+| `local` policy | 允许；policy `base_path` 和 `upload_temp_dir` 必须分别由所有 Primary 共享 |
 
-限制的核心不是文件大小，而是上传会话的临时状态归谁所有。AsterDrive 会在创建会话前拒绝需要 Pod-local offset/stream staging 的路径，拒绝后不会留下 upload session 或暂存文件。connector-native multipart、预签名、浏览器直传以及远程 relay/presigned 把临时状态放在共享数据库或存储数据面，因此可以跨 Primary 继续。
+限制的核心不是文件大小，而是上传会话的临时状态归谁所有。offset/stream staging 的 durable receipt、计数和完成状态在共享数据库中，内容位于共享 `upload_temp_dir`；同一 chunk 的排他写依赖部署文件系统提供跨实例 advisory lock。connector-native multipart、预签名、浏览器直传以及远程 relay/presigned 则把临时内容放在 provider 数据面。
 
-不要用 sticky session、相同的 `upload_temp_dir` 字符串或每个 Pod 各自的本地卷绕过这项检查。上传模式的选择和排查见[上传与大文件](/using/upload-download/#cluster-部署时的上传选择)。
+不要用 sticky session 或相同的路径字符串掩盖彼此独立的 Pod 本地卷。路径权限或可访问性会由普通 driver/readiness 检查报告，但挂载身份、锁和持久化语义由部署验收负责。上传模式的选择和排查见[上传与大文件](/using/upload-download/#cluster-部署时的上传选择)。
 
 ## 配置、事件与一致性
 
@@ -101,7 +103,7 @@ AsterDrive 的 HTTP Governor 和 WebDAV IP token bucket 在每个进程内独立
 - 上传、下载、SSE、WebDAV 和 WOPI 使用足够长的 read/write/idle timeout
 - request body 上限覆盖实际上传和 WebDAV 写入需求
 - 只把 readiness 成功的实例加入 upstream，并在终止前先摘流量再优雅关闭
-- 不用 sticky session 掩盖共享状态、共享存储或 Pod-local staging 问题
+- 不用 sticky session 掩盖共享状态或错误的文件系统/staging 挂载
 
 代理示例和请求头细节见[反向代理](/deploy/reverse-proxy/)。
 
@@ -115,7 +117,7 @@ AsterDrive 的 HTTP Governor 和 WebDAV IP token bucket 在每个进程内独立
 4. 停止 Redis，确认 `/health` 保持 `200`、`/health/ready` 变为 `503`、SSE 收到 `sync.required`；恢复后确认 readiness 和订阅自动恢复。
 5. 停止当前调度 owner，确认 standby 接管；执行一个后台任务并确认只有一个最终结果。
 6. 使用 reverse tunnel 时，让请求命中非 owner Primary，确认文件流经 owner 返回，并验证旧 fencing token 被拒绝。
-7. 验证实际使用的每一种上传策略；特别确认 SFTP 大文件或其他 staging 路径会在创建会话前明确失败。
+7. 验证实际使用的每一种上传策略；使用 filesystem/SFTP staging 时，让 init、chunk、progress、complete、cancel 分别命中不同 Primary，并验证重复 chunk 和并发 complete。
 8. 对上传头像功能做跨实例读取测试，并确认 Ingress/LB 层的全局限流符合预期。
 
 完整生产检查清单见[生产上线检查](/ops/launch-checklist/)。仓库内置的双 Primary StatefulSet、Service、PDB、PVC 和 Ingress 示例见 [Kubernetes 部署](/deploy/kubernetes/)。

@@ -122,7 +122,7 @@ flowchart LR
 - runtime config 变更通过 Redis 发送 reload 提示；每个实例仍从 writer DB 重新加载完整快照。
 - storage SSE 连接仍是每实例资源；Redis event bus 会把 B 上发生的变更转发到 A，再由 A 的本地 broadcast 唤醒连接在该实例的客户端。Pub/Sub 断线或本地 lag 时，客户端收到 `sync.required` 并刷新权威 API。
 - reverse tunnel registry、connection lane 和 pending response 仍是每实例资源；cluster 的 owner directory 在数据库中保持 owner lease 和 fencing，非 owner primary 通过 authenticated streaming proxy 把请求送到 owner。
-- local storage 只属于单台机器。cluster profile 使用所有 primary 均可访问的共享存储，不能把路径相同但内容彼此独立的 local root 当成共享数据面。
+- `local` 表示通过进程可见的文件系统路径访问数据，不等于单机磁盘。cluster profile 可使用它，但部署者必须让 policy 路径和上传 staging 路径对所有 Primary 共享；路径相同但内容彼此独立的卷不构成共享数据面。
 
 部署契约和启动检查见[部署模式](/reference/config/deployment/)，故障恢复细节见[配置同步](/reference/config/config-sync/)。
 

@@ -1,6 +1,6 @@
 ---
-description: AsterDrive 本地磁盘存储策略教程，覆盖本地目录规划、权限、内容去重、容量检查、测试策略组和迁移边界。
-title: "本地磁盘存储策略教程"
+description: AsterDrive 本地存储策略教程，覆盖目录规划、集群共享契约、权限、内容去重、容量检查、测试策略组和迁移边界。
+title: "本地存储策略教程"
 ---
 
 :::tip[这一篇覆盖什么]
@@ -19,8 +19,8 @@ title: "本地磁盘存储策略教程"
 
 如果你希望把容量和带宽交给对象存储，看 [S3 / MinIO / R2](/admin/storage-backends/s3/)、[Azure Blob Storage](/admin/storage-backends/azure-blob/) 或 [腾讯云 COS](/admin/storage-backends/tencent-cos/)。如果你希望主控节点和真实对象落点拆开，看 [远程节点存储策略](/admin/storage-backends/remote-follower/)。
 
-:::caution[cluster 不支持 `local` policy]
-`deployment.profile = "cluster"` 会按驱动类型拒绝本地存储策略，即使所有 Pod 挂载了同一路径或 RWX/NFS 卷也一样。多 Primary 请使用对象存储或远程 Follower，完整限制见[负载均衡与多实例](/deploy/multi-instance/#存储与上传限制)。
+:::caution[cluster 的共享挂载由部署者负责]
+`deployment.profile = "cluster"` 可以使用 `local` policy，但所有 Primary 必须把 policy `base_path` 挂载到同一共享数据面，并共享 `server.upload_temp_dir`。独立 Pod 卷使用相同路径仍然不成立；文件系统还必须提供跨实例可见性、`fsync`、原子 rename/delete 和 advisory lock。完整契约见[负载均衡与多实例](/deploy/multi-instance/#存储与上传限制)。
 :::
 
 ## 先分清你要配哪几层
@@ -67,10 +67,10 @@ flowchart TD
 管理 -> 存储策略 -> 新建策略
 ```
 
-选择驱动类型：
+选择 connector：
 
 ```text
-本地
+本机
 ```
 
 常见字段：

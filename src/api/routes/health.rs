@@ -537,15 +537,36 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn ready_rejects_local_storage_under_cluster_profile() {
+    async fn cluster_ready_probes_deployment_managed_local_storage() {
         let driver = ProbeDriver::healthy();
         let mut state = build_test_state(Some(driver.clone())).await;
         configure_cluster(&mut state);
 
         let response = ready(web::Data::new(state)).await;
 
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[actix_web::test]
+    async fn cluster_ready_rejects_unavailable_deployment_managed_local_storage() {
+        let driver = ProbeDriver::failing();
+        let mut state = build_test_state(Some(driver.clone())).await;
+        configure_cluster(&mut state);
+
+        let response = ready(web::Data::new(state)).await;
+
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.put_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.delete_calls.load(Ordering::SeqCst), 0);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(payload["code"], "storage.transient");
+        assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
     }
 
     #[actix_web::test]

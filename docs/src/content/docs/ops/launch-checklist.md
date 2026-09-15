@@ -198,7 +198,7 @@ Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/
 
 - 所有 primary 实例显式设置 `[deployment].profile = "cluster"`
 - 数据库、cache Redis、config sync Redis/topic、认证与加密静态密钥在所有 Primary 上一致
-- 默认策略和所有用户/团队可命中的存储策略符合 cluster 支持矩阵，没有 `local` policy 或 Pod-local staging 依赖
+- 默认策略和所有用户/团队可命中的存储策略由每个 Primary 访问；使用 `local`/filesystem 时，policy 路径和 staging 路径均已共享并验证跨节点语义
 - 上传头像时，`avatar_dir` 是所有 Primary 可读写的共享目录
 - 负载均衡器只转发到 `/health/ready` 成功的实例，并支持流式请求、SSE、WebSocket Upgrade 和优雅摘流量
 - reverse tunnel、migration、Redis 故障恢复、调度 owner 接管、后台任务 fencing 和跨实例上传已经按权威验收清单测试

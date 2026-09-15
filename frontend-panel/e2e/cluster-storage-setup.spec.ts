@@ -22,7 +22,7 @@ test.describe("Cluster storage setup E2E", () => {
 	// start from the no-user boundary this test is intended to prove.
 	test.describe.configure({ retries: 0 });
 
-	test("hides Local, explains disabled OneDrive, and binds RustFS through S3", async ({
+	test("shows deployment-managed Local, explains disabled OneDrive, and binds RustFS through S3", async ({
 		page,
 		request,
 	}) => {

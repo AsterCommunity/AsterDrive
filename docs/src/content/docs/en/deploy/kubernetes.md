@@ -22,7 +22,7 @@ The StatefulSet is used only for stable DNS. Authoritative state remains in the 
 
 1. One PostgreSQL or MySQL database shared by every Primary; cluster mode rejects SQLite.
 2. One Redis service used by both cache and config sync.
-3. A storage policy reachable by every Primary, such as S3-compatible storage, Azure Blob, OneDrive, or a remote Follower; cluster mode rejects local policies.
+3. A storage policy reachable by every Primary, such as S3-compatible storage, Azure Blob, OneDrive, a remote Follower, or a correctly mounted `local`/filesystem policy.
 4. A `ReadWriteMany` PVC for the default `/data/avatar` directory. Remove this mount only when uploaded avatars are disabled.
 5. Authentication and encryption secrets that are identical on every Primary.
 6. A per-Primary internal endpoint reachable only from the trusted cluster network, plus a shared internal proxy secret of at least 32 characters.
@@ -43,7 +43,7 @@ Before termination, the Pod waits for a 10-second `preStop` window so endpoints 
 
 Each Pod receives its own `emptyDir` at `/data`, while an RWX PVC is mounted over `/data/avatar`. This prevents multiple processes from writing the same generated config and temporary directories while keeping uploaded avatars readable across instances.
 
-Do not use a shared PVC to bypass local-policy or Pod-local staging restrictions. Cluster mode rejects those paths according to driver and upload strategy; shared object storage or connector-native multipart remains the supported multi-Primary data plane.
+For a `local`/filesystem policy, mount the policy `base_path` and `server.upload_temp_dir` as persistent storage visible to every Primary; they need not use the same PVC. Separate Pod volumes with identical paths are not a shared data plane. The filesystem must also satisfy the cross-node visibility, `fsync`, atomic rename/delete, and advisory-lock contract.
 
 ## Ingress
 

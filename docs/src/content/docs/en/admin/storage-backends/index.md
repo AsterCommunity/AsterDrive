@@ -13,7 +13,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 <!-- storage-connectors:index:start -->
 | Backend | Connector ID | Deployment scope | Best for | Tutorial |
 | --- | --- | --- | --- | --- |
-| Local | `asterdrive.storage.local` | Instance-local | Single machine, NAS, small teams, minimal dependencies | [Local](/en/admin/storage-backends/local/) |
+| Local | `asterdrive.storage.local` | Deployment-managed | Single machine, NAS, small teams, minimal dependencies | [Local](/en/admin/storage-backends/local/) |
 | S3 | `asterdrive.storage.s3` | Shared across Primary instances | S3-compatible object storage, external buckets, and large files | [S3](/en/admin/storage-backends/s3/) |
 | Alibaba Cloud OSS | `asterdrive.storage.alibaba_oss` | Shared across Primary instances | Alibaba Cloud OSS with native V4 signing, split endpoints, or CNAME | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
 | SFTP | `asterdrive.storage.sftp` | Shared across Primary instances | SSH/SFTP file servers and server-side streaming | [SFTP](/en/admin/storage-backends/sftp/) |
@@ -25,7 +25,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 | Qiniu Kodo | `asterdrive.storage.qiniu` | Shared across Primary instances | Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics | [Qiniu Kodo](/en/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:index:end -->
 
-For multi-Primary (cluster profile) deployments, the default policy must be reachable by every Primary, and `local` cannot be the default policy; see [Storage Policies and Policy Groups](/en/admin/storage-policies/#what-exists-after-first-start).
+For multi-Primary (cluster profile) deployments, the default policy must be reachable by every Primary. `local` may be the default when the operator shares both the policy path and `upload_temp_dir`; see [Storage Policies and Policy Groups](/en/admin/storage-policies/#what-exists-after-first-start).
 
 For each backend's direct-upload capability, capacity observation, native processing, and credential mode — plus how to choose between `relay_stream` and `presigned` — see the [Storage Capability Matrix](/en/reference/storage-matrix/).
 

@@ -82,7 +82,7 @@ pub fn connector_compatible_with_deployment(
     descriptor: &StorageConnectorDescriptor,
 ) -> bool {
     config.deployment.allows_instance_local_state()
-        || descriptor.deployment_scope.supports_multi_primary()
+        || descriptor.deployment_scope.is_cluster_eligible()
 }
 
 pub async fn validate_connector_for_current_setup_state<C: ConnectionTrait>(
@@ -150,17 +150,17 @@ mod tests {
     }
 
     #[test]
-    fn cluster_profile_creation_catalog_excludes_instance_local_connectors() {
+    fn cluster_profile_creation_catalog_includes_deployment_managed_connectors() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
 
         let drivers = connector_ids(&config, StorageConnectorCatalogContext::Create);
 
-        assert!(!drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 9);
+        assert_eq!(drivers.len(), 10);
     }
 
     #[test]
@@ -176,11 +176,11 @@ mod tests {
         let mut cluster = Config::default();
         cluster.deployment.profile = DeploymentProfile::Cluster;
         let cluster_drivers = connector_ids(&cluster, StorageConnectorCatalogContext::InitialSetup);
-        assert!(!cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(cluster_drivers.len(), 9);
+        assert_eq!(cluster_drivers.len(), 10);
     }
 
     #[test]
@@ -214,13 +214,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(catalog.requested_locale, requested_locale);
-        assert_eq!(catalog.resources.len(), 9);
+        assert_eq!(catalog.resources.len(), 10);
         assert!(catalog.resources.iter().all(|resource| {
-            resource.connector_id.as_str() != "asterdrive.storage.local"
-                && resource.resolved_locale.as_str() == "zh"
+            resource.resolved_locale.as_str() == "zh"
                 && resource.namespace == resource.connector_id.as_str()
                 && !resource.messages.is_empty()
         }));
+        let local = catalog
+            .resources
+            .iter()
+            .find(|resource| resource.connector_id.as_str() == "asterdrive.storage.local")
+            .expect("deployment-managed filesystem localization resource");
+        assert_eq!(
+            local.messages.get("driver_type_local"),
+            Some(&"本机".to_string())
+        );
         let onedrive = catalog
             .resources
             .iter()

@@ -18,7 +18,7 @@ Both deployment profiles use the same initialization state machine:
 | Profile | First-start behavior |
 | --- | --- |
 | `single` | After the first administrator is created, the system enters `needs_storage`; the administrator can set `local` or another supported policy as default |
-| `cluster` | Also enters `needs_storage` after the first administrator; the default policy must be reachable by every Primary — `local` is not allowed |
+| `cluster` | Also enters `needs_storage` after the first administrator; the default policy must be reachable by every Primary; `local` requires operator-shared policy and upload-staging paths |
 
 When the administrator sets the first policy as default, the system atomically creates or coordinates the default policy group and backfills administrators who have no group yet, then enters `ready`. New users created afterwards automatically bind the current default policy group, which decides their upload target. Single and cluster call the same creation, backfill, and state-migration code; they differ only in which storage capabilities may be selected.
 

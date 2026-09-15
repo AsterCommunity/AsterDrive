@@ -49,6 +49,10 @@ If `data/config.toml` was generated automatically, relative paths are resolved t
 
 `temp_dir` and `upload_temp_dir` directly affect local disk usage. They are mainly consumed by:
 
+:::caution[Clusters must share upload staging]
+When a multi-Primary deployment uses offset/stream staging, every Primary's `upload_temp_dir` must resolve to the same shared data plane. Matching path strings on separate Pod-local volumes do not satisfy the contract. The shared filesystem must provide cross-instance visibility, `fsync`, atomic rename/delete, and advisory-lock semantics; mount and backend selection belong to the deployer.
+:::
+
 - Large-file chunked uploads
 - Upload recovery/resume
 - Temporary assembly for local storage
