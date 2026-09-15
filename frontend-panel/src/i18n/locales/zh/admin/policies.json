@@ -200,7 +200,7 @@
 	"policy_editor_rules_desc": "配置上传方式、文件大小限制，以及是否作为默认策略。",
 	"policy_editor_summary_desc": "保存前快速核对当前配置。",
 	"policy_edit_context_title": "当前策略",
-	"policy_edit_context_local_desc": "本机策略直接写入服务器文件系统；路径和上传规则在下方调整。",
+	"policy_edit_context_local_desc": "文件系统策略通过挂载到 AsterDrive 的路径写入；路径和上传规则在下方调整。",
 	"policy_edit_default_enabled": "默认策略",
 	"policy_edit_default_disabled": "非默认",
 	"policy_edit_usage_summary": "{{size}}，{{count}} 个对象",

@@ -5527,7 +5527,7 @@ async fn sftp_stream_staging_uses_the_same_physical_reservation_contract() {
 }
 
 #[tokio::test]
-async fn test_cluster_chunked_init_rejects_pod_local_staging_before_side_effects() {
+async fn test_cluster_chunked_init_uses_deployment_managed_staging_and_cleans_up() {
     use aster_drive::config::DeploymentProfile;
     use aster_drive::db::repository::{policy_repo, upload_session_repo};
     use aster_drive::services::files::upload;
@@ -5559,45 +5559,52 @@ async fn test_cluster_chunked_init_rejects_pod_local_staging_before_side_effects
         0
     );
 
-    let error = match upload::init_upload(
+    let response = upload::init_upload(
         &state,
         user.id,
         "cluster-staging.bin",
         10 * 1024 * 1024,
         None,
-        Some("failed-init/nested/cluster-staging.bin"),
+        Some("cluster/nested/cluster-staging.bin"),
     )
     .await
-    {
-        Ok(_) => panic!("cluster profile should reject Pod-local staging"),
-        Err(error) => error,
-    };
+    .expect("cluster profile should accept deployment-managed staging");
 
-    assert_eq!(error.api_error_code(), ApiErrorCode::BadRequest);
-    assert!(error.to_string().contains("offset_staging"));
-    assert!(error.to_string().contains("Pod-local staging"));
+    assert_eq!(
+        response.mode,
+        aster_drive_model::types::UploadTransport::Chunked
+    );
+    let upload_id = response
+        .upload_id
+        .expect("chunked init should return upload id");
     assert_eq!(
         upload_session_repo::count_by_policy(state.writer_db(), policy.id)
             .await
             .unwrap(),
-        0,
-        "cluster staging rejection must happen before session persistence"
+        1,
+        "cluster staging init should persist its session"
     );
-    let mut entries = tokio::fs::read_dir(&state.config.server.upload_temp_dir)
-        .await
-        .unwrap();
+    let staging_path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        &upload_id,
+    );
     assert!(
-        entries.next_entry().await.unwrap().is_none(),
-        "cluster staging rejection must happen before temp directory creation"
+        tokio::fs::metadata(&staging_path).await.is_ok(),
+        "cluster staging init should create the shared reservation file"
     );
     let user_folders =
         aster_drive::db::repository::folder_repo::find_all_by_user(state.writer_db(), user.id)
             .await
             .unwrap();
+    assert!(user_folders.iter().any(|folder| folder.name == "cluster"));
+    assert!(user_folders.iter().any(|folder| folder.name == "nested"));
+
+    upload::cancel_upload(&state, &upload_id, user.id)
+        .await
+        .expect("cluster staged upload should cancel");
     assert!(
-        user_folders
-            .iter()
-            .all(|folder| folder.name != "failed-init" && folder.name != "nested")
+        tokio::fs::metadata(staging_path).await.is_err(),
+        "cancel should clean the shared staging reservation"
     );
 }
 

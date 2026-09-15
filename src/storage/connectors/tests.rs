@@ -970,7 +970,7 @@ fn descriptors_are_complete_and_keep_config_credentials_separate() {
 
     assert_eq!(
         descriptor(LocalConnector::ID).deployment_scope,
-        StorageConnectorDeploymentScope::InstanceLocal
+        StorageConnectorDeploymentScope::DeploymentManaged
     );
     for id in [
         S3Connector::ID,

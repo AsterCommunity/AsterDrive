@@ -200,7 +200,7 @@
 	"policy_editor_rules_desc": "Configure upload behavior, file size limits, and whether this should be the default policy.",
 	"policy_editor_summary_desc": "Review the current configuration before saving.",
 	"policy_edit_context_title": "Current Policy",
-	"policy_edit_context_local_desc": "Local policies write directly to the server filesystem. Adjust paths and upload rules below.",
+	"policy_edit_context_local_desc": "Filesystem policies write through paths mounted into AsterDrive. Adjust paths and upload rules below.",
 	"policy_edit_default_enabled": "Default Policy",
 	"policy_edit_default_disabled": "Not Default",
 	"policy_edit_usage_summary": "{{size}}, {{count}} objects",

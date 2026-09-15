@@ -107,7 +107,7 @@ http://服务器地址:3000
 
 保存时系统会原子创建或协调默认策略组，并把尚未分配策略组的管理员绑定过去。`/health/ready` 的 `data.status` 随后会从 `needs_storage` 变成 `ready`。本地目录会在首次写入时创建，不需要事先在容器内手动建目录。
 
-如果你部署的是多个 Primary，这一步的页面和状态迁移完全相同，但存储请选择所有 Primary 都能访问的 S3、Azure Blob、OneDrive、SFTP 或远程 Follower；cluster 会拒绝 `local`。
+如果你部署的是多个 Primary，这一步的页面和状态迁移完全相同。请选择所有 Primary 都能访问的数据面；`local` 也可使用，但必须由部署者共享 policy 路径和 `upload_temp_dir`。
 
 ## 4. 先做一轮最基础的可用性检查
 

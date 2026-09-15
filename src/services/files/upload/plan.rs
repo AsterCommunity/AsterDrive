@@ -23,7 +23,6 @@ use crate::services::files::upload::session::scope::{personal_scope, team_scope}
 use crate::services::files::upload::session::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
-use crate::services::ops::deployment;
 use crate::services::workspace::storage::{
     WorkspaceStorageScope, resolve_policy_upload_transport_for_execution,
 };
@@ -154,8 +153,6 @@ async fn init_upload_for_scope(
     );
     let data_plane = upload_data_plane_label(transport, planned_mode);
     let mut staging_admission = if data_plane == "staged" {
-        let session_kind = session_kind_for_transport(transport, UploadTransport::Chunked)?;
-        deployment::validate_upload_session_kind(state.config(), session_kind)?;
         Some(state.driver_registry().staging_capacity().lock().await)
     } else {
         None
@@ -271,7 +268,6 @@ async fn init_chunked_upload_session(
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);
     let session_kind = session_kind_for_transport(transport, UploadTransport::Chunked)?;
-    deployment::validate_upload_session_kind(state.config(), session_kind)?;
     let staging_admission = staging_admission.ok_or_else(|| {
         crate::errors::AsterError::internal_error(
             "staged upload initialization is missing its capacity admission guard",

@@ -8187,7 +8187,7 @@ export interface components {
          *     core-owned provider allow/deny list.
          * @enum {string}
          */
-        StorageConnectorDeploymentScope: "instance_local" | "shared_across_primary_instances";
+        StorageConnectorDeploymentScope: "instance_local" | "deployment_managed" | "shared_across_primary_instances";
         StorageConnectorDescriptor: {
             /** @description 管理端/服务端可执行动作声明。 */
             actions: components["schemas"]["StorageConnectorActionDescriptor"][];

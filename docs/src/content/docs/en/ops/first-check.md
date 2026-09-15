@@ -20,7 +20,7 @@ If you just deployed it, the most practical approach is to confirm the service i
 - Initialize built-in default entries for admin system settings.
 - Start mail dispatch, background task dispatch, periodic cleanup, and low-level file consistency check tasks.
 
-In single, the administrator may create a `local` policy, for example with the absolute path `/data/uploads`. Cluster must instead use a data plane reachable by every Primary, such as object storage, SFTP, or a remote Follower. Both profiles use the same setup API, policy creation, default-group backfill, and readiness transition code; only deployment capability validation differs.
+In single, the administrator may create a `local` policy, for example with the absolute path `/data/uploads`. Cluster may use the same connector when the operator shares both the policy path and `upload_temp_dir` across every Primary; the filesystem must also provide cross-instance visibility, `fsync`, atomic rename/delete, and advisory-lock semantics. See [Storage and Upload Limits](/en/deploy/multi-instance/#storage-and-upload-limits) for the complete contract. Object storage, SFTP, and remote Followers must likewise be reachable by every Primary. Both profiles use the same setup API, policy creation, default-group backfill, and readiness transition code.
 
 The built-in system settings written on first startup cover these categories:
 

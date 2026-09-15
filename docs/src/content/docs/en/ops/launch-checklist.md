@@ -198,7 +198,7 @@ For multiple instances, confirm:
 
 - every primary instance explicitly sets `[deployment].profile = "cluster"`
 - the database, cache Redis, configuration-sync Redis/topic, and authentication/encryption static secrets are identical on every Primary
-- the default policy and every policy reachable by users or teams match the cluster support matrix, with no `local` policy or Pod-local staging dependency
+- the default policy and every policy reachable by users or teams are accessible from every Primary; for `local`/filesystem, both policy and staging paths are shared and their cross-node semantics have been validated
 - when avatar uploads are enabled, `avatar_dir` is shared read-write storage for every Primary
 - the load balancer sends traffic only to instances whose `/health/ready` succeeds and supports streaming, SSE, WebSocket Upgrade, and graceful traffic removal
 - reverse tunnels, migrations, Redis recovery, scheduler-owner takeover, background-task fencing, and cross-instance uploads have passed the authoritative acceptance checklist

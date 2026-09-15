@@ -122,7 +122,7 @@ A multi-primary deployment is therefore validated by whether every primary can r
 - Runtime-config mutations publish a reload hint through Redis; every instance still reloads the complete snapshot from the writer database.
 - Storage SSE connections remain per-instance resources. The Redis event bus forwards a mutation handled by primary B to primary A, whose local broadcast wakes clients connected to that instance. On Pub/Sub disconnect or local lag, clients receive `sync.required` and refresh authoritative APIs.
 - The reverse tunnel registry, connection lanes, and pending responses remain per-instance resources. Cluster deployments use the database owner directory for leases/fencing and an authenticated streaming proxy for non-owner primaries.
-- Local storage belongs to one machine. Cluster deployments require storage reachable by every primary and must not treat identical local paths with independent contents as a shared data plane.
+- `local` means access through a filesystem path visible to the process, not necessarily a disk owned by one machine. Cluster deployments may use it when operators share both policy and upload-staging paths across every Primary; identical paths with independent contents are not a shared data plane.
 
 See [Deployment Profile](/en/reference/config/deployment/) for the deployment contract and startup checks, and [Configuration Synchronization](/en/reference/config/config-sync/) for recovery behavior.
 

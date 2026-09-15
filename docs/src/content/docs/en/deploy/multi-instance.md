@@ -42,19 +42,21 @@ Uploaded user avatars still live under `avatar_dir`. If avatar uploads are enabl
 
 ## Storage and Upload Limits
 
-Cluster mode rejects creating or retaining `local` storage policies. Even if every Pod uses the same path string or the underlying volume is RWX/NFS, the current release still rejects the policy by driver type. A shared filesystem may support explicitly documented local directories such as `avatar_dir`, but it does not make a `local` policy cluster-compatible.
+Cluster mode permits the existing `local` storage policy as an operator-managed data plane. Every Primary must mount the policy `base_path` from the same shared filesystem and configure `server.upload_temp_dir` as staging visible to every Primary. The two paths may live on separate shared filesystems; they do not need to be one mount.
+
+The shared filesystems must provide the cross-instance visibility, `fsync`, atomic rename/delete, and advisory-lock semantics AsterDrive uses. AsterDrive does not infer a correct mount from identical path strings or an RWX declaration, and a one-time startup probe does not certify the backend's long-term semantics. Separate Pod-local volumes violate the contract even when their path strings match.
 
 | Storage path | Cluster behavior |
 | --- | --- |
 | S3-compatible, Tencent COS, Azure Blob | Connector-native multipart, presigned, and browser-direct uploads are available |
 | OneDrive | Provider-resumable server relay and browser-direct uploads are available |
 | Remote Follower | Relay and presigned uploads are available; reverse tunnels also require internal proxy configuration |
-| SFTP | Single-request direct uploads work when every Primary can reach the same SFTP service; resumable uploads that require stream staging are rejected |
-| `local` policy | Rejected during creation, enablement, or topology validation in cluster mode |
+| SFTP | Available when every Primary reaches the same service; resumable stream staging also requires shared `upload_temp_dir` |
+| `local` policy | Available; the policy `base_path` and `upload_temp_dir` must each be shared by every Primary |
 
-The key boundary is ownership of temporary upload state, not file size. AsterDrive rejects paths requiring Pod-local offset/stream staging before creating the session, leaving no upload session or staging file behind. Connector-native multipart, presigned, browser-direct, and remote relay/presigned paths keep temporary state in the shared database or storage data plane and can therefore continue across Primaries.
+The key boundary is ownership of temporary upload state, not file size. Offset/stream staging keeps durable receipts, counters, and completion state in the shared database and content in shared `upload_temp_dir`; exclusive same-chunk writes rely on cross-instance advisory locks supplied by the deployed filesystem. Connector-native multipart, presigned, browser-direct, and remote relay/presigned paths keep temporary content in the provider data plane instead.
 
-Do not use sticky sessions, identical `upload_temp_dir` strings, or separate local Pod volumes to bypass this check. See [Uploads and Large Files](/en/using/upload-download/#choosing-uploads-for-a-cluster-deployment) for upload selection and diagnosis.
+Do not use sticky sessions or identical path strings to disguise separate Pod-local volumes. Normal driver/readiness checks report path access failures, while mount identity, locking, and durability semantics remain deployment acceptance responsibilities. See [Uploads and Large Files](/en/using/upload-download/#choosing-uploads-for-a-cluster-deployment) for upload selection and diagnosis.
 
 ## Configuration, Events, and Consistency
 
@@ -101,7 +103,7 @@ Enforce strict global entry quotas at the Ingress, API gateway, or load-balancer
 - Use sufficiently long read, write, and idle timeouts for uploads, downloads, SSE, WebDAV, and WOPI.
 - Set request-body limits high enough for real uploads and WebDAV writes.
 - Add only ready instances to the upstream, remove traffic before termination, and then perform graceful shutdown.
-- Do not use sticky sessions to hide shared-state, shared-storage, or Pod-local staging problems.
+- Do not use sticky sessions to hide shared-state or incorrect filesystem/staging mounts.
 
 See [Reverse Proxy](/en/deploy/reverse-proxy/) for proxy examples and request-header details.
 
@@ -115,7 +117,7 @@ Complete at least these checks:
 4. Stop Redis and verify `/health` remains `200`, `/health/ready` becomes `503`, and SSE receives `sync.required`; restore Redis and verify readiness and subscriptions recover automatically.
 5. Stop the active scheduler owner and verify the standby takes over; run a background task and confirm there is one final result.
 6. With reverse tunnels enabled, send a request to a non-owner Primary, verify the file streams through the owner, and verify a stale fencing token is rejected.
-7. Validate every upload strategy used in production, especially that large SFTP or other staging paths fail explicitly before session creation.
+7. Validate every upload strategy used in production. For filesystem/SFTP staging, send init, chunk, progress, complete, and cancel to different Primaries and exercise duplicate chunks and concurrent completion.
 8. Test uploaded-avatar reads across instances and verify that global Ingress/LB rate limits behave as expected.
 
 See the [Production Launch Checklist](/en/ops/launch-checklist/) for the complete production review. For the repository's two-Primary StatefulSet, Service, PDB, PVC, and Ingress examples, see [Kubernetes Deployment](/en/deploy/kubernetes/).

@@ -961,7 +961,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(s3_path_style["scope"], "connector_config");
 
     let local = descriptor("asterdrive.storage.local");
-    assert_eq!(local["deployment_scope"], "instance_local");
+    assert_eq!(local["deployment_scope"], "deployment_managed");
     assert_eq!(local["supports_initial_setup"], true);
     assert_eq!(local["upload_workflows"]["object_multipart_upload"], false);
     assert_eq!(local["capabilities"]["remote_node_binding"], false);
@@ -1665,7 +1665,7 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
 }
 
 #[actix_web::test]
-async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_flows() {
+async fn test_cluster_storage_driver_catalog_includes_deployment_managed_local() {
     let mut state = common::setup().await;
     let mut config = (*state.config).clone();
     config.deployment.profile = aster_drive::config::DeploymentProfile::Cluster;
@@ -1683,9 +1683,9 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
-    assert_eq!(create.len(), 9);
+    assert_eq!(create.len(), 10);
     assert!(
-        !create
+        create
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
@@ -1694,9 +1694,9 @@ async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_fl
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
     );
-    assert_eq!(setup.len(), 9);
+    assert_eq!(setup.len(), 10);
     assert!(
-        !setup
+        setup
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
@@ -1826,7 +1826,7 @@ async fn test_storage_driver_localizations_reject_invalid_locale_and_context() {
 }
 
 #[actix_web::test]
-async fn test_cluster_rejects_direct_local_policy_creation_without_side_effects() {
+async fn test_cluster_accepts_deployment_managed_local_policy_creation() {
     let mut state = common::setup().await;
     let db = state.writer_db().clone();
     let initial_policies = aster_drive::db::repository::policy_repo::find_all(&db)
@@ -1837,34 +1837,34 @@ async fn test_cluster_rejects_direct_local_policy_creation_without_side_effects(
     state.config = std::sync::Arc::new(config);
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
+    let storage_root = format!(
+        "/tmp/asterdrive-cluster-filesystem-policy-{}",
+        uuid::Uuid::new_v4()
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "name": "Unsafe local policy",
-            "connection": local_connection_json("/tmp/unsafe-cluster-local"),
+            "name": "Deployment-managed filesystem policy",
+            "connection": local_connection_json(&storage_root),
             "max_file_size": 0,
             "is_default": false
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert!(body["msg"].as_str().is_some_and(|message| {
-        message.contains("shared by every primary") && message.contains("instance_local")
-    }));
+    assert_eq!(resp.status(), 201);
 
     let final_policies = aster_drive::db::repository::policy_repo::find_all(&db)
         .await
         .expect("final policy list");
-    assert_eq!(final_policies.len(), initial_policies.len());
-    assert!(
-        !final_policies
-            .iter()
-            .any(|policy| policy.name == "Unsafe local policy")
-    );
+    assert_eq!(final_policies.len(), initial_policies.len() + 1);
+    assert!(final_policies.iter().any(|policy| {
+        policy.name == "Deployment-managed filesystem policy"
+            && policy.connector_id == "asterdrive.storage.local"
+    }));
+    let _ = tokio::fs::remove_dir_all(storage_root).await;
 }
 
 #[actix_web::test]

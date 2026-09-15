@@ -42,6 +42,10 @@ pub enum StorageConnectorDeploymentScope {
     /// Policy data lives on the primary instance itself and is not shared with
     /// other primary instances.
     InstanceLocal,
+    /// Whether every primary resolves the same storage data plane is owned by
+    /// the deployment. The connector is cluster-eligible when operators mount
+    /// and configure it according to the product's shared-state contract.
+    DeploymentManaged,
     /// Every primary instance can safely resolve the same policy reference.
     SharedAcrossPrimaryInstances,
 }
@@ -50,12 +54,16 @@ impl StorageConnectorDeploymentScope {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InstanceLocal => "instance_local",
+            Self::DeploymentManaged => "deployment_managed",
             Self::SharedAcrossPrimaryInstances => "shared_across_primary_instances",
         }
     }
 
-    pub const fn supports_multi_primary(self) -> bool {
-        matches!(self, Self::SharedAcrossPrimaryInstances)
+    pub const fn is_cluster_eligible(self) -> bool {
+        matches!(
+            self,
+            Self::DeploymentManaged | Self::SharedAcrossPrimaryInstances
+        )
     }
 }
 
@@ -3075,6 +3083,19 @@ mod tests {
         CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigEnvelope, ConnectorId,
         StorageConnectorActionSchema,
     };
+
+    #[test]
+    fn deployment_scope_distinguishes_rejected_and_operator_managed_storage() {
+        assert!(!StorageConnectorDeploymentScope::InstanceLocal.is_cluster_eligible());
+        assert!(StorageConnectorDeploymentScope::DeploymentManaged.is_cluster_eligible());
+        assert!(
+            StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances.is_cluster_eligible()
+        );
+        assert_eq!(
+            StorageConnectorDeploymentScope::DeploymentManaged.as_str(),
+            "deployment_managed"
+        );
+    }
 
     crate::storage_connector_action_schema! {
         struct TestPluginActionInput {

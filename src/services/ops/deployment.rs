@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
-use aster_drive_model::types::{RemoteNodeTransportMode, UploadSessionKind};
+use aster_drive_model::types::RemoteNodeTransportMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeploymentTopologyReport {
@@ -60,21 +60,6 @@ pub(crate) fn validate_storage_policy_driver(
             "this deployment profile requires storage shared by every primary; connector '{}' has deployment scope '{}'",
             connector_id.as_str(),
             descriptor.deployment_scope.as_str()
-        )));
-    }
-    Ok(())
-}
-
-pub fn validate_upload_session_kind(config: &Config, kind: UploadSessionKind) -> Result<()> {
-    if !config.deployment.allows_instance_local_state()
-        && matches!(
-            kind,
-            UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
-        )
-    {
-        return Err(AsterError::validation_error(format!(
-            "this deployment profile cannot initialize upload session kind '{}': Pod-local staging is not shared across primaries; use a connector-native multipart, presigned, or frontend-direct resumable upload mode",
-            kind.as_str()
         )));
     }
     Ok(())
@@ -162,12 +147,11 @@ mod tests {
     use super::{
         DeploymentTopologyReport, inspect_primary_topology, validate_primary_topology,
         validate_remote_node_transport, validate_storage_policy_driver,
-        validate_upload_session_kind,
     };
     use crate::config::{Config, DeploymentProfile};
     use aster_drive_migration::Migrator;
     use aster_drive_model::entities::managed_follower;
-    use aster_drive_model::types::{RemoteNodeTransportMode, UploadSessionKind};
+    use aster_drive_model::types::RemoteNodeTransportMode;
     use sea_orm::{ActiveModelTrait, Set};
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
@@ -201,21 +185,18 @@ mod tests {
     }
 
     #[test]
-    fn cluster_write_guards_reject_local_storage_and_enabled_reverse_tunnel() {
+    fn cluster_write_guards_accept_deployment_managed_storage_and_check_reverse_tunnel() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
         let connectors = crate::storage::connectors::builtin_storage_connector_registry()
             .expect("built-in connector registry");
 
-        let error = validate_storage_policy_driver(
+        validate_storage_policy_driver(
             &connectors,
             &config,
             &aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
         )
-        .expect_err("cluster profile must reject instance-local connectors")
-        .to_string();
-        assert!(error.contains("local"));
-        assert!(error.contains("instance_local"));
+        .expect("cluster profile should accept deployment-managed filesystem storage");
         for connector_id in [
             "asterdrive.storage.s3",
             "asterdrive.storage.alibaba_oss",
@@ -247,54 +228,6 @@ mod tests {
             "cluster-secret-for-tests-at-least-32-bytes".to_string();
         validate_remote_node_transport(&config, RemoteNodeTransportMode::ReverseTunnel, "", true)
             .expect("configured cluster proxy should accept reverse tunnel nodes");
-    }
-
-    #[test]
-    fn single_profile_accepts_every_upload_session_kind() {
-        let config = Config::default();
-
-        for kind in all_upload_session_kinds() {
-            validate_upload_session_kind(&config, kind).unwrap_or_else(|error| {
-                panic!("single profile rejected {}: {error}", kind.as_str())
-            });
-        }
-    }
-
-    #[test]
-    fn cluster_profile_rejects_only_pod_local_staging_upload_sessions() {
-        let mut config = Config::default();
-        config.deployment.profile = DeploymentProfile::Cluster;
-
-        for kind in all_upload_session_kinds() {
-            let result = validate_upload_session_kind(&config, kind);
-            if matches!(
-                kind,
-                UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
-            ) {
-                let error = result.unwrap_err().to_string();
-                assert!(error.contains(kind.as_str()));
-                assert!(error.contains("Pod-local staging"));
-                assert!(error.contains("connector-native"));
-            } else {
-                result.unwrap_or_else(|error| {
-                    panic!("cluster profile rejected {}: {error}", kind.as_str())
-                });
-            }
-        }
-    }
-
-    fn all_upload_session_kinds() -> [UploadSessionKind; 9] {
-        [
-            UploadSessionKind::OffsetStaging,
-            UploadSessionKind::StreamStaging,
-            UploadSessionKind::ProviderRelayMultipart,
-            UploadSessionKind::ProviderPresignedSingle,
-            UploadSessionKind::ProviderPresignedMultipart,
-            UploadSessionKind::RemoteRelayMultipart,
-            UploadSessionKind::RemotePresignedSingle,
-            UploadSessionKind::RemotePresignedMultipart,
-            UploadSessionKind::ProviderDirectResumable,
-        ]
     }
 
     #[tokio::test]

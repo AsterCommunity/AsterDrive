@@ -200,22 +200,14 @@ pub(crate) async fn transition_upload_session_to_assembling<C: ConnectionTrait>(
             if session.status == expected_status && session.expires_at <= now {
                 return Err(AsterError::upload_session_expired("session expired"));
             }
-            return Err(upload_assembly_error_with_code(
-                ApiErrorCode::UploadStatusConflict,
-                format!(
-                    "session status is '{:?}', expected '{}'",
-                    session.status,
-                    upload_session_status_label(expected_status)
-                ),
+            return Err(super::super::upload_status_conflict(
+                session.status,
+                expected_status,
             ));
         }
-        return Err(upload_assembly_error_with_code(
-            ApiErrorCode::UploadStatusConflict,
-            format!(
-                "session status is '{:?}', expected '{}'",
-                actual_status,
-                upload_session_status_label(expected_status)
-            ),
+        return Err(super::super::upload_status_conflict(
+            actual_status,
+            expected_status,
         ));
     }
     Ok(())
@@ -429,6 +421,7 @@ pub(crate) async fn handle_completion_error<C: ConnectionTrait>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aster_drive_migration::Migrator;
     use aster_drive_model::types::UploadSessionStatus;
     use std::sync::{
         Arc, Mutex,
@@ -458,6 +451,36 @@ mod tests {
         let (seconds, nanos) = parsed.get_timestamp().unwrap().to_unix();
         let timestamp_millis = u128::from(seconds) * 1000 + u128::from(nanos) / 1_000_000;
         assert!((before..=after).contains(&timestamp_millis));
+    }
+
+    #[tokio::test]
+    async fn missing_session_during_assembly_transition_returns_status_conflict() {
+        let db = crate::db::connect_with_metrics(
+            &crate::config::DatabaseConfig {
+                url: "sqlite::memory:".into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            aster_drive_metrics::NoopMetrics::arc(),
+        )
+        .await
+        .expect("assembly transition test database should connect");
+        Migrator::up(&db, None)
+            .await
+            .expect("assembly transition test migrations should run");
+
+        let error = transition_upload_session_to_assembling(
+            &db,
+            "concurrently-deleted-session",
+            UploadSessionStatus::Uploading,
+            UploadSessionStatus::Uploading,
+        )
+        .await
+        .expect_err("a deleted session cannot acquire the assembly claim");
+
+        assert_eq!(error.http_status(), actix_web::http::StatusCode::CONFLICT);
+        assert_eq!(error.api_error_code(), ApiErrorCode::UploadStatusConflict);
+        assert!(error.message().contains("expected 'uploading'"));
     }
 
     #[tokio::test]

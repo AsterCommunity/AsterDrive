@@ -149,7 +149,7 @@ export async function configureInitialStorage(
 	if (storage.kind === "cluster-s3") {
 		await expect(
 			storageDriverOptions.getByRole("button", { name: /^Local\b/ }),
-		).toHaveCount(0);
+		).toBeVisible();
 		await storageDriverOptions.getByRole("button", { name: /^S3\b/ }).click();
 	} else {
 		const localOption = storageDriverOptions.getByRole("button", {

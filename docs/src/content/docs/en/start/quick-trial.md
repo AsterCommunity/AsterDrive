@@ -107,7 +107,7 @@ After creating the administrator, the page continues to `Admin -> Storage Polici
 
 Saving atomically creates or reconciles the default policy group and assigns administrators that still have no group. `/health/ready` then changes `data.status` from `needs_storage` to `ready`. The local directory is created on the first write, so there is no need to create it manually inside the container first.
 
-For multiple Primaries, the page and state transition are identical, but choose S3, Azure Blob, OneDrive, SFTP, or a remote Follower reachable by every Primary. Cluster rejects `local`.
+For multiple Primaries, the page and state transition are identical. Choose a data plane reachable by every Primary. `local` is also available when the operator shares both the policy path and `upload_temp_dir`.
 
 ## 4. Run the Basic Usability Check
 

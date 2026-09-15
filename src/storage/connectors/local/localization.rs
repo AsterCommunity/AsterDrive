@@ -4,8 +4,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!("driver_type_local", "Local", "本机"),
     aster_drive_storage::storage_connector_message!(
         "policy_edit_context_local_desc",
-        "Local policies write directly to the server filesystem. Adjust paths and upload rules below.",
-        "本机策略直接写入服务器文件系统；路径和上传规则在下方调整。",
+        "Filesystem policies write through paths mounted into AsterDrive. Adjust paths and upload rules below.",
+        "文件系统策略通过挂载到 AsterDrive 的路径写入；路径和上传规则在下方调整。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_local_helper",
@@ -14,13 +14,13 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_local_storage_desc",
-        "Store files on the AsterDrive server filesystem. Simple setup and suitable for single-node deployments.",
-        "文件直接落在 AsterDrive 所在服务器的文件系统上，配置简单，适合单机部署。",
+        "Store files through a filesystem path. In cluster deployments, every Primary must share the policy path and upload staging directory.",
+        "通过文件系统路径保存文件。集群部署必须让所有 Primary 共享策略路径和上传暂存目录。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_local_desc",
-        "Name the policy and choose the local storage path.",
-        "填写策略名称，并设置本机存储路径。",
+        "Name the policy and choose the mounted filesystem path.",
+        "填写策略名称，并设置挂载的文件系统路径。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_local_title",

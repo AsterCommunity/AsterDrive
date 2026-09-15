@@ -1,6 +1,6 @@
 ---
-description: AsterDrive local disk storage policy tutorial covering local directory planning, permissions, content deduplication, capacity checks, test policy groups, and migration boundaries.
-title: "Local Disk Storage Policy Tutorial"
+description: AsterDrive local storage policy tutorial covering directory planning, the cluster sharing contract, permissions, content deduplication, capacity checks, test policy groups, and migration boundaries.
+title: "Local Storage Policy Tutorial"
 ---
 
 :::tip[What this page covers]
@@ -19,8 +19,8 @@ Local disk storage is suitable when:
 
 If you want object storage to carry capacity and bandwidth, see [S3 / MinIO / R2](/en/admin/storage-backends/s3/), [Azure Blob Storage](/en/admin/storage-backends/azure-blob/), or [Tencent COS](/en/admin/storage-backends/tencent-cos/). If you want the control plane and real object placement split across nodes, see [Follower Node Storage Policy](/en/admin/storage-backends/remote-follower/).
 
-:::caution[Cluster does not support `local` policies]
-`deployment.profile = "cluster"` rejects local storage policies by driver type, even when every Pod mounts the same path or an RWX/NFS volume. Use object storage or a remote Follower for multiple Primaries. See [Load Balancing and Multi-Instance Deployments](/en/deploy/multi-instance/#storage-and-upload-limits) for the complete limits.
+:::caution[Cluster sharing is the deployer's responsibility]
+`deployment.profile = "cluster"` may use a `local` policy, but every Primary must mount the policy `base_path` from the same data plane and share `server.upload_temp_dir`. Matching paths on separate Pod volumes do not satisfy the contract. The filesystem must also provide cross-instance visibility, `fsync`, atomic rename/delete, and advisory locks. See [Load Balancing and Multi-Instance Deployments](/en/deploy/multi-instance/#storage-and-upload-limits) for the full contract.
 :::
 
 ## First, Separate the Layers
@@ -67,7 +67,7 @@ Open:
 Admin -> Storage Policies -> New Policy
 ```
 
-Choose the driver type:
+Choose the connector:
 
 ```text
 Local
