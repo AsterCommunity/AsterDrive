@@ -52,7 +52,7 @@
 
 cluster profile 下允许使用同一套 staging 协议，但部署者必须让所有 Primary 的 `upload_temp_dir` 指向同一个共享文件系统。Durable receipt、`received_count`、completion 状态与 assembly lease 仍以共享 writer database 为权威；同一 chunk 写入的排他性依赖部署文件系统提供跨实例 advisory lock。AsterDrive 不根据路径字符串推断 mount identity，也不建立第二套 shared-filesystem session kind。
 
-staged session 在 cluster profile 下仍被拒绝，因此 reservation coordinator 只需串行化单 Primary 内的容量检查和分配，不建立重复的数据库 ledger；`upload_sessions.session_kind + total_size + status` 是重启恢复的 durable 事实源。进程首次 Init、Chunk PUT 或 Complete 触达 staging 时，会读取 active staged session，并按文件当前 `allocated_size` 只补足缺失物理块。成功 Complete、Cancel、过期清理和强制 policy cleanup 删除 session 临时目录时，文件系统同时释放 reservation。
+reservation coordinator 通过共享 staging 文件系统串行化容量检查和分配，不建立重复的数据库 ledger；`upload_sessions.session_kind + total_size + status` 是重启恢复的 durable 事实源。进程首次 Init、Chunk PUT 或 Complete 触达 staging 时，会读取 active staged session，并按文件当前 `allocated_size` 只补足缺失物理块。成功 Complete、Cancel、过期清理和强制 policy cleanup 删除 session 临时目录时，文件系统同时释放 reservation；cluster 部署中的任一 Primary 都可对同一共享 session 目录执行这些操作。
 
 ## Stream upload attempt 契约
 
