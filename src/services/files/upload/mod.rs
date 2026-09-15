@@ -36,6 +36,18 @@ pub use session::{
     presign_parts_for_team,
 };
 
+pub(crate) fn upload_status_conflict(
+    actual_status: aster_drive_model::types::UploadSessionStatus,
+    expected_status: aster_drive_model::types::UploadSessionStatus,
+) -> crate::errors::AsterError {
+    crate::errors::AsterError::conflict(format!(
+        "session status is '{}', expected '{}'",
+        session::shared::upload_session_status_label(actual_status),
+        session::shared::upload_session_status_label(expected_status)
+    ))
+    .with_api_error_code(crate::api::api_error_code::ApiErrorCode::UploadStatusConflict)
+}
+
 fn audit_details_with_data_plane(
     details: Option<serde_json::Value>,
     data_plane: &'static str,
@@ -55,7 +67,7 @@ fn audit_details_with_data_plane(
 
 #[cfg(test)]
 mod tests {
-    use super::audit_details_with_data_plane;
+    use super::{audit_details_with_data_plane, upload_status_conflict};
 
     #[test]
     fn upload_audit_data_plane_preserves_object_and_normalizes_invalid_details() {
@@ -73,5 +85,23 @@ mod tests {
                 serde_json::json!({"upload_data_plane": "streaming_direct"})
             );
         }
+    }
+
+    #[test]
+    fn upload_status_conflict_maps_to_http_conflict_with_stable_code() {
+        let error = upload_status_conflict(
+            aster_drive_model::types::UploadSessionStatus::Assembling,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
+        );
+
+        assert_eq!(error.http_status(), actix_web::http::StatusCode::CONFLICT);
+        assert_eq!(
+            error.api_error_code(),
+            crate::api::api_error_code::ApiErrorCode::UploadStatusConflict
+        );
+        assert_eq!(
+            error.message(),
+            "session status is 'assembling', expected 'uploading'"
+        );
     }
 }

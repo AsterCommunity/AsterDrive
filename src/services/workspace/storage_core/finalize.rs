@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, upload_session_repo};
-use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
+use crate::errors::{Result, upload_assembly_error_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use crate::services::workspace::scope::WorkspaceStorageScope;
@@ -14,6 +14,7 @@ use super::file_record::{
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username,
 };
 use super::quota::update_storage_used;
+use crate::services::files::upload::upload_status_conflict;
 
 pub(crate) async fn finalize_upload_session_blob_with_actor_username<C: ConnectionTrait>(
     db: &C,
@@ -159,11 +160,10 @@ async fn mark_upload_session_completed<C: ConnectionTrait>(
         ));
     }
 
-    Err(AsterError::conflict(format!(
-        "session status is '{:?}', expected 'assembling'",
-        session_fresh.status
+    Err(upload_status_conflict(
+        session_fresh.status,
+        aster_drive_model::types::UploadSessionStatus::Assembling,
     ))
-    .with_api_error_code(ApiErrorCode::UploadStatusConflict))
 }
 
 fn scope_from_session(session: &upload_session::Model) -> WorkspaceStorageScope {
