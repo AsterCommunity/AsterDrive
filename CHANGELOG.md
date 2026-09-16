@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **iOS public-share downloads** — Share-page file downloads now use the browser download trigger with the shared file name instead of opening the download endpoint in a new tab, preserving filenames on iOS while keeping the existing share authorization and storage delivery paths.
+
 - **Storage migration multipart memory bound** — Storage-policy Blob migration now
   plans provider part limits separately from the local heap budget, uses bounded
   reader uploads with reopenable source ranges for retries, and exposes multipart

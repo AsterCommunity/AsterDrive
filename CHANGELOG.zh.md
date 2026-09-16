@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **iOS 公开分享下载** — 分享页文件下载现在使用带文件名的浏览器下载触发器，不再通过新标签页打开下载端点；iOS 上会保留分享文件名，同时继续使用现有的分享授权与存储交付路径。
+
 - **存储 connector 校验反馈** — 连接测试错误现在会暴露校验失败的 connector 配置或静态凭据字段；管理端策略表单根据 connector 元数据本地化错误信息并高亮对应输入框，不再展示原始 provider 诊断。
 
 - **文件浏览器导航与已删除目录恢复** — 路由导航现在优先于并发的 SSE 与 mutation 完成刷新，保持 URL、当前目录、面包屑和可见内容一致。清空回收站完成时使用作用域聚合事件替代全量 reconciliation 信号；当前目录被移入回收站或永久删除时，个人与团队目录路由会恢复到最近的可用祖先（或工作区根）；目录列表、信息和祖先 API 统一返回 `folder.not_found` 与可读生命周期信息。

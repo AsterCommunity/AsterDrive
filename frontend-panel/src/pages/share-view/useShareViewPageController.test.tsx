@@ -39,6 +39,7 @@ const mockState = vi.hoisted(() => ({
 	},
 	toastSuccess: vi.fn(),
 	verifyPassword: vi.fn(),
+	startBrowserDownload: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -59,6 +60,11 @@ vi.mock("@/lib/musicPlayer", () => ({
 	hydrateMusicQueueForPlayback: (...args: unknown[]) =>
 		mockState.hydrateMusicQueueForPlayback(...args),
 	isMusicFile: (...args: unknown[]) => mockState.isMusicFile(...args),
+}));
+
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startBrowserDownload: (...args: unknown[]) =>
+		mockState.startBrowserDownload(...args),
 }));
 
 vi.mock("@/services/shareService", () => ({
@@ -230,6 +236,7 @@ describe("useShareViewPageController", () => {
 		mockState.toastSuccess.mockReset();
 		mockState.verifyPassword.mockReset();
 		mockState.verifyPassword.mockResolvedValue(undefined);
+		mockState.startBrowserDownload.mockReset();
 		installIntersectionObserverMock();
 		Object.defineProperty(window, "open", {
 			configurable: true,
@@ -909,7 +916,7 @@ describe("useShareViewPageController", () => {
 		expect(result.current.needsPassword).toBe(true);
 	});
 
-	it("opens download URLs with opener isolation and falls back to preview when no music track is active", async () => {
+	it("triggers named browser downloads and falls back to preview when no music track is active", async () => {
 		const audioFile = fileItem(7, "song.mp3", "audio/mpeg");
 		mockState.getInfo.mockResolvedValueOnce(shareInfo());
 		mockState.listContent.mockResolvedValueOnce(
@@ -929,15 +936,13 @@ describe("useShareViewPageController", () => {
 			result.current.setViewMode("list");
 		});
 
-		expect(mockState.openWindow).toHaveBeenCalledWith(
+		expect(mockState.startBrowserDownload).toHaveBeenCalledWith(
 			"https://download.example/s/share-token",
-			"_blank",
-			"noopener,noreferrer",
+			"Shared Root",
 		);
-		expect(mockState.openWindow).toHaveBeenCalledWith(
+		expect(mockState.startBrowserDownload).toHaveBeenCalledWith(
 			"https://download.example/s/share-token/files/7",
-			"_blank",
-			"noopener,noreferrer",
+			"song.mp3",
 		);
 		expect(result.current.previewFile).toBe(audioFile);
 		expect(result.current.viewMode).toBe("list");

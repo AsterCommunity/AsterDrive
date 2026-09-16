@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
+import {
+	startAuthenticatedDownload,
+	startBrowserDownload,
+} from "@/lib/authenticatedDownload";
 
 const mockState = vi.hoisted(() => ({
 	ensureFreshSession: vi.fn(),
@@ -66,5 +69,30 @@ describe("startAuthenticatedDownload", () => {
 			error,
 		);
 		createElementSpy.mockRestore();
+	});
+});
+
+describe("startBrowserDownload", () => {
+	it("uses a named anchor download without navigating the page", () => {
+		const createElement = document.createElement.bind(document);
+		const anchor = createElement("a");
+		const clickSpy = vi.spyOn(anchor, "click").mockImplementation(() => {});
+		const createElementSpy = vi
+			.spyOn(document, "createElement")
+			.mockImplementation(((tagName: string) =>
+				tagName === "a"
+					? anchor
+					: createElement(tagName)) as typeof document.createElement);
+
+		startBrowserDownload("/s/share-token/download", "报告.txt");
+
+		expect(anchor.getAttribute("href")).toBe("/api/v1/s/share-token/download");
+		expect(anchor.download).toBe("报告.txt");
+		expect(anchor.rel).toBe("noopener");
+		expect(anchor.isConnected).toBe(false);
+		expect(clickSpy).toHaveBeenCalledTimes(1);
+
+		createElementSpy.mockRestore();
+		clickSpy.mockRestore();
 	});
 });
