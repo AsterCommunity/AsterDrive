@@ -621,17 +621,17 @@ impl From<aster_forge_utils::UtilsError> for AsterError {
     }
 }
 
-impl From<aster_forge_actix_middleware::csrf::CsrfError> for AsterError {
-    fn from(error: aster_forge_actix_middleware::csrf::CsrfError) -> Self {
+impl From<aster_forge_middleware::actix::csrf::CsrfError> for AsterError {
+    fn from(error: aster_forge_middleware::actix::csrf::CsrfError) -> Self {
         csrf_error(error.kind(), error.message())
     }
 }
 
 fn csrf_error(
-    kind: aster_forge_actix_middleware::csrf::CsrfErrorKind,
+    kind: aster_forge_middleware::actix::csrf::CsrfErrorKind,
     message: impl Into<String>,
 ) -> AsterError {
-    use aster_forge_actix_middleware::csrf::CsrfErrorKind;
+    use aster_forge_middleware::actix::csrf::CsrfErrorKind;
 
     let message = message.into();
     match kind {
@@ -1232,7 +1232,7 @@ mod tests {
     use actix_web::body;
     use actix_web::http::StatusCode;
     use aster_drive_storage::StorageErrorKind;
-    use aster_forge_actix_middleware::csrf::CsrfErrorKind;
+    use aster_forge_middleware::actix::csrf::CsrfErrorKind;
 
     #[test]
     fn quota_exceeded_507_logs_as_warn() {

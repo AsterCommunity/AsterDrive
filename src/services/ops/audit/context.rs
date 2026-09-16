@@ -86,7 +86,7 @@ fn trusted_request_ip(req: &HttpRequest, trusted_proxies: &[String]) -> Option<I
     let peer = req.peer_addr()?.ip();
     let trusted = aster_forge_utils::net::parse_trusted_proxies(trusted_proxies);
     Some(
-        aster_forge_actix_middleware::client_ip::real_ip_from_trusted_headers(
+        aster_forge_middleware::actix::client_ip::real_ip_from_trusted_headers(
             req.headers(),
             peer,
             &trusted,

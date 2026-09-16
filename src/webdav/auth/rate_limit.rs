@@ -55,7 +55,7 @@ impl WebdavAuthProtection {
             .peer_addr()
             .map(|address| address.ip())
             .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        let client_ip = aster_forge_actix_middleware::client_ip::real_ip_from_headers(
+        let client_ip = aster_forge_middleware::actix::client_ip::real_ip_from_headers(
             request.headers(),
             peer,
             &self.trusted_proxies,
@@ -63,7 +63,7 @@ impl WebdavAuthProtection {
 
         self.cleanup_if_needed();
         self.ip_limiter.check_key(&client_ip).map_err(|rejection| {
-            aster_forge_actix_middleware::rate_limit::retry_after_seconds(&rejection).max(1)
+            aster_forge_middleware::actix::rate_limit::retry_after_seconds(&rejection).max(1)
         })
     }
 

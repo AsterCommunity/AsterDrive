@@ -15,7 +15,7 @@ macro_rules! create_test_app_with_cors {
         test::init_service(
             App::new()
                 .wrap(aster_drive::api::middleware::cors::runtime_cors())
-                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
+                .wrap(aster_forge_middleware::actix::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
                 .app_data(web::JsonConfig::default().limit(1024 * 1024))
                 .app_data(web::Data::new(state))

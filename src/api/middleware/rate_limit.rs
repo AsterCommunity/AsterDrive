@@ -8,14 +8,14 @@ use governor::middleware::NoOpMiddleware;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::ApiResponse;
 use crate::config::RateLimitTier;
-use aster_forge_actix_middleware::rate_limit::TrustedProxyIpKeyExtractor;
+use aster_forge_middleware::actix::rate_limit::TrustedProxyIpKeyExtractor;
 
 /// Builds a trusted-proxy-aware Governor config with AsterDrive's API envelope.
 pub fn build_governor(
     tier: &RateLimitTier,
     trusted_proxies: &[String],
 ) -> GovernorConfig<TrustedProxyIpKeyExtractor, NoOpMiddleware> {
-    aster_forge_actix_middleware::rate_limit::build_ip_governor_config_with_rejection_response(
+    aster_forge_middleware::actix::rate_limit::build_ip_governor_config_with_rejection_response(
         tier.seconds_per_request,
         tier.burst_size,
         trusted_proxies,

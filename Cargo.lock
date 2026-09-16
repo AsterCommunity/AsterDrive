@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "actix-codec"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31404e1443b7b7bcaa311c1af456775cc3f668e34573f1503d7ce4844327629e"
+checksum = "4c13df95297bcf9014dc89162b0cc69431e192e34e3b419612fc124cfcd45dbf"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
@@ -33,9 +33,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.13.5"
+version = "3.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86d62d1a48894ec9450bcde7ef1e3681205771ff6ea9c61cc5ae031145192787"
+checksum = "3c4f07a021937af76abef4c458a0d6b25f63f82eec5394354deeb7de0551f523"
 dependencies = [
  "actix-codec",
  "actix-service",
@@ -134,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "actix-rt"
-version = "2.13.0"
+version = "2.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a16bf2f19c2ad84842bdfe6f3665620e93197d5c607889bfa3aaac45e762fd1"
+checksum = "e5f794807f82bbd36430c12cd600c73bbab0f52fdde4f0ed49978df113f4807f"
 dependencies = [
  "futures-core",
  "tokio",
@@ -144,9 +144,9 @@ dependencies = [
 
 [[package]]
 name = "actix-server"
-version = "2.9.4"
+version = "2.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "164ab0b702b578c93901482aea90729bcb8b0822b090194372ad2966393778fa"
+checksum = "aec21d555b23ee78a1c0e4ed61667935de7d61664caba878226a081b1ac20a74"
 dependencies = [
  "actix-rt",
  "actix-service",
@@ -170,9 +170,9 @@ dependencies = [
 
 [[package]]
 name = "actix-utils"
-version = "3.0.1"
+version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88a1dcdff1466e3c2488e1cb5c36a71822750ad43839937f85d2f4d9f8b705d8"
+checksum = "0128396dd7313f697ad05b21b1a7be7d4cbb81888704f55996e4a27db196bb4d"
 dependencies = [
  "local-waker",
  "pin-project-lite",
@@ -713,7 +713,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "synstructure",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "actix-governor",
  "actix-http",
@@ -751,8 +751,6 @@ dependencies = [
  "aster_drive_migration",
  "aster_drive_model",
  "aster_drive_storage",
- "aster_forge_actix_middleware",
- "aster_forge_actix_observability",
  "aster_forge_alloc",
  "aster_forge_api",
  "aster_forge_api_docs_macros",
@@ -768,6 +766,8 @@ dependencies = [
  "aster_forge_logging",
  "aster_forge_mail",
  "aster_forge_metrics",
+ "aster_forge_middleware",
+ "aster_forge_observability",
  "aster_forge_panic",
  "aster_forge_runtime",
  "aster_forge_tasks",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_metrics"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aster_forge_metrics",
  "aster_forge_runtime",
@@ -868,7 +868,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_migration"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aster_forge_db",
  "aster_forge_db_migration",
@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_model"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aster_forge_api",
  "aster_forge_external_auth",
@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_storage"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aster_drive_model",
  "aster_forge_utils",
@@ -917,39 +917,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "aster_forge_actix_middleware"
-version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
-dependencies = [
- "actix-governor",
- "actix-web",
- "aster_forge_metrics",
- "aster_forge_utils",
- "base64 0.23.1",
- "futures",
- "governor",
- "ipnet",
- "rand 0.10.2",
- "subtle",
- "thiserror 2.0.20",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "aster_forge_actix_observability"
-version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
-dependencies = [
- "actix-web",
- "aster_forge_metrics",
- "tracing",
-]
-
-[[package]]
 name = "aster_forge_alloc"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "tikv-jemalloc-ctl",
  "tracing",
@@ -958,7 +928,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "chrono",
  "serde",
@@ -969,7 +939,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api_docs_macros"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -979,7 +949,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_audit"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_db",
  "aster_forge_mail",
@@ -991,7 +961,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_cache"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_utils",
@@ -1009,7 +979,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_config"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_events",
  "aster_forge_utils",
@@ -1029,7 +999,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_crypto"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2 0.6.0",
@@ -1043,7 +1013,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_db"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_api",
  "aster_forge_config",
@@ -1064,7 +1034,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_db_migration"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "sea-orm-migration",
  "tracing",
@@ -1073,7 +1043,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_events"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_utils",
  "async-trait",
@@ -1088,7 +1058,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_external_auth"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_crypto",
  "aster_forge_http",
@@ -1112,7 +1082,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_file_classification"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "sea-orm",
  "serde",
@@ -1123,7 +1093,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_http"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "futures",
  "http 1.5.0",
@@ -1134,7 +1104,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_logging"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "serde",
  "tracing-appender",
@@ -1144,7 +1114,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_mail"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_tasks",
@@ -1162,7 +1132,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_metrics"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_alloc",
  "aster_forge_runtime",
@@ -1175,9 +1145,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "aster_forge_middleware"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
+dependencies = [
+ "actix-governor",
+ "actix-web",
+ "aster_forge_metrics",
+ "aster_forge_utils",
+ "base64 0.23.1",
+ "futures",
+ "governor",
+ "http 1.5.0",
+ "ipnet",
+ "rand 0.10.2",
+ "subtle",
+ "thiserror 2.0.20",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "aster_forge_observability"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
+dependencies = [
+ "actix-web",
+ "aster_forge_metrics",
+ "tracing",
+]
+
+[[package]]
 name = "aster_forge_panic"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "chrono",
 ]
@@ -1185,7 +1187,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_runtime"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_utils",
  "async-trait",
@@ -1202,7 +1204,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_tasks"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_utils",
@@ -1222,7 +1224,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_test"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_utils",
  "fs2",
@@ -1238,7 +1240,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "headers",
  "http 1.5.0",
@@ -1257,7 +1259,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_validation"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "thiserror 2.0.20",
  "unicode-normalization",
@@ -1266,7 +1268,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_webdav"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "actix-web",
  "aster_forge_utils",
@@ -1284,7 +1286,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_xml"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/AsterCommunity/AsterForge#778236555e6689529c0f1bbeff51ff376c97e185"
+source = "git+https://github.com/AsterCommunity/AsterForge#6c82e5406d1000bc87275bbdc58d2c7f5412b34d"
 dependencies = [
  "aster_forge_utils",
  "quick-xml 0.42.0",
@@ -1533,9 +1535,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-eventstream"
-version = "0.61.2"
+version = "0.61.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6de526c7b567420a31bc283657a7921b45c4cafe0827fdf2490713dcc770c28f"
+checksum = "80c2051c2f1016fb8e6548dd07b8bc2ac9c3fe583721444b92f515e856d31609"
 dependencies = [
  "aws-smithy-types",
  "bytes",
@@ -1566,9 +1568,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-http-client"
-version = "1.4.0"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebfd138fac0337cee7516c352757ea73b9f2266e57d0bcb5bc70e9547e45aef1"
+checksum = "7bd25384a4e437aa8d8f339afad4b69e786b936a7cb10db668a7aaf66717b1a8"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-protocol-test",
@@ -1596,9 +1598,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-json"
-version = "0.63.0"
+version = "0.63.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dc65a121adb4b33729919fcfa14fa36fb33c1555a8f06bb0e2188dbfdc1d9ef"
+checksum = "3385d469edbe8b60cc72002784652b5efca39178192aa9cc4b44c9875c6bdc18"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-schema",
@@ -1635,9 +1637,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime"
-version = "1.14.0"
+version = "1.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b82e438d30e02a825d363bd639a9efaed68a8089d86101054b0081e7e0d3e606"
+checksum = "3296253d3a91b3f938a3f2bcce4daebadcb4aa4228153fcec90f9d23532b4484"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http",
@@ -1661,9 +1663,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime-api"
-version = "1.16.0"
+version = "1.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c054752dd9e4dc73d0b75748c99ac2d0feafbf2f25c7b0516f03a3534161223"
+checksum = "6d881a7b7ad179fd6611680c9de89f716fb00ab40299a9a7b8c6913e8f7511a8"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api-macros",
@@ -1690,9 +1692,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-schema"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d56e0a4e53127a632224e43633b0fe045fa9e1e3cfc68b9830f1115e103f910"
+checksum = "e8f395d93304280b64b7632fea798d177e74897fe7f063416ce627cd6fa24829"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1701,9 +1703,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-types"
-version = "1.6.3"
+version = "1.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f94d16e797ec62cd999fc9d5942b48fa7050c3093ddadff48e4d7528d16fcb9"
+checksum = "0b791f3ac597193fe1d08b82366986eb1f5bc31f2ac6c194c0855276116c76cd"
 dependencies = [
  "base64-simd",
  "bytes",
@@ -1727,9 +1729,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-xml"
-version = "0.62.0"
+version = "0.62.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce84f71c72fee2cbbadde6e7d082f5fb466e3a84733855295fa7aafd1b31b7d8"
+checksum = "0b932c8d6dc127fc980eecd78f8694ae9b9551b69a93a7def2a199c1c0033daf"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-schema",
@@ -2254,9 +2256,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.4.5"
+version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "005ec2760ca554fae18df7a11195552ec576cd665632a881bc011d5bb2fd4d80"
+checksum = "a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -2364,9 +2366,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.6"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "473c7e07f409a8d772161724aa8db6a765a2532a70f9667eeb7b49d3d02fbdca"
+checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2374,9 +2376,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.6.6"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b48fea5a88e9ae728a2dcbedbfc0e730f7d60da42e1cb049a83c9fb8b789889"
+checksum = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2386,9 +2388,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.4"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d012d2b9d65aca7f18f4d9878a045bc17899bba951561ba5ec3c2ba1eed9a061"
+checksum = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2398,9 +2400,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cmake"
@@ -2590,9 +2592,9 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.5.1"
+version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8498c871161e1742aaa9d52551b2d6ebdd4c3d45a3be423e3728f33b955be550"
+checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
 dependencies = [
  "cfg-if",
 ]
@@ -3106,13 +3108,13 @@ dependencies = [
 
 [[package]]
 name = "derive-where"
-version = "1.6.1"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d08b3a0bcc0d079199cd476b2cae8435016ec11d1c0986c6901c5ac223041534"
+checksum = "2e2b94854e8576378ccda7c8de8a66ed8b4e8acbd2c50ec3418ea6c8aaf4b567"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.5",
 ]
 
 [[package]]
@@ -4438,9 +4440,9 @@ dependencies = [
 
 [[package]]
 name = "impl-more"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edaff2ce006342d4d0e00fae676f7082dada44a203560629ba18ea50a19277bb"
+checksum = "30c0cddce6b7505483307994f60d97c4b156020e1504d0cf1f05a21b1b325e64"
 
 [[package]]
 name = "indexmap"
@@ -4551,9 +4553,9 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jiff"
-version = "0.2.35"
+version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "668b7183bd07af9a4885f5c35b0cc5c83c4607a913c16b7e17291832910d2dcc"
+checksum = "0ab1baf72f08796de0260609515130699b890ac25f30e610ad894bc5856cafdb"
 dependencies = [
  "defmt",
  "jiff-core",
@@ -4568,18 +4570,19 @@ dependencies = [
 
 [[package]]
 name = "jiff-core"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7feca88439efe53da3754500c1851dedf3cb36c524dd5cf8225cc0794de95d09"
+checksum = "5e52fe76043ccecc9005d2305ebaadf7d7fc0cc89ca6baa10a94d6bc68c7128c"
 dependencies = [
  "defmt",
+ "log",
 ]
 
 [[package]]
 name = "jiff-static"
-version = "0.2.35"
+version = "0.2.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a69dcb3a21cfb32ce1cd056169337ca284af0766dd766e7878819b251a49204"
+checksum = "378268a1116ad67ae6228701118ac9f491d78fda38a40a1f1a9e1348de6f7212"
 dependencies = [
  "jiff-core",
  "proc-macro2",
@@ -4674,9 +4677,9 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "11.0.0"
+version = "11.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "881733cbc631fc9e472e24447ce32a64bedf2da498d6d8570b08edc87de71f65"
+checksum = "e75fe14a82d81e5f5af639997db37d8b96045938a7ac6ab18cdbe1c7467e05e1"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
@@ -4899,9 +4902,9 @@ dependencies = [
 
 [[package]]
 name = "lofty"
-version = "0.25.1"
+version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0f052e8f93a76f4b2cd551c38a77d3025c7be1dc473f7acbac0ef1663c9f33b"
+checksum = "615d6334c1196e2f23f2708455bf8d71c374818cad7c34adaa0f8f885abf5d7c"
 dependencies = [
  "byteorder",
  "data-encoding",
@@ -4940,9 +4943,9 @@ dependencies = [
 
 [[package]]
 name = "lru-slab"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "mac_address"
@@ -6300,9 +6303,9 @@ dependencies = [
 
 [[package]]
 name = "quinn"
-version = "0.11.11"
+version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c1a41e437b6bbd489372cd4971de128e85c855f56c57f283d20ff016cf7c0a8"
+checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -6320,9 +6323,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.17"
+version = "0.11.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04759210543be93709136e28212294a659ef5001836ff4eab4d663e4529bba83"
+checksum = "a9746dbde176634f4f2f1faf2404e30a31b2bc1e9cafb5329c95d8177a18c9fc"
 dependencies = [
  "aws-lc-rs",
  "bytes",
@@ -6544,11 +6547,10 @@ dependencies = [
 
 [[package]]
 name = "redox_users"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
+checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
 dependencies = [
- "getrandom 0.2.17",
  "libredox",
  "thiserror 2.0.20",
 ]
@@ -6819,9 +6821,9 @@ dependencies = [
 
 [[package]]
 name = "russh-sftp"
-version = "2.4.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9de67aace74530a29086db0671fa200c470a58eb380081f28ad512ffb0c5356b"
+checksum = "093197e526668d92bba562e2bbbe98d1af9831bf080b619c736316ca1fa35101"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
@@ -6941,9 +6943,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.44"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -7132,9 +7134,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a334e83ced3ae3ee44db0f84d1fcf8d2087a1ad9bb9036f00f9f6067156ea197"
+checksum = "e01d46a6e22b8ce84aba64fe97011669859bc7f7120a47f5b58839dcaaa4545c"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7180,9 +7182,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-cli"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a53505884d7c907bcf4f7b4ddb1b29425e62fef8b98aea9c99e17781cceb798"
+checksum = "2479056c3f9c96c8ec5b9091103050b5f3a0532c615d8ab01d3edb81af5c65a8"
 dependencies = [
  "chrono",
  "clap",
@@ -7200,9 +7202,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-macros"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4039a86f9acc4d3b52747508b347dddc6fd725bbc429902ebeb6d26225fc2528"
+checksum = "e24c82fc1e76c014dffe5ecdac8f654da73161d703a16ea13414581e07459c83"
 dependencies = [
  "heck 0.5.0",
  "itertools 0.14.0",
@@ -7216,9 +7218,9 @@ dependencies = [
 
 [[package]]
 name = "sea-orm-migration"
-version = "2.0.2"
+version = "2.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd09adbef87100d07131a60a8c5508b53d0cf2136521f654aae47af5e6a097fe"
+checksum = "9acbadc98b17aa94657122dae4b5a840c7cebe6359a5ba15d8eaa233768942a5"
 dependencies = [
  "async-trait",
  "clap",
@@ -8134,6 +8136,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "synstructure"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "901704edd0dfe137f1987838ee4f259e4e063c31371bdb423f7ae38ec6f77f02"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
+]
+
+[[package]]
 name = "sysinfo"
 version = "0.38.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8373,18 +8386,9 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "1.13.2"
+version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cf0ded5c4e56918d8f8a339e1bb67d038d3bc6d144ac407904015ba2e4cde9b"
-dependencies = [
- "tinyvec_macros",
-]
-
-[[package]]
-name = "tinyvec_macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tls_codec"
@@ -9607,14 +9611,14 @@ dependencies = [
 
 [[package]]
 name = "yoke-derive"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de844c262c8848816172cef550288e7dc6c7b7814b4ee56b3e1553f275f1858e"
+checksum = "33811428bee40dbceb6d545e95754741d17a6aef9a4849f0fd62e2ba4f412a78"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
- "synstructure",
+ "syn 3.0.5",
+ "synstructure 0.14.0",
 ]
 
 [[package]]
@@ -9648,14 +9652,14 @@ dependencies = [
 
 [[package]]
 name = "zerofrom-derive"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11532158c46691caf0f2593ea8358fed6bbf68a0315e80aae9bd41fbade684a1"
+checksum = "f75b4683f6c7f45248d4d64056a24298c6281e0993356d7d1b4a1a962ef10d4a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
- "synstructure",
+ "syn 3.0.5",
+ "synstructure 0.14.0",
 ]
 
 [[package]]
@@ -9742,9 +9746,9 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34b31d188d9d685a4f9c7b46d6e36631b07058d2cfe190267adce54dc230bf12"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zmij"

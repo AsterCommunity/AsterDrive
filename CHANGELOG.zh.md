@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.1] - 2026-09-16
 
 ### Breaking
 
-- **异步存储路径 visitor** — `StoragePathVisitor::visit_path` 改为异步方法，使 storage driver 能在不缓冲完整列表的情况下刷出有界 path batch；外部 driver 实现必须将 visitor 方法更新为 `async`。
+- **异步且可控的存储路径 visitor** — `StoragePathVisitor::visit_path` 改为异步方法并返回 `StoragePathVisitControl::{Continue, Stop}`，使 storage driver 能在不缓冲完整列表的情况下刷出有界 path batch，并提前终止 provider 分页。外部 driver 实现必须将该方法更新为 `async` 并返回对应控制值。
+
+- **Connector 集群可用性契约** — `StorageConnectorDeploymentScope` 新增 `DeploymentManaged` variant，公开 helper `supports_multi_primary()` 替换为 `is_cluster_eligible()`。外部穷举 match 与 helper 调用方必须适配由部署负责共享状态的新契约。
 
 ### Changed
 
@@ -31,9 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **iOS PDF 预览** — 内置 PDF 预览现在在渲染前安装带条件检测的 `ReadableStream` 异步迭代器 shim，绕过 WebKit 缺失 `Symbol.asyncIterator` 支持（Safari 26.4 之前，即 iOS 上的所有浏览器）导致 pdf.js 6.x `getTextContent()` 抛错、文档页面完全无法渲染的问题。已原生支持的浏览器继续使用内置实现，没有 `ReadableStream` 的环境不受影响。
 
+- **iOS 公开分享下载** — 分享页文件下载现在使用带文件名的浏览器下载触发器，不再通过新标签页打开下载端点；iOS 上会保留分享文件名，同时继续使用现有的分享授权与存储交付路径。
+
 - **存储迁移 multipart 内存上限** — Storage policy Blob migration 现在分别规划 provider part 限制与本地 heap budget，使用支持重试时重新打开源 range 的有界 reader upload，并在 dry-run preflight 中返回 multipart capability 结果。现有 hash、verification、abort、checkpoint 与 Blob CAS 语义保持不变。
 
 - **上传流精确大小校验** — 内置 stream 与 multipart 上传路径现在校验每个 reader 产生的字节数与声明值完全一致，将过短、超长或负数大小输入作为 precondition failure 拒绝，并在提交前清理 staged attempt。Provider-backed 上传复用同一边界校验；通用 multipart fallback 会拒绝超过 64 MiB 内存预算的 part，不再按无界声明分配内存。
+
+### Statistics
+
+- 229 files changed, 12,289 insertions(+), 2,053 deletions(-)
+- 11 commits
+- 2 个数据库 migration
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.6.0] - 2026-09-12
 
@@ -75,8 +86,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **单次 multipart 上传入口** — 删除个人与团队的 `POST /files/upload` 兼容入口以及服务端 staged multipart fallback；客户端必须先初始化 upload session，再使用协商出的数据面提交内容。
 
 ### Fixed
-
-- **iOS 公开分享下载** — 分享页文件下载现在使用带文件名的浏览器下载触发器，不再通过新标签页打开下载端点；iOS 上会保留分享文件名，同时继续使用现有的分享授权与存储交付路径。
 
 - **存储 connector 校验反馈** — 连接测试错误现在会暴露校验失败的 connector 配置或静态凭据字段；管理端策略表单根据 connector 元数据本地化错误信息并高亮对应输入框，不再展示原始 provider 诊断。
 
@@ -6230,7 +6239,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...HEAD
+[v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...v0.5.0

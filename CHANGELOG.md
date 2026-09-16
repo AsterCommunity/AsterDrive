@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.1] - 2026-09-16
 
 ### Breaking
 
-- **Asynchronous storage path visitors** — `StoragePathVisitor::visit_path` is now asynchronous so storage drivers can flush bounded path batches without full-list buffering; external driver implementations must update their visitor method to `async`.
+- **Asynchronous, controllable storage path visitors** — `StoragePathVisitor::visit_path` is now asynchronous and returns `StoragePathVisitControl::{Continue, Stop}` so storage drivers can flush bounded path batches and stop provider pagination without full-list buffering. External driver implementations must update the method to `async` and return the appropriate control value.
+
+- **Cluster-eligibility connector contract** — `StorageConnectorDeploymentScope` adds the `DeploymentManaged` variant, and its public `supports_multi_primary()` helper is replaced by `is_cluster_eligible()`. External exhaustive matches and helper call sites must handle the new deployment-owned shared-state contract.
 
 ### Changed
 
@@ -40,6 +42,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checkpoint, and Blob CAS semantics remain unchanged.
 
 - **Exact upload stream size enforcement** — Built-in stream and multipart upload paths now verify that each reader produces exactly its declared byte count, reject short, oversized, or negative-size input as a precondition failure, and clean up staged attempts before commit. Provider-backed uploads receive the same boundary checks, and the generic multipart fallback rejects parts above its 64 MiB in-memory budget instead of allocating from an unbounded declaration.
+
+### Statistics
+
+- 229 files changed, 12,289 insertions(+), 2,053 deletions(-)
+- 11 commits
+- 2 database migrations
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.6.0] - 2026-09-12
 
@@ -6232,7 +6241,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...HEAD
+[v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1
 [v0.5.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0-rc.1...v0.5.0

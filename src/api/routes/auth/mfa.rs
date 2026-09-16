@@ -7,7 +7,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::auth::local::Claims;
 use crate::services::{auth::mfa, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
-use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
+use aster_forge_middleware::actix::csrf::{self, RequestSourceMode};
 use mfa::{MfaChallengeVerifyRequest, MfaEmailCodeSendRequest};
 
 #[aster_forge_api_docs_macros::path(

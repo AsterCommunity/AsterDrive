@@ -19,7 +19,7 @@ use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth::local, user::account, workspace::team};
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_drive_model::types::TokenType;
-use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
+use aster_forge_middleware::actix::csrf::{self, RequestSourceMode};
 use aster_forge_utils::numbers::{u64_to_i64, usize_to_i64};
 use bytes::Bytes;
 use tokio_util::sync::CancellationToken;

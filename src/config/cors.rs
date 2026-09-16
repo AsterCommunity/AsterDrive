@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use aster_forge_actix_middleware::cors::{CorsAllowedOrigins, RuntimeCorsPolicy};
+use aster_forge_middleware::actix::cors::{CorsAllowedOrigins, RuntimeCorsPolicy};
 use http::Uri;
 
 use crate::config::RuntimeConfig;
@@ -306,8 +306,8 @@ mod tests {
 
     use crate::config::RuntimeConfig;
     use crate::config::definitions::CONFIG_CATEGORY_NETWORK;
-    use aster_forge_actix_middleware::cors::CorsAllowedOrigins;
     use aster_forge_db::system_config;
+    use aster_forge_middleware::actix::cors::CorsAllowedOrigins;
 
     use super::{
         CORS_ALLOW_CREDENTIALS_KEY, CORS_ALLOWED_ORIGINS_KEY, CORS_ENABLED_KEY,

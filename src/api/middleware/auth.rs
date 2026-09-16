@@ -14,7 +14,7 @@ use crate::config::site_url;
 use crate::errors::{AsterError, auth_forbidden_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::auth::local;
-use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
+use aster_forge_middleware::actix::csrf::{self, RequestSourceMode};
 
 /// JWT 认证中间件
 /// 优先从 cookie 取 token，fallback 到 Authorization: Bearer header

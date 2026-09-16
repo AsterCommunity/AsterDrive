@@ -4,7 +4,7 @@ use crate::common;
 
 use actix_web::{body::to_bytes, http::header, test};
 use aster_drive::api::routes::frontend::{FRONTEND_CSP_HEADER, FRONTEND_CSP_META};
-use aster_forge_actix_middleware::security_headers::{
+use aster_forge_middleware::actix::security_headers::{
     REFERRER_POLICY_VALUE, X_CONTENT_TYPE_OPTIONS_VALUE, X_FRAME_OPTIONS_VALUE,
 };
 use serde_json::Value;

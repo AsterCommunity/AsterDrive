@@ -3,7 +3,7 @@
 mod constants;
 
 use actix_web::{Error, dev::ServiceRequest, web};
-use aster_forge_actix_middleware::cors::{
+use aster_forge_middleware::actix::cors::{
     CorsMiddlewareError, CorsMiddlewareErrorKind, RuntimeCors as ForgeRuntimeCors,
     RuntimeCorsConfig, RuntimeCorsPolicy,
 };

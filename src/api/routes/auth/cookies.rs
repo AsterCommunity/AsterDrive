@@ -3,8 +3,8 @@
 use crate::api::request_auth::ACCESS_COOKIE;
 use actix_web::cookie::time::Duration as CookieDuration;
 use actix_web::cookie::{Cookie, SameSite};
-use aster_forge_actix_middleware::csrf::CSRF_COOKIE;
 use aster_forge_crypto as hash;
+use aster_forge_middleware::actix::csrf::CSRF_COOKIE;
 
 pub(super) const REFRESH_COOKIE: &str = "aster_refresh";
 const ACCESS_COOKIE_PATH: &str = "/";

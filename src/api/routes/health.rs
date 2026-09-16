@@ -35,7 +35,7 @@ fn attach_optional_routes(scope: actix_web::Scope) -> actix_web::Scope {
     #[cfg(all(debug_assertions, feature = "openapi"))]
     let scope = scope.route("/memory", web::get().to(memory));
 
-    aster_forge_actix_observability::configure_prometheus_route(scope)
+    aster_forge_observability::actix::configure_prometheus_route(scope)
 }
 
 #[aster_forge_api_docs_macros::path(
