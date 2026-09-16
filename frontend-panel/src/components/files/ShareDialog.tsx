@@ -157,6 +157,7 @@ export function ShareDialog({
 			open={open}
 			onOpenChange={handleClose}
 			onOpenChangeComplete={handleOpenChangeComplete}
+			className="h-auto max-h-[min(92dvh,44rem)]"
 			title={
 				<span className="flex max-w-full min-w-0 items-start gap-2 leading-snug">
 					<Icon name="Link" className="mt-0.5 size-4 shrink-0" />

@@ -349,7 +349,7 @@ export function DownloadCenter() {
 							<Button
 								type="button"
 								variant="outline"
-								className="h-auto justify-start gap-3 p-3 text-left"
+								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
 								onClick={() => {
 									dismissSelection();
 									void startProxyFileDownload(
@@ -373,7 +373,7 @@ export function DownloadCenter() {
 							<Button
 								type="button"
 								variant="outline"
-								className="h-auto justify-start gap-3 p-3 text-left"
+								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
 								onClick={() => {
 									dismissSelection();
 									void startProxyArchiveDownload(pendingSelection);
@@ -395,7 +395,7 @@ export function DownloadCenter() {
 							<Button
 								type="button"
 								variant="outline"
-								className="h-auto justify-start gap-3 p-3 text-left"
+								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
 								onClick={() => {
 									dismissSelection();
 									if (directoryDownloadSupported) {
@@ -422,7 +422,7 @@ export function DownloadCenter() {
 							<Button
 								type="button"
 								variant="ghost"
-								className="h-auto justify-start gap-3 p-3 text-left"
+								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
 								onClick={() => {
 									dismissSelection();
 									void createBatchService(pendingSelection.workspace)
@@ -448,7 +448,7 @@ export function DownloadCenter() {
 							<Button
 								type="button"
 								variant="ghost"
-								className="h-auto justify-start gap-3 p-3 text-left"
+								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
 								onClick={() => {
 									dismissSelection();
 									void startAuthenticatedFileDownload(

@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **移动端对话框布局** — 下载方式选项的描述文本在窄屏上正确换行而不是被截断；分享/直链与编辑分享对话框在小屏幕上高度贴合内容，不再被撑到接近全屏、底部按钮与表单之间留出大片空白。
+
 - **iOS PDF 预览** — 内置 PDF 预览现在在渲染前安装带条件检测的 `ReadableStream` 异步迭代器 shim，绕过 WebKit 缺失 `Symbol.asyncIterator` 支持（Safari 26.4 之前，即 iOS 上的所有浏览器）导致 pdf.js 6.x `getTextContent()` 抛错、文档页面完全无法渲染的问题。已原生支持的浏览器继续使用内置实现，没有 `ReadableStream` 的环境不受影响。
 
 - **存储迁移 multipart 内存上限** — Storage policy Blob migration 现在分别规划 provider part 限制与本地 heap budget，使用支持重试时重新打开源 range 的有界 reader upload，并在 dry-run preflight 中返回 multipart capability 结果。现有 hash、verification、abort、checkpoint 与 Blob CAS 语义保持不变。

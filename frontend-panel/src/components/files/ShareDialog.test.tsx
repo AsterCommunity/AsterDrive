@@ -115,7 +115,11 @@ vi.mock("@/components/ui/dialog", () => ({
 	}: {
 		children: React.ReactNode;
 		className?: string;
-	}) => <div className={className}>{children}</div>,
+	}) => (
+		<div data-testid="dialog-content" className={className}>
+			{children}
+		</div>
+	),
 	DialogHeader: ({ children }: { children: React.ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -408,6 +412,19 @@ describe("ShareDialog", () => {
 
 		expect(title).toHaveClass("min-w-0", "leading-snug");
 		expect(titleText).toHaveClass("min-w-0", "break-words");
+	});
+
+	it("sizes the dialog to its content on small screens", () => {
+		render(
+			<ShareDialog open onOpenChange={vi.fn()} fileId={42} name="demo.zip" />,
+		);
+
+		// ManagerDialogShell defaults to a fixed near-viewport height below the
+		// sm breakpoint; this short form must override it to hug its content.
+		expect(screen.getByTestId("dialog-content")).toHaveClass(
+			"h-auto",
+			"max-h-[min(92dvh,44rem)]",
+		);
 	});
 
 	it("creates direct links for files and exposes a force-download variant", async () => {

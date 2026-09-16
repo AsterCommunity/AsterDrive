@@ -188,6 +188,30 @@ describe("DownloadCenter", () => {
 		expect(useDownloadStore.getState().pendingSelection).toBeNull();
 	});
 
+	it("lets download-method option descriptions wrap on narrow screens", () => {
+		useDownloadStore.setState({
+			pendingSelection: {
+				workspace: { kind: "personal" },
+				files: [{ id: 1, name: "first.txt" }],
+				folders: [{ id: 2, name: "docs" }],
+			},
+		});
+
+		render(<DownloadCenter />);
+
+		// The Button base variant forces whitespace-nowrap, which clipped the
+		// description line on narrow screens; each option must opt back out.
+		for (const name of [
+			/download_proxy_archive/,
+			/download_to_folder/,
+			/download_browser_archive/,
+		]) {
+			expect(screen.getByRole("button", { name })).toHaveClass(
+				"whitespace-normal",
+			);
+		}
+	});
+
 	it("hides ZIP download methods when archive downloads are disabled", () => {
 		useFrontendConfigStore.setState({
 			archiveDownloadUserEnabled: false,
