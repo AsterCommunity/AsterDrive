@@ -197,7 +197,7 @@ describe("DownloadCenter", () => {
 			},
 		});
 
-		render(<DownloadCenter />);
+		const { unmount } = render(<DownloadCenter />);
 
 		// The Button base variant forces whitespace-nowrap, which clipped the
 		// description line on narrow screens; each option must opt back out.
@@ -206,6 +206,23 @@ describe("DownloadCenter", () => {
 			/download_to_folder/,
 			/download_browser_archive/,
 		]) {
+			expect(screen.getByRole("button", { name })).toHaveClass(
+				"whitespace-normal",
+			);
+		}
+		unmount();
+
+		useDownloadStore.setState({
+			pendingSelection: {
+				workspace: { kind: "personal" },
+				files: [{ id: 3, name: "only.txt" }],
+				folders: [],
+			},
+		});
+
+		render(<DownloadCenter />);
+
+		for (const name of [/download_proxy_file/, /download_browser_default/]) {
 			expect(screen.getByRole("button", { name })).toHaveClass(
 				"whitespace-normal",
 			);

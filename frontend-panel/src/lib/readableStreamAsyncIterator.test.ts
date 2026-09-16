@@ -4,6 +4,8 @@ import { ensureReadableStreamAsyncIterator } from "./readableStreamAsyncIterator
 class FakeReadableStream<T> {
 	#chunks: T[];
 	lockReleased = false;
+	cancelled = false;
+	failOnCancel = false;
 
 	constructor(chunks: T[]) {
 		this.#chunks = [...chunks];
@@ -19,6 +21,12 @@ class FakeReadableStream<T> {
 				return value === undefined
 					? { done: true, value: undefined }
 					: { done: false, value };
+			},
+			cancel: async (): Promise<void> => {
+				this.cancelled = true;
+				if (this.failOnCancel) {
+					throw new Error("cancel failed");
+				}
 			},
 			releaseLock: () => {
 				this.lockReleased = true;
@@ -43,10 +51,11 @@ describe("ensureReadableStreamAsyncIterator", () => {
 		const values = await collect(stream as unknown as AsyncIterable<string>);
 
 		expect(values).toEqual(["a", "b", "c"]);
+		expect(stream.cancelled).toBe(false);
 		expect(stream.lockReleased).toBe(true);
 	});
 
-	it("releases the reader lock when iteration terminates early", async () => {
+	it("cancels the stream and releases the lock when iteration terminates early", async () => {
 		const stream = new FakeReadableStream([1, 2, 3]);
 		const iterable = stream as unknown as AsyncIterable<number>;
 
@@ -55,6 +64,21 @@ describe("ensureReadableStreamAsyncIterator", () => {
 			break;
 		}
 
+		expect(stream.cancelled).toBe(true);
+		expect(stream.lockReleased).toBe(true);
+	});
+
+	it("swallows cancellation failures so they cannot mask the iteration outcome", async () => {
+		const stream = new FakeReadableStream([1, 2, 3]);
+		stream.failOnCancel = true;
+		const iterable = stream as unknown as AsyncIterable<number>;
+
+		for await (const value of iterable) {
+			expect(value).toBe(1);
+			break;
+		}
+
+		expect(stream.cancelled).toBe(true);
 		expect(stream.lockReleased).toBe(true);
 	});
 

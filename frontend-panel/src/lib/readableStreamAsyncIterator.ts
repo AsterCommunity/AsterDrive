@@ -36,13 +36,27 @@ export function ensureReadableStreamAsyncIterator(
 
 	prototype[Symbol.asyncIterator] = async function* () {
 		const reader = this.getReader();
+		let completed = false;
 		try {
 			for (;;) {
 				const { done, value } = await reader.read();
-				if (done) return;
+				if (done) {
+					completed = true;
+					return;
+				}
 				yield value;
 			}
 		} finally {
+			// Match the native async-iterator semantics: abandoning the stream
+			// early (break/throw/return) cancels it so the underlying source
+			// stops producing, then releases the lock.
+			if (!completed) {
+				try {
+					await reader.cancel();
+				} catch {
+					// Do not mask the original iteration error.
+				}
+			}
 			reader.releaseLock();
 		}
 	};
