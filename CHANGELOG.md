@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **iOS PDF preview** — The built-in PDF viewer now installs a guarded `ReadableStream` async-iterator shim before rendering, working around WebKit's missing `Symbol.asyncIterator` support (Safari before 26.4 — every browser on iOS), which made pdf.js 6.x `getTextContent()` throw and blocked document pages from rendering at all. Browsers with native support keep their built-in code path, and environments without `ReadableStream` are unaffected.
+
 - **iOS public-share downloads** — Share-page file downloads now use the browser download trigger with the shared file name instead of opening the download endpoint in a new tab, preserving filenames on iOS while keeping the existing share authorization and storage delivery paths.
 
 - **Storage migration multipart memory bound** — Storage-policy Blob migration now

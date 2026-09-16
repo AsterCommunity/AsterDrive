@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **iOS PDF 预览** — 内置 PDF 预览现在在渲染前安装带条件检测的 `ReadableStream` 异步迭代器 shim，绕过 WebKit 缺失 `Symbol.asyncIterator` 支持（Safari 26.4 之前，即 iOS 上的所有浏览器）导致 pdf.js 6.x `getTextContent()` 抛错、文档页面完全无法渲染的问题。已原生支持的浏览器继续使用内置实现，没有 `ReadableStream` 的环境不受影响。
+
 - **存储迁移 multipart 内存上限** — Storage policy Blob migration 现在分别规划 provider part 限制与本地 heap budget，使用支持重试时重新打开源 range 的有界 reader upload，并在 dry-run preflight 中返回 multipart capability 结果。现有 hash、verification、abort、checkpoint 与 Blob CAS 语义保持不变。
 
 - **上传流精确大小校验** — 内置 stream 与 multipart 上传路径现在校验每个 reader 产生的字节数与声明值完全一致，将过短、超长或负数大小输入作为 precondition failure 拒绝，并在提交前清理 staged attempt。Provider-backed 上传复用同一边界校验；通用 multipart fallback 会拒绝超过 64 MiB 内存预算的 part，不再按无界声明分配内存。
