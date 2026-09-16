@@ -2,6 +2,7 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { toast } from "sonner";
 import { handleApiError } from "@/hooks/useApiError";
+import { startBrowserDownload } from "@/lib/authenticatedDownload";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import {
 	buildShareFolderMusicQueue,
@@ -668,16 +669,16 @@ export function useShareViewPageController({
 	);
 
 	const handleDownload = useCallback(() => {
-		if (!token) return;
+		if (!token || !state.info) return;
 		const url = shareService.downloadUrl(token);
-		window.open(url, "_blank", "noopener,noreferrer");
-	}, [token]);
+		startBrowserDownload(url, state.info.name);
+	}, [state.info, token]);
 
 	const handleFolderFileDownload = useCallback(
 		(file: FileListItem) => {
 			if (!token) return;
 			const url = shareService.downloadFolderFileUrl(token, file.id);
-			window.open(url, "_blank", "noopener,noreferrer");
+			startBrowserDownload(url, file.name);
 		},
 		[token],
 	);

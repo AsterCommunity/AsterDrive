@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { useBlobUrl } from "@/hooks/useBlobUrl";
 import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
+import { ensureReadableStreamAsyncIterator } from "@/lib/readableStreamAsyncIterator";
 import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
 import { PreviewError } from "../../shared/PreviewError";
 import { PreviewLoadingState } from "../../shared/PreviewLoadingState";
@@ -34,6 +35,11 @@ import {
 	PreviewSurface,
 	PreviewSurfaceContent,
 } from "../../shared/PreviewSurface";
+
+// pdf.js 6.x iterates text-content streams with `for await...of`, which throws
+// on WebKit without ReadableStream async-iterator support (Safari < 26.4, i.e.
+// every iOS browser). Must run before any Document renders.
+ensureReadableStreamAsyncIterator();
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 	"pdfjs-dist/build/pdf.worker.min.mjs",

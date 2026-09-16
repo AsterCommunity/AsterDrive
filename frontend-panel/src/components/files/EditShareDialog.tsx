@@ -112,6 +112,7 @@ export function EditShareDialog({
 			open={open}
 			onOpenChange={onOpenChange}
 			onOpenChangeComplete={handleOpenChangeComplete}
+			className="h-auto max-h-[min(92dvh,44rem)]"
 			title={
 				<span className="flex items-center gap-2">
 					<Icon name="PencilSimple" className="size-4" />

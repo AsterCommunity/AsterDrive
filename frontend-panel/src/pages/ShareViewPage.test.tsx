@@ -154,6 +154,7 @@ const mockState = vi.hoisted(() => ({
 		load: vi.fn(async () => {}),
 	},
 	openWindow: vi.fn(),
+	startBrowserDownload: vi.fn(),
 	navigate: vi.fn(),
 	pagePath: vi.fn((token: string) => `/s/${token}`),
 	params: {
@@ -740,6 +741,13 @@ vi.mock("@/lib/format", () => ({
 	formatNumber: (value: number) => `${value}`,
 }));
 
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startAuthenticatedDownload: (...args: unknown[]) =>
+		mockState.startBrowserDownload(...args),
+	startBrowserDownload: (...args: unknown[]) =>
+		mockState.startBrowserDownload(...args),
+}));
+
 vi.mock("@/services/shareService", () => ({
 	shareService: {
 		downloadFolderFileUrl: (...args: unknown[]) =>
@@ -815,6 +823,7 @@ describe("ShareViewPage", () => {
 		mockState.mediaDataSupportStore.load.mockReset();
 		mockState.mediaDataSupportStore.load.mockResolvedValue(undefined);
 		mockState.openWindow.mockReset();
+		mockState.startBrowserDownload.mockReset();
 		mockState.navigate.mockReset();
 		mockState.pagePath.mockClear();
 		mockState.params = { folderId: undefined, token: "share-token" };
@@ -1246,10 +1255,9 @@ describe("ShareViewPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
 
 		expect(mockState.downloadUrl).toHaveBeenCalledWith("share-token");
-		expect(mockState.openWindow).toHaveBeenCalledWith(
+		expect(mockState.startBrowserDownload).toHaveBeenCalledWith(
 			"https://download/share-token",
-			"_blank",
-			"noopener,noreferrer",
+			"Manual.pdf",
 		);
 	});
 
@@ -1277,10 +1285,9 @@ describe("ShareViewPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: /files:download/i }));
 
 		expect(mockState.downloadUrl).toHaveBeenCalledWith("share-token");
-		expect(mockState.openWindow).toHaveBeenCalledWith(
+		expect(mockState.startBrowserDownload).toHaveBeenCalledWith(
 			"https://download/share-token",
-			"_blank",
-			"noopener,noreferrer",
+			"Unknown.bin",
 		);
 	});
 
@@ -1534,10 +1541,9 @@ describe("ShareViewPage", () => {
 			"share-token",
 			5,
 		);
-		expect(mockState.openWindow).toHaveBeenCalledWith(
+		expect(mockState.startBrowserDownload).toHaveBeenCalledWith(
 			"https://download/share-token/files/5",
-			"_blank",
-			"noopener,noreferrer",
+			"nested.txt",
 		);
 	});
 

@@ -66,8 +66,16 @@ vi.mock("@/components/ui/button", () => ({
 vi.mock("@/components/ui/dialog", () => ({
 	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
 		open ? <div>{children}</div> : null,
-	DialogContent: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
+	DialogContent: ({
+		children,
+		className,
+	}: {
+		children: React.ReactNode;
+		className?: string;
+	}) => (
+		<div data-testid="dialog-content" className={className}>
+			{children}
+		</div>
 	),
 	DialogDescription: ({ children }: { children: React.ReactNode }) => (
 		<p>{children}</p>
@@ -288,5 +296,18 @@ describe("EditShareDialog", () => {
 				"share:my_shares_edit_success",
 			);
 		});
+	});
+
+	it("sizes the dialog to its content on small screens", () => {
+		render(
+			<EditShareDialog open onOpenChange={vi.fn()} share={createShare()} />,
+		);
+
+		// ManagerDialogShell defaults to a fixed near-viewport height below the
+		// sm breakpoint; this short form must override it to hug its content.
+		expect(screen.getByTestId("dialog-content")).toHaveClass(
+			"h-auto",
+			"max-h-[min(92dvh,44rem)]",
+		);
 	});
 });
