@@ -63,6 +63,7 @@ function ShareFolderTreeBranch({
 					<FolderTreeItemContent
 						expanded={expanded}
 						label={node.folder.name}
+						icon={node.folder.icon}
 						loading={loading}
 						showToggle={showToggle}
 						toggleLabel={toggleLabel(expanded)}

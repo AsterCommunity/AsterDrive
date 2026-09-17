@@ -1,7 +1,10 @@
+import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
 import { Icon } from "@/components/ui/icon";
+import type { FolderIcon } from "@/types/api";
 
 interface FolderTreeItemContentProps {
 	expanded: boolean;
+	icon?: FolderIcon;
 	label: string;
 	loading?: boolean;
 	showToggle: boolean;
@@ -12,6 +15,7 @@ interface FolderTreeItemContentProps {
 
 export function FolderTreeItemContent({
 	expanded,
+	icon,
 	label,
 	loading = false,
 	showToggle,
@@ -62,11 +66,7 @@ export function FolderTreeItemContent({
 					onNavigate();
 				}}
 			>
-				<Icon
-					name={expanded ? "FolderOpen" : "Folder"}
-					aria-hidden="true"
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
+				<FolderIconRenderer icon={icon} className="size-4 text-base" />
 				<span className="truncate">{label}</span>
 			</button>
 		</>

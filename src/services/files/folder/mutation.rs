@@ -609,6 +609,47 @@ pub(crate) async fn update_in_scope(
     Ok(updated)
 }
 
+pub(crate) async fn set_icon_in_scope(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    icon: super::FolderIcon,
+) -> Result<folder::Model> {
+    let (icon_kind, icon_value) = icon.normalize()?;
+    let updated = transaction::with_transaction(state.writer_db(), async |txn| {
+        let preview = folder_repo::find_by_id(txn, folder_id).await?;
+        ensure_folder_model_in_scope(&preview, scope)?;
+        let current = crate::services::files::lock::enforce_folder_mutation_on(
+            txn,
+            &preview,
+            aster_drive_model::types::LockDepth::Resource,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+        ensure_folder_model_in_scope(&current, scope)?;
+        if current.deleted_at.is_some() {
+            return Err(AsterError::folder_not_found(format!(
+                "folder #{folder_id} is in trash"
+            )));
+        }
+
+        folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await
+    })
+    .await?;
+
+    storage_change::publish(
+        state,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderUpdated,
+            scope,
+            vec![],
+            vec![updated.id],
+            vec![updated.parent_id],
+        ),
+    );
+    Ok(updated)
+}
+
 pub(crate) async fn admin_set_policy(
     state: &impl StorageChangeRuntimeState,
     folder_id: i64,

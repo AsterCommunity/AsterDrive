@@ -15,6 +15,7 @@ pub use mutation::{
     clear_policy_references, create, create_many, create_or_find_by_name_in_parent,
     create_or_find_by_name_in_parent_with_created, create_or_find_by_name_in_team_parent,
     create_or_find_by_name_in_team_parent_with_created, delete, delete_many, move_many_to_parent,
+    update_icon,
 };
 pub(crate) use path::{find_ancestor_models, find_team_ancestor_models};
 pub use path::{find_ancestors, resolve_path_chain};

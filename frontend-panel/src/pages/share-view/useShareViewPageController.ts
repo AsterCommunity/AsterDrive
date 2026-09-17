@@ -258,6 +258,7 @@ function breadcrumbForSharedFolder(
 		...ancestors.map((ancestor) => ({
 			id: ancestor.id,
 			name: ancestor.name,
+			icon: ancestor.icon,
 		})),
 	];
 }

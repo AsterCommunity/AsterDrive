@@ -674,6 +674,14 @@ fn detail_message(
             copy_param(details, &mut params, "policy_id");
             Some(message("folder_policy_changed", params))
         }
+        AuditAction::FolderIconChange => {
+            copy_params(
+                details,
+                &mut params,
+                &["previous_kind", "previous_key", "kind", "key"],
+            );
+            Some(message("folder_icon_changed", params))
+        }
         AuditAction::FolderCreate
         | AuditAction::FolderDelete
         | AuditAction::FolderLock

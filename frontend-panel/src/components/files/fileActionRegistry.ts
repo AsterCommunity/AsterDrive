@@ -13,6 +13,7 @@ export type BuiltinFileActionId =
 	| "copy"
 	| "move"
 	| "folder_policy"
+	| "folder_icon"
 	| "go_to_location"
 	| "rename"
 	| "manage_tags"
@@ -168,6 +169,14 @@ const singleFileActions: FileActionDescriptor[] = [
 		presentation: { group: "organize", order: 30 },
 		scope: "folder",
 		availability: handlerAvailability("folder_policy"),
+	},
+	{
+		id: "folder_icon",
+		icon: "PaintBrush",
+		labelKey: "folder_icon",
+		presentation: { group: "organize", order: 35 },
+		scope: "folder",
+		availability: handlerAvailability("folder_icon"),
 	},
 	{
 		id: "go_to_location",

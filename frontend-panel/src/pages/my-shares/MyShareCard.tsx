@@ -2,6 +2,7 @@ import {
 	FileTypeIcon,
 	getFileBadgeTint,
 } from "@/components/files/FileTypeIcon";
+import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -89,7 +90,10 @@ export function MyShareCard({
 						)}
 					>
 						{isFolder ? (
-							<Icon name="Folder" className="size-5 text-amber-500" />
+							<FolderIconRenderer
+								icon={share.folder_icon ?? undefined}
+								className="size-5 text-xl"
+							/>
 						) : (
 							<FileTypeIcon
 								mimeType=""

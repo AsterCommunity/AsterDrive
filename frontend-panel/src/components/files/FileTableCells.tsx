@@ -2,8 +2,8 @@ import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
 import { FileThumbnail } from "@/components/files/FileThumbnail";
+import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
 import { TagChips } from "@/components/files/TagChips";
-import { Icon } from "@/components/ui/icon";
 import { TableCell } from "@/components/ui/table";
 import {
 	formatBytes,
@@ -60,8 +60,8 @@ export function FolderNameCell({ folder }: { folder: FolderListItem }) {
 	return (
 		<TableCell className="pl-1 pr-2">
 			<div className="flex min-w-0 items-center gap-3">
-				<div className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-amber-500/10 text-amber-500 shadow-xs dark:shadow-none">
-					<Icon name="Folder" className="size-4" />
+				<div className="flex size-6 shrink-0 items-center justify-center overflow-hidden">
+					<FolderIconRenderer icon={folder.icon} className="size-5 text-lg" />
 				</div>
 				<div className="flex min-w-0 flex-1 items-center gap-2">
 					<div className="flex min-w-0 flex-1 items-center gap-2">

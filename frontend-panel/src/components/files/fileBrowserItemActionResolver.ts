@@ -29,6 +29,7 @@ export interface FileBrowserItemActionHandlers {
 	onFileClick: FileBrowserContextValue["onFileClick"];
 	onFileOpen?: FileBrowserContextValue["onFileOpen"];
 	onFolderPolicy?: FileBrowserContextValue["onFolderPolicy"];
+	onFolderIcon?: FileBrowserContextValue["onFolderIcon"];
 	onFolderOpen: FileBrowserContextValue["onFolderOpen"];
 	onGoToLocation?: FileBrowserContextValue["onGoToLocation"];
 	onInfo?: FileBrowserContextValue["onInfo"];
@@ -175,6 +176,9 @@ function resolveWritableFolderMenuProps({
 			: undefined,
 		onFolderPolicy: handlers.onFolderPolicy
 			? () => handlers.onFolderPolicy?.(item)
+			: undefined,
+		onFolderIcon: handlers.onFolderIcon
+			? () => handlers.onFolderIcon?.(item)
 			: undefined,
 		onRename: handlers.onRename
 			? () => handlers.onRename?.("folder", item.id, item.name)

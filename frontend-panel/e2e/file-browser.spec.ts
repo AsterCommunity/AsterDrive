@@ -23,6 +23,7 @@ import {
 	moveItemToFolder,
 	navigateToRoot,
 	openFolder,
+	openItemContextMenu,
 	renameItem,
 	toggleItemSelection,
 	trashItemRow,
@@ -176,6 +177,39 @@ test.describe
 
 			await openFolder(page, projectFolder);
 			await expect(fileNameCell(page, renamedLifecycleFile)).toBeVisible({
+				timeout: 30_000,
+			});
+		});
+
+		test("sets built-in and emoji folder icons through the browser UI", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+			const folderName = uniqueName("pw-folder-icon");
+			await createFolderFromSurface(page, folderName);
+
+			await openItemContextMenu(page, folderName);
+			await page.getByRole("menuitem", { name: "Folder icon" }).click();
+			let dialog = page.getByRole("dialog");
+			await dialog.getByRole("button", { name: "Built-in" }).click();
+			await dialog.getByRole("button", { name: "Images" }).click();
+			await dialog.getByRole("button", { name: "Save icon" }).click();
+			await expect(dialog).toBeHidden();
+
+			await openItemContextMenu(page, folderName);
+			await page.getByRole("menuitem", { name: "Folder icon" }).click();
+			dialog = page.getByRole("dialog");
+			await dialog.getByRole("button", { name: "Emoji" }).click();
+			await dialog.getByRole("textbox", { name: "Emoji" }).fill("📚");
+			await dialog.getByRole("button", { name: "Save icon" }).click();
+			await expect(dialog).toBeHidden();
+			await expect(
+				fileNameCell(page, folderName).getByText("📚"),
+			).toBeVisible();
+
+			await page.reload();
+			await expect(fileNameCell(page, folderName).getByText("📚")).toBeVisible({
 				timeout: 30_000,
 			});
 		});

@@ -32,6 +32,8 @@ struct PlannedChildFolderCopy {
     dest_parent_id: i64,
     dest_name: String,
     policy_id: Option<i64>,
+    icon_kind: aster_drive_model::types::FolderIconKind,
+    icon_value: Option<String>,
 }
 
 struct FolderTreeCopySnapshot {
@@ -184,6 +186,8 @@ async fn load_frontier_child_plans_between_scopes(
                 dest_parent_id,
                 dest_name: child.name.clone(),
                 policy_id: preserve_policy_id.then_some(child.policy_id).flatten(),
+                icon_kind: child.icon_kind,
+                icon_value: child.icon_value.clone(),
             })
         })
         .collect()
@@ -216,6 +220,8 @@ async fn create_frontier_children_from_plans_in_scope(
             created_by_user_id: Set(Some(scope.actor_user_id())),
             created_by_username: Set(created_by_username.clone()),
             policy_id: Set(plan.policy_id),
+            icon_kind: Set(plan.icon_kind),
+            icon_value: Set(plan.icon_value.clone()),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()
@@ -373,6 +379,8 @@ async fn copy_folder_tree_between_scopes(
             created_by_user_id: Set(Some(dest_scope.actor_user_id())),
             created_by_username: Set(created_by_username),
             policy_id: Set(preserve_policy_id.then_some(src_folder.policy_id).flatten()),
+            icon_kind: Set(src_folder.icon_kind),
+            icon_value: Set(src_folder.icon_value.clone()),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()

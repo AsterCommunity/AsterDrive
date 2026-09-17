@@ -174,6 +174,7 @@ macro_rules! define_audit_action_list {
             RemoteNodeUnexpectedDisconnect,
             RemoteNodeHeartbeatTimeout,
             AdminCreateStoragePolicyForcedPurgeTask,
+            FolderIconChange,
         }
     };
 }
@@ -705,6 +706,8 @@ pub enum AuditAction {
     /// Administrator confirmed creation of a destructive policy-purge task.
     #[sea_orm(string_value = "admin_create_storage_policy_forced_purge_task")]
     AdminCreateStoragePolicyForcedPurgeTask,
+    #[sea_orm(string_value = "folder_icon_change")]
+    FolderIconChange,
 }
 
 impl AuditAction {
@@ -867,6 +870,7 @@ impl AuditAction {
             Self::RemoteNodeUnexpectedDisconnect => 151,
             Self::RemoteNodeHeartbeatTimeout => 152,
             Self::AdminCreateStoragePolicyForcedPurgeTask => 153,
+            Self::FolderIconChange => 154,
         }
     }
 
@@ -1030,6 +1034,7 @@ impl AuditAction {
             Self::AdminCreateStoragePolicyForcedPurgeTask => {
                 "admin_create_storage_policy_forced_purge_task"
             }
+            Self::FolderIconChange => "folder_icon_change",
         }
     }
 
@@ -1193,6 +1198,7 @@ impl AuditAction {
             "admin_create_storage_policy_forced_purge_task" => {
                 Some(Self::AdminCreateStoragePolicyForcedPurgeTask)
             }
+            "folder_icon_change" => Some(Self::FolderIconChange),
             _ => None,
         }
     }
@@ -1272,7 +1278,8 @@ impl AuditAction {
             | Self::FolderRestore
             | Self::FolderPurge
             | Self::FolderLock
-            | Self::FolderUnlock => "folder",
+            | Self::FolderUnlock
+            | Self::FolderIconChange => "folder",
             Self::PropertySet | Self::PropertyDelete => "property",
             Self::ShareBatchDelete | Self::ShareCreate | Self::ShareDelete | Self::ShareUpdate => {
                 "share"

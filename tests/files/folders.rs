@@ -85,6 +85,311 @@ async fn test_folders_crud() {
 }
 
 #[actix_web::test]
+async fn test_folder_icon_contract_validation_projection_lock_and_lifecycle() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    async fn create_folder(
+        app: &impl actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse,
+            Error = actix_web::Error,
+        >,
+        token: &str,
+        name: &str,
+        parent_id: Option<i64>,
+    ) -> Value {
+        let response = test::call_service(
+            app,
+            test::TestRequest::post()
+                .uri("/api/v1/folders")
+                .insert_header(("Cookie", common::access_cookie_header(token)))
+                .insert_header(common::csrf_header_for(token))
+                .set_json(serde_json::json!({ "name": name, "parent_id": parent_id }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 201);
+        test::read_body_json(response).await
+    }
+
+    async fn set_icon(
+        app: &impl actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse,
+            Error = actix_web::Error,
+        >,
+        token: &str,
+        folder_id: i64,
+        icon: Value,
+    ) -> (actix_web::http::StatusCode, Value) {
+        let response = test::call_service(
+            app,
+            test::TestRequest::put()
+                .uri(&format!("/api/v1/folders/{folder_id}/icon"))
+                .insert_header(("Cookie", common::access_cookie_header(token)))
+                .insert_header(common::csrf_header_for(token))
+                .set_json(icon)
+                .to_request(),
+        )
+        .await;
+        let status = response.status();
+        (status, test::read_body_json(response).await)
+    }
+
+    let root = create_folder(&app, &token, "Icon Root", None).await;
+    let root_id = root["data"]["id"].as_i64().unwrap();
+    assert_eq!(
+        root["data"]["icon"],
+        serde_json::json!({ "kind": "default" })
+    );
+    let child = create_folder(&app, &token, "Icon Child", Some(root_id)).await;
+    let child_id = child["data"]["id"].as_i64().unwrap();
+
+    let (status, body) = set_icon(
+        &app,
+        &token,
+        root_id,
+        serde_json::json!({ "kind": "builtin", "key": "documents" }),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["data"]["icon"],
+        serde_json::json!({ "kind": "builtin", "key": "documents" })
+    );
+
+    let (status, body) = set_icon(
+        &app,
+        &token,
+        child_id,
+        serde_json::json!({ "kind": "emoji", "value": "👩🏿‍❤️‍👨🏼" }),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["data"]["icon"]["kind"], "emoji");
+
+    for invalid in [
+        serde_json::json!({ "kind": "builtin", "key": "FcDocument" }),
+        serde_json::json!({ "kind": "emoji", "value": "ordinary text" }),
+        serde_json::json!({ "kind": "emoji", "value": "📚📁" }),
+        serde_json::json!({ "kind": "emoji", "value": "📚".repeat(17) }),
+        serde_json::json!({ "kind": "default", "value": "ignored" }),
+    ] {
+        let expected_invalid = invalid.clone();
+        assert_eq!(
+            set_icon(&app, &token, root_id, invalid).await.0,
+            400,
+            "accepted invalid folder icon: {expected_invalid}"
+        );
+    }
+    let persisted = folder_repo::find_by_id(state.writer_db(), root_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        persisted.icon_kind,
+        aster_drive_model::types::FolderIconKind::Builtin
+    );
+    assert_eq!(persisted.icon_value.as_deref(), Some("documents"));
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["folders"][0]["icon"]["key"], "documents");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{child_id}/ancestors"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"][0]["icon"]["key"], "documents");
+    assert_eq!(body["data"][1]["icon"]["kind"], "emoji");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/api/v1/folders/{root_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "Icon Root Renamed" }))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["icon"]["key"], "documents");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/api/v1/folders/{child_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "parent_id": null }))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["icon"]["kind"], "emoji");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&format!("/api/v1/folders/{child_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "parent_id": root_id }))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["icon"]["value"], "👩🏿‍❤️‍👨🏼");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/folders/{root_id}/copy"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "parent_id": null }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let copy_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["icon"]["key"], "documents");
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{copy_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["folders"][0]["icon"]["kind"], "emoji");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/folders/{root_id}/lock"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "locked": true }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let (status, _) = set_icon(
+        &app,
+        &token,
+        root_id,
+        serde_json::json!({ "kind": "default" }),
+    )
+    .await;
+    assert!(status == 403 || status == 423);
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/folders/{root_id}/lock"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "locked": false }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        set_icon(
+            &app,
+            &token,
+            root_id,
+            serde_json::json!({ "kind": "default" })
+        )
+        .await
+        .0,
+        200
+    );
+
+    assert_eq!(
+        set_icon(
+            &app,
+            &token,
+            root_id,
+            serde_json::json!({ "kind": "builtin", "key": "archive" })
+        )
+        .await
+        .0,
+        200
+    );
+    let response = test::call_service(
+        &app,
+        test::TestRequest::delete()
+            .uri(&format!("/api/v1/folders/{root_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/trash")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    let trashed = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["id"] == root_id)
+        .unwrap();
+    assert_eq!(trashed["icon"]["key"], "archive");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/trash/folder/{root_id}/restore"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{root_id}/info"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["icon"]["key"], "archive");
+}
+
+#[actix_web::test]
 async fn test_large_folder_delete_and_restore_dispatch_bounded_tasks() {
     const FILE_COUNT: usize =
         aster_drive::services::files::folder::REST_FOLDER_TREE_SYNCHRONOUS_MAXIMUM_RESOURCES;

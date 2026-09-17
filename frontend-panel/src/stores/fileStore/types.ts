@@ -3,6 +3,7 @@ import type {
 	BatchResult,
 	FileListItem,
 	FolderContents,
+	FolderIcon,
 	FolderListItem,
 } from "@/types/api";
 import type { SelectionItemKey } from "./selectionRange";
@@ -10,6 +11,7 @@ import type { SelectionItemKey } from "./selectionRange";
 export interface BreadcrumbItem {
 	id: number | null;
 	name: string;
+	icon?: FolderIcon;
 }
 
 export interface Clipboard {

@@ -125,6 +125,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::folders::delete_folder,
         crate::api::routes::folders::patch_folder,
         crate::api::routes::folders::set_lock,
+        crate::api::routes::folders::set_icon,
         crate::api::routes::folders::copy_folder,
 
         // search：个人空间内的文件与文件夹检索接口。
@@ -218,6 +219,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::folders::team_patch_folder,
         crate::api::routes::folders::team_delete_folder,
         crate::api::routes::folders::team_set_lock,
+        crate::api::routes::folders::team_set_icon,
         crate::api::routes::folders::team_copy_folder,
 
         // files：团队文件的上传、下载、预览、版本和变更操作。
@@ -491,6 +493,8 @@ use utoipa::{Modify, OpenApi};
             // services::files::folder、workspace::models 与 file/folder entities：文件树、API 投影和持久化实体。
             crate::services::files::folder::FolderContents,
             crate::services::files::folder::FolderAncestorItem,
+            crate::services::files::folder::FolderIcon,
+            crate::services::files::folder::FolderBuiltinIcon,
             crate::services::workspace::models::FileInfo,
             crate::services::workspace::models::FolderInfo,
             crate::services::workspace::models::FileVersion,

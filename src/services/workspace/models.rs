@@ -99,6 +99,7 @@ pub struct FolderInfo {
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
     pub policy_id: Option<i64>,
+    pub icon: crate::services::files::folder::FolderIcon,
     /// Recursive quota bytes for the folder detail view: all live files in the
     /// folder tree, including current file sizes plus historical versions.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,6 +117,7 @@ pub struct FolderInfo {
 
 impl From<aster_drive_model::entities::folder::Model> for FolderInfo {
     fn from(model: aster_drive_model::entities::folder::Model) -> Self {
+        let icon = crate::services::files::folder::FolderIcon::from_model(&model);
         Self {
             id: model.id,
             name: model.name,
@@ -125,6 +127,7 @@ impl From<aster_drive_model::entities::folder::Model> for FolderInfo {
             created_by_user_id: model.created_by_user_id,
             created_by_username: model.created_by_username,
             policy_id: model.policy_id,
+            icon,
             storage_used: None,
             created_at: model.created_at,
             updated_at: model.updated_at,

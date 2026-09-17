@@ -47,6 +47,7 @@ export interface FileContextMenuProps {
 	onCopy?: () => void;
 	onMove?: () => void;
 	onFolderPolicy?: () => void;
+	onFolderIcon?: () => void;
 	onGoToLocation?: () => void;
 	onManageTags?: () => void;
 	onToggleLock?: () => void;
@@ -80,6 +81,7 @@ function menuActionHandlers({
 	onCopy,
 	onMove,
 	onFolderPolicy,
+	onFolderIcon,
 	onGoToLocation,
 	onManageTags,
 	onRename,
@@ -99,6 +101,7 @@ function menuActionHandlers({
 		delete: onDelete,
 		download: onDownload,
 		folder_policy: onFolderPolicy,
+		folder_icon: onFolderIcon,
 		go_to_location: onGoToLocation,
 		info: onInfo,
 		manage_tags: onManageTags,
@@ -171,6 +174,7 @@ function FileContextMenuItems({
 	onCopy,
 	onMove,
 	onFolderPolicy,
+	onFolderIcon,
 	onGoToLocation,
 	onManageTags,
 	onRename,
@@ -212,6 +216,7 @@ function FileContextMenuItems({
 				onDirectShare,
 				onDownload,
 				onFolderPolicy,
+				onFolderIcon,
 				onGoToLocation,
 				onInfo,
 				onManageTags,
@@ -319,6 +324,7 @@ export function FileContextMenu({
 	onCopy,
 	onMove,
 	onFolderPolicy,
+	onFolderIcon,
 	onGoToLocation,
 	onManageTags,
 	onRename,
@@ -357,6 +363,7 @@ export function FileContextMenu({
 					onCopy={onCopy}
 					onMove={onMove}
 					onFolderPolicy={onFolderPolicy}
+					onFolderIcon={onFolderIcon}
 					onGoToLocation={onGoToLocation}
 					onManageTags={onManageTags}
 					onRename={onRename}

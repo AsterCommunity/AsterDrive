@@ -71,7 +71,11 @@ export async function resolveBreadcrumb(
 	const ancestors = await fileService.getFolderAncestors(folderId, { signal });
 	return [
 		...createRootBreadcrumb(),
-		...ancestors.map((item) => ({ id: item.id, name: item.name })),
+		...ancestors.map((item) => ({
+			id: item.id,
+			name: item.name,
+			icon: item.icon,
+		})),
 	];
 }
 

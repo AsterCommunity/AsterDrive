@@ -506,6 +506,8 @@ mod tests {
             created_by_user_id: Some(1),
             created_by_username: "tester".to_string(),
             policy_id: None,
+            icon_kind: aster_drive_model::types::FolderIconKind::Default,
+            icon_value: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,

@@ -21,6 +21,8 @@ pub struct Model {
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
     pub policy_id: Option<i64>, // 覆盖存储策略
+    pub icon_kind: crate::types::FolderIconKind,
+    pub icon_value: Option<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

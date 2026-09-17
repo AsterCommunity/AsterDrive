@@ -13,6 +13,7 @@ pub use super::auth::{
     VerificationPurpose,
 };
 pub use super::entity::{EntityType, ResourceLockTargetType};
+pub use super::folder_icon::FolderIconKind;
 pub use super::media_metadata::{
     AudioMediaMetadata, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
     MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,

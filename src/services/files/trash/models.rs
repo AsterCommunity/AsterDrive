@@ -27,6 +27,7 @@ pub struct TrashFileItem {
 pub struct TrashFolderItem {
     pub id: i64,
     pub name: String,
+    pub icon: crate::services::files::folder::FolderIcon,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

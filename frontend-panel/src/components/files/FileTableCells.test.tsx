@@ -129,7 +129,7 @@ describe("FileTableCells", () => {
 			/>,
 		);
 
-		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "Folder");
+		expect(document.querySelector("svg")).toBeInTheDocument();
 		expect(screen.getByText("Docs")).toBeInTheDocument();
 		expect(screen.getByTestId("status")).toHaveAttribute("data-locked", "true");
 	});

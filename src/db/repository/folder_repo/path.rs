@@ -23,6 +23,8 @@ struct ResolvedPathFolderRow {
     created_by_user_id: Option<i64>,
     created_by_username: String,
     policy_id: Option<i64>,
+    icon_kind: aster_drive_model::types::FolderIconKind,
+    icon_value: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
     deleted_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -40,6 +42,8 @@ impl From<ResolvedPathFolderRow> for folder::Model {
             created_by_user_id: row.created_by_user_id,
             created_by_username: row.created_by_username,
             policy_id: row.policy_id,
+            icon_kind: row.icon_kind,
+            icon_value: row.icon_value,
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
@@ -58,6 +62,8 @@ struct AncestorFolderRow {
     created_by_user_id: Option<i64>,
     created_by_username: String,
     policy_id: Option<i64>,
+    icon_kind: aster_drive_model::types::FolderIconKind,
+    icon_value: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
     deleted_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -75,6 +81,8 @@ impl From<AncestorFolderRow> for folder::Model {
             created_by_user_id: row.created_by_user_id,
             created_by_username: row.created_by_username,
             policy_id: row.policy_id,
+            icon_kind: row.icon_kind,
+            icon_value: row.icon_value,
             created_at: row.created_at,
             updated_at: row.updated_at,
             deleted_at: row.deleted_at,
@@ -106,6 +114,8 @@ enum FolderChain {
     CreatedByUserId,
     CreatedByUsername,
     PolicyId,
+    IconKind,
+    IconValue,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -131,7 +141,7 @@ fn build_find_ancestors_statement(
         (DbBackend::Postgres, AncestorScope::Owner { user_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -143,6 +153,8 @@ fn build_find_ancestors_statement(
                      f.created_by_user_id, \
                      f.created_by_username, \
                      f.policy_id, \
+                     f.icon_kind, \
+                     f.icon_value, \
                      f.created_at, \
                      f.updated_at, \
                      f.deleted_at \
@@ -161,6 +173,8 @@ fn build_find_ancestors_statement(
                      parent.created_by_user_id, \
                      parent.created_by_username, \
                      parent.policy_id, \
+                     parent.icon_kind, \
+                     parent.icon_value, \
                      parent.created_at, \
                      parent.updated_at, \
                      parent.deleted_at \
@@ -170,7 +184,7 @@ fn build_find_ancestors_statement(
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -179,7 +193,7 @@ fn build_find_ancestors_statement(
         (DbBackend::Postgres, AncestorScope::Team { team_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -191,6 +205,8 @@ fn build_find_ancestors_statement(
                      f.created_by_user_id, \
                      f.created_by_username, \
                      f.policy_id, \
+                     f.icon_kind, \
+                     f.icon_value, \
                      f.created_at, \
                      f.updated_at, \
                      f.deleted_at \
@@ -209,6 +225,8 @@ fn build_find_ancestors_statement(
                      parent.created_by_user_id, \
                      parent.created_by_username, \
                      parent.policy_id, \
+                     parent.icon_kind, \
+                     parent.icon_value, \
                      parent.created_at, \
                      parent.updated_at, \
                      parent.deleted_at \
@@ -218,7 +236,7 @@ fn build_find_ancestors_statement(
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -227,7 +245,7 @@ fn build_find_ancestors_statement(
         (_, AncestorScope::Owner { user_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -239,6 +257,8 @@ fn build_find_ancestors_statement(
                      f.created_by_user_id, \
                      f.created_by_username, \
                      f.policy_id, \
+                     f.icon_kind, \
+                     f.icon_value, \
                      f.created_at, \
                      f.updated_at, \
                      f.deleted_at \
@@ -257,6 +277,8 @@ fn build_find_ancestors_statement(
                      parent.created_by_user_id, \
                      parent.created_by_username, \
                      parent.policy_id, \
+                     parent.icon_kind, \
+                     parent.icon_value, \
                      parent.created_at, \
                      parent.updated_at, \
                      parent.deleted_at \
@@ -266,7 +288,7 @@ fn build_find_ancestors_statement(
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -275,7 +297,7 @@ fn build_find_ancestors_statement(
         (_, AncestorScope::Team { team_id }) => (
             format!(
                 "WITH RECURSIVE folder_ancestors ( \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              ) AS ( \
                  SELECT \
                      {root_depth_expr} AS depth, \
@@ -287,6 +309,8 @@ fn build_find_ancestors_statement(
                      f.created_by_user_id, \
                      f.created_by_username, \
                      f.policy_id, \
+                     f.icon_kind, \
+                     f.icon_value, \
                      f.created_at, \
                      f.updated_at, \
                      f.deleted_at \
@@ -305,6 +329,8 @@ fn build_find_ancestors_statement(
                      parent.created_by_user_id, \
                      parent.created_by_username, \
                      parent.policy_id, \
+                     parent.icon_kind, \
+                     parent.icon_value, \
                      parent.created_at, \
                      parent.updated_at, \
                      parent.deleted_at \
@@ -314,7 +340,7 @@ fn build_find_ancestors_statement(
                    AND parent.deleted_at IS NULL \
              ) \
              SELECT \
-                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, created_at, updated_at, deleted_at \
+                 depth, id, name, parent_id, team_id, owner_user_id, created_by_user_id, created_by_username, policy_id, icon_kind, icon_value, created_at, updated_at, deleted_at \
              FROM folder_ancestors \
              ORDER BY depth DESC"
             ),
@@ -380,6 +406,8 @@ fn build_resolve_path_chain_query(
         .column((folder::Entity, folder::Column::CreatedByUserId))
         .column((folder::Entity, folder::Column::CreatedByUsername))
         .column((folder::Entity, folder::Column::PolicyId))
+        .column((folder::Entity, folder::Column::IconKind))
+        .column((folder::Entity, folder::Column::IconValue))
         .column((folder::Entity, folder::Column::CreatedAt))
         .column((folder::Entity, folder::Column::UpdatedAt))
         .column((folder::Entity, folder::Column::DeletedAt))
@@ -418,6 +446,8 @@ fn build_resolve_path_chain_query(
         .column((folder::Entity, folder::Column::CreatedByUserId))
         .column((folder::Entity, folder::Column::CreatedByUsername))
         .column((folder::Entity, folder::Column::PolicyId))
+        .column((folder::Entity, folder::Column::IconKind))
+        .column((folder::Entity, folder::Column::IconValue))
         .column((folder::Entity, folder::Column::CreatedAt))
         .column((folder::Entity, folder::Column::UpdatedAt))
         .column((folder::Entity, folder::Column::DeletedAt))
@@ -459,6 +489,8 @@ fn build_resolve_path_chain_query(
             FolderChain::CreatedByUserId,
             FolderChain::CreatedByUsername,
             FolderChain::PolicyId,
+            FolderChain::IconKind,
+            FolderChain::IconValue,
             FolderChain::CreatedAt,
             FolderChain::UpdatedAt,
             FolderChain::DeletedAt,
@@ -480,6 +512,8 @@ fn build_resolve_path_chain_query(
         .column((FolderChain::Table, FolderChain::CreatedByUserId))
         .column((FolderChain::Table, FolderChain::CreatedByUsername))
         .column((FolderChain::Table, FolderChain::PolicyId))
+        .column((FolderChain::Table, FolderChain::IconKind))
+        .column((FolderChain::Table, FolderChain::IconValue))
         .column((FolderChain::Table, FolderChain::CreatedAt))
         .column((FolderChain::Table, FolderChain::UpdatedAt))
         .column((FolderChain::Table, FolderChain::DeletedAt))

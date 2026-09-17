@@ -11,6 +11,7 @@ mod access;
 mod cache;
 mod copy;
 mod hierarchy;
+mod icon;
 mod listing;
 mod models;
 mod mutation;
@@ -31,6 +32,7 @@ use serde_json::json;
 pub use access::verify_folder_access;
 pub use copy::copy_folder;
 pub use hierarchy::{build_folder_paths, build_folder_paths_cached, get_ancestors};
+pub use icon::{FolderBuiltinIcon, FolderIcon};
 pub use listing::{FolderListParams, list, list_shared};
 pub use models::{
     FileCursor, FileListItem, FolderAncestorItem, FolderContents, FolderListItem,
@@ -61,7 +63,7 @@ pub(crate) use listing::list_in_scope;
 pub(crate) use mutation::{
     FolderTreeDeletion, admin_set_policy, apply_locked_tree_deletion_on, create_in_scope,
     delete_in_scope, get_info_in_scope, get_info_with_storage_used_in_scope,
-    lock_tree_for_deletion_on, set_lock_in_scope, update_in_scope,
+    lock_tree_for_deletion_on, set_icon_in_scope, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
     FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits, REST_FOLDER_TREE_LIMITS,
@@ -286,6 +288,62 @@ pub(crate) async fn set_lock_in_scope_with_audit(
             folder_id,
         )),
     )
+}
+
+pub(crate) async fn set_icon_in_scope_with_audit(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    icon: FolderIcon,
+    audit_ctx: &AuditContext,
+) -> Result<FolderInfo> {
+    let previous = get_info_in_scope(state, scope, folder_id).await?;
+    let previous_icon = FolderIcon::from_model(&previous);
+    let folder = set_icon_in_scope(state, scope, folder_id, icon).await?;
+    let next_icon = FolderIcon::from_model(&folder);
+    audit::log_with_details(
+        state,
+        audit_ctx,
+        audit::AuditAction::FolderIconChange,
+        crate::services::ops::audit::AuditEntityType::Folder,
+        Some(folder.id),
+        Some(&folder.name),
+        || Some(folder_icon_audit_details(&previous_icon, &next_icon)),
+    )
+    .await;
+    let lock_states = crate::services::files::lock::load_for_scope(
+        state,
+        scope.into(),
+        &[],
+        std::slice::from_ref(&folder),
+    )
+    .await?;
+    Ok(
+        FolderInfo::from(folder).with_lock_state(crate::services::files::lock::state_for(
+            &lock_states,
+            aster_drive_model::types::EntityType::Folder,
+            folder_id,
+        )),
+    )
+}
+
+fn folder_icon_audit_details(previous: &FolderIcon, next: &FolderIcon) -> serde_json::Value {
+    fn fields(icon: &FolderIcon) -> (&'static str, Option<&str>) {
+        match icon {
+            FolderIcon::Default {} => ("default", None),
+            FolderIcon::Builtin { key } => ("builtin", Some(key.as_str())),
+            FolderIcon::Emoji { .. } => ("emoji", None),
+        }
+    }
+
+    let (previous_kind, previous_key) = fields(previous);
+    let (kind, key) = fields(next);
+    json!({
+        "previous_kind": previous_kind,
+        "previous_key": previous_key,
+        "kind": kind,
+        "key": key,
+    })
 }
 
 pub(crate) async fn copy_folder_in_scope_with_audit(

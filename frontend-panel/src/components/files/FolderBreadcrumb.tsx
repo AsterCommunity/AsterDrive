@@ -1,5 +1,6 @@
 import { type DragEvent, Fragment } from "react";
 import { useTranslation } from "react-i18next";
+import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
 import {
 	Breadcrumb,
 	BreadcrumbEllipsis,
@@ -15,11 +16,12 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Icon } from "@/components/ui/icon";
+import type { FolderIcon } from "@/types/api";
 
 export interface FolderBreadcrumbItem {
 	id: number | null;
 	name: string;
+	icon?: FolderIcon;
 }
 
 type VisibleBreadcrumbEntry =
@@ -137,9 +139,9 @@ export function FolderBreadcrumb({
 													onNavigate(hiddenItem.id, hiddenItem.name)
 												}
 											>
-												<Icon
-													name="FolderOpen"
-													className="size-4 text-muted-foreground"
+												<FolderIconRenderer
+													icon={hiddenItem.icon}
+													className="size-4 text-base"
 												/>
 												<span className="truncate">{hiddenItem.name}</span>
 											</DropdownMenuItem>
