@@ -226,7 +226,7 @@ dotenvy = "0.15"
 encoding_rs = "0.8"
 oem_cp = "2"
 futures = { workspace = true }
-fs2 = "0.4"
+aster-fs = { git = "https://github.com/AsterCommunity/AsterFs", rev = "913ed30598119c184f49f18e5b339fc98869fff2", default-features = false, features = ["sync"] }
 hex = { workspace = true }
 hmac = "0.13"
 http = "1"

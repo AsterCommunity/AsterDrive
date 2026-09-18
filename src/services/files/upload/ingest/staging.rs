@@ -234,7 +234,7 @@ async fn available_space(root: &StdPath) -> Result<u64> {
         let mut probe = root.as_path();
         loop {
             match std::fs::metadata(probe) {
-                Ok(_) => return fs2::available_space(probe),
+                Ok(_) => return aster_fs::available_space(probe),
                 Err(error) if error.kind() == ErrorKind::NotFound => {
                     probe = probe.parent().ok_or_else(|| {
                         std::io::Error::new(
@@ -402,13 +402,13 @@ async fn physically_allocate(
                 format!("create chunk staging file: {error}"),
             )
         })?;
-        let allocated_size = fs2::FileExt::allocated_size(&file).map_err(|error| {
+        let allocated_size = aster_fs::FileExt::allocated_size(&file).map_err(|error| {
             chunk_upload_error_with_code(
                 ApiErrorCode::UploadTempFileWriteFailed,
                 format!("inspect chunk staging allocation: {error}"),
             )
         })?;
-        let available_bytes = fs2::available_space(&root).map_err(|error| {
+        let available_bytes = aster_fs::available_space(&root).map_err(|error| {
             chunk_upload_error_with_code(
                 ApiErrorCode::UploadTempFileWriteFailed,
                 format!("inspect upload staging capacity: {error}"),
@@ -423,8 +423,8 @@ async fn physically_allocate(
         let PhysicalAllocation::Allocated { .. } = assessment else {
             return Ok(assessment);
         };
-        if let Err(error) = fs2::FileExt::allocate(&file, total_size) {
-            let available_after_error = fs2::available_space(&root).unwrap_or(available_bytes);
+        if let Err(error) = aster_fs::FileExt::allocate(&file, total_size) {
+            let available_after_error = aster_fs::available_space(&root).unwrap_or(available_bytes);
             if error.kind() == ErrorKind::StorageFull
                 || matches!(
                     assess_physical_allocation(
@@ -447,7 +447,7 @@ async fn physically_allocate(
                 format!("physically allocate chunk staging file: {error}"),
             ));
         }
-        let reserved_size = fs2::FileExt::allocated_size(&file).map_err(|error| {
+        let reserved_size = aster_fs::FileExt::allocated_size(&file).map_err(|error| {
             chunk_upload_error_with_code(
                 ApiErrorCode::UploadTempFileWriteFailed,
                 format!("verify chunk staging allocation: {error}"),
@@ -462,7 +462,7 @@ async fn physically_allocate(
         if let PhysicalAllocation::Allocated { additional_bytes } = assessment
             && additional_bytes > 0
         {
-            let available_after_allocation = fs2::available_space(&root).map_err(|error| {
+            let available_after_allocation = aster_fs::available_space(&root).map_err(|error| {
                 chunk_upload_error_with_code(
                     ApiErrorCode::UploadTempFileWriteFailed,
                     format!("verify upload staging safety floor: {error}"),
@@ -578,7 +578,7 @@ pub(crate) async fn open_for_chunk_write(
 #[cfg(test)]
 mod tests {
     use super::{PhysicalAllocation, assess_physical_allocation, physically_allocate};
-    use fs2::FileExt;
+    use aster_fs::FileExt;
 
     #[test]
     fn physical_allocation_assessment_preserves_floor_and_accepts_exact_fit() {

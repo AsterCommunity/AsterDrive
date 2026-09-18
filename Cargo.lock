@@ -738,6 +738,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aster-fs"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterFs?rev=913ed30598119c184f49f18e5b339fc98869fff2#913ed30598119c184f49f18e5b339fc98869fff2"
+dependencies = [
+ "libc",
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "aster_drive"
 version = "0.6.1"
 dependencies = [
@@ -747,6 +757,7 @@ dependencies = [
  "actix-web",
  "actix-ws",
  "aes-gcm 0.11.1",
+ "aster-fs",
  "aster_drive_metrics",
  "aster_drive_migration",
  "aster_drive_model",
@@ -799,7 +810,6 @@ dependencies = [
  "data-encoding",
  "dotenvy",
  "encoding_rs",
- "fs2",
  "futures",
  "governor",
  "hex",

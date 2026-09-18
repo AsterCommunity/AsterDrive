@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Apple 文件系统上的上传暂存预留** — 服务端 staged upload 改用固定 revision 的 `aster-fs` allocation 契约。新 APFS reservation 采用 all-or-nothing 语义，并在扩展逻辑 EOF 前校验内核返回的实际分配字节数；已有 sparse session 按真实 hole 恢复物理块，不改变已存数据，也不会把不完整恢复误报为成功。新 staging 空间不足时返回现有稳定 507 错误，且不留下部分 session reservation。
+
 ## [v0.6.1] - 2026-09-16
 
 ### Breaking

@@ -135,9 +135,9 @@ impl StorageDriver for LocalDriver {
         let base_path = self.base_path.clone();
         tokio::task::spawn_blocking(move || {
             let probe_path = nearest_existing_capacity_path(&base_path)?;
-            let total = fs2::total_space(&probe_path)
+            let total = aster_fs::total_space(&probe_path)
                 .map_storage_err_ctx(StorageErrorKind::Transient, "local capacity total_space")?;
-            let available = fs2::available_space(&probe_path).map_storage_err_ctx(
+            let available = aster_fs::available_space(&probe_path).map_storage_err_ctx(
                 StorageErrorKind::Transient,
                 "local capacity available_space",
             )?;
