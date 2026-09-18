@@ -70,7 +70,7 @@ fn relay_multipart_fields(session: &upload_session::Model) -> Result<(&str, &str
 
 impl Drop for LocalChunkWriteLock {
     fn drop(&mut self) {
-        if let Err(error) = fs2::FileExt::unlock(&self.file) {
+        if let Err(error) = aster_fs::FileExt::unlock(&self.file) {
             tracing::warn!("failed to unlock local chunk write lock: {error}");
         }
     }
@@ -96,7 +96,7 @@ async fn acquire_local_chunk_write_lock(
                     format!("open chunk write lock for upload {upload_id}: {error}"),
                 )
             })?;
-        fs2::FileExt::lock_exclusive(&file).map_err(|error| {
+        aster_fs::FileExt::lock(&file).map_err(|error| {
             chunk_upload_error_with_code(
                 ApiErrorCode::UploadChunkPersistFailed,
                 format!("lock chunk write for upload {upload_id}: {error}"),

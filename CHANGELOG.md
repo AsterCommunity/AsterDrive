@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Upload staging reservation on Apple filesystems** — Server-managed staged uploads now use the revision-pinned `aster-fs` allocation contract. New APFS reservations are all-or-nothing and validate the kernel-reported byte count before extending logical EOF; existing sparse sessions recover their actual holes without changing stored data or falsely reporting success. Insufficient new staging capacity returns the existing stable 507 error without leaving a partial session reservation.
+
 ## [v0.6.1] - 2026-09-16
 
 ### Breaking

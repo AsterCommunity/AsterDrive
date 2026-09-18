@@ -4920,7 +4920,7 @@ async fn test_chunked_init_persists_explicit_offset_staging_kind() {
     );
     let staging_file = std::fs::File::open(&staging_path).unwrap();
     assert!(
-        fs2::FileExt::allocated_size(&staging_file).unwrap() >= 10 * 1024 * 1024,
+        aster_fs::FileExt::allocated_size(&staging_file).unwrap() >= 10 * 1024 * 1024,
         "successful staged init must reserve physical blocks, not only sparse length"
     );
     drop(staging_file);
@@ -4930,6 +4930,53 @@ async fn test_chunked_init_persists_explicit_offset_staging_kind() {
     assert!(
         !tokio::fs::try_exists(staging_path).await.unwrap(),
         "cancel must release the physical staging reservation"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn macos_chunked_init_reserves_large_apfs_staging_file() {
+    use aster_drive::services::files::upload;
+    use aster_drive_model::types::UploadTransport;
+
+    const STAGING_BYTES: i64 = 128 * 1024 * 1024;
+
+    let state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "apfsstage", "apfs-staging@test.com", "password123")
+            .await
+            .unwrap();
+
+    let response = upload::init_upload(
+        &state,
+        user.id,
+        "apfs-staging.bin",
+        STAGING_BYTES,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.mode, UploadTransport::Chunked);
+    let upload_id = response.upload_id.as_deref().unwrap();
+    let staging_path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        upload_id,
+    );
+    let staging_file = std::fs::File::open(&staging_path).unwrap();
+    assert_eq!(staging_file.metadata().unwrap().len(), STAGING_BYTES as u64);
+    assert!(
+        aster_fs::FileExt::allocated_size(&staging_file).unwrap() >= STAGING_BYTES as u64,
+        "successful APFS staged init must reserve the complete declared size"
+    );
+    drop(staging_file);
+
+    upload::cancel_upload(&state, upload_id, user.id)
+        .await
+        .unwrap();
+    assert!(
+        !tokio::fs::try_exists(staging_path).await.unwrap(),
+        "cancel must release the large APFS staging reservation"
     );
 }
 
@@ -5051,7 +5098,7 @@ async fn resumed_staged_chunk_recovers_physical_reservation_for_active_sparse_se
 
     let old_file = std::fs::File::open(old_path).unwrap();
     assert!(
-        fs2::FileExt::allocated_size(&old_file).unwrap() >= 10,
+        aster_fs::FileExt::allocated_size(&old_file).unwrap() >= 10,
         "active sparse session must regain physical allocation after runtime restart"
     );
 }
@@ -5093,7 +5140,7 @@ async fn resumed_staged_chunk_recreates_unstarted_reservation_after_init_crash()
         &upload_id,
     );
     let file = std::fs::File::open(&path).unwrap();
-    assert!(fs2::FileExt::allocated_size(&file).unwrap() >= 10);
+    assert!(aster_fs::FileExt::allocated_size(&file).unwrap() >= 10);
     assert_eq!(&std::fs::read(path).unwrap()[..5], b"12345");
 }
 
@@ -5145,7 +5192,7 @@ async fn staged_completion_is_not_blocked_by_another_unrecoverable_reservation()
         let mut file = std::fs::File::create(path).unwrap();
         file.set_len(10).unwrap();
         if upload_id == &current_id {
-            fs2::FileExt::allocate(&file, 10).unwrap();
+            aster_fs::FileExt::allocate(&file, 10).unwrap();
             std::io::Write::write_all(&mut file, b"1234567890").unwrap();
         }
     }
@@ -5183,7 +5230,7 @@ async fn staged_completion_recovers_current_sparse_physical_reservation() {
     use aster_drive::services::files::upload;
     use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
-    const SIZE: i64 = 1024 * 1024;
+    const SIZE: i64 = 128 * 1024 * 1024;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -5211,7 +5258,7 @@ async fn staged_completion_recovers_current_sparse_physical_reservation() {
     let path = create_sparse_staging_file(&state, &upload_id, SIZE as u64, b"valid-prefix").await;
     let before = std::fs::File::open(&path).unwrap();
     assert!(
-        fs2::FileExt::allocated_size(&before).unwrap() < SIZE as u64,
+        aster_fs::FileExt::allocated_size(&before).unwrap() < SIZE as u64,
         "fixture must begin as a partially allocated sparse file"
     );
     drop(before);
@@ -5242,7 +5289,7 @@ async fn staged_completion_capacity_failure_marks_current_session_failed() {
     use aster_drive::services::files::upload;
     use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
-    const SIZE: i64 = 1024 * 1024;
+    const SIZE: i64 = 128 * 1024 * 1024;
 
     let base_state = common::setup().await;
     let mut config = (*base_state.config).clone();
@@ -5358,7 +5405,7 @@ async fn failed_global_recovery_is_retried_before_a_staged_chunk_write() {
         .write(true)
         .open(request_path)
         .unwrap();
-    fs2::FileExt::allocate(&request_file, SIZE as u64).unwrap();
+    aster_fs::FileExt::allocate(&request_file, SIZE as u64).unwrap();
     drop(request_file);
     let chunk = vec![7_u8; usize::try_from(SIZE).unwrap()];
 
@@ -5472,7 +5519,7 @@ async fn concurrent_staged_init_creates_independent_physical_reservations() {
             response.upload_id.as_deref().unwrap(),
         );
         let file = std::fs::File::open(path).unwrap();
-        assert!(fs2::FileExt::allocated_size(&file).unwrap() >= 10 * 1024 * 1024);
+        assert!(aster_fs::FileExt::allocated_size(&file).unwrap() >= 10 * 1024 * 1024);
         drop(file);
         upload::cancel_upload(
             state.as_ref(),
@@ -5519,7 +5566,7 @@ async fn sftp_stream_staging_uses_the_same_physical_reservation_contract() {
         &session.id,
     );
     let file = std::fs::File::open(path).unwrap();
-    assert!(fs2::FileExt::allocated_size(&file).unwrap() >= 10 * 1024 * 1024);
+    assert!(aster_fs::FileExt::allocated_size(&file).unwrap() >= 10 * 1024 * 1024);
     drop(file);
     upload::cancel_upload(&state, &session.id, user.id)
         .await
