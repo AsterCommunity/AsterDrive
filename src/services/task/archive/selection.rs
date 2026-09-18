@@ -989,7 +989,13 @@ mod tests {
 
     impl Drop for TempArchiveFile {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
+            if let Err(error) = std::fs::remove_file(&self.0) {
+                tracing::warn!(
+                    path = %self.0.display(),
+                    error = %error,
+                    "failed to remove archive stream test file"
+                );
+            }
         }
     }
 

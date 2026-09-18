@@ -334,7 +334,11 @@ fn archive_file_options(file: &ArchiveFileEntry) -> Result<zip::write::SimpleFil
     } else {
         options.compression_method(zip::CompressionMethod::Deflated)
     };
-    Ok(options.large_file(size > zip::ZIP64_BYTES_THR))
+    Ok(options.large_file(archive_entry_requires_zip64(size)))
+}
+
+fn archive_entry_requires_zip64(size: u64) -> bool {
+    size > zip::ZIP64_BYTES_THR
 }
 
 fn archive_entry_file_name(entry_path: &str) -> &str {
@@ -506,9 +510,15 @@ mod tests {
     use aster_forge_tasks::{TaskExecutionContext, TaskLease};
 
     use super::{
-        copy_reader_to_writer_with_execution,
+        archive_entry_requires_zip64, copy_reader_to_writer_with_execution,
         copy_reader_to_writer_with_execution_and_expected_size, is_client_disconnect_error_text,
     };
+
+    #[test]
+    fn archive_entry_zip64_threshold_is_exclusive() {
+        assert!(!archive_entry_requires_zip64(zip::ZIP64_BYTES_THR));
+        assert!(archive_entry_requires_zip64(zip::ZIP64_BYTES_THR + 1));
+    }
 
     #[test]
     fn client_disconnect_errors_are_classified_case_insensitively() {
