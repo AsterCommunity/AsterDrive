@@ -2,11 +2,13 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    io::{self, Write},
     path::{Component, Path},
 };
 
 use actix_web::HttpResponse;
 use chrono::Utc;
+use futures::{Stream, StreamExt};
 
 use super::common::{
     ArchiveEntry, ArchiveFileEntry, ArchiveSinkContext, ends_with_ignore_ascii_case,
@@ -28,6 +30,8 @@ use aster_drive_model::entities::{file, folder, share};
 use aster_forge_utils::numbers::u64_to_usize;
 
 const ARCHIVE_FOLDER_TREE_MAXIMUM_DEPTH: usize = 128;
+const ARCHIVE_DOWNLOAD_PIPE_CAPACITY: usize = 64 * 1024;
+const ARCHIVE_DOWNLOAD_CHUNK_SIZE: usize = 64 * 1024;
 
 pub(crate) struct PreparedArchiveDownload {
     pub file_ids: Vec<i64>,
@@ -133,17 +137,16 @@ pub(crate) async fn stream_archive_download_in_scope(
             .await?;
     let total_bytes = collected.total_source_bytes();
 
-    let (reader, writer) = tokio::io::duplex(64 * 1024);
     let handle = tokio::runtime::Handle::current();
     let db = state.writer_db().clone();
     let driver_registry = state.driver_registry().clone();
     let policy_snapshot = state.policy_snapshot().clone();
     let archive_name_for_worker = archive_name.clone();
 
-    drop(tokio::task::spawn_blocking(move || {
+    let body = archive_download_body(archive_name.clone(), move |writer| {
         let writer = tokio_util::io::SyncIoBridge::new(writer);
         let writer = std::io::BufWriter::new(writer);
-        if let Err(error) = write_archive_to_sink(
+        let result = write_archive_to_sink(
             ArchiveSinkContext {
                 handle: &handle,
                 db: &db,
@@ -156,7 +159,9 @@ pub(crate) async fn stream_archive_download_in_scope(
             limits,
             writer,
             |_, _| Ok(()),
-        ) {
+        )
+        .and_then(|(writer, _)| flush_archive_download_sink(writer, "archive download"));
+        if let Err(error) = &result {
             let error_text = error.to_string();
             if is_client_disconnect_error_text(&error_text) {
                 tracing::info!(
@@ -171,9 +176,8 @@ pub(crate) async fn stream_archive_download_in_scope(
                 );
             }
         }
-    }));
-
-    let reader_stream = tokio_util::io::ReaderStream::with_capacity(reader, 64 * 1024);
+        result
+    });
 
     Ok(HttpResponse::Ok()
         .content_type("application/zip")
@@ -182,7 +186,7 @@ pub(crate) async fn stream_archive_download_in_scope(
             DownloadDisposition::Attachment.header_value(&archive_name),
         ))
         .insert_header(("Content-Encoding", "identity"))
-        .streaming(reader_stream))
+        .streaming(body))
 }
 
 pub(crate) async fn stream_shared_archive_download(
@@ -210,7 +214,6 @@ pub(crate) async fn stream_shared_archive_download(
     };
     let total_bytes = collected.total_source_bytes();
 
-    let (reader, writer) = tokio::io::duplex(64 * 1024);
     let handle = tokio::runtime::Handle::current();
     let db = state.writer_db().clone();
     let driver_registry = state.driver_registry().clone();
@@ -219,10 +222,10 @@ pub(crate) async fn stream_shared_archive_download(
     let share_id = resolved.share.id;
     let archive_name_for_worker = archive_name.clone();
 
-    drop(tokio::task::spawn_blocking(move || {
+    let body = archive_download_body(archive_name.clone(), move |writer| {
         let writer = tokio_util::io::SyncIoBridge::new(writer);
         let writer = std::io::BufWriter::new(writer);
-        if let Err(error) = write_archive_to_sink(
+        let result = write_archive_to_sink(
             ArchiveSinkContext {
                 handle: &handle,
                 db: &db,
@@ -235,7 +238,9 @@ pub(crate) async fn stream_shared_archive_download(
             limits,
             writer,
             |_, _| Ok(()),
-        ) {
+        )
+        .and_then(|(writer, _)| flush_archive_download_sink(writer, "shared archive download"));
+        if let Err(error) = &result {
             let error_text = error.to_string();
             rollback_queue.enqueue(share_id);
             if is_client_disconnect_error_text(&error_text) {
@@ -253,9 +258,8 @@ pub(crate) async fn stream_shared_archive_download(
                 );
             }
         }
-    }));
-
-    let reader_stream = tokio_util::io::ReaderStream::with_capacity(reader, 64 * 1024);
+        result
+    });
 
     Ok(HttpResponse::Ok()
         .content_type("application/zip")
@@ -264,7 +268,51 @@ pub(crate) async fn stream_shared_archive_download(
             DownloadDisposition::Attachment.header_value(&archive_name),
         ))
         .insert_header(("Content-Encoding", "identity"))
-        .streaming(reader_stream))
+        .streaming(body))
+}
+
+// `ZipWriter::finish` 只把中央目录写进传入的 writer；若外层是 `BufWriter`，
+// 这里必须显式冲刷并保留错误，不能交给忽略错误的析构路径。
+fn flush_archive_download_sink<W: Write>(mut writer: W, context: &str) -> Result<()> {
+    writer.flush().map_err(|error| {
+        AsterError::storage_driver_error(format!("flush completed {context} stream: {error}"))
+    })
+}
+
+fn archive_download_body<F>(
+    archive_name: String,
+    worker: F,
+) -> impl Stream<Item = io::Result<bytes::Bytes>>
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Result<()> + Send + 'static,
+{
+    let (reader, writer) = tokio::io::duplex(ARCHIVE_DOWNLOAD_PIPE_CAPACITY);
+    let worker = tokio::task::spawn_blocking(move || worker(writer));
+    let mut reader =
+        tokio_util::io::ReaderStream::with_capacity(reader, ARCHIVE_DOWNLOAD_CHUNK_SIZE);
+
+    async_stream::try_stream! {
+        // 先持续消费有界 pipe 以维持背压；pipe EOF 之后仍需观察 worker 结果，
+        // 只有 worker 成功完成才把这次响应呈现为 clean EOF。
+        while let Some(chunk) = reader.next().await {
+            yield chunk?;
+        }
+
+        match worker.await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => Err(io::Error::other(error.to_string()))?,
+            Err(error) => {
+                tracing::error!(
+                    archive_name = %archive_name,
+                    error = %error,
+                    "archive download worker terminated before clean completion"
+                );
+                Err(io::Error::other(format!(
+                    "archive download worker terminated before clean completion: {error}"
+                )))?;
+            }
+        }
+    }
 }
 
 pub(crate) async fn prepare_shared_archive_download(
@@ -909,10 +957,94 @@ fn default_archive_name(selection: &batch::NormalizedSelection) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ArchiveBuildLimits, archive_directory_entry_path, archive_relative_dir,
-        normalize_archive_zip_name,
+    use std::io::{Read, Write};
+    use std::path::PathBuf;
+
+    use futures::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    use crate::errors::AsterError;
+    use crate::services::task::archive::common::{
+        ArchiveEntry, ArchiveFileEntry, write_archive_entries_to_sink,
     };
+
+    use super::{
+        ArchiveBuildLimits, archive_directory_entry_path, archive_download_body,
+        archive_relative_dir, flush_archive_download_sink, normalize_archive_zip_name,
+    };
+
+    const LARGE_STORED_ENTRY_BYTES: u64 = 512 * 1024 * 1024 + 1;
+    const DEFLATED_ENTRY_BYTES: u64 = 2 * 1024 * 1024;
+
+    struct TempArchiveFile(PathBuf);
+
+    impl TempArchiveFile {
+        fn new() -> Self {
+            Self(std::env::temp_dir().join(format!(
+                "aster-drive-archive-stream-{}.zip",
+                uuid::Uuid::new_v4()
+            )))
+        }
+    }
+
+    impl Drop for TempArchiveFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn write_synthetic_archive(
+        writer: tokio::io::DuplexStream,
+        stored_bytes: u64,
+        deflated_bytes: u64,
+    ) -> crate::errors::Result<()> {
+        let stored_size = i64::try_from(stored_bytes).expect("stored test size should fit i64");
+        let deflated_size =
+            i64::try_from(deflated_bytes).expect("deflated test size should fit i64");
+        let total_bytes = stored_size + deflated_size;
+        let entries = vec![
+            ArchiveEntry::File {
+                file: ArchiveFileEntry {
+                    blob_id: 1,
+                    size: stored_size,
+                    store_without_deflate: true,
+                },
+                entry_path: "stored.bin".to_string(),
+            },
+            ArchiveEntry::File {
+                file: ArchiveFileEntry {
+                    blob_id: 2,
+                    size: deflated_size,
+                    store_without_deflate: false,
+                },
+                entry_path: "deflated.txt".to_string(),
+            },
+        ];
+        let limits = ArchiveBuildLimits {
+            max_entries: 2,
+            max_total_source_bytes: total_bytes,
+            max_temp_bytes: total_bytes + 1024 * 1024,
+        };
+        let writer = tokio_util::io::SyncIoBridge::new(writer);
+        let writer = std::io::BufWriter::new(writer);
+        let (writer, processed) = write_archive_entries_to_sink(
+            entries,
+            total_bytes,
+            limits,
+            writer,
+            |_, _| Ok(()),
+            |file| {
+                let byte = if file.blob_id == 1 { 0xA5 } else { b'z' };
+                let size = u64::try_from(file.size).map_err(|_| {
+                    AsterError::internal_error("synthetic archive entry size must be non-negative")
+                })?;
+                Ok(Box::new(std::io::repeat(byte).take(size)))
+            },
+            None,
+        )?;
+        assert_eq!(processed, total_bytes);
+        flush_archive_download_sink(writer, "synthetic archive download")
+    }
 
     #[test]
     fn archive_folder_traversal_uses_remaining_entry_budget() {
@@ -992,5 +1124,166 @@ mod tests {
             aster_forge_validation::filename::MAX_FILENAME_LEN
         );
         aster_forge_validation::filename::validate_name(&name).unwrap();
+    }
+
+    #[tokio::test]
+    async fn archive_download_stream_finalizes_zip_larger_than_512_mib_with_bounded_buffers() {
+        let temp = TempArchiveFile::new();
+        let mut file = tokio::fs::File::create(&temp.0)
+            .await
+            .expect("large archive temp file should be created");
+        let mut body = Box::pin(archive_download_body(
+            "large-regression.zip".to_string(),
+            move |writer| {
+                write_synthetic_archive(writer, LARGE_STORED_ENTRY_BYTES, DEFLATED_ENTRY_BYTES)
+            },
+        ));
+
+        while let Some(chunk) = body.next().await {
+            file.write_all(&chunk.expect("archive body chunk should stream cleanly"))
+                .await
+                .expect("archive body chunk should be persisted");
+        }
+        file.flush()
+            .await
+            .expect("large archive temp file should flush");
+        drop(file);
+
+        let archive_size = std::fs::metadata(&temp.0)
+            .expect("large archive metadata should load")
+            .len();
+        assert!(
+            archive_size > 512 * 1024 * 1024,
+            "regression archive must cross the reported failure boundary"
+        );
+
+        let path = temp.0.clone();
+        tokio::task::spawn_blocking(move || {
+            let file = std::fs::File::open(path).expect("large archive should reopen");
+            let mut archive =
+                zip::ZipArchive::new(file).expect("large archive central directory should parse");
+            assert_eq!(archive.len(), 2);
+
+            {
+                let mut stored = archive
+                    .by_name("stored.bin")
+                    .expect("stored entry should be indexed");
+                assert_eq!(stored.size(), LARGE_STORED_ENTRY_BYTES);
+                assert_eq!(stored.compression(), zip::CompressionMethod::Stored);
+                let mut prefix = [0_u8; 1];
+                stored
+                    .read_exact(&mut prefix)
+                    .expect("stored entry should be readable");
+                assert_eq!(prefix, [0xA5]);
+            }
+            {
+                let mut deflated = archive
+                    .by_name("deflated.txt")
+                    .expect("deflated entry should be indexed");
+                assert_eq!(deflated.size(), DEFLATED_ENTRY_BYTES);
+                assert_eq!(deflated.compression(), zip::CompressionMethod::Deflated);
+                let mut content = Vec::new();
+                deflated
+                    .read_to_end(&mut content)
+                    .expect("deflated entry should pass decompression and CRC validation");
+                assert_eq!(content.len() as u64, DEFLATED_ENTRY_BYTES);
+                assert!(content.iter().all(|byte| *byte == b'z'));
+            }
+        })
+        .await
+        .expect("large archive validation worker should finish");
+    }
+
+    #[tokio::test]
+    async fn archive_download_stream_surfaces_worker_error_after_partial_body() {
+        let mut body = Box::pin(archive_download_body(
+            "worker-error.zip".to_string(),
+            |writer| {
+                let mut writer = tokio_util::io::SyncIoBridge::new(writer);
+                writer
+                    .write_all(b"partial archive bytes")
+                    .expect("partial bytes should enter the stream");
+                writer.flush().expect("partial bytes should flush");
+                Err(AsterError::storage_driver_error(
+                    "synthetic archive finalization failure",
+                ))
+            },
+        ));
+
+        assert_eq!(
+            body.next()
+                .await
+                .expect("partial chunk should exist")
+                .expect("partial chunk should be readable"),
+            bytes::Bytes::from_static(b"partial archive bytes")
+        );
+        let error = body
+            .next()
+            .await
+            .expect("worker failure should be emitted")
+            .expect_err("worker failure must not be presented as clean EOF");
+        assert!(
+            error
+                .to_string()
+                .contains("synthetic archive finalization failure")
+        );
+        assert!(body.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn archive_download_stream_surfaces_worker_panic() {
+        let mut body = Box::pin(archive_download_body(
+            "worker-panic.zip".to_string(),
+            |_writer| -> crate::errors::Result<()> {
+                panic!("synthetic archive worker panic");
+            },
+        ));
+
+        let error = body
+            .next()
+            .await
+            .expect("worker panic should be emitted")
+            .expect_err("worker panic must not be presented as clean EOF");
+        assert!(
+            error
+                .to_string()
+                .contains("archive download worker terminated before clean completion")
+        );
+        assert!(body.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_archive_download_body_unblocks_backpressured_worker() {
+        let (disconnect_tx, disconnect_rx) = tokio::sync::oneshot::channel();
+        let mut body = Box::pin(archive_download_body(
+            "client-disconnect.zip".to_string(),
+            move |writer| {
+                let mut writer = tokio_util::io::SyncIoBridge::new(writer);
+                let chunk = [0_u8; 64 * 1024];
+                loop {
+                    if let Err(error) = writer.write_all(&chunk) {
+                        let kind = error.kind();
+                        let _ = disconnect_tx.send(kind);
+                        return Err(AsterError::storage_driver_error(format!(
+                            "archive client disconnected: {error}"
+                        )));
+                    }
+                }
+            },
+        ));
+
+        let first = body
+            .next()
+            .await
+            .expect("worker should produce a chunk before disconnect")
+            .expect("first chunk should be readable");
+        assert_eq!(first.len(), 64 * 1024);
+        drop(body);
+
+        let kind = tokio::time::timeout(std::time::Duration::from_secs(2), disconnect_rx)
+            .await
+            .expect("backpressured worker should observe disconnect promptly")
+            .expect("disconnect observation should be reported");
+        assert_eq!(kind, std::io::ErrorKind::BrokenPipe);
     }
 }
