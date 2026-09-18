@@ -214,11 +214,57 @@ pub(super) fn write_archive_to_sink<W, F>(
     total_bytes: i64,
     limits: ArchiveBuildLimits,
     output: W,
-    mut on_progress: F,
+    on_progress: F,
 ) -> Result<(W, i64)>
 where
     W: Write,
     F: FnMut(i64, &str) -> Result<()>,
+{
+    write_archive_entries_to_sink(
+        entries,
+        total_bytes,
+        limits,
+        output,
+        on_progress,
+        |file| {
+            let stream = ctx.handle.block_on(async {
+                let blob = file_repo::find_blob_by_id(ctx.db, file.blob_id).await?;
+                if blob.is_virtual_empty() {
+                    return Ok(Box::new(tokio::io::empty())
+                        as Box<dyn tokio::io::AsyncRead + Unpin + Send>);
+                }
+                let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
+                    AsterError::internal_error(format!(
+                        "stored blob #{} is missing storage_path",
+                        blob.id
+                    ))
+                })?;
+                let policy = ctx.policy_snapshot.get_policy_or_err(blob.policy_id)?;
+                let driver = ctx.driver_registry.get_driver(&policy)?;
+                Ok::<Box<dyn tokio::io::AsyncRead + Unpin + Send>, AsterError>(
+                    driver.get_stream(storage_path).await?,
+                )
+            })?;
+
+            Ok(Box::new(tokio_util::io::SyncIoBridge::new(stream)) as Box<dyn Read>)
+        },
+        ctx.execution,
+    )
+}
+
+pub(super) fn write_archive_entries_to_sink<W, F, O>(
+    entries: Vec<ArchiveEntry>,
+    total_bytes: i64,
+    limits: ArchiveBuildLimits,
+    output: W,
+    mut on_progress: F,
+    mut open_reader: O,
+    execution: Option<&TaskExecutionContext>,
+) -> Result<(W, i64)>
+where
+    W: Write,
+    F: FnMut(i64, &str) -> Result<()>,
+    O: FnMut(&ArchiveFileEntry) -> Result<Box<dyn Read>>,
 {
     let mut zip = zip::ZipWriter::new_stream(output);
     let dir_options =
@@ -227,7 +273,7 @@ where
     let mut written_bytes = 0_i64;
 
     for entry in entries {
-        ensure_task_execution_active(ctx.execution)?;
+        ensure_task_execution_active(execution)?;
         match entry {
             ArchiveEntry::Directory { entry_path } => {
                 written_bytes = checked_archive_output_progress(written_bytes, 256, limits)?;
@@ -236,32 +282,12 @@ where
             }
             ArchiveEntry::File { file, entry_path } => {
                 written_bytes = checked_archive_output_progress(written_bytes, file.size, limits)?;
-                let file_options = archive_file_options(file.store_without_deflate);
+                let file_options = archive_file_options(&file)?;
                 zip.start_file(&entry_path, file_options)
                     .map_aster_err(AsterError::storage_driver_error)?;
-
-                let stream = ctx.handle.block_on(async {
-                    let blob = file_repo::find_blob_by_id(ctx.db, file.blob_id).await?;
-                    if blob.is_virtual_empty() {
-                        return Ok(Box::new(tokio::io::empty())
-                            as Box<dyn tokio::io::AsyncRead + Unpin + Send>);
-                    }
-                    let storage_path = blob.storage_path_for_connector().ok_or_else(|| {
-                        AsterError::internal_error(format!(
-                            "stored blob #{} is missing storage_path",
-                            blob.id
-                        ))
-                    })?;
-                    let policy = ctx.policy_snapshot.get_policy_or_err(blob.policy_id)?;
-                    let driver = ctx.driver_registry.get_driver(&policy)?;
-                    Ok::<Box<dyn tokio::io::AsyncRead + Unpin + Send>, AsterError>(
-                        driver.get_stream(storage_path).await?,
-                    )
-                })?;
-
-                let mut reader = tokio_util::io::SyncIoBridge::new(stream);
+                let mut reader = open_reader(&file)?;
                 let copied =
-                    copy_reader_to_writer_with_execution(ctx.execution, &mut reader, &mut zip)?;
+                    copy_reader_to_writer_with_execution(execution, &mut reader, &mut zip)?;
                 processed_bytes = processed_bytes
                     .checked_add(i64::try_from(copied).map_err(|_| {
                         AsterError::internal_error(format!(
@@ -299,13 +325,20 @@ fn checked_archive_output_progress(
     Ok(next)
 }
 
-fn archive_file_options(store_without_deflate: bool) -> zip::write::SimpleFileOptions {
+fn archive_file_options(file: &ArchiveFileEntry) -> Result<zip::write::SimpleFileOptions> {
+    let size = u64::try_from(file.size)
+        .map_err(|_| AsterError::internal_error("archive entry size must not be negative"))?;
     let options = zip::write::SimpleFileOptions::default();
-    if store_without_deflate {
+    let options = if file.store_without_deflate {
         options.compression_method(zip::CompressionMethod::Stored)
     } else {
         options.compression_method(zip::CompressionMethod::Deflated)
-    }
+    };
+    Ok(options.large_file(archive_entry_requires_zip64(size)))
+}
+
+fn archive_entry_requires_zip64(size: u64) -> bool {
+    size > zip::ZIP64_BYTES_THR
 }
 
 fn archive_entry_file_name(entry_path: &str) -> &str {
@@ -365,8 +398,9 @@ fn contains_ignore_ascii_case(values: &[&str], needle: &str) -> bool {
 }
 
 pub(super) fn is_client_disconnect_error_text(error_text: &str) -> bool {
-    error_text.contains("Broken pipe")
-        || error_text.contains("Connection reset by peer")
+    let error_text = error_text.to_ascii_lowercase();
+    error_text.contains("broken pipe")
+        || error_text.contains("connection reset by peer")
         || error_text.contains("connection closed")
 }
 
@@ -476,9 +510,26 @@ mod tests {
     use aster_forge_tasks::{TaskExecutionContext, TaskLease};
 
     use super::{
-        copy_reader_to_writer_with_execution,
-        copy_reader_to_writer_with_execution_and_expected_size,
+        archive_entry_requires_zip64, copy_reader_to_writer_with_execution,
+        copy_reader_to_writer_with_execution_and_expected_size, is_client_disconnect_error_text,
     };
+
+    #[test]
+    fn archive_entry_zip64_threshold_is_exclusive() {
+        assert!(!archive_entry_requires_zip64(zip::ZIP64_BYTES_THR));
+        assert!(archive_entry_requires_zip64(zip::ZIP64_BYTES_THR + 1));
+    }
+
+    #[test]
+    fn client_disconnect_errors_are_classified_case_insensitively() {
+        assert!(is_client_disconnect_error_text("Broken pipe (os error 32)"));
+        assert!(is_client_disconnect_error_text("broken pipe"));
+        assert!(is_client_disconnect_error_text("Connection reset by peer"));
+        assert!(is_client_disconnect_error_text("connection closed"));
+        assert!(!is_client_disconnect_error_text(
+            "source object read failed"
+        ));
+    }
 
     struct SlowSingleChunkReader {
         chunk: Vec<u8>,
