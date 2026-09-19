@@ -5,11 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.2] - 2026-09-19
+
+### Added
+
+- **文件夹图标** — 个人与团队文件夹可通过键盘可达的选择器使用精选 Flat Color 图标或原生 Emoji。未设置覆盖的文件夹保留各界面现有的默认样式，自定义图标在列表、网格、目录树、面包屑、详情、搜索、回收站和公开分享中一致呈现。稳定 icon key 与经过校验的 RGI Emoji 序列作为一等文件夹元数据存储，在重命名、移动、回收、恢复和递归复制中保留；公开响应暴露文件夹图标而不泄露存储策略或 connector 拓扑。
 
 ### Fixed
 
+- **大体积流式打包下载** — 个人/团队多选与公开分享的流式 zip 下载现在可靠收尾：超过 zip64 阈值的条目显式声明 zip64 记录，中央目录冲刷错误被保留而不是交由忽略错误的析构路径丢弃，响应流只在 worker 成功完成后才以干净 EOF 结束——构建失败或中止会让流以错误终止，而不是交付一个看似完整的截断归档。客户端断连分类改为大小写不敏感，背压由有界 pipe 维持。
+
 - **Apple 文件系统上的上传暂存预留** — 服务端 staged upload 改用固定 revision 的 `aster-fs` allocation 契约。新 APFS reservation 采用 all-or-nothing 语义，并在扩展逻辑 EOF 前校验内核返回的实际分配字节数；已有 sparse session 按真实 hole 恢复物理块，不改变已存数据，也不会把不完整恢复误报为成功。新 staging 空间不足时返回现有稳定 507 错误，且不留下部分 session reservation。
+
+### Statistics
+
+- 95 files changed, 2,999 insertions(+), 154 deletions(-)
+- 3 commits
+- 1 个数据库 migration
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.6.1] - 2026-09-16
 
@@ -6245,7 +6258,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...HEAD
+[v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1

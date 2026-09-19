@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.6.2] - 2026-09-19
 
 ### Added
 
@@ -13,7 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Large streamed archive downloads** — Streamed zip downloads for personal/team selections and public shares now finalize reliably: entries above the zip64 threshold are declared with explicit zip64 records, central-directory flush errors are retained instead of being dropped by an ignoring destructor path, and the response stream ends with a clean EOF only after the worker completes successfully — a failed or aborted build now terminates the stream with an error instead of delivering a truncated archive that looks complete. Client-disconnect classification is case-insensitive, and backpressure is preserved through a bounded pipe.
+
 - **Upload staging reservation on Apple filesystems** — Server-managed staged uploads now use the revision-pinned `aster-fs` allocation contract. New APFS reservations are all-or-nothing and validate the kernel-reported byte count before extending logical EOF; existing sparse sessions recover their actual holes without changing stored data or falsely reporting success. Insufficient new staging capacity returns the existing stable 507 error without leaving a partial session reservation.
+
+### Statistics
+
+- 95 files changed, 2,999 insertions(+), 154 deletions(-)
+- 3 commits
+- 1 database migration
+- Rust Edition 2024, MSRV 1.95.0
 
 ## [v0.6.1] - 2026-09-16
 
@@ -6251,7 +6260,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...HEAD
+[v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
 [v0.5.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.0...v0.5.1
