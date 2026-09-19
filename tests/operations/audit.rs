@@ -6,7 +6,9 @@ use actix_web::test;
 use aster_drive::services::ops::audit;
 use aster_drive_model::entities::audit_log;
 use aster_drive_model::types::AuditAction;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
 use serde_json::Value;
 
 macro_rules! fetch_audit_items {
@@ -39,6 +41,64 @@ fn assert_action_present<'a>(items: &'a [Value], action: &str) -> &'a Value {
                     .collect::<Vec<_>>()
             )
         })
+}
+
+#[actix_web::test]
+async fn test_folder_icon_audit_uses_the_transactional_previous_value() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "Audited icon" }))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    for icon in [
+        serde_json::json!({ "kind": "builtin", "key": "documents" }),
+        serde_json::json!({ "kind": "emoji", "value": "📚" }),
+    ] {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!("/api/v1/folders/{folder_id}/icon"))
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(icon)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+    }
+
+    let entries = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FolderIconChange))
+        .filter(audit_log::Column::EntityId.eq(folder_id))
+        .order_by_asc(audit_log::Column::Id)
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+
+    let first: Value = serde_json::from_str(entries[0].details.as_deref().unwrap()).unwrap();
+    assert_eq!(first["previous_kind"], "default");
+    assert_eq!(first["previous_key"], Value::Null);
+    assert_eq!(first["kind"], "builtin");
+    assert_eq!(first["key"], "documents");
+
+    let second: Value = serde_json::from_str(entries[1].details.as_deref().unwrap()).unwrap();
+    assert_eq!(second["previous_kind"], "builtin");
+    assert_eq!(second["previous_key"], "documents");
+    assert_eq!(second["kind"], "emoji");
+    assert_eq!(second["key"], Value::Null);
 }
 
 #[actix_web::test]

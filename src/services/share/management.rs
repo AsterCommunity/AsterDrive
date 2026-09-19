@@ -541,6 +541,10 @@ async fn build_my_share_infos(
             resource_id,
             resource_name,
             resource_type,
+            folder_icon: share
+                .folder_id
+                .and_then(|folder_id| folder_map.get(&folder_id))
+                .map(crate::services::files::folder::FolderIcon::from_model),
             resource_deleted,
             has_password: share.password.is_some(),
             status,

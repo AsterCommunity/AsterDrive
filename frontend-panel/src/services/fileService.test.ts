@@ -21,6 +21,7 @@ const mockState = vi.hoisted(() => {
 		get: vi.fn(),
 		patch: vi.fn(),
 		post: vi.fn(),
+		put: vi.fn(),
 	};
 });
 
@@ -34,6 +35,7 @@ vi.mock("@/services/http", () => ({
 		get: mockState.get,
 		patch: mockState.patch,
 		post: mockState.post,
+		put: mockState.put,
 	},
 }));
 
@@ -45,6 +47,7 @@ describe("fileService", () => {
 		mockState.get.mockResolvedValue([]);
 		mockState.patch.mockReset();
 		mockState.post.mockReset();
+		mockState.put.mockReset();
 		const { setPublicSiteUrls } = await import("@/lib/publicSiteUrl");
 		setPublicSiteUrls(null);
 	});
@@ -93,6 +96,11 @@ describe("fileService", () => {
 		fileService.renameFile(8, "notes.md");
 		fileService.setFileLock(8, true);
 		fileService.setFolderLock(7, false);
+		fileService.setFolderIcon(7, { kind: "builtin", key: "documents" });
+		createFileService({ kind: "team", teamId: 9 }).setFolderIcon(8, {
+			kind: "emoji",
+			value: "📚",
+		});
 		fileService.createEmptyFile("draft.md", 7, "docs/draft.md");
 		fileService.copyFile(8, null);
 		fileService.moveFile(8, 12);
@@ -108,6 +116,15 @@ describe("fileService", () => {
 		fileService.listVersions(8);
 		fileService.restoreVersion(8, 2);
 		fileService.deleteVersion(8, 2);
+		expect(mockState.put).toHaveBeenNthCalledWith(1, "/folders/7/icon", {
+			kind: "builtin",
+			key: "documents",
+		});
+		expect(mockState.put).toHaveBeenNthCalledWith(
+			2,
+			"/teams/9/folders/8/icon",
+			{ kind: "emoji", value: "📚" },
+		);
 
 		expect(mockState.get).toHaveBeenNthCalledWith(1, "/folders", {
 			params: { file_limit: 50 },

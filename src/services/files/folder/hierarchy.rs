@@ -215,7 +215,8 @@ pub(crate) async fn get_ancestors_in_scope(
         .into_iter()
         .map(|folder| FolderAncestorItem {
             id: folder.id,
-            name: folder.name,
+            name: folder.name.clone(),
+            icon: super::FolderIcon::from_model(&folder),
         })
         .collect())
 }

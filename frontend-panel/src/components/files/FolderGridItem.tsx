@@ -153,7 +153,10 @@ export function FolderGridItem({
 				data-drag-preview-media
 				className="mb-1.5 flex h-20 w-full items-center justify-center"
 			>
-				<FolderGlyph className="size-16 drop-shadow-sm transition-transform duration-150 ease-out group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:transform-none" />
+				<FolderGlyph
+					icon={item.icon}
+					className="size-16 text-5xl drop-shadow-sm transition-transform duration-150 ease-out group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:transform-none"
+				/>
 			</div>
 
 			<div className="min-w-0 flex-1 space-y-1 text-center">

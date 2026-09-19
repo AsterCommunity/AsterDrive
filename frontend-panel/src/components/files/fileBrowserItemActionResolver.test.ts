@@ -17,6 +17,7 @@ function createHandlers(): FileBrowserItemActionHandlers {
 		onFileClick: vi.fn(),
 		onFileOpen: vi.fn(),
 		onFolderOpen: vi.fn(),
+		onFolderIcon: vi.fn(),
 		onFolderPolicy: vi.fn(),
 		onGoToLocation: vi.fn(),
 		onInfo: vi.fn(),
@@ -171,6 +172,8 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(handlers.onManageTags).toHaveBeenCalledWith("folder", 3);
 		expect(handlers.onMove).toHaveBeenCalledWith("folder", 3);
 		expect(handlers.onFolderPolicy).toHaveBeenCalledWith(folder);
+		props.onFolderIcon?.();
+		expect(handlers.onFolderIcon).toHaveBeenCalledWith(folder);
 		expect(handlers.onRename).toHaveBeenCalledWith("folder", 3, "Docs");
 		expect(handlers.onToggleLock).toHaveBeenCalledWith("folder", 3, false);
 		expect(handlers.onDelete).toHaveBeenCalledWith("folder", 3);

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Folder icons** — Personal and team folders can use a curated Flat Color icon or one native Emoji through a keyboard-accessible picker. Folders without an override retain each surface's existing default styling, while custom glyphs render consistently in lists, grids, trees, breadcrumbs, details, search, trash, and public shares. Stable icon keys and validated RGI Emoji sequences are stored as first-class folder metadata, preserved across rename, move, trash, restore, and recursive copy; public responses expose the folder icon without leaking storage policy or connector topology.
+
 ### Fixed
 
 - **Upload staging reservation on Apple filesystems** — Server-managed staged uploads now use the revision-pinned `aster-fs` allocation contract. New APFS reservations are all-or-nothing and validate the kernel-reported byte count before extending logical EOF; existing sparse sessions recover their actual holes without changing stored data or falsely reporting success. Insufficient new staging capacity returns the existing stable 507 error without leaving a partial session reservation.

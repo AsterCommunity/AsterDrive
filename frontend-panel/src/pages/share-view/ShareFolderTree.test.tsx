@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { FolderContents, FolderListItem } from "@/types/api";
+import type { FolderContents, FolderIcon, FolderListItem } from "@/types/api";
 import { ShareFolderTree } from "./ShareFolderTree";
 import type { ShareFolderTreeNode } from "./useShareFolderTree";
 
@@ -26,6 +26,15 @@ vi.mock("@/components/common/SkeletonTree", () => ({
 	),
 }));
 
+vi.mock("@/components/files/FolderIconRenderer", () => ({
+	FolderIconRenderer: ({ icon }: { icon?: FolderIcon }) => (
+		<span data-testid="folder-icon">
+			{icon?.kind ?? "default"}:
+			{icon?.kind === "builtin" ? icon.key : (icon?.value ?? "")}
+		</span>
+	),
+}));
+
 vi.mock("@/components/folders/folder-tree/AnimatedTreeGroup", () => ({
 	AnimatedTreeGroup: ({
 		children,
@@ -40,9 +49,14 @@ vi.mock("./useShareFolderTree", () => ({
 	useShareFolderTree: () => mockState,
 }));
 
-function folder(id: number, name: string): FolderListItem {
+function folder(
+	id: number,
+	name: string,
+	icon: FolderIcon = { kind: "default" },
+): FolderListItem {
 	return {
 		id,
+		icon,
 		lock_state: { state: "unlocked" },
 		is_shared: false,
 		name,
@@ -86,8 +100,25 @@ describe("ShareFolderTree", () => {
 		expect(screen.getByText("skeleton-tree:5")).toBeInTheDocument();
 	});
 
+	it("passes a custom shared-root icon to the root tree row", () => {
+		render(
+			<ShareFolderTree
+				breadcrumb={[{ id: null, name: "Shared Root" }]}
+				folderContents={contents([])}
+				rootName="Shared Root"
+				rootIcon={{ kind: "emoji", value: "📚" }}
+				token="share-token"
+				onNavigate={vi.fn()}
+			/>,
+		);
+		expect(screen.getByTestId("folder-icon")).toHaveTextContent("emoji:📚");
+	});
+
 	it("navigates and recursively toggles loaded share folders", () => {
-		const docs = folder(1, "Docs");
+		const docs = folder(1, "Docs", {
+			kind: "builtin",
+			key: "documents",
+		});
 		const deep = folder(2, "Deep");
 		mockState.currentFolderId = 2;
 		mockState.expandedKeys = new Set(["root", "1"]);
@@ -129,6 +160,11 @@ describe("ShareFolderTree", () => {
 		expect(onNavigate).toHaveBeenNthCalledWith(3, 2, "Deep");
 		expect(mockState.toggle).toHaveBeenNthCalledWith(1, null);
 		expect(mockState.toggle).toHaveBeenNthCalledWith(2, 1);
+		expect(screen.getAllByTestId("folder-icon")).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ textContent: "builtin:documents" }),
+			]),
+		);
 		expect(screen.getByRole("button", { name: "Deep" })).not.toHaveAttribute(
 			"aria-expanded",
 		);

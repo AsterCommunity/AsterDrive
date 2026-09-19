@@ -39,6 +39,7 @@ aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", pack
 aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
 async-trait = "0.1"
 bytes = "1"
+emojis = "0.8"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 futures = "0.3"
 hex = "0.4"
@@ -227,6 +228,7 @@ encoding_rs = "0.8"
 oem_cp = "2"
 futures = { workspace = true }
 aster-fs = { git = "https://github.com/AsterCommunity/AsterFs", rev = "913ed30598119c184f49f18e5b339fc98869fff2", default-features = false, features = ["sync"] }
+emojis = { workspace = true }
 hex = { workspace = true }
 hmac = "0.13"
 http = "1"

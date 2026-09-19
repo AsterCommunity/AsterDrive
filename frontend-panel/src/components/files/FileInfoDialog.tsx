@@ -446,7 +446,12 @@ export function FileInfoDialog({
 								name: (activeFile ?? renderedFile).name,
 							},
 						}
-					: { type: "folder" }
+					: {
+							type: "folder",
+							icon: (activeFolder ?? renderedFolder)?.icon ?? {
+								kind: "default",
+							},
+						}
 			}
 			title={title}
 			onClose={() => onOpenChange(false)}

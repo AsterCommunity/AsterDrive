@@ -35,6 +35,7 @@ pub fn routes(
         .route("/{id}/info", web::get().to(get_folder_info))
         .route("/{id}/ancestors", web::get().to(get_ancestors))
         .route("/{id}/lock", web::post().to(set_lock))
+        .route("/{id}/icon", web::put().to(set_icon))
         .route("/{id}/copy", web::post().to(copy_folder))
         .route("/{id}", web::delete().to(delete_folder))
         .route("/{id}", web::patch().to(patch_folder))
@@ -49,6 +50,7 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/folders/{id}", web::patch().to(team_patch_folder))
         .route("/folders/{id}", web::delete().to(team_delete_folder))
         .route("/folders/{id}/lock", web::post().to(team_set_lock))
+        .route("/folders/{id}/icon", web::put().to(team_set_icon))
         .route("/folders/{id}/copy", web::post().to(team_copy_folder))
         .route("/folders/{id}/ancestors", web::get().to(team_get_ancestors))
         .service(files::team_routes())
@@ -296,6 +298,41 @@ pub async fn set_lock(
         },
         *path,
         body.locked,
+    )
+    .await
+}
+
+#[aster_forge_api_docs_macros::path(
+    put,
+    path = "/api/v1/folders/{id}/icon",
+    tag = "folders",
+    operation_id = "set_folder_icon",
+    params(("id" = i64, Path, description = "Folder ID")),
+    request_body = folder::FolderIcon,
+    responses(
+        (status = 200, description = "Folder icon updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
+        (status = 400, description = "Invalid folder icon"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 404, description = "Folder not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn set_icon(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+    body: web::Json<folder::FolderIcon>,
+) -> Result<HttpResponse> {
+    set_icon_response(
+        state.get_ref(),
+        &claims,
+        &req,
+        WorkspaceStorageScope::Personal {
+            user_id: claims.user_id,
+        },
+        *path,
+        body.into_inner(),
     )
     .await
 }
@@ -640,6 +677,44 @@ pub(crate) async fn team_set_lock(
     .await
 }
 
+#[aster_forge_api_docs_macros::path(
+    put,
+    path = "/api/v1/teams/{team_id}/folders/{id}/icon",
+    tag = "teams",
+    operation_id = "set_team_folder_icon",
+    params(
+        ("team_id" = i64, Path, description = "Team ID"),
+        ("id" = i64, Path, description = "Folder ID")
+    ),
+    request_body = folder::FolderIcon,
+    responses(
+        (status = 200, description = "Folder icon updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
+        (status = 400, description = "Invalid folder icon"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Folder not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub(crate) async fn team_set_icon(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<(i64, i64)>,
+    body: web::Json<folder::FolderIcon>,
+) -> Result<HttpResponse> {
+    let (team_id, folder_id) = path.into_inner();
+    set_icon_response(
+        state.get_ref(),
+        &claims,
+        &req,
+        team_scope(team_id, claims.user_id),
+        folder_id,
+        body.into_inner(),
+    )
+    .await
+}
+
 pub(crate) async fn create_folder_response(
     state: &PrimaryAppState,
     claims: &Claims,
@@ -748,6 +823,19 @@ pub(crate) async fn set_lock_response(
     let ctx = AuditContext::from_request(req, claims);
     let folder =
         folder::set_lock_in_scope_with_audit(state, scope, folder_id, locked, &ctx).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
+}
+
+pub(crate) async fn set_icon_response(
+    state: &PrimaryAppState,
+    claims: &Claims,
+    req: &HttpRequest,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    icon: folder::FolderIcon,
+) -> Result<HttpResponse> {
+    let ctx = AuditContext::from_request(req, claims);
+    let folder = folder::set_icon_in_scope_with_audit(state, scope, folder_id, icon, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
 }
 

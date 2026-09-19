@@ -3,7 +3,7 @@
 use chrono::Utc;
 use std::net::{IpAddr, Ipv6Addr};
 
-use crate::db::repository::{share_repo, user_profile_repo, user_repo};
+use crate::db::repository::{folder_repo, share_repo, user_profile_repo, user_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::user::profile;
@@ -35,6 +35,12 @@ pub async fn get_share_info(
     }
 
     let (name, share_type, mime_type, size) = resolve_share_name(db, &share).await?;
+    let folder_icon = match share.folder_id {
+        Some(folder_id) => Some(crate::services::files::folder::FolderIcon::from_model(
+            &folder_repo::find_by_id(db, folder_id).await?,
+        )),
+        None => None,
+    };
     let shared_by = resolve_share_owner_info(state, &share).await?;
 
     let is_expired = share.expires_at.is_some_and(|exp| exp < Utc::now());
@@ -43,6 +49,7 @@ pub async fn get_share_info(
         token: share.token,
         name,
         share_type,
+        folder_icon,
         has_password: share.password.is_some(),
         expires_at: share.expires_at.map(|e| e.to_rfc3339()),
         is_expired,

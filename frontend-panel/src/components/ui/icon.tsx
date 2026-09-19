@@ -69,6 +69,7 @@ import {
 	PiMonitor,
 	PiMoon,
 	PiMusicNotes,
+	PiPaintBrush,
 	PiPause,
 	PiPencilSimple,
 	PiPlay,
@@ -173,6 +174,7 @@ export type IconName =
 	| "Moon"
 	| "Minus"
 	| "Pause"
+	| "PaintBrush"
 	| "MusicNotes"
 	| "PencilSimple"
 	| "Play"
@@ -279,6 +281,7 @@ const iconMap: Record<IconName, ComponentType<{ className?: string }>> = {
 	Minus: PiMinus,
 	MusicNotes: PiMusicNotes,
 	Pause: PiPause,
+	PaintBrush: PiPaintBrush,
 	PencilSimple: PiPencilSimple,
 	Play: PiPlay,
 	Plus: PiPlus,

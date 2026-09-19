@@ -7,6 +7,102 @@ use serde_json::Value;
 
 const OVER_LIMIT_BODY_SIZE: usize = 10 * 1024 * 1024 + 1;
 
+#[actix_web::test]
+async fn test_team_folder_icon_uses_team_scope_and_projects_to_listing() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+    common::create_test_account_via_api(
+        &app,
+        &db,
+        &mail_sender,
+        "iconowner",
+        "iconowner@example.com",
+        "password123",
+    )
+    .await;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "identifier": "iconowner",
+                "password": "password123"
+            }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let token = common::extract_cookie(&response, "aster_access").unwrap();
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/teams")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "Icon Team" }))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/teams/{team_id}/folders"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "Team Docs" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/teams/{team_id}/folders/{folder_id}/icon"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "kind": "builtin", "key": "work" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["icon"]["key"], "work");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/teams/{team_id}/folders"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["folders"][0]["icon"]["key"], "work");
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/folders/{folder_id}/icon"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "kind": "default" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+}
+
 fn assert_upload_error_contract(body: &Value, expected_code: &str) {
     assert_eq!(body["code"], expected_code);
     assert_eq!(body["error"]["retryable"], false);

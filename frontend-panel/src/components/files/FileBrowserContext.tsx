@@ -55,6 +55,7 @@ export interface FileBrowserContextValue {
 	onManageTags?: (type: "file" | "folder", id: number) => void;
 	onMove?: (type: "file" | "folder", id: number) => void;
 	onFolderPolicy?: (folder: FolderListItem) => void;
+	onFolderIcon?: (folder: FolderListItem) => void;
 	onGoToLocation?: (file: FileListItem) => void;
 	onToggleLock: (
 		type: "file" | "folder",

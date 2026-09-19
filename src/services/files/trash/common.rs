@@ -84,7 +84,8 @@ pub(super) fn build_trash_folder_item(
         .ok_or_else(|| AsterError::validation_error("folder is not in trash"))?;
     Ok(TrashFolderItem {
         id: folder.id,
-        name: folder.name,
+        name: folder.name.clone(),
+        icon: folder_ops::FolderIcon::from_model(&folder),
         created_at: folder.created_at,
         updated_at: folder.updated_at,
         expires_at: deleted_at + chrono::Duration::days(retention_days),

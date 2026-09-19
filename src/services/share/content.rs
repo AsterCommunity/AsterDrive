@@ -624,7 +624,8 @@ pub async fn get_shared_subfolder_ancestors(
         .skip(root_index.saturating_add(1))
         .map(|ancestor| folder::FolderAncestorItem {
             id: ancestor.id,
-            name: ancestor.name,
+            name: ancestor.name.clone(),
+            icon: folder::FolderIcon::from_model(&ancestor),
         })
         .collect())
 }

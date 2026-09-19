@@ -16,6 +16,7 @@ import type {
 	FileVersion,
 	FolderAncestorItem,
 	FolderContents,
+	FolderIcon,
 	FolderInfo,
 	FolderListParams,
 	MediaMetadataInfo,
@@ -146,6 +147,12 @@ export function createFileService(workspace: Workspace) {
 			api.patch<FolderInfo>(buildWorkspacePath(workspace, `/folders/${id}`), {
 				name,
 			}),
+
+		setFolderIcon: (id: number, icon: FolderIcon) =>
+			api.put<FolderInfo>(
+				buildWorkspacePath(workspace, `/folders/${id}/icon`),
+				icon,
+			),
 
 		getFile: (id: number) =>
 			api.get<FileInfo>(buildWorkspacePath(workspace, `/files/${id}`)),

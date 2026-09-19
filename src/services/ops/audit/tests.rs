@@ -242,6 +242,7 @@ fn audit_action_strings_match_existing_contract() {
         (AuditAction::FolderPurge, "folder_purge"),
         (AuditAction::FolderLock, "folder_lock"),
         (AuditAction::FolderUnlock, "folder_unlock"),
+        (AuditAction::FolderIconChange, "folder_icon_change"),
         (AuditAction::PropertySet, "property_set"),
         (AuditAction::PropertyDelete, "property_delete"),
         (AuditAction::ShareBatchDelete, "share_batch_delete"),

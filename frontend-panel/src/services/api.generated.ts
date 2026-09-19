@@ -2476,6 +2476,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/folders/{id}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_folder_icon"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/folders/{id}/info": {
         parameters: {
             query?: never;
@@ -3820,6 +3836,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{team_id}/folders/{id}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_team_folder_icon"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams/{team_id}/folders/{id}/info": {
         parameters: {
             query?: never;
@@ -5038,7 +5070,7 @@ export interface components {
          * @description 审计日志动作
          * @enum {string}
          */
-        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_trigger_storage_action" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach" | "remote_node_connected" | "remote_node_graceful_disconnect" | "remote_node_unexpected_disconnect" | "remote_node_heartbeat_timeout" | "admin_create_storage_policy_forced_purge_task";
+        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_trigger_storage_action" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach" | "remote_node_connected" | "remote_node_graceful_disconnect" | "remote_node_unexpected_disconnect" | "remote_node_heartbeat_timeout" | "admin_create_storage_policy_forced_purge_task" | "folder_icon_change";
         /**
          * @description 审计日志实体类型
          * @enum {string}
@@ -5885,10 +5917,13 @@ export interface components {
             limit?: number | null;
         };
         FolderAncestorItem: {
+            icon: components["schemas"]["FolderIcon"];
             /** Format: int64 */
             id: number;
             name: string;
         };
+        /** @enum {string} */
+        FolderBuiltinIcon: "documents" | "images" | "music" | "videos" | "work" | "home" | "archive" | "library" | "database" | "calendar" | "ideas";
         FolderContents: {
             files: components["schemas"]["FileListItem"][];
             /** Format: int64 */
@@ -5904,6 +5939,8 @@ export interface components {
             created_by_user_id?: number | null;
             created_by_username: string;
             deleted_at?: string | null;
+            icon_kind: components["schemas"]["FolderIconKind"];
+            icon_value?: string | null;
             /** Format: int64 */
             id: number;
             name: string;
@@ -5917,12 +5954,30 @@ export interface components {
             team_id?: number | null;
             updated_at: string;
         };
+        FolderIcon: {
+            /** @enum {string} */
+            kind: "default";
+        } | {
+            key: components["schemas"]["FolderBuiltinIcon"];
+            /** @enum {string} */
+            kind: "builtin";
+        } | {
+            /** @enum {string} */
+            kind: "emoji";
+            value: string;
+        };
+        /**
+         * @description Persisted discriminator for a folder presentation icon.
+         * @enum {string}
+         */
+        FolderIconKind: "default" | "builtin" | "emoji";
         FolderInfo: {
             created_at: string;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
             deleted_at?: string | null;
+            icon: components["schemas"]["FolderIcon"];
             /** Format: int64 */
             id: number;
             lock_state: components["schemas"]["ResourceLockState"];
@@ -5945,6 +6000,7 @@ export interface components {
             updated_at: string;
         };
         FolderListItem: {
+            icon: components["schemas"]["FolderIcon"];
             /** Format: int64 */
             id: number;
             is_shared: boolean;
@@ -6407,6 +6463,7 @@ export interface components {
             /** Format: int64 */
             download_count: number;
             expires_at?: string | null;
+            folder_icon?: null | components["schemas"]["FolderIcon"];
             has_password: boolean;
             /** Format: int64 */
             id: number;
@@ -6739,6 +6796,7 @@ export interface components {
                 /** Format: int64 */
                 download_count: number;
                 expires_at?: string | null;
+                folder_icon?: null | components["schemas"]["FolderIcon"];
                 has_password: boolean;
                 /** Format: int64 */
                 id: number;
@@ -7881,6 +7939,7 @@ export interface components {
             /** Format: int64 */
             download_count: number;
             expires_at?: string | null;
+            folder_icon?: null | components["schemas"]["FolderIcon"];
             has_password: boolean;
             is_expired: boolean;
             /** Format: int64 */
@@ -9408,6 +9467,7 @@ export interface components {
         TrashFolderItem: {
             created_at: string;
             expires_at: string;
+            icon: components["schemas"]["FolderIcon"];
             /** Format: int64 */
             id: number;
             lock_state: components["schemas"]["ResourceLockState"];
@@ -20458,6 +20518,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -20671,6 +20732,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -20734,6 +20796,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             name: string;
@@ -20789,6 +20852,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -20814,6 +20878,86 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Folder not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_folder_icon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Folder ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderIcon"];
+            };
+        };
+        responses: {
+            /** @description Folder icon updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
+                            deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
+                            /** Format: int64 */
+                            id: number;
+                            lock_state: components["schemas"]["ResourceLockState"];
+                            name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
+                            parent_id?: number | null;
+                            /** Format: int64 */
+                            policy_id?: number | null;
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
+                            storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid folder icon */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {
@@ -20857,6 +21001,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -20929,6 +21074,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -21330,6 +21476,7 @@ export interface operations {
                             /** Format: int64 */
                             download_count: number;
                             expires_at?: string | null;
+                            folder_icon?: null | components["schemas"]["FolderIcon"];
                             has_password: boolean;
                             is_expired: boolean;
                             /** Format: int64 */
@@ -22044,6 +22191,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             name: string;
@@ -22614,6 +22762,7 @@ export interface operations {
                                 /** Format: int64 */
                                 download_count: number;
                                 expires_at?: string | null;
+                                folder_icon?: null | components["schemas"]["FolderIcon"];
                                 has_password: boolean;
                                 /** Format: int64 */
                                 id: number;
@@ -26700,6 +26849,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -26940,6 +27090,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -27012,6 +27163,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             name: string;
@@ -27076,6 +27228,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -27101,6 +27254,95 @@ export interface operations {
                         msg: string;
                     };
                 };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Folder not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    set_team_folder_icon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+                /** @description Folder ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderIcon"];
+            };
+        };
+        responses: {
+            /** @description Folder icon updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            created_at: string;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
+                            deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
+                            /** Format: int64 */
+                            id: number;
+                            lock_state: components["schemas"]["ResourceLockState"];
+                            name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
+                            parent_id?: number | null;
+                            /** Format: int64 */
+                            policy_id?: number | null;
+                            /**
+                             * Format: int64
+                             * @description Recursive quota bytes for the folder detail view: all live files in the
+                             *     folder tree, including current file sizes plus historical versions.
+                             */
+                            storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid folder icon */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Unauthorized */
             401: {
@@ -27153,6 +27395,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -27234,6 +27477,7 @@ export interface operations {
                             created_by_user_id?: number | null;
                             created_by_username: string;
                             deleted_at?: string | null;
+                            icon: components["schemas"]["FolderIcon"];
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
@@ -27398,6 +27642,7 @@ export interface operations {
                                 /** Format: int64 */
                                 download_count: number;
                                 expires_at?: string | null;
+                                folder_icon?: null | components["schemas"]["FolderIcon"];
                                 has_password: boolean;
                                 /** Format: int64 */
                                 id: number;

@@ -11,11 +11,14 @@ use crate::services::files::lock::ResourceLockState;
 use aster_drive_model::entities::{file, folder};
 use aster_drive_model::types::EntityType;
 
+use super::FolderIcon;
+
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct FolderAncestorItem {
     pub id: i64,
     pub name: String,
+    pub icon: FolderIcon,
 }
 
 #[derive(Clone, Serialize)]
@@ -44,6 +47,7 @@ pub struct FileListItem {
 pub struct FolderListItem {
     pub id: i64,
     pub name: String,
+    pub icon: FolderIcon,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub lock_state: ResourceLockState,
@@ -152,19 +156,23 @@ pub fn build_folder_list_items_with_tags_and_lock_states(
 ) -> Vec<FolderListItem> {
     folders
         .into_iter()
-        .map(|folder| FolderListItem {
-            id: folder.id,
-            name: folder.name,
-            updated_at: folder.updated_at,
-            lock_state: lock_states
-                .get(&(EntityType::Folder, folder.id))
-                .cloned()
-                .unwrap_or(ResourceLockState::Unlocked),
-            is_shared: shared_folder_ids.contains(&folder.id),
-            tags: tags_by_entity
-                .get(&(EntityType::Folder, folder.id))
-                .cloned()
-                .unwrap_or_default(),
+        .map(|folder| {
+            let icon = FolderIcon::from_model(&folder);
+            FolderListItem {
+                id: folder.id,
+                name: folder.name,
+                icon,
+                updated_at: folder.updated_at,
+                lock_state: lock_states
+                    .get(&(EntityType::Folder, folder.id))
+                    .cloned()
+                    .unwrap_or(ResourceLockState::Unlocked),
+                is_shared: shared_folder_ids.contains(&folder.id),
+                tags: tags_by_entity
+                    .get(&(EntityType::Folder, folder.id))
+                    .cloned()
+                    .unwrap_or_default(),
+            }
         })
         .collect()
 }
@@ -211,6 +219,8 @@ mod tests {
             created_by_user_id: Some(1),
             created_by_username: "tester".to_string(),
             policy_id: None,
+            icon_kind: aster_drive_model::types::FolderIconKind::Default,
+            icon_value: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,

@@ -609,6 +609,71 @@ pub(crate) async fn update_in_scope(
     Ok(updated)
 }
 
+pub(crate) async fn set_icon_in_scope(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    icon: super::FolderIcon,
+    audit_context: Option<&crate::services::ops::audit::AuditContext>,
+) -> Result<(folder::Model, folder::Model)> {
+    let (icon_kind, icon_value) = icon.normalize()?;
+    let (previous, updated) = transaction::with_transaction(state.writer_db(), async |txn| {
+        let preview = folder_repo::find_by_id(txn, folder_id).await?;
+        ensure_folder_model_in_scope(&preview, scope)?;
+        let current = crate::services::files::lock::enforce_folder_mutation_on(
+            txn,
+            &preview,
+            aster_drive_model::types::LockDepth::Resource,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+        ensure_folder_model_in_scope(&current, scope)?;
+        if current.deleted_at.is_some() {
+            return Err(AsterError::folder_not_found(format!(
+                "folder #{folder_id} is in trash"
+            )));
+        }
+
+        let previous = current.clone();
+        let updated =
+            folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await?;
+        if let Some(audit_context) = audit_context {
+            let previous_icon = super::FolderIcon::from_model(&previous);
+            let next_icon = super::FolderIcon::from_model(&updated);
+            crate::services::ops::audit::log_with_transaction(
+                txn,
+                state.runtime_config(),
+                crate::services::ops::audit::AuditLogInput {
+                    ctx: audit_context,
+                    action: crate::services::ops::audit::AuditAction::FolderIconChange,
+                    entity_type: crate::services::ops::audit::AuditEntityType::Folder,
+                    entity_id: Some(updated.id),
+                    entity_name: Some(&updated.name),
+                },
+                || Some(super::folder_icon_audit_details(&previous_icon, &next_icon)),
+            )
+            .await
+            .map_err(|error| {
+                AsterError::database_operation(format!("write folder icon audit: {error}"))
+            })?;
+        }
+        Ok((previous, updated))
+    })
+    .await?;
+
+    storage_change::publish(
+        state,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderUpdated,
+            scope,
+            vec![],
+            vec![updated.id],
+            vec![updated.parent_id],
+        ),
+    );
+    Ok((previous, updated))
+}
+
 pub(crate) async fn admin_set_policy(
     state: &impl StorageChangeRuntimeState,
     folder_id: i64,

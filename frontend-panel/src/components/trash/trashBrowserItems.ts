@@ -56,6 +56,7 @@ function byExpiresAtDesc(
 export function toBrowserFolders(folders: TrashFolderItem[]): FolderListItem[] {
 	return [...folders].sort(byExpiresAtDesc).map((folder) => ({
 		id: folder.id,
+		icon: folder.icon,
 		is_shared: false,
 		lock_state: folder.lock_state,
 		name: folder.name,

@@ -18,6 +18,7 @@ import { FileGrid } from "@/components/files/FileGrid";
 import { FileSelectionToolbarTransition } from "@/components/files/FileSelectionToolbar";
 import { FileTable } from "@/components/files/FileTable";
 import { FolderBreadcrumb } from "@/components/files/FolderBreadcrumb";
+import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
 import { FILE_BROWSER_BATCH_ACTION_POLICIES } from "@/components/files/fileActionPolicy";
 import { Icon } from "@/components/ui/icon";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
@@ -130,6 +131,9 @@ export function ShareFolderView({
 	const isCompactBreadcrumb = useMediaQuery("(max-width: 639px)");
 	const currentFolder = breadcrumb[breadcrumb.length - 1];
 	const isRootFolder = currentFolder?.id == null;
+	const currentFolderIcon = isRootFolder
+		? (info.folder_icon ?? undefined)
+		: currentFolder?.icon;
 	const selectAllDisplayed = useCallback(() => {
 		selectItems(
 			(folderContents?.files ?? []).map((file) => file.id),
@@ -210,9 +214,15 @@ export function ShareFolderView({
 							left={
 								<>
 									<span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent/55 text-accent-foreground sm:h-8 sm:w-8">
-										<Icon
-											name={isRootFolder ? "House" : "FolderOpen"}
-											className="size-4"
+										<FolderIconRenderer
+											icon={currentFolderIcon}
+											className="size-4 text-base"
+											defaultIcon={
+												<Icon
+													name={isRootFolder ? "House" : "FolderOpen"}
+													className="size-4"
+												/>
+											}
 										/>
 									</span>
 									<div className="min-w-0 flex-1">
@@ -261,7 +271,15 @@ export function ShareFolderView({
 						<>
 							{isFolderEmpty ? (
 								<EmptyState
-									icon={<Icon name="FolderOpen" className="size-12" />}
+									icon={
+										<FolderIconRenderer
+											icon={currentFolderIcon}
+											className="size-12 text-5xl"
+											defaultIcon={
+												<Icon name="FolderOpen" className="size-12" />
+											}
+										/>
+									}
 									title={t("empty_folder")}
 									description={t("share:empty_folder_desc")}
 								/>

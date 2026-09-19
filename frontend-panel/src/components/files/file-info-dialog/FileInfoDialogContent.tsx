@@ -1,9 +1,11 @@
 import { FileItemStatusIndicators } from "@/components/files/FileItemStatusIndicators";
 import type { ThumbnailFileLike } from "@/components/files/FileThumbnail";
+import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
 import { MediaThumbnail } from "@/components/files/MediaThumbnail";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import type { FolderIcon } from "@/types/api";
 import type { DetailRow } from "./types";
 
 const EMPTY_METADATA_ROWS: DetailRow[] = [];
@@ -26,6 +28,7 @@ interface FileInfoDialogContentProps {
 		  }
 		| {
 				type: "folder";
+				icon: FolderIcon;
 		  };
 	title: string;
 	onClose: () => void;
@@ -112,7 +115,13 @@ export function FileInfoDialogContent({
 								imageClassName="h-full w-full object-cover"
 							/>
 						) : (
-							<Icon name="Folder" className="size-8 text-amber-500" />
+							<FolderIconRenderer
+								icon={targetIcon.icon}
+								className="size-8 text-3xl"
+								defaultIcon={
+									<Icon name="Folder" className="size-8 text-amber-500" />
+								}
+							/>
 						)}
 					</div>
 					<div className="min-w-0 flex-1 space-y-2">

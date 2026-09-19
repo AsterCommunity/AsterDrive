@@ -23,6 +23,7 @@ import { FileBrowserToolbar } from "@/pages/file-browser/FileBrowserToolbar";
 import { FileBrowserWorkspace } from "@/pages/file-browser/FileBrowserWorkspace";
 import {
 	FILE_BROWSER_LAZY_PRELOADERS,
+	FolderIconDialog as FolderIconDialogPreloader,
 	FolderPolicyDialog as FolderPolicyDialogPreloader,
 	OfflineDownloadDialog as OfflineDownloadDialogPreloader,
 } from "@/pages/file-browser/fileBrowserLazy";
@@ -49,6 +50,7 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FolderListItem } from "@/types/api";
 
 interface FileBrowserPageUiState {
+	folderIconTarget: FolderListItem | null;
 	folderPolicyTarget: FolderListItem | null;
 	offlineDownloadOpen: boolean;
 	scrollViewport: HTMLDivElement | null;
@@ -57,6 +59,7 @@ interface FileBrowserPageUiState {
 }
 
 type FileBrowserPageUiAction =
+	| { type: "set_folder_icon_target"; target: FolderListItem | null }
 	| { type: "set_folder_policy_target"; target: FolderListItem | null }
 	| { type: "set_offline_download_open"; open: boolean }
 	| { type: "set_scroll_viewport"; viewport: HTMLDivElement | null }
@@ -64,6 +67,7 @@ type FileBrowserPageUiAction =
 	| { type: "set_upload_ready"; ready: boolean };
 
 const initialPageUiState: FileBrowserPageUiState = {
+	folderIconTarget: null,
 	folderPolicyTarget: null,
 	offlineDownloadOpen: false,
 	scrollViewport: null,
@@ -76,6 +80,9 @@ function fileBrowserPageUiReducer(
 	action: FileBrowserPageUiAction,
 ): FileBrowserPageUiState {
 	switch (action.type) {
+		case "set_folder_icon_target":
+			if (state.folderIconTarget === action.target) return state;
+			return { ...state, folderIconTarget: action.target };
 		case "set_folder_policy_target":
 			if (state.folderPolicyTarget === action.target) return state;
 			return { ...state, folderPolicyTarget: action.target };
@@ -192,6 +199,7 @@ export default function FileBrowserPage() {
 	);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const {
+		folderIconTarget,
 		folderPolicyTarget,
 		offlineDownloadOpen,
 		scrollViewport,
@@ -414,6 +422,10 @@ export default function FileBrowserPage() {
 		},
 		[isAdmin],
 	);
+	const handleFolderIcon = useCallback((folder: FolderListItem) => {
+		void FolderIconDialogPreloader.preload();
+		dispatchPageUi({ type: "set_folder_icon_target", target: folder });
+	}, []);
 	const { fileBrowserContextValue, handleNavigateToFolder } =
 		useFileBrowserContextValue({
 			breadcrumb,
@@ -431,6 +443,7 @@ export default function FileBrowserPage() {
 			handleCopy,
 			handleDelete,
 			handleDownload,
+			handleFolderIcon,
 			handleFolderPolicy: isAdmin ? handleFolderPolicy : undefined,
 			handleInfo,
 			handleManageTags,
@@ -467,6 +480,9 @@ export default function FileBrowserPage() {
 	}, []);
 	const closeFolderPolicyDialog = useCallback(() => {
 		dispatchPageUi({ type: "set_folder_policy_target", target: null });
+	}, []);
+	const closeFolderIconDialog = useCallback(() => {
+		dispatchPageUi({ type: "set_folder_icon_target", target: null });
 	}, []);
 
 	const previewImageNavigation = useMemo(
@@ -582,6 +598,7 @@ export default function FileBrowserPage() {
 				createFolderOpen={createFolderOpen}
 				currentFolderId={folderId}
 				currentFolderName={currentFolderName}
+				folderIconTarget={folderIconTarget}
 				folderPolicyTarget={folderPolicyTarget}
 				moveTarget={moveTarget}
 				offlineDownloadOpen={offlineDownloadOpen}
@@ -596,6 +613,8 @@ export default function FileBrowserPage() {
 				onCopyConfirm={handleCopyConfirm}
 				onCreateFileOpenChange={setCreateFileOpen}
 				onCreateFolderOpenChange={setCreateFolderOpen}
+				onFolderIconClose={closeFolderIconDialog}
+				onFolderIconUpdated={refresh}
 				onFolderPolicyClose={closeFolderPolicyDialog}
 				onFolderPolicyUpdated={refresh}
 				onMoveClose={() => setMoveTarget(null)}

@@ -122,6 +122,7 @@ export function FolderTreeNodeRow({
 				<FolderTreeItemContent
 					expanded={isExpanded}
 					label={node.folder.name}
+					icon={node.folder.icon}
 					loading={isLoading}
 					showToggle={showToggle}
 					toggleLabel={t(isExpanded ? "collapse_tree" : "expand_tree")}

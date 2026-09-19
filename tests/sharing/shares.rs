@@ -184,6 +184,82 @@ async fn test_shares_crud() {
 }
 
 #[actix_web::test]
+async fn test_folder_share_exposes_icon_without_storage_topology() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "Public Books" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::put()
+            .uri(&format!("/api/v1/folders/{folder_id}/icon"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "kind": "emoji", "value": "📚" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/shares")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "target": folder_target(folder_id) }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let share_token = body["data"]["token"].as_str().unwrap();
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/s/{share_token}"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(
+        body["data"]["folder_icon"],
+        serde_json::json!({ "kind": "emoji", "value": "📚" })
+    );
+    assert!(body["data"].get("policy_id").is_none());
+    assert!(body["data"].get("connector_id").is_none());
+
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/shares")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["items"][0]["folder_icon"]["value"], "📚");
+    assert!(body["data"]["items"][0].get("policy_id").is_none());
+}
+
+#[actix_web::test]
 async fn test_shared_download_matching_revision_etag_returns_304_without_consuming_limit() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

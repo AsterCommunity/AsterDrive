@@ -43,6 +43,82 @@ const CANONICAL_FILE_REVISION_LEDGER_MIGRATION: &str =
 const VIRTUAL_EMPTY_FILE_BLOBS_MIGRATION: &str = "m20260815_000001_virtual_empty_file_blobs";
 const STORAGE_PLACEMENT_PROFILES_MIGRATION: &str = "m20260825_000001_storage_placement_profiles";
 const EXTERNAL_AUTH_CALLBACK_MODE_MIGRATION: &str = "m20260913_000001_external_auth_callback_mode";
+const FOLDER_ICONS_MIGRATION: &str = "m20260917_000001_folder_icons";
+
+async fn assert_folder_icon_upgrade_on_backend(db: &DatabaseConnection) {
+    CurrentMigrator::up(db, Some(steps_before_migration(FOLDER_ICONS_MIGRATION)))
+        .await
+        .expect("schema before folder icons should apply");
+    let backend = db.get_database_backend();
+    db.execute_raw(Statement::from_string(
+        backend,
+        "INSERT INTO folders (id, name, created_by_username, created_at, updated_at) \
+         VALUES (60917, 'Existing folder', 'migration', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ))
+    .await
+    .expect("pre-migration folder should insert");
+
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("folder icon migration should apply");
+    let row = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT icon_kind, icon_value FROM folders WHERE id = 60917",
+        ))
+        .await
+        .expect("folder icon columns should query")
+        .expect("existing folder should remain");
+    assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "default");
+    assert_eq!(row.try_get_by_index::<Option<String>>(1).unwrap(), None);
+
+    assert!(
+        db.execute_raw(Statement::from_string(
+            backend,
+            "UPDATE folders SET icon_kind = 'builtin', icon_value = NULL WHERE id = 60917",
+        ))
+        .await
+        .is_err()
+    );
+    db.execute_raw(Statement::from_string(
+        backend,
+        "UPDATE folders SET icon_kind = 'builtin', icon_value = 'documents' WHERE id = 60917",
+    ))
+    .await
+    .expect("valid folder icon pair should persist");
+
+    CurrentMigrator::down(db, Some(1))
+        .await
+        .expect("folder icon migration should roll back");
+    let manager = aster_drive_migration::SchemaManager::new(db);
+    assert!(!manager.has_column("folders", "icon_kind").await.unwrap());
+    assert!(!manager.has_column("folders", "icon_value").await.unwrap());
+    CurrentMigrator::up(db, Some(1))
+        .await
+        .expect("folder icon migration should reapply");
+}
+
+#[tokio::test]
+async fn folder_icon_upgrade_round_trips_sqlite() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    assert_folder_icon_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn folder_icon_upgrade_round_trips_postgres() {
+    let db = Database::connect(common::postgres_empty_test_database_url().await)
+        .await
+        .unwrap();
+    assert_folder_icon_upgrade_on_backend(&db).await;
+}
+
+#[tokio::test]
+async fn folder_icon_upgrade_round_trips_mysql() {
+    let db = Database::connect(common::mysql_empty_test_database_url().await)
+        .await
+        .unwrap();
+    assert_folder_icon_upgrade_on_backend(&db).await;
+}
 
 async fn assert_external_auth_callback_mode_upgrade_on_backend(db: &DatabaseConnection) {
     CurrentMigrator::up(

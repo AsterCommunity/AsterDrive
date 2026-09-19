@@ -9,6 +9,7 @@ import {
 	BatchTargetFolderDialog,
 	CreateFileDialog,
 	CreateFolderDialog,
+	FolderIconDialog,
 	FolderPolicyDialog,
 	OfflineDownloadDialog,
 	RenameDialog,
@@ -37,6 +38,7 @@ interface FileBrowserDialogsProps {
 	currentFolderId: number | null;
 	currentFolderName?: string | null;
 	folderPolicyTarget: FolderListItem | null;
+	folderIconTarget: FolderListItem | null;
 	moveTarget: FileBrowserMoveTarget | null;
 	offlineDownloadOpen: boolean;
 	previewImageNavigation?: ImagePreviewNavigation<
@@ -57,6 +59,8 @@ interface FileBrowserDialogsProps {
 	onCreateFolderOpenChange: (open: boolean) => void;
 	onFolderPolicyClose: () => void;
 	onFolderPolicyUpdated?: () => void | Promise<void>;
+	onFolderIconClose: () => void;
+	onFolderIconUpdated?: () => void | Promise<void>;
 	onMoveClose: () => void;
 	onMoveConfirm: (selection: BatchTargetFolderSelection) => Promise<void>;
 	onOfflineDownloadOpenChange: (open: boolean) => void;
@@ -80,6 +84,7 @@ export function FileBrowserDialogs({
 	currentFolderId,
 	currentFolderName,
 	folderPolicyTarget,
+	folderIconTarget,
 	moveTarget,
 	offlineDownloadOpen,
 	previewImageNavigation,
@@ -95,6 +100,8 @@ export function FileBrowserDialogs({
 	onCreateFolderOpenChange,
 	onFolderPolicyClose,
 	onFolderPolicyUpdated,
+	onFolderIconClose,
+	onFolderIconUpdated,
 	onMoveClose,
 	onMoveConfirm,
 	onOfflineDownloadOpenChange,
@@ -138,6 +145,10 @@ export function FileBrowserDialogs({
 		retainedValue: retainedFolderPolicyTarget,
 		handleOpenChangeComplete: handleFolderPolicyOpenChangeComplete,
 	} = useRetainedDialogValue(folderPolicyTarget, folderPolicyTarget !== null);
+	const {
+		retainedValue: retainedFolderIconTarget,
+		handleOpenChangeComplete: handleFolderIconOpenChangeComplete,
+	} = useRetainedDialogValue(folderIconTarget, folderIconTarget !== null);
 
 	return (
 		<>
@@ -174,6 +185,18 @@ export function FileBrowserDialogs({
 					onOpenChange={onOfflineDownloadOpenChange}
 					targetFolderId={currentFolderId}
 					targetFolderName={currentFolderName}
+				/>
+			</Suspense>
+
+			<Suspense fallback={null}>
+				<FolderIconDialog
+					open={folderIconTarget !== null}
+					onOpenChange={(open) => {
+						if (!open) onFolderIconClose();
+					}}
+					onOpenChangeComplete={handleFolderIconOpenChangeComplete}
+					folder={retainedFolderIconTarget}
+					onUpdated={onFolderIconUpdated}
 				/>
 			</Suspense>
 

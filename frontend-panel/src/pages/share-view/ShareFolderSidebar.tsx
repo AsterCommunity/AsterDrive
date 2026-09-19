@@ -90,6 +90,7 @@ export function ShareFolderSidebar({
 						breadcrumb={breadcrumb}
 						folderContents={folderContents}
 						rootName={info.name}
+						rootIcon={info.folder_icon ?? undefined}
 						token={token}
 						onNavigate={handleNavigate}
 					/>

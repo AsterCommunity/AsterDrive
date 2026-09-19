@@ -9,6 +9,7 @@ use sea_orm::{
 
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::folder::{self, Entity as Folder};
+use aster_drive_model::types::FolderIconKind;
 
 use super::common::{FolderScope, map_bulk_name_db_err, map_name_db_err};
 
@@ -157,6 +158,20 @@ pub async fn create<C: ConnectionTrait>(
         .insert(db)
         .await
         .map_err(|err| map_name_db_err(err, &name))
+}
+
+pub async fn update_icon<C: ConnectionTrait>(
+    db: &C,
+    folder: folder::Model,
+    icon_kind: FolderIconKind,
+    icon_value: Option<String>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+) -> Result<folder::Model> {
+    let mut active: folder::ActiveModel = folder.into();
+    active.icon_kind = sea_orm::Set(icon_kind);
+    active.icon_value = sea_orm::Set(icon_value);
+    active.updated_at = sea_orm::Set(updated_at);
+    active.update(db).await.map_err(AsterError::from)
 }
 
 /// 批量插入文件夹记录（不返回创建的 Model，目录树复制用）
