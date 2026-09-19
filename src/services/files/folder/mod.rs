@@ -297,9 +297,8 @@ pub(crate) async fn set_icon_in_scope_with_audit(
     icon: FolderIcon,
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
-    let previous = get_info_in_scope(state, scope, folder_id).await?;
+    let (previous, folder) = set_icon_in_scope(state, scope, folder_id, icon).await?;
     let previous_icon = FolderIcon::from_model(&previous);
-    let folder = set_icon_in_scope(state, scope, folder_id, icon).await?;
     let next_icon = FolderIcon::from_model(&folder);
     audit::log_with_details(
         state,

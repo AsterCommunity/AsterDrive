@@ -614,9 +614,9 @@ pub(crate) async fn set_icon_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     icon: super::FolderIcon,
-) -> Result<folder::Model> {
+) -> Result<(folder::Model, folder::Model)> {
     let (icon_kind, icon_value) = icon.normalize()?;
-    let updated = transaction::with_transaction(state.writer_db(), async |txn| {
+    let (previous, updated) = transaction::with_transaction(state.writer_db(), async |txn| {
         let preview = folder_repo::find_by_id(txn, folder_id).await?;
         ensure_folder_model_in_scope(&preview, scope)?;
         let current = crate::services::files::lock::enforce_folder_mutation_on(
@@ -633,7 +633,10 @@ pub(crate) async fn set_icon_in_scope(
             )));
         }
 
-        folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await
+        let previous = current.clone();
+        let updated =
+            folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await?;
+        Ok((previous, updated))
     })
     .await?;
 
@@ -647,7 +650,7 @@ pub(crate) async fn set_icon_in_scope(
             vec![updated.parent_id],
         ),
     );
-    Ok(updated)
+    Ok((previous, updated))
 }
 
 pub(crate) async fn admin_set_policy(

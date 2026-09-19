@@ -96,6 +96,18 @@ vi.mock("@/components/files/FileTypeIcon", () => ({
 	getFileBadgeTint: () => "bg-muted/40",
 }));
 
+vi.mock("@/components/files/FolderIconRenderer", () => ({
+	FolderIconRenderer: (props: {
+		defaultIcon: React.ReactNode;
+		icon?: { kind: string; value?: string };
+	}) =>
+		!props.icon || props.icon.kind === "default" ? (
+			props.defaultIcon
+		) : (
+			<span>{`folder-icon:${props.icon.kind}:${props.icon.value ?? ""}`}</span>
+		),
+}));
+
 vi.mock("@/components/ui/button", () => ({
 	Button: (props: {
 		children: React.ReactNode;
@@ -348,15 +360,23 @@ describe("MySharesPage", () => {
 					id: 9,
 					resource_name: "Projects",
 					resource_type: "folder",
+					folder_icon: { kind: "emoji", value: "📚" },
+				}),
+				createShare({
+					id: 10,
+					resource_name: "Archive",
+					resource_type: "folder",
+					folder_icon: null,
 				}),
 			],
-			total: 2,
+			total: 3,
 		});
 
 		render(<MySharesPage />);
 
 		await screen.findByText("Document.pdf");
 		expect(screen.getByText("file-icon:Document.pdf:")).toBeInTheDocument();
+		expect(screen.getByText("folder-icon:emoji:📚")).toBeInTheDocument();
 		expect(screen.getByText("icon:Folder")).toBeInTheDocument();
 	});
 

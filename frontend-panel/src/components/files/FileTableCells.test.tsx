@@ -116,7 +116,7 @@ describe("FileTableCells", () => {
 	});
 
 	it("renders folder name cells with folder icons", () => {
-		render(
+		const { rerender } = render(
 			<FolderNameCell
 				folder={
 					{
@@ -129,9 +129,25 @@ describe("FileTableCells", () => {
 			/>,
 		);
 
-		expect(document.querySelector("svg")).toBeInTheDocument();
+		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "Folder");
 		expect(screen.getByText("Docs")).toBeInTheDocument();
 		expect(screen.getByTestId("status")).toHaveAttribute("data-locked", "true");
+
+		rerender(
+			<FolderNameCell
+				folder={
+					{
+						id: 2,
+						name: "Docs",
+						icon: { kind: "emoji", value: "📚" },
+						is_shared: false,
+						lock_state: { state: "direct", mode: "exclusive" },
+					} as never
+				}
+			/>,
+		);
+		expect(screen.getByText("📚")).toBeInTheDocument();
+		expect(screen.queryByTestId("icon")).not.toBeInTheDocument();
 	});
 
 	it("formats file sizes, folder sizes, and update dates", () => {

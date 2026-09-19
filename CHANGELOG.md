@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Folder icons** — Personal and team folders can use a curated Flat Color icon or one native Emoji through a keyboard-accessible picker. Stable icon keys and validated RGI Emoji sequences are stored as first-class folder metadata, preserved across rename, move, trash, restore, and recursive copy, and rendered consistently in lists, grids, trees, breadcrumbs, details, search, trash, and public shares; public responses expose the folder icon without leaking storage policy or connector topology.
+- **Folder icons** — Personal and team folders can use a curated Flat Color icon or one native Emoji through a keyboard-accessible picker. Folders without an override retain each surface's existing default styling, while custom glyphs render consistently in lists, grids, trees, breadcrumbs, details, search, trash, and public shares. Stable icon keys and validated RGI Emoji sequences are stored as first-class folder metadata, preserved across rename, move, trash, restore, and recursive copy; public responses expose the folder icon without leaking storage policy or connector topology.
 
 ### Fixed
 

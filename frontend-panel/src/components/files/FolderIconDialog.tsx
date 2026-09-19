@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { FolderIconRenderer } from "@/components/files/FolderIconRenderer";
+import { FolderGlyph } from "@/components/files/FolderGlyph";
 import {
 	folderBuiltinIconKeys,
 	folderIconCatalog,
@@ -101,14 +101,17 @@ function FolderIconDialogForm({
 		setSubmitting(true);
 		try {
 			await fileService.setFolderIcon(folder.id, nextIcon);
-			toast.success(t("folder_icon_updated"));
-			onOpenChange(false);
-			await onUpdated?.();
 		} catch (error) {
 			handleApiError(error);
 			submittingRef.current = false;
 			setSubmitting(false);
+			return;
 		}
+		toast.success(t("folder_icon_updated"));
+		onOpenChange(false);
+		void Promise.resolve()
+			.then(() => onUpdated?.())
+			.catch(handleApiError);
 	};
 
 	return (
@@ -128,8 +131,13 @@ function FolderIconDialogForm({
 			</div>
 
 			{mode === "default" ? (
-				<div className="flex h-28 items-center justify-center rounded-lg border border-border/70 bg-muted/20">
-					<FolderIconRenderer className="size-16" />
+				<div className="space-y-2">
+					<div className="flex h-28 items-center justify-center rounded-lg border border-border/70 bg-muted/20">
+						<FolderGlyph className="size-16" />
+					</div>
+					<p className="text-center text-xs text-muted-foreground">
+						{t("folder_icon_default_hint")}
+					</p>
 				</div>
 			) : null}
 

@@ -66,7 +66,17 @@ export function FolderTreeItemContent({
 					onNavigate();
 				}}
 			>
-				<FolderIconRenderer icon={icon} className="size-4 text-base" />
+				<FolderIconRenderer
+					icon={icon}
+					className="size-4 text-base"
+					defaultIcon={
+						<Icon
+							name={expanded ? "FolderOpen" : "Folder"}
+							aria-hidden="true"
+							className="size-4 shrink-0 text-muted-foreground"
+						/>
+					}
+				/>
 				<span className="truncate">{label}</span>
 			</button>
 		</>

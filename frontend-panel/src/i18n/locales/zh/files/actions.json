@@ -21,6 +21,7 @@
 	"folder_icon": "文件夹图标",
 	"folder_icon_title": "选择文件夹图标",
 	"folder_icon_mode_default": "默认",
+	"folder_icon_default_hint": "跟随各界面原有的默认图标样式。",
 	"folder_icon_mode_builtin": "内置",
 	"folder_icon_mode_emoji": "Emoji",
 	"folder_icon_emoji_input": "Emoji",

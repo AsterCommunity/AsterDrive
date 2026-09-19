@@ -118,6 +118,9 @@ export function FileInfoDialogContent({
 							<FolderIconRenderer
 								icon={targetIcon.icon}
 								className="size-8 text-3xl"
+								defaultIcon={
+									<Icon name="Folder" className="size-8 text-amber-500" />
+								}
 							/>
 						)}
 					</div>

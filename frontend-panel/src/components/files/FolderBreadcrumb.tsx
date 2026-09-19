@@ -16,6 +16,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Icon } from "@/components/ui/icon";
 import type { FolderIcon } from "@/types/api";
 
 export interface FolderBreadcrumbItem {
@@ -142,6 +143,12 @@ export function FolderBreadcrumb({
 												<FolderIconRenderer
 													icon={hiddenItem.icon}
 													className="size-4 text-base"
+													defaultIcon={
+														<Icon
+															name="FolderOpen"
+															className="size-4 text-muted-foreground"
+														/>
+													}
 												/>
 												<span className="truncate">{hiddenItem.name}</span>
 											</DropdownMenuItem>

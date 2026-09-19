@@ -93,6 +93,9 @@ export function MyShareCard({
 							<FolderIconRenderer
 								icon={share.folder_icon ?? undefined}
 								className="size-5 text-xl"
+								defaultIcon={
+									<Icon name="Folder" className="size-5 text-amber-500" />
+								}
 							/>
 						) : (
 							<FileTypeIcon

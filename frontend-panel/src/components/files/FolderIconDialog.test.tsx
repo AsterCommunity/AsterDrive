@@ -119,4 +119,26 @@ describe("FolderIconDialog", () => {
 			screen.getByRole("button", { name: "folder_icon_save" }),
 		).toBeEnabled();
 	});
+
+	it("reports a refresh error without treating the saved icon as failed", async () => {
+		const refreshError = new Error("refresh failed");
+		mocks.onUpdated.mockRejectedValue(refreshError);
+		render(
+			<FolderIconDialog
+				open
+				onOpenChange={mocks.onOpenChange}
+				folder={folder}
+				onUpdated={mocks.onUpdated}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "folder_icon_save" }));
+
+		await waitFor(() => expect(mocks.onUpdated).toHaveBeenCalledOnce());
+		expect(mocks.toastSuccess).toHaveBeenCalledWith("folder_icon_updated");
+		expect(mocks.onOpenChange).toHaveBeenCalledWith(false);
+		await waitFor(() =>
+			expect(mocks.handleApiError).toHaveBeenCalledWith(refreshError),
+		);
+	});
 });

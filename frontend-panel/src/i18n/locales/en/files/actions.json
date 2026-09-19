@@ -21,6 +21,7 @@
 	"folder_icon": "Folder icon",
 	"folder_icon_title": "Choose folder icon",
 	"folder_icon_mode_default": "Default",
+	"folder_icon_default_hint": "Keep the default icon style for each view.",
 	"folder_icon_mode_builtin": "Built-in",
 	"folder_icon_mode_emoji": "Emoji",
 	"folder_icon_emoji_input": "Emoji",

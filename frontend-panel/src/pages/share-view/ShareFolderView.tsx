@@ -217,6 +217,12 @@ export function ShareFolderView({
 										<FolderIconRenderer
 											icon={currentFolderIcon}
 											className="size-4 text-base"
+											defaultIcon={
+												<Icon
+													name={isRootFolder ? "House" : "FolderOpen"}
+													className="size-4"
+												/>
+											}
 										/>
 									</span>
 									<div className="min-w-0 flex-1">
@@ -269,6 +275,9 @@ export function ShareFolderView({
 										<FolderIconRenderer
 											icon={currentFolderIcon}
 											className="size-12 text-5xl"
+											defaultIcon={
+												<Icon name="FolderOpen" className="size-12" />
+											}
 										/>
 									}
 									title={t("empty_folder")}
