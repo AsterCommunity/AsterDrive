@@ -26,6 +26,18 @@ vi.mock("@/components/common/SkeletonTree", () => ({
 	),
 }));
 
+vi.mock("@/components/files/FolderIconRenderer", () => ({
+	FolderIconRenderer: ({
+		icon,
+	}: {
+		icon?: { kind: string; value?: string };
+	}) => (
+		<span data-testid="folder-icon">
+			{icon?.kind ?? "default"}:{icon?.value ?? ""}
+		</span>
+	),
+}));
+
 vi.mock("@/components/folders/folder-tree/AnimatedTreeGroup", () => ({
 	AnimatedTreeGroup: ({
 		children,
@@ -84,6 +96,20 @@ describe("ShareFolderTree", () => {
 		);
 
 		expect(screen.getByText("skeleton-tree:5")).toBeInTheDocument();
+	});
+
+	it("passes a custom shared-root icon to the root tree row", () => {
+		render(
+			<ShareFolderTree
+				breadcrumb={[{ id: null, name: "Shared Root" }]}
+				folderContents={contents([])}
+				rootName="Shared Root"
+				rootIcon={{ kind: "emoji", value: "📚" }}
+				token="share-token"
+				onNavigate={vi.fn()}
+			/>,
+		);
+		expect(screen.getByTestId("folder-icon")).toHaveTextContent("emoji:📚");
 	});
 
 	it("navigates and recursively toggles loaded share folders", () => {

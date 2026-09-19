@@ -614,6 +614,7 @@ pub(crate) async fn set_icon_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     icon: super::FolderIcon,
+    audit_context: Option<&crate::services::ops::audit::AuditContext>,
 ) -> Result<(folder::Model, folder::Model)> {
     let (icon_kind, icon_value) = icon.normalize()?;
     let (previous, updated) = transaction::with_transaction(state.writer_db(), async |txn| {
@@ -636,6 +637,26 @@ pub(crate) async fn set_icon_in_scope(
         let previous = current.clone();
         let updated =
             folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await?;
+        if let Some(audit_context) = audit_context {
+            let previous_icon = super::FolderIcon::from_model(&previous);
+            let next_icon = super::FolderIcon::from_model(&updated);
+            crate::services::ops::audit::log_with_transaction(
+                txn,
+                state.runtime_config(),
+                crate::services::ops::audit::AuditLogInput {
+                    ctx: audit_context,
+                    action: crate::services::ops::audit::AuditAction::FolderIconChange,
+                    entity_type: crate::services::ops::audit::AuditEntityType::Folder,
+                    entity_id: Some(updated.id),
+                    entity_name: Some(&updated.name),
+                },
+                || Some(super::folder_icon_audit_details(&previous_icon, &next_icon)),
+            )
+            .await
+            .map_err(|error| {
+                AsterError::database_operation(format!("write folder icon audit: {error}"))
+            })?;
+        }
         Ok((previous, updated))
     })
     .await?;

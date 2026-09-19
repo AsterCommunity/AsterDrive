@@ -297,19 +297,8 @@ pub(crate) async fn set_icon_in_scope_with_audit(
     icon: FolderIcon,
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
-    let (previous, folder) = set_icon_in_scope(state, scope, folder_id, icon).await?;
-    let previous_icon = FolderIcon::from_model(&previous);
-    let next_icon = FolderIcon::from_model(&folder);
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::FolderIconChange,
-        crate::services::ops::audit::AuditEntityType::Folder,
-        Some(folder.id),
-        Some(&folder.name),
-        || Some(folder_icon_audit_details(&previous_icon, &next_icon)),
-    )
-    .await;
+    let (_previous, folder) =
+        set_icon_in_scope(state, scope, folder_id, icon, Some(audit_ctx)).await?;
     let lock_states = crate::services::files::lock::load_for_scope(
         state,
         scope.into(),
@@ -326,7 +315,10 @@ pub(crate) async fn set_icon_in_scope_with_audit(
     )
 }
 
-fn folder_icon_audit_details(previous: &FolderIcon, next: &FolderIcon) -> serde_json::Value {
+pub(super) fn folder_icon_audit_details(
+    previous: &FolderIcon,
+    next: &FolderIcon,
+) -> serde_json::Value {
     fn fields(icon: &FolderIcon) -> (&'static str, Option<&str>) {
         match icon {
             FolderIcon::Default {} => ("default", None),

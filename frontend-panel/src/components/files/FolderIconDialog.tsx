@@ -123,6 +123,7 @@ function FolderIconDialogForm({
 						type="button"
 						variant={mode === value ? "secondary" : "ghost"}
 						className="h-8"
+						aria-pressed={mode === value}
 						onClick={() => setMode(value)}
 					>
 						{t(`folder_icon_mode_${value}`)}

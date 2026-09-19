@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { cloneElement, type ReactElement } from "react";
 import { cn } from "@/lib/utils";
 import type { FolderIcon } from "@/types/api";
 import { folderIconCatalog } from "./folderIconCatalog";
@@ -6,7 +6,7 @@ import { folderIconCatalog } from "./folderIconCatalog";
 interface FolderIconRendererProps {
 	icon?: FolderIcon;
 	className?: string;
-	defaultIcon: ReactNode;
+	defaultIcon: ReactElement;
 }
 
 export function FolderIconRenderer({
@@ -15,7 +15,16 @@ export function FolderIconRenderer({
 	defaultIcon,
 }: FolderIconRendererProps) {
 	if (icon.kind === "default") {
-		return <>{defaultIcon}</>;
+		const defaultElement = defaultIcon as ReactElement<{
+			"aria-hidden"?: boolean;
+			focusable?: boolean;
+			tabIndex?: number;
+		}>;
+		return cloneElement(defaultElement, {
+			"aria-hidden": true,
+			focusable: false,
+			tabIndex: -1,
+		});
 	}
 
 	if (icon.kind === "emoji") {

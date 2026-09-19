@@ -11,6 +11,14 @@ describe("FolderIconRenderer", () => {
 			<FolderIconRenderer defaultIcon={defaultIcon} />,
 		);
 		expect(screen.getByText("surface-default")).toBeInTheDocument();
+		expect(screen.getByText("surface-default")).toHaveAttribute(
+			"aria-hidden",
+			"true",
+		);
+		expect(screen.getByText("surface-default")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		expect(container.querySelector("svg")).toBeNull();
 
 		for (const key of folderBuiltinIconKeys) {

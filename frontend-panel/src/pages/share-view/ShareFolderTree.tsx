@@ -8,7 +8,7 @@ import {
 	SIDEBAR_SECTION_PADDING_CLASS,
 } from "@/lib/constants";
 import { folderTreeRowClass } from "@/lib/utils";
-import type { FolderContents } from "@/types/api";
+import type { FolderContents, FolderIcon } from "@/types/api";
 import type { ShareBreadcrumbItem } from "./types";
 import {
 	type ShareFolderTreeNode,
@@ -94,12 +94,14 @@ export function ShareFolderTree({
 	breadcrumb,
 	folderContents,
 	rootName,
+	rootIcon,
 	token,
 	onNavigate,
 }: {
 	breadcrumb: ShareBreadcrumbItem[];
 	folderContents: FolderContents | null;
 	rootName: string;
+	rootIcon?: FolderIcon;
 	token: string;
 	onNavigate: (folderId: number | null, folderName?: string) => void;
 }) {
@@ -131,6 +133,7 @@ export function ShareFolderTree({
 			>
 				<FolderTreeItemContent
 					expanded={rootExpanded}
+					icon={rootIcon}
 					label={rootName}
 					loading={rootLoading}
 					showToggle={rootLoading || !rootLoaded || tree.rootIds.length > 0}

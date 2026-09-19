@@ -99,13 +99,15 @@ vi.mock("@/components/files/FileTypeIcon", () => ({
 vi.mock("@/components/files/FolderIconRenderer", () => ({
 	FolderIconRenderer: (props: {
 		defaultIcon: React.ReactNode;
-		icon?: { kind: string; value?: string };
-	}) =>
-		!props.icon || props.icon.kind === "default" ? (
-			props.defaultIcon
-		) : (
-			<span>{`folder-icon:${props.icon.kind}:${props.icon.value ?? ""}`}</span>
-		),
+		icon?: NonNullable<MyShareInfo["folder_icon"]>;
+	}) => {
+		if (!props.icon || props.icon.kind === "default") {
+			return props.defaultIcon;
+		}
+		const payload =
+			props.icon.kind === "builtin" ? props.icon.key : props.icon.value;
+		return <span>{`folder-icon:${props.icon.kind}:${payload}`}</span>;
+	},
 }));
 
 vi.mock("@/components/ui/button", () => ({
