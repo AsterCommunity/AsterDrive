@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 	startProxyFileDownload: vi.fn(),
 	streamArchiveDownload: vi.fn(),
 	supportsDirectoryDownload: vi.fn(),
+	supportsProxyDownload: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApiError", () => ({
@@ -42,6 +43,7 @@ vi.mock("@/services/downloadCoordinator", () => ({
 	startProxyArchiveDownload: mocks.startProxyArchiveDownload,
 	startProxyFileDownload: mocks.startProxyFileDownload,
 	supportsDirectoryDownload: mocks.supportsDirectoryDownload,
+	supportsProxyDownload: mocks.supportsProxyDownload,
 }));
 
 vi.mock("react-i18next", async (importOriginal) => {
@@ -94,6 +96,8 @@ describe("DownloadCenter", () => {
 		mocks.streamArchiveDownload.mockResolvedValue(undefined);
 		mocks.supportsDirectoryDownload.mockReset();
 		mocks.supportsDirectoryDownload.mockReturnValue(false);
+		mocks.supportsProxyDownload.mockReset();
+		mocks.supportsProxyDownload.mockReturnValue(true);
 		useDownloadStore.setState({
 			pendingSelection: null,
 			tasks: [],
@@ -186,6 +190,46 @@ describe("DownloadCenter", () => {
 
 		expect(mocks.streamArchiveDownload).toHaveBeenCalledWith([1, 2], [3]);
 		expect(useDownloadStore.getState().pendingSelection).toBeNull();
+	});
+
+	it("hides proxy methods without the File System Access API while keeping browser downloads", () => {
+		mocks.supportsProxyDownload.mockReturnValue(false);
+		useDownloadStore.setState({
+			pendingSelection: {
+				workspace: { kind: "personal" },
+				files: [{ id: 1, name: "first.txt" }],
+				folders: [{ id: 2, name: "docs" }],
+			},
+		});
+
+		const { unmount } = render(<DownloadCenter />);
+
+		expect(
+			screen.queryByRole("button", { name: /download_proxy_archive/ }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /download_to_folder/ }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /download_browser_archive/ }),
+		).toBeInTheDocument();
+		unmount();
+
+		useDownloadStore.setState({
+			pendingSelection: {
+				workspace: { kind: "personal" },
+				files: [{ id: 3, name: "only.txt" }],
+				folders: [],
+			},
+		});
+		render(<DownloadCenter />);
+
+		expect(
+			screen.queryByRole("button", { name: /download_proxy_file/ }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /download_browser_default/ }),
+		).toBeInTheDocument();
 	});
 
 	it("lets download-method option descriptions wrap on narrow screens", () => {

@@ -12,7 +12,7 @@ use futures::{Stream, StreamExt};
 
 use super::common::{
     ArchiveEntry, ArchiveFileEntry, ArchiveSinkContext, ends_with_ignore_ascii_case,
-    is_client_disconnect_error_text, write_archive_to_sink,
+    is_archive_sink_disconnect_error_text, write_archive_to_sink,
 };
 use crate::config::operations;
 use crate::db::repository::{file_repo, folder_repo};
@@ -163,9 +163,10 @@ pub(crate) async fn stream_archive_download_in_scope(
         .and_then(|(writer, _)| flush_archive_download_sink(writer, "archive download"));
         if let Err(error) = &result {
             let error_text = error.to_string();
-            if is_client_disconnect_error_text(&error_text) {
+            if is_archive_sink_disconnect_error_text(&error_text) {
                 tracing::info!(
                     archive_name = %archive_name_for_worker,
+                    error = %error_text,
                     "archive download stream stopped after client disconnected"
                 );
             } else {
@@ -243,10 +244,11 @@ pub(crate) async fn stream_shared_archive_download(
         if let Err(error) = &result {
             let error_text = error.to_string();
             rollback_queue.enqueue(share_id);
-            if is_client_disconnect_error_text(&error_text) {
+            if is_archive_sink_disconnect_error_text(&error_text) {
                 tracing::info!(
                     share_id,
                     archive_name = %archive_name_for_worker,
+                    error = %error_text,
                     "shared archive download stream stopped after client disconnected"
                 );
             } else {

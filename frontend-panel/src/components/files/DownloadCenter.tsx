@@ -26,6 +26,7 @@ import {
 	startProxyArchiveDownload,
 	startProxyFileDownload,
 	supportsDirectoryDownload,
+	supportsProxyDownload,
 } from "@/services/downloadCoordinator";
 import {
 	DOWNLOAD_TASK_STATUS,
@@ -262,6 +263,7 @@ export function DownloadCenter() {
 			? pendingSelection.files[0]
 			: null;
 	const directoryDownloadSupported = supportsDirectoryDownload();
+	const proxyDownloadSupported = supportsProxyDownload();
 	const canRemoveCompleted = tasks.some(
 		(task) =>
 			task.status === DOWNLOAD_TASK_STATUS.completed ||
@@ -345,7 +347,7 @@ export function DownloadCenter() {
 						</DialogDescription>
 					</DialogHeader>
 					<div className="grid gap-2">
-						{singleFile && pendingSelection ? (
+						{singleFile && pendingSelection && proxyDownloadSupported ? (
 							<Button
 								type="button"
 								variant="outline"
@@ -369,7 +371,9 @@ export function DownloadCenter() {
 								</span>
 							</Button>
 						) : null}
-						{pendingSelection && archiveDownloadEnabled ? (
+						{pendingSelection &&
+						archiveDownloadEnabled &&
+						proxyDownloadSupported ? (
 							<Button
 								type="button"
 								variant="outline"
@@ -391,7 +395,8 @@ export function DownloadCenter() {
 							</Button>
 						) : null}
 						{pendingSelection &&
-						(directoryDownloadSupported || archiveDownloadEnabled) ? (
+						(directoryDownloadSupported ||
+							(archiveDownloadEnabled && proxyDownloadSupported)) ? (
 							<Button
 								type="button"
 								variant="outline"

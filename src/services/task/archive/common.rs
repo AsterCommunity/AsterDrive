@@ -397,11 +397,15 @@ fn contains_ignore_ascii_case(values: &[&str], needle: &str) -> bool {
         .any(|value| needle.eq_ignore_ascii_case(value))
 }
 
-pub(super) fn is_client_disconnect_error_text(error_text: &str) -> bool {
+pub(super) fn is_archive_sink_disconnect_error_text(error_text: &str) -> bool {
     let error_text = error_text.to_ascii_lowercase();
-    error_text.contains("broken pipe")
-        || error_text.contains("connection reset by peer")
-        || error_text.contains("connection closed")
+    let is_archive_sink_error = error_text.contains("write archive stream chunk")
+        || error_text.contains("flush completed archive download stream")
+        || error_text.contains("flush completed shared archive download stream");
+    is_archive_sink_error
+        && (error_text.contains("broken pipe")
+            || error_text.contains("connection reset by peer")
+            || error_text.contains("connection closed"))
 }
 
 pub(super) fn copy_reader_to_writer_with_execution<R: Read, W: Write>(
@@ -511,7 +515,8 @@ mod tests {
 
     use super::{
         archive_entry_requires_zip64, copy_reader_to_writer_with_execution,
-        copy_reader_to_writer_with_execution_and_expected_size, is_client_disconnect_error_text,
+        copy_reader_to_writer_with_execution_and_expected_size,
+        is_archive_sink_disconnect_error_text,
     };
 
     #[test]
@@ -521,13 +526,21 @@ mod tests {
     }
 
     #[test]
-    fn client_disconnect_errors_are_classified_case_insensitively() {
-        assert!(is_client_disconnect_error_text("Broken pipe (os error 32)"));
-        assert!(is_client_disconnect_error_text("broken pipe"));
-        assert!(is_client_disconnect_error_text("Connection reset by peer"));
-        assert!(is_client_disconnect_error_text("connection closed"));
-        assert!(!is_client_disconnect_error_text(
-            "source object read failed"
+    fn archive_sink_disconnect_errors_are_classified_without_masking_source_failures() {
+        assert!(is_archive_sink_disconnect_error_text(
+            "write archive stream chunk: Broken pipe (os error 32)"
+        ));
+        assert!(is_archive_sink_disconnect_error_text(
+            "flush completed shared archive download stream: Connection reset by peer"
+        ));
+        assert!(is_archive_sink_disconnect_error_text(
+            "write archive stream chunk: connection closed"
+        ));
+        assert!(!is_archive_sink_disconnect_error_text(
+            "read archive stream chunk: connection closed before message completed"
+        ));
+        assert!(!is_archive_sink_disconnect_error_text(
+            "source object read failed: broken pipe"
         ));
     }
 

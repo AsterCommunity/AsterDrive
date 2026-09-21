@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Large download delivery in browsers** — Browser-managed archive downloads now use the shared native download trigger instead of a timed hidden iframe. Browsers without the File System Access API no longer expose in-page proxy download modes; direct proxy calls fall back to the native download manager instead of buffering complete files or ZIP archives in page memory. Archive diagnostics also distinguish downstream client disconnects from upstream storage-read failures instead of masking both as client disconnects.
+
 ## [v0.6.2] - 2026-09-19
 
 ### Added

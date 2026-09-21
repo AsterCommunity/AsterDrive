@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **浏览器大体积下载交付** — 浏览器托管的打包下载改用统一的原生下载触发器，不再依赖定时移除的隐藏 iframe。不支持 File System Access API 的浏览器不再显示页内代理下载模式；即使直接调用代理入口，也会回退到浏览器原生下载管理器，而不是在页面内存中缓冲完整文件或 ZIP。归档诊断还会区分下游客户端断连与上游存储读取失败，不再把两者都掩盖成客户端断连。
+
 ## [v0.6.2] - 2026-09-19
 
 ### Added

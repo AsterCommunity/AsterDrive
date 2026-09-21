@@ -8,6 +8,7 @@ import {
 	startProxyArchiveDownload,
 	startProxyFileDownload,
 	supportsDirectoryDownload,
+	supportsProxyDownload,
 } from "@/services/downloadCoordinator";
 import { DOWNLOAD_TASK_STATUS, useDownloadStore } from "@/stores/downloadStore";
 
@@ -18,12 +19,14 @@ const mocks = vi.hoisted(() => ({
 	listFolder: vi.fn(),
 	resolveResourceHandle: vi.fn(),
 	startAuthenticatedDownload: vi.fn(),
+	streamArchiveDownload: vi.fn(),
 }));
 
 vi.mock("@/services/batchService", () => ({
 	createBatchService: () => ({
 		archiveDownloadUrl: mocks.archiveDownloadUrl,
 		createArchiveDownloadTicket: mocks.createArchiveDownloadTicket,
+		streamArchiveDownload: mocks.streamArchiveDownload,
 	}),
 }));
 
@@ -54,6 +57,18 @@ function responseBody(parts: string[]) {
 				controller.enqueue(new TextEncoder().encode(part));
 			controller.close();
 		},
+	});
+}
+
+function installSaveFilePicker() {
+	Object.defineProperty(window, "showSaveFilePicker", {
+		configurable: true,
+		value: vi.fn().mockResolvedValue({
+			createWritable: vi.fn().mockResolvedValue({
+				write: vi.fn().mockResolvedValue(undefined),
+				close: vi.fn().mockResolvedValue(undefined),
+			}),
+		}),
 	});
 }
 
@@ -125,11 +140,9 @@ describe("downloadCoordinator", () => {
 		mocks.listFolder.mockReset();
 		mocks.resolveResourceHandle.mockReset();
 		mocks.startAuthenticatedDownload.mockReset();
+		mocks.streamArchiveDownload.mockReset();
 		vi.unstubAllGlobals();
-		Object.defineProperty(window, "showSaveFilePicker", {
-			configurable: true,
-			value: undefined,
-		});
+		installSaveFilePicker();
 		Object.defineProperty(window, "showDirectoryPicker", {
 			configurable: true,
 			value: undefined,
@@ -149,6 +162,34 @@ describe("downloadCoordinator", () => {
 		expect(mocks.startAuthenticatedDownload).toHaveBeenCalledWith(
 			"/teams/9/files/7/download",
 		);
+	});
+
+	it("disables proxy transfers when the File System Access API is unavailable", async () => {
+		expect(supportsProxyDownload()).toBe(true);
+		Object.defineProperty(window, "showSaveFilePicker", {
+			configurable: true,
+			value: undefined,
+		});
+		mocks.downloadPath.mockReturnValue("/files/1/download");
+		mocks.startAuthenticatedDownload.mockResolvedValue(undefined);
+		mocks.streamArchiveDownload.mockResolvedValue(undefined);
+
+		expect(supportsProxyDownload()).toBe(false);
+		await startProxyFileDownload(
+			{ kind: "personal" },
+			{ id: 1, name: "mobile.bin" },
+		);
+		await startProxyArchiveDownload(selection(), "mobile-bundle");
+
+		expect(mocks.startAuthenticatedDownload).toHaveBeenCalledWith(
+			"/files/1/download",
+		);
+		expect(mocks.streamArchiveDownload).toHaveBeenCalledWith(
+			[1],
+			[],
+			"mobile-bundle.zip",
+		);
+		expect(useDownloadStore.getState().tasks).toHaveLength(0);
 	});
 
 	it("uses the backend resource handle credentials and reports streaming progress", async () => {
@@ -191,7 +232,7 @@ describe("downloadCoordinator", () => {
 			bytesReceived: 6,
 			totalBytes: 6,
 			completedItems: 1,
-			warning: "download_memory_fallback",
+			warning: undefined,
 		});
 	});
 

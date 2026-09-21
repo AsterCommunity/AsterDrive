@@ -20,7 +20,6 @@
 	"download_clear_completed": "清理已完成",
 	"download_cancel": "取消下载",
 	"download_retry_failed": "重试失败项",
-	"download_memory_fallback": "浏览器缺少流式文件写入能力，本次下载会暂存在内存中。",
 	"download_items_failed": "部分文件下载失败，可以重试失败项。",
 	"download_directory_unsupported": "当前浏览器不支持选择本地文件夹。",
 	"download_items_progress": "已完成 {{completed}} / {{total}}，失败 {{failed}}",

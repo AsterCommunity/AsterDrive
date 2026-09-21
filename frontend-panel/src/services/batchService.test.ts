@@ -6,7 +6,10 @@ import {
 	resolveMoveDispatch,
 } from "@/services/batchService";
 
-const apiPost = vi.hoisted(() => vi.fn());
+const { apiPost, startBrowserDownload } = vi.hoisted(() => ({
+	apiPost: vi.fn(),
+	startBrowserDownload: vi.fn(),
+}));
 
 vi.mock("@/services/http", () => ({
 	api: {
@@ -14,9 +17,14 @@ vi.mock("@/services/http", () => ({
 	},
 }));
 
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startBrowserDownload,
+}));
+
 describe("batchService", () => {
 	beforeEach(() => {
 		apiPost.mockReset();
+		startBrowserDownload.mockReset();
 		document.body.innerHTML = "";
 	});
 
@@ -243,8 +251,7 @@ describe("batchService", () => {
 		expect(dispatcher.moveToWorkspace).not.toHaveBeenCalled();
 	});
 
-	it("creates archive download tickets with JSON bodies and triggers iframe downloads", async () => {
-		vi.useFakeTimers();
+	it("creates archive download tickets with JSON bodies and hands them to the browser", async () => {
 		apiPost
 			.mockResolvedValueOnce({
 				token: "personal-ticket",
@@ -275,20 +282,15 @@ describe("batchService", () => {
 			},
 		);
 
-		const iframes = Array.from(document.querySelectorAll("iframe"));
-		expect(iframes).toHaveLength(2);
-		expect(iframes[0]).toHaveAttribute(
-			"src",
+		expect(startBrowserDownload).toHaveBeenNthCalledWith(
+			1,
 			"/api/v1/batch/archive-download/personal-ticket",
 		);
-		expect(iframes[1]).toHaveAttribute(
-			"src",
+		expect(startBrowserDownload).toHaveBeenNthCalledWith(
+			2,
 			"/api/v1/teams/4/batch/archive-download/team-ticket",
 		);
-
-		vi.advanceTimersByTime(60_000);
 		expect(document.querySelector("iframe")).toBeNull();
-		vi.useRealTimers();
 	});
 
 	it("creates archive compress tasks with workspace-scoped payloads", () => {
