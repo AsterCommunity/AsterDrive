@@ -142,7 +142,7 @@ server {
 
     # Archive downloads are long responses without a known Content-Length.
     # If ModSecurity-nginx is loaded, uncomment the next line. Do not add it otherwise.
-    location ~ ^/api/v1/(batch|teams/[^/]+/batch|s/[^/]+)/archive-download/ {
+    location ~ ^/api/v1/(batch|teams/[^/]+/batch|s/[^/]+)/archive-download/[^/]+$ {
         # modsecurity off;
         proxy_pass http://127.0.0.1:3000;
         proxy_buffering off;

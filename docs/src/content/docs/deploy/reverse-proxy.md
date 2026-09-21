@@ -142,7 +142,7 @@ server {
 
     # 打包下载是没有预知 Content-Length 的长响应，不要缓存或缓冲整个 ZIP。
     # 如果加载了 ModSecurity-nginx，取消下一行注释；未加载该模块时不要添加此指令。
-    location ~ ^/api/v1/(batch|teams/[^/]+/batch|s/[^/]+)/archive-download/ {
+    location ~ ^/api/v1/(batch|teams/[^/]+/batch|s/[^/]+)/archive-download/[^/]+$ {
         # modsecurity off;
         proxy_pass http://127.0.0.1:3000;
         proxy_buffering off;
