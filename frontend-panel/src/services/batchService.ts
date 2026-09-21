@@ -1,5 +1,6 @@
 import { config } from "@/config/app";
 import { joinApiUrl } from "@/lib/apiUrl";
+import { startBrowserDownload } from "@/lib/authenticatedDownload";
 import {
 	buildWorkspacePath,
 	PERSONAL_WORKSPACE,
@@ -23,14 +24,7 @@ export interface StreamTicketInfo {
 }
 
 export function triggerStreamingDownload(url: string) {
-	const iframe = document.createElement("iframe");
-	iframe.style.display = "none";
-	document.body.appendChild(iframe);
-	iframe.src = url;
-
-	window.setTimeout(() => {
-		iframe.remove();
-	}, 60_000);
+	startBrowserDownload(url);
 }
 
 export function buildArchiveDownloadPayload(

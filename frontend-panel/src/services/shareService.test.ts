@@ -3,12 +3,14 @@ import { PERSONAL_WORKSPACE } from "@/lib/workspace";
 import { createShareService, shareService } from "@/services/shareService";
 import type { FolderListParams } from "@/types/api";
 
-const { apiDelete, apiGet, apiPatch, apiPost } = vi.hoisted(() => ({
-	apiDelete: vi.fn(),
-	apiGet: vi.fn(),
-	apiPatch: vi.fn(),
-	apiPost: vi.fn(),
-}));
+const { apiDelete, apiGet, apiPatch, apiPost, startBrowserDownload } =
+	vi.hoisted(() => ({
+		apiDelete: vi.fn(),
+		apiGet: vi.fn(),
+		apiPatch: vi.fn(),
+		apiPost: vi.fn(),
+		startBrowserDownload: vi.fn(),
+	}));
 
 vi.mock("@/services/http", () => ({
 	api: {
@@ -19,12 +21,17 @@ vi.mock("@/services/http", () => ({
 	},
 }));
 
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startBrowserDownload,
+}));
+
 describe("shareService", () => {
 	beforeEach(async () => {
 		apiDelete.mockReset();
 		apiGet.mockReset();
 		apiPatch.mockReset();
 		apiPost.mockReset();
+		startBrowserDownload.mockReset();
 		document.body.innerHTML = "";
 		const { setPublicSiteUrls } = await import("@/lib/publicSiteUrl");
 		setPublicSiteUrls(null);
@@ -178,54 +185,38 @@ describe("shareService", () => {
 		);
 	});
 
-	it("triggers iframe downloads for shared archive tickets", async () => {
-		vi.useFakeTimers();
-		try {
-			apiPost.mockResolvedValueOnce({
-				token: "shared-ticket",
-				download_path: "/s/token-1/archive-download/shared-ticket?download=1",
-				expires_at: "2026-04-10T12:00:00Z",
-			});
+	it("hands shared archive tickets to the browser download manager", async () => {
+		apiPost.mockResolvedValueOnce({
+			token: "shared-ticket",
+			download_path: "/s/token-1/archive-download/shared-ticket?download=1",
+			expires_at: "2026-04-10T12:00:00Z",
+		});
 
-			await shareService.streamArchiveDownload("token-1", [1, 2], [3]);
+		await shareService.streamArchiveDownload("token-1", [1, 2], [3]);
 
-			expect(apiPost).toHaveBeenCalledWith("/s/token-1/archive-download", {
-				file_ids: [1, 2],
-				folder_ids: [3],
-			});
-			const iframe = document.querySelector("iframe");
-			expect(iframe).toHaveAttribute(
-				"src",
-				"/api/v1/s/token-1/archive-download/shared-ticket?download=1",
-			);
-
-			vi.advanceTimersByTime(60_000);
-			expect(document.querySelector("iframe")).toBeNull();
-		} finally {
-			vi.useRealTimers();
-		}
+		expect(apiPost).toHaveBeenCalledWith("/s/token-1/archive-download", {
+			file_ids: [1, 2],
+			folder_ids: [3],
+		});
+		expect(startBrowserDownload).toHaveBeenCalledWith(
+			"/api/v1/s/token-1/archive-download/shared-ticket?download=1",
+		);
+		expect(document.querySelector("iframe")).toBeNull();
 	});
 
 	it("uses absolute shared archive download paths without API base rewriting", async () => {
-		vi.useFakeTimers();
-		try {
-			apiPost.mockResolvedValueOnce({
-				token: "shared-ticket",
-				download_path:
-					"https://files.example.test/s/token-1/archive-download/shared-ticket?download=1",
-				expires_at: "2026-04-10T12:00:00Z",
-			});
-
-			await shareService.streamArchiveDownload("token-1", [1], []);
-
-			const iframe = document.querySelector("iframe");
-			expect(iframe).toHaveAttribute(
-				"src",
+		apiPost.mockResolvedValueOnce({
+			token: "shared-ticket",
+			download_path:
 				"https://files.example.test/s/token-1/archive-download/shared-ticket?download=1",
-			);
-		} finally {
-			vi.useRealTimers();
-		}
+			expires_at: "2026-04-10T12:00:00Z",
+		});
+
+		await shareService.streamArchiveDownload("token-1", [1], []);
+
+		expect(startBrowserDownload).toHaveBeenCalledWith(
+			"https://files.example.test/s/token-1/archive-download/shared-ticket?download=1",
+		);
 	});
 
 	it("forwards abort signals for public preview metadata requests", () => {

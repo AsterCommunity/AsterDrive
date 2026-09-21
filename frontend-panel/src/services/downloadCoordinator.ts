@@ -250,34 +250,11 @@ async function streamResponse(
 	}
 }
 
-function blobSink() {
-	const chunks: BlobPart[] = [];
-	return {
-		sink: {
-			write: async (data: Uint8Array) => {
-				chunks.push(data.slice());
-			},
-			close: async () => undefined,
-		},
-		blob: (type?: string | null) =>
-			new Blob(chunks, { type: type ?? undefined }),
-	};
-}
-
-function triggerBlobDownload(blob: Blob, name: string) {
-	const url = URL.createObjectURL(blob);
-	const anchor = document.createElement("a");
-	anchor.href = url;
-	anchor.download = name;
-	document.body.append(anchor);
-	anchor.click();
-	anchor.remove();
-	window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
 async function chooseFileSink(name: string, zip: boolean) {
 	const pickerWindow = window as FilePickerWindow;
-	if (!pickerWindow.showSaveFilePicker) return null;
+	if (!pickerWindow.showSaveFilePicker) {
+		throw new Error("Proxy downloads require the File System Access API");
+	}
 	const handle = await pickerWindow.showSaveFilePicker({
 		suggestedName: name,
 		...(zip
@@ -319,6 +296,10 @@ export async function startProxyFileDownload(
 	workspace: Workspace,
 	file: { id: number; name: string; size?: number },
 ) {
+	if (!supportsProxyDownload()) {
+		await startAuthenticatedFileDownload(workspace, file.id);
+		return;
+	}
 	const task = newTask("file", file.name);
 	useDownloadStore.getState().upsertTask(task);
 	const retry = () => {
@@ -343,7 +324,7 @@ async function runProxyFileDownload(
 		updateTask(task.id, {
 			status: DOWNLOAD_TASK_STATUS.preparing,
 			totalBytes: file.size ?? null,
-			warning: writable ? undefined : "download_memory_fallback",
+			warning: undefined,
 			error: undefined,
 			bytesReceived: 0,
 			speedBps: null,
@@ -355,22 +336,13 @@ async function runProxyFileDownload(
 			filenameFromContentDisposition(
 				response.headers.get("content-disposition"),
 			) ?? file.name;
-		const fallback = writable ? null : blobSink();
 		updateTask(task.id, {
 			name: responseName,
 			status: DOWNLOAD_TASK_STATUS.downloading,
 		});
-		await streamResponse(
-			response,
-			writable ?? fallback?.sink ?? blobSink().sink,
-			controller.signal,
-			(progress) => updateTask(task.id, progress),
+		await streamResponse(response, writable, controller.signal, (progress) =>
+			updateTask(task.id, progress),
 		);
-		if (fallback)
-			triggerBlobDownload(
-				fallback.blob(response.headers.get("content-type")),
-				responseName,
-			);
 		updateTask(task.id, {
 			status: DOWNLOAD_TASK_STATUS.completed,
 			completedItems: 1,
@@ -390,6 +362,14 @@ export async function startProxyArchiveDownload(
 	const name = ensureZipExtension(
 		archiveName ?? suggestedArchiveName(selection),
 	);
+	if (!supportsProxyDownload()) {
+		await createBatchService(selection.workspace).streamArchiveDownload(
+			selection.files.map((file) => file.id),
+			selection.folders.map((folder) => folder.id),
+			name,
+		);
+		return;
+	}
 	const task = newTask("archive", name);
 	useDownloadStore.getState().upsertTask(task);
 	const retry = () => {
@@ -413,7 +393,7 @@ async function runProxyArchiveDownload(
 		throwIfCanceled(controller.signal);
 		updateTask(task.id, {
 			status: DOWNLOAD_TASK_STATUS.preparing,
-			warning: writable ? undefined : "download_memory_fallback",
+			warning: undefined,
 			error: undefined,
 			bytesReceived: 0,
 			totalBytes: null,
@@ -441,19 +421,13 @@ async function runProxyArchiveDownload(
 				response.headers.get("content-disposition"),
 			) ?? name,
 		);
-		const fallback = writable ? null : blobSink();
 		updateTask(task.id, {
 			name: responseName,
 			status: DOWNLOAD_TASK_STATUS.downloading,
 		});
-		await streamResponse(
-			response,
-			writable ?? fallback?.sink ?? blobSink().sink,
-			controller.signal,
-			(progress) => updateTask(task.id, progress),
+		await streamResponse(response, writable, controller.signal, (progress) =>
+			updateTask(task.id, progress),
 		);
-		if (fallback)
-			triggerBlobDownload(fallback.blob("application/zip"), responseName);
 		updateTask(task.id, {
 			status: DOWNLOAD_TASK_STATUS.completed,
 			completedItems: 1,
@@ -869,6 +843,10 @@ export function retryDownloadTask(id: string) {
 
 export function supportsDirectoryDownload() {
 	return typeof (window as FilePickerWindow).showDirectoryPicker === "function";
+}
+
+export function supportsProxyDownload() {
+	return typeof (window as FilePickerWindow).showSaveFilePicker === "function";
 }
 
 export function startAuthenticatedFileDownload(

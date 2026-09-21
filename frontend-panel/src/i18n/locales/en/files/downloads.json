@@ -20,7 +20,6 @@
 	"download_clear_completed": "Clear completed",
 	"download_cancel": "Cancel download",
 	"download_retry_failed": "Retry failed items",
-	"download_memory_fallback": "Streaming file writes are not available, so this download is buffered in memory.",
 	"download_items_failed": "Some files failed. Retry the failed items when ready.",
 	"download_directory_unsupported": "This browser does not support choosing a local directory.",
 	"download_items_progress": "{{completed}} / {{total}} completed, {{failed}} failed",

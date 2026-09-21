@@ -13,8 +13,8 @@ import {
 	expectDownloadMatches,
 	expectImagePreview,
 	expectItemMissing,
+	expectNativeDownloadWithoutFileSystemAccess,
 	expectPdfPreview,
-	expectProxyDownloadTracked,
 	expectTrashItemMissing,
 	expectTrashItemVisible,
 	fileDropZone,
@@ -80,7 +80,7 @@ test.describe
 				CODE_FILE.buffer,
 				testInfo.outputDir,
 			);
-			await expectProxyDownloadTracked(
+			await expectNativeDownloadWithoutFileSystemAccess(
 				page,
 				CODE_FILE.name,
 				CODE_FILE.buffer,

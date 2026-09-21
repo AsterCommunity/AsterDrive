@@ -362,7 +362,7 @@ export async function expectDownloadMatches(
 	expect(actual.equals(expected)).toBe(true);
 }
 
-export async function expectProxyDownloadTracked(
+export async function expectNativeDownloadWithoutFileSystemAccess(
 	page: Page,
 	fileName: string,
 	expected: Buffer,
@@ -377,42 +377,26 @@ export async function expectProxyDownloadTracked(
 	const downloadPromise = page.waitForEvent("download");
 	await openItemContextMenu(page, fileName);
 	await page.getByRole("menuitem", { name: "Download" }).click();
-	await page
-		.getByRole("dialog")
-		.getByRole("button", { name: "Proxy file download" })
-		.click();
+	const dialog = page.getByRole("dialog");
+	await expect(
+		dialog.getByRole("button", { name: "Proxy file download" }),
+	).toHaveCount(0);
+	await dialog.getByRole("button", { name: "Use browser download" }).click();
 
 	const download = await downloadPromise;
 	const targetPath = path.join(
 		outputDir,
-		`proxy-${download.suggestedFilename()}`,
+		`native-fallback-${download.suggestedFilename()}`,
 	);
 	await download.saveAs(targetPath);
 	const actual = await readFile(targetPath);
 	expect(actual.equals(expected)).toBe(true);
 
-	const shell = page.getByTestId("bottom-right-activity-shell");
-	await expect(shell.getByRole("button", { name: "Downloads" })).toBeVisible();
-	await expect(page.getByRole("dialog", { name: "Downloads" })).toHaveCount(0);
-	await expect(shell.locator(":scope > *")).toHaveCount(2);
-	const shellHeight = await shell.evaluate(
-		(element) => element.getBoundingClientRect().height,
-	);
-	const measuredHeight = await page.evaluate(() =>
-		Number.parseFloat(
-			getComputedStyle(document.documentElement).getPropertyValue(
-				"--bottom-right-activity-shell-height",
-			),
-		),
-	);
-	expect(measuredHeight).toBeGreaterThanOrEqual(shellHeight - 1);
-	const viewportPadding = await fileDropZone(page)
-		.locator('[data-slot="scroll-area-viewport"]')
-		.first()
-		.evaluate((element) =>
-			Number.parseFloat(getComputedStyle(element).paddingBottom),
-		);
-	expect(viewportPadding).toBeGreaterThan(shellHeight);
+	await expect(
+		page.getByTestId("bottom-right-activity-shell").getByRole("button", {
+			name: "Downloads",
+		}),
+	).toHaveCount(0);
 }
 
 export async function expectBrowserArchiveDownload(

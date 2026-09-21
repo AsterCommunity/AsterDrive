@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Large ZIP delivery in browsers** — Browser-managed archive downloads now use the native download trigger instead of a hidden iframe that was removed after 60 seconds and could leave long transfers stalled near 512 MiB or handed off as 0 KB on mobile browsers. Browsers without the File System Access API no longer expose in-page proxy download modes; direct proxy calls fall back to the native download manager instead of buffering large transfers in page memory.
+
 ## [v0.6.2] - 2026-09-19
 
 ### Added
