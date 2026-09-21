@@ -49,6 +49,8 @@ type FilePickerWindow = Window & {
 	}) => Promise<FileHandleLike>;
 };
 
+type ShowSaveFilePicker = NonNullable<FilePickerWindow["showSaveFilePicker"]>;
+
 interface TransferProgress {
 	bytesReceived: number;
 	totalBytes: number | null;
@@ -250,12 +252,12 @@ async function streamResponse(
 	}
 }
 
-async function chooseFileSink(name: string, zip: boolean) {
-	const pickerWindow = window as FilePickerWindow;
-	if (!pickerWindow.showSaveFilePicker) {
-		throw new Error("Proxy downloads require the File System Access API");
-	}
-	const handle = await pickerWindow.showSaveFilePicker({
+async function chooseFileSink(
+	showSaveFilePicker: ShowSaveFilePicker,
+	name: string,
+	zip: boolean,
+) {
+	const handle = await showSaveFilePicker({
 		suggestedName: name,
 		...(zip
 			? {
@@ -296,17 +298,18 @@ export async function startProxyFileDownload(
 	workspace: Workspace,
 	file: { id: number; name: string; size?: number },
 ) {
-	if (!supportsProxyDownload()) {
+	const showSaveFilePicker = (window as FilePickerWindow).showSaveFilePicker;
+	if (!showSaveFilePicker) {
 		await startAuthenticatedFileDownload(workspace, file.id);
 		return;
 	}
 	const task = newTask("file", file.name);
 	useDownloadStore.getState().upsertTask(task);
 	const retry = () => {
-		void runProxyFileDownload(task, workspace, file);
+		void runProxyFileDownload(task, workspace, file, showSaveFilePicker);
 	};
 	retryActions.set(task.id, retry);
-	await runProxyFileDownload(task, workspace, file);
+	await runProxyFileDownload(task, workspace, file, showSaveFilePicker);
 	return task.id;
 }
 
@@ -314,12 +317,13 @@ async function runProxyFileDownload(
 	task: DownloadTask,
 	workspace: Workspace,
 	file: { id: number; name: string; size?: number },
+	showSaveFilePicker: ShowSaveFilePicker,
 ) {
 	const controller = new AbortController();
 	activeControllers.set(task.id, controller);
 
 	try {
-		const writable = await chooseFileSink(file.name, false);
+		const writable = await chooseFileSink(showSaveFilePicker, file.name, false);
 		throwIfCanceled(controller.signal);
 		updateTask(task.id, {
 			status: DOWNLOAD_TASK_STATUS.preparing,
@@ -362,7 +366,8 @@ export async function startProxyArchiveDownload(
 	const name = ensureZipExtension(
 		archiveName ?? suggestedArchiveName(selection),
 	);
-	if (!supportsProxyDownload()) {
+	const showSaveFilePicker = (window as FilePickerWindow).showSaveFilePicker;
+	if (!showSaveFilePicker) {
 		await createBatchService(selection.workspace).streamArchiveDownload(
 			selection.files.map((file) => file.id),
 			selection.folders.map((folder) => folder.id),
@@ -373,10 +378,10 @@ export async function startProxyArchiveDownload(
 	const task = newTask("archive", name);
 	useDownloadStore.getState().upsertTask(task);
 	const retry = () => {
-		void runProxyArchiveDownload(task, selection, name);
+		void runProxyArchiveDownload(task, selection, name, showSaveFilePicker);
 	};
 	retryActions.set(task.id, retry);
-	await runProxyArchiveDownload(task, selection, name);
+	await runProxyArchiveDownload(task, selection, name, showSaveFilePicker);
 	return task.id;
 }
 
@@ -384,12 +389,13 @@ async function runProxyArchiveDownload(
 	task: DownloadTask,
 	selection: DownloadSelection,
 	name: string,
+	showSaveFilePicker: ShowSaveFilePicker,
 ) {
 	const controller = new AbortController();
 	activeControllers.set(task.id, controller);
 
 	try {
-		const writable = await chooseFileSink(name, true);
+		const writable = await chooseFileSink(showSaveFilePicker, name, true);
 		throwIfCanceled(controller.signal);
 		updateTask(task.id, {
 			status: DOWNLOAD_TASK_STATUS.preparing,

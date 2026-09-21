@@ -140,6 +140,16 @@ server {
     proxy_send_timeout 3600s;
     send_timeout 3600s;
 
+    # Archive downloads are long responses without a known Content-Length.
+    # If ModSecurity-nginx is loaded, uncomment the next line. Do not add it otherwise.
+    location ~ ^/api/v1/(batch|teams/[^/]+/batch|s/[^/]+)/archive-download/ {
+        # modsecurity off;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_buffering off;
+        proxy_cache off;
+        add_header X-Accel-Buffering no always;
+    }
+
     location = /api/v1/auth/events/storage {
         proxy_pass http://127.0.0.1:3000;
         proxy_buffering off;
@@ -181,6 +191,14 @@ The easiest things to miss in this config are:
 - `X-Forwarded-For` is only read by the application when the request source matches `trusted_proxies`
 - if another CDN, L4 load balancer, or cloud gateway sits in front of the reverse proxy, decide which hop is the "last proxy layer" trusted by AsterDrive, then put only that hop's IP / CIDR into `trusted_proxies`
 - without `trusted_proxies`, AsterDrive uses the actual connection source directly and does not trust client IPs from forwarded headers
+
+### ModSecurity-nginx and large streaming downloads
+
+ModSecurity-nginx v1.0.4 still sets `filter_need_in_memory` and feeds every response chunk through its response body filter even when `SecResponseBodyAccess Off` is configured. Upstream tracks this behavior in [Issue #206](https://github.com/owasp-modsecurity/ModSecurity-nginx/issues/206); the still-unmerged [PR #395](https://github.com/owasp-modsecurity/ModSecurity-nginx/pull/395) adds a `modsecurity_response_body off` directive.
+
+As a result, large ZIP streams without a `Content-Length` are copied unnecessarily inside the WAF path, and affected builds can terminate the connection near 512 MiB. `SecResponseBodyAccess Off` alone does not bypass the connector's response filter. With v1.0.4, use `modsecurity off` only in the archive-stream location shown above. Because the expression requires a ticket after `/archive-download/`, the `POST .../archive-download` request that creates the ticket remains protected by the WAF.
+
+For diagnosis, first download the same ticket directly from AsterDrive on port `3000`, then use the public hostname. If the direct ZIP is complete, the public route stops at a repeatable byte boundary, and the AsterDrive log contains `write archive stream chunk: broken pipe`, the downstream proxy/WAF closed the connection; storage reads and ZIP construction are not the source.
 
 If you create a separate `location` for `/webdav/`, do not add `limit_except` to restrict methods. Otherwise clients such as Finder, Windows, and rclone may not work correctly with WebDAV.
 

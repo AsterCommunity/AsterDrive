@@ -140,6 +140,16 @@ server {
     proxy_send_timeout 3600s;
     send_timeout 3600s;
 
+    # 打包下载是没有预知 Content-Length 的长响应，不要缓存或缓冲整个 ZIP。
+    # 如果加载了 ModSecurity-nginx，取消下一行注释；未加载该模块时不要添加此指令。
+    location ~ ^/api/v1/(batch|teams/[^/]+/batch|s/[^/]+)/archive-download/ {
+        # modsecurity off;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_buffering off;
+        proxy_cache off;
+        add_header X-Accel-Buffering no always;
+    }
+
     location = /api/v1/auth/events/storage {
         proxy_pass http://127.0.0.1:3000;
         proxy_buffering off;
@@ -181,6 +191,14 @@ server {
 - `X-Forwarded-For` 只有在请求来源命中 `trusted_proxies` 时才会被应用读取
 - 如果反向代理前面还有 CDN、L4 负载均衡或云厂商网关，要明确哪一跳是 AsterDrive 信任的“最后一层代理”，然后只把那一跳的 IP / CIDR 放进 `trusted_proxies`
 - 没有配置 `trusted_proxies` 时，AsterDrive 会直接按实际连接来源处理，不会相信转发头里的客户端 IP
+
+### ModSecurity-nginx 与大体积流式下载
+
+ModSecurity-nginx v1.0.4 即使配置了 `SecResponseBodyAccess Off`，connector 仍会对每个响应设置 `filter_need_in_memory` 并把响应块送进 response body filter。上游已在 [Issue #206](https://github.com/owasp-modsecurity/ModSecurity-nginx/issues/206) 跟踪该行为，并在尚未合并的 [PR #395](https://github.com/owasp-modsecurity/ModSecurity-nginx/pull/395) 中新增 `modsecurity_response_body off`。
+
+这会让没有 `Content-Length` 的大体积 ZIP 流在 WAF 链路中被额外复制，特定构建可能在约 512 MiB 截断连接。`SecResponseBodyAccess Off` 本身不足以绕过 connector 的 response filter。当前 v1.0.4 部署应只对上面示例中的归档流 location 使用 `modsecurity off`；该正则要求 `/archive-download/` 后仍有 ticket，因此创建 ticket 的 `POST .../archive-download` 继续经过 WAF。
+
+排障时先从服务器直连 AsterDrive 的 `3000` 端口下载同一个 ticket，再测试公开域名。若直连 ZIP 完整、公开地址在固定字节数断开，并且 AsterDrive 日志是 `write archive stream chunk: broken pipe`，故障位于下游代理/WAF，不是存储读取或 ZIP 构建。
 
 如果你单独给 `/webdav/` 做 location，也不要加 `limit_except` 去限制方法；否则 Finder、Windows、rclone 一类客户端可能无法正常使用 WebDAV。
 
