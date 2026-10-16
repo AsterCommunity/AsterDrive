@@ -224,13 +224,11 @@ async fn update_with_audit_diff(
     };
     let email_verified_changed =
         email_verified.is_some_and(|value| value != existing_email_verified);
-    let role_changed = role.is_some_and(|value| value != existing.role);
     let status_changed = status.is_some_and(|value| value != existing.status);
     let must_change_password_changed =
         must_change_password.is_some_and(|value| value != existing.must_change_password);
     let policy_group_changed =
         policy_group_id.is_some_and(|group_id| existing_policy_group_id != Some(group_id));
-    let current_session_version = existing.session_version;
     let mut active: user::ActiveModel = existing.into();
     if let Some(is_verified) = email_verified
         && is_verified != existing_email_verified
@@ -270,12 +268,12 @@ async fn update_with_audit_diff(
         }
         active.policy_group_id = Set(Some(group_id));
     }
-    if status_changed || email_verified_changed || must_change_password_changed {
-        active.session_version = Set(current_session_version.saturating_add(1));
-    }
     active.updated_at = Set(Utc::now());
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
+        if status_changed || email_verified_changed || must_change_password_changed {
+            user_repo::bump_session_version(&txn, id).await?;
+        }
         let updated = active
             .update(&txn)
             .await
@@ -308,9 +306,6 @@ async fn update_with_audit_diff(
             state, "update", updated.id,
         )
         .await;
-    }
-    if role_changed || status_changed || email_verified_changed || must_change_password_changed {
-        local::invalidate_auth_snapshot_cache(state, id).await;
     }
     if status_changed
         && let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_user(state, id).await

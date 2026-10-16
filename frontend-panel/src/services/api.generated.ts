@@ -4367,19 +4367,19 @@ export interface components {
         /** @description Add a user to a team. */
         AddTeamMemberReq: {
             identifier?: string | null;
-            role?: null | components["schemas"]["TeamMemberRole"];
+            role?: components["schemas"]["TeamMemberRole"] | null;
             /** Format: int64 */
             user_id?: number | null;
         };
         /** @enum {string} */
         AdminAuditLogSortBy: "id" | "created_at" | "user_id" | "action" | "entity_type" | "entity_name" | "ip_address";
         AdminAuditLogSortQuery: {
-            sort_by?: null | components["schemas"]["AdminAuditLogSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminAuditLogSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         AdminBackgroundTaskEvent: {
             created_at: string;
-            creator?: null | components["schemas"]["UserSummary"];
+            creator?: components["schemas"]["UserSummary"] | null;
             display_name: string;
             /** Format: int64 */
             duration_ms?: number | null;
@@ -4388,7 +4388,7 @@ export interface components {
             id: number;
             kind: components["schemas"]["BackgroundTaskKind"];
             last_error?: string | null;
-            presentation?: null | components["schemas"]["TaskPresentation"];
+            presentation?: components["schemas"]["TaskPresentation"] | null;
             started_at?: string | null;
             status: components["schemas"]["BackgroundTaskStatus"];
             status_text?: string | null;
@@ -4492,13 +4492,13 @@ export interface components {
             size_max?: number | null;
             /** Format: int64 */
             size_min?: number | null;
-            sort_by?: null | components["schemas"]["AdminFileBlobSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminFileBlobSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
             storage_path?: string | null;
         };
         AdminFileBlobReferenceFile: {
             created_at: string;
-            created_by?: null | components["schemas"]["UserSummary"];
+            created_by?: components["schemas"]["UserSummary"] | null;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
@@ -4549,7 +4549,7 @@ export interface components {
             blob_id: number;
             compound_extension?: string | null;
             created_at: string;
-            created_by?: null | components["schemas"]["UserSummary"];
+            created_by?: components["schemas"]["UserSummary"] | null;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
@@ -4580,8 +4580,8 @@ export interface components {
             owner_user_id?: number | null;
             /** Format: int64 */
             policy_id?: number | null;
-            sort_by?: null | components["schemas"]["AdminFileSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminFileSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
             /** Format: int64 */
             team_id?: number | null;
         };
@@ -4602,8 +4602,8 @@ export interface components {
             version: number;
         };
         AdminLockListQuery: {
-            sort_by?: null | components["schemas"]["AdminLockSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminLockSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         AdminLockSortBy: "id" | "lockroot_path" | "root_kind" | "holder_user_id" | "timeout_at" | "mode" | "depth" | "created_at";
@@ -4676,26 +4676,26 @@ export interface components {
             storage_quota?: number | null;
         };
         AdminPolicyGroupListQuery: {
-            sort_by?: null | components["schemas"]["AdminPolicyGroupSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminPolicyGroupSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         AdminPolicyGroupSortBy: "id" | "name" | "is_enabled" | "is_default" | "created_at" | "updated_at";
         AdminPolicyListQuery: {
-            sort_by?: null | components["schemas"]["AdminPolicySortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminPolicySortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         AdminPolicySortBy: "id" | "name" | "connector_id" | "is_default" | "created_at" | "updated_at";
         AdminRemoteNodeListQuery: {
-            sort_by?: null | components["schemas"]["AdminRemoteNodeSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminRemoteNodeSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         AdminRemoteNodeSortBy: "id" | "name" | "base_url" | "is_enabled" | "last_probe_at" | "created_at" | "updated_at";
         AdminShareListQuery: {
-            sort_by?: null | components["schemas"]["AdminShareSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminShareSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         AdminShareSortBy: "id" | "token" | "user_id" | "download_count" | "max_downloads" | "expires_at" | "created_at" | "updated_at";
@@ -4719,22 +4719,22 @@ export interface components {
         /** @description Cleanup completed background tasks by admin-specified conditions. */
         AdminTaskCleanupReq: {
             finished_before: string;
-            kind?: null | components["schemas"]["BackgroundTaskKind"];
-            status?: null | components["schemas"]["BackgroundTaskStatus"];
+            kind?: components["schemas"]["BackgroundTaskKind"] | null;
+            status?: components["schemas"]["BackgroundTaskStatus"] | null;
         };
         /** @description Query parameters for the admin task list. */
         AdminTaskListQuery: {
-            kind?: null | components["schemas"]["BackgroundTaskKind"];
-            sort_by?: null | components["schemas"]["AdminTaskSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
-            status?: null | components["schemas"]["BackgroundTaskStatus"];
+            kind?: components["schemas"]["BackgroundTaskKind"] | null;
+            sort_by?: components["schemas"]["AdminTaskSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
+            status?: components["schemas"]["BackgroundTaskStatus"] | null;
         };
         /** @enum {string} */
         AdminTaskSortBy: "id" | "display_name" | "kind" | "status" | "progress" | "created_at" | "updated_at" | "started_at" | "finished_at";
         AdminTeamInfo: {
             archived_at?: string | null;
             created_at: string;
-            created_by?: null | components["schemas"]["UserSummary"];
+            created_by?: components["schemas"]["UserSummary"] | null;
             description: string;
             /** Format: int64 */
             id: number;
@@ -4753,8 +4753,8 @@ export interface components {
         AdminTeamListQuery: {
             archived?: boolean | null;
             keyword?: string | null;
-            sort_by?: null | components["schemas"]["AdminTeamSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["AdminTeamSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         AdminTeamMemberSortBy: "username" | "email" | "role" | "status" | "created_at" | "updated_at";
@@ -4780,10 +4780,10 @@ export interface components {
         /** @description Query parameters for the admin user list. */
         AdminUserListQuery: {
             keyword?: string | null;
-            role?: null | components["schemas"]["UserRole"];
-            sort_by?: null | components["schemas"]["AdminUserSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
-            status?: null | components["schemas"]["UserStatus"];
+            role?: components["schemas"]["UserRole"] | null;
+            sort_by?: components["schemas"]["AdminUserSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
+            status?: components["schemas"]["UserStatus"] | null;
         };
         /** @enum {string} */
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
@@ -4803,7 +4803,7 @@ export interface components {
             scope?: string | null;
         };
         ApiErrorInfo: {
-            diagnostic?: null | components["schemas"]["ApiErrorDiagnostic"];
+            diagnostic?: components["schemas"]["ApiErrorDiagnostic"] | null;
             retryable: boolean;
         };
         /**
@@ -4827,7 +4827,7 @@ export interface components {
                 resolved_transport?: components["schemas"]["ResolvedRemoteTransport"];
                 secret_key: string;
             };
-            error?: null | components["schemas"]["ApiErrorInfo"];
+            error?: components["schemas"]["ApiErrorInfo"] | null;
             msg: string;
         };
         /**
@@ -4847,7 +4847,7 @@ export interface components {
                 remote_node_name: string;
                 token: string;
             };
-            error?: null | components["schemas"]["ApiErrorInfo"];
+            error?: components["schemas"]["ApiErrorInfo"] | null;
             msg: string;
         };
         /**
@@ -4863,16 +4863,16 @@ export interface components {
                 chunk_size: number;
                 chunks_on_disk: number[];
                 filename: string;
-                provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+                provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
                 /** Format: int32 */
                 received_count: number;
                 status: components["schemas"]["UploadSessionStatus"];
                 /** Format: int32 */
                 total_chunks: number;
                 upload_id: string;
-                upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+                upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
             };
-            error?: null | components["schemas"]["ApiErrorInfo"];
+            error?: components["schemas"]["ApiErrorInfo"] | null;
             msg: string;
         };
         /**
@@ -4896,7 +4896,7 @@ export interface components {
                 requires_restart: boolean;
                 value_type: components["schemas"]["ConfigValueType"];
             }[];
-            error?: null | components["schemas"]["ApiErrorInfo"];
+            error?: components["schemas"]["ApiErrorInfo"] | null;
             msg: string;
         };
         /**
@@ -4917,7 +4917,7 @@ export interface components {
                 /** @description Variables accepted by the template. */
                 variables: components["schemas"]["TemplateVariableItem"][];
             }[];
-            error?: null | components["schemas"]["ApiErrorInfo"];
+            error?: components["schemas"]["ApiErrorInfo"] | null;
             msg: string;
         };
         /** @description Request an archive compression task for the selected files and folders. */
@@ -4987,7 +4987,7 @@ export interface components {
         /** @enum {string} */
         ArchivePreviewEntryKind: "file" | "directory";
         ArchivePreviewExtractCompatibility: {
-            reason?: null | components["schemas"]["ArchivePreviewExtractUnsupportedReason"];
+            reason?: components["schemas"]["ArchivePreviewExtractUnsupportedReason"] | null;
             supported: boolean;
         };
         /** @enum {string} */
@@ -5087,8 +5087,8 @@ export interface components {
             /** Format: int64 */
             id: number;
             ip_address?: string | null;
-            presentation?: null | components["schemas"]["AuditPresentation"];
-            user?: null | components["schemas"]["UserSummary"];
+            presentation?: components["schemas"]["AuditPresentation"] | null;
+            user?: components["schemas"]["UserSummary"] | null;
             user_agent?: string | null;
         };
         AuditLogFilterQuery: {
@@ -5097,14 +5097,14 @@ export interface components {
             before?: string | null;
             /** Format: int64 */
             entity_id?: number | null;
-            entity_type?: null | components["schemas"]["AuditEntityType"];
+            entity_type?: components["schemas"]["AuditEntityType"] | null;
             /** Format: int64 */
             user_id?: number | null;
         };
         AuditPresentation: {
-            detail?: null | components["schemas"]["AuditPresentationMessage"];
-            summary?: null | components["schemas"]["AuditPresentationMessage"];
-            target?: null | components["schemas"]["AuditPresentationMessage"];
+            detail?: components["schemas"]["AuditPresentationMessage"] | null;
+            summary?: components["schemas"]["AuditPresentationMessage"] | null;
+            target?: components["schemas"]["AuditPresentationMessage"] | null;
         };
         AuditPresentationMessage: {
             code: string;
@@ -5375,7 +5375,7 @@ export interface components {
             auto_link_verified_email_enabled?: boolean | null;
             auto_provision_enabled?: boolean | null;
             avatar_url_claim?: string | null;
-            callback_mode?: null | components["schemas"]["ExternalAuthCallbackMode"];
+            callback_mode?: components["schemas"]["ExternalAuthCallbackMode"] | null;
             client_id: string;
             client_secret?: string | null;
             display_name: string;
@@ -5386,7 +5386,7 @@ export interface components {
             groups_claim?: string | null;
             icon_url?: string | null;
             issuer_url?: string | null;
-            options?: null | components["schemas"]["ExternalAuthProviderOptions"];
+            options?: components["schemas"]["ExternalAuthProviderOptions"] | null;
             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
             require_email_verified?: boolean | null;
             scopes?: string | null;
@@ -5432,9 +5432,9 @@ export interface components {
         };
         /** @description Create a storage policy group. */
         CreatePolicyGroupReq: {
-            admission?: null | components["schemas"]["StorageAdmissionConstraints"];
+            admission?: components["schemas"]["StorageAdmissionConstraints"] | null;
             description?: string | null;
-            execution_preference?: null | components["schemas"]["UploadExecutionPreference"];
+            execution_preference?: components["schemas"]["UploadExecutionPreference"] | null;
             is_default?: boolean;
             is_enabled?: boolean;
             name: string;
@@ -5656,7 +5656,7 @@ export interface components {
         ExternalAuthProviderKind: "oidc" | "generic_oauth2" | "github" | "google" | "microsoft" | "qq";
         /** @description Connector-specific runtime options decoded from application-owned storage. */
         ExternalAuthProviderOptions: {
-            microsoft?: null | components["schemas"]["MicrosoftExternalAuthProviderOptions"];
+            microsoft?: components["schemas"]["MicrosoftExternalAuthProviderOptions"] | null;
         };
         /** @description Single provider health/test check. */
         ExternalAuthProviderTestCheck: {
@@ -5672,7 +5672,7 @@ export interface components {
             client_id: string;
             client_secret?: string | null;
             issuer_url?: string | null;
-            options?: null | components["schemas"]["ExternalAuthProviderOptions"];
+            options?: components["schemas"]["ExternalAuthProviderOptions"] | null;
             provider_kind: components["schemas"]["ExternalAuthProviderKind"];
             scopes?: string | null;
             token_url?: string | null;
@@ -5831,7 +5831,7 @@ export interface components {
         FileResourceHandle: {
             delivery: components["schemas"]["FileResourceDeliveryInfo"];
             identity: components["schemas"]["FileResourceIdentity"];
-            lifecycle?: null | components["schemas"]["FileResourceLifecycleInfo"];
+            lifecycle?: components["schemas"]["FileResourceLifecycleInfo"] | null;
             request: components["schemas"]["FileResourceRequestInfo"];
         };
         FileResourceHandleRequest: {
@@ -5931,7 +5931,7 @@ export interface components {
             folders: components["schemas"]["FolderListItem"][];
             /** Format: int64 */
             folders_total: number;
-            next_file_cursor?: null | components["schemas"]["FileCursor"];
+            next_file_cursor?: components["schemas"]["FileCursor"] | null;
         };
         FolderEntity: {
             created_at: string;
@@ -6033,8 +6033,8 @@ export interface components {
              * @description 文件夹偏移量（默认 0）
              */
             folder_offset?: number | null;
-            sort_by?: null | components["schemas"]["SortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["SortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
         };
         /** @enum {string} */
         FolderTreeMutationOperation: "delete" | "restore";
@@ -6165,14 +6165,14 @@ export interface components {
             /** Format: int64 */
             chunk_size?: number | null;
             mode: components["schemas"]["UploadTransport"];
-            presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
+            presigned_request?: components["schemas"]["PresignedUploadRequest"] | null;
             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
             presigned_require_etag?: boolean | null;
-            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
             /** Format: int32 */
             total_chunks?: number | null;
             upload_id?: string | null;
-            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
         };
         /** @description Query parameters for limit/offset pagination. */
         LimitOffsetQuery: {
@@ -6190,10 +6190,10 @@ export interface components {
         /** @description Query parameters for listing team members. */
         ListTeamMembersQuery: {
             keyword?: string | null;
-            role?: null | components["schemas"]["TeamMemberRole"];
-            sort_by?: null | components["schemas"]["AdminTeamMemberSortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
-            status?: null | components["schemas"]["UserStatus"];
+            role?: components["schemas"]["TeamMemberRole"] | null;
+            sort_by?: components["schemas"]["AdminTeamMemberSortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
+            status?: components["schemas"]["UserStatus"] | null;
         };
         /** @description Query parameters for listing teams. */
         ListTeamsQuery: {
@@ -6282,8 +6282,8 @@ export interface components {
             pending_email?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
-            preferences?: null | components["schemas"]["UserPreferences"];
-            profile?: null | components["schemas"]["UserProfileInfo"];
+            preferences?: components["schemas"]["UserPreferences"] | null;
+            profile?: components["schemas"]["UserProfileInfo"] | null;
             role: components["schemas"]["UserRole"];
             status: components["schemas"]["UserStatus"];
             /** Format: int64 */
@@ -6311,7 +6311,7 @@ export interface components {
             pending_email?: string | null;
             /** Format: int64 */
             policy_group_id?: number | null;
-            preferences?: null | components["schemas"]["UserPreferences"];
+            preferences?: components["schemas"]["UserPreferences"] | null;
             profile: components["schemas"]["UserProfileInfo"];
             role: components["schemas"]["UserRole"];
             status: components["schemas"]["UserStatus"];
@@ -6343,7 +6343,7 @@ export interface components {
             blob_id: number;
             error?: string | null;
             kind: components["schemas"]["MediaMetadataKind"];
-            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+            metadata?: components["schemas"]["MediaMetadataPayload"] | null;
             parser: string;
             parser_version: string;
             status: components["schemas"]["MediaMetadataStatus"];
@@ -6368,7 +6368,7 @@ export interface components {
             effective_enabled: boolean;
             kind: components["schemas"]["MediaProcessorKind"];
             runtime_available: boolean;
-            unavailable_reason?: null | components["schemas"]["MediaProcessingUnavailableReason"];
+            unavailable_reason?: components["schemas"]["MediaProcessingUnavailableReason"] | null;
         };
         MediaProcessingRuntimeStatus: {
             processors: components["schemas"]["MediaProcessingProcessorRuntimeStatus"][];
@@ -6463,7 +6463,7 @@ export interface components {
             /** Format: int64 */
             download_count: number;
             expires_at?: string | null;
-            folder_icon?: null | components["schemas"]["FolderIcon"];
+            folder_icon?: components["schemas"]["FolderIcon"] | null;
             has_password: boolean;
             /** Format: int64 */
             id: number;
@@ -6643,7 +6643,7 @@ export interface components {
                 blob_id: number;
                 compound_extension?: string | null;
                 created_at: string;
-                created_by?: null | components["schemas"]["UserSummary"];
+                created_by?: components["schemas"]["UserSummary"] | null;
                 /** Format: int64 */
                 created_by_user_id?: number | null;
                 created_by_username: string;
@@ -6687,7 +6687,7 @@ export interface components {
             items: {
                 archived_at?: string | null;
                 created_at: string;
-                created_by?: null | components["schemas"]["UserSummary"];
+                created_by?: components["schemas"]["UserSummary"] | null;
                 description: string;
                 /** Format: int64 */
                 id: number;
@@ -6768,8 +6768,8 @@ export interface components {
                 /** Format: int64 */
                 id: number;
                 ip_address?: string | null;
-                presentation?: null | components["schemas"]["AuditPresentation"];
-                user?: null | components["schemas"]["UserSummary"];
+                presentation?: components["schemas"]["AuditPresentation"] | null;
+                user?: components["schemas"]["UserSummary"] | null;
                 user_agent?: string | null;
             }[];
             /**
@@ -6796,7 +6796,7 @@ export interface components {
                 /** Format: int64 */
                 download_count: number;
                 expires_at?: string | null;
-                folder_icon?: null | components["schemas"]["FolderIcon"];
+                folder_icon?: components["schemas"]["FolderIcon"] | null;
                 has_password: boolean;
                 /** Format: int64 */
                 id: number;
@@ -6895,8 +6895,8 @@ export interface components {
                 /** Format: int64 */
                 namespace_id: number;
                 origin: components["schemas"]["LockOrigin"];
-                owner?: null | components["schemas"]["UserSummary"];
-                owner_info?: null | components["schemas"]["ResourceLockOwnerInfo"];
+                owner?: components["schemas"]["UserSummary"] | null;
+                owner_info?: components["schemas"]["ResourceLockOwnerInfo"] | null;
                 /** Format: int64 */
                 root_file_id?: number | null;
                 /** Format: int64 */
@@ -6938,7 +6938,7 @@ export interface components {
                 team_id?: number | null;
                 token: string;
                 updated_at: string;
-                user?: null | components["schemas"]["UserSummary"];
+                user?: components["schemas"]["UserSummary"] | null;
                 /** Format: int64 */
                 view_count: number;
             }[];
@@ -7108,7 +7108,7 @@ export interface components {
                 attempt_count: number;
                 can_retry: boolean;
                 created_at: string;
-                creator?: null | components["schemas"]["UserSummary"];
+                creator?: components["schemas"]["UserSummary"] | null;
                 display_name: string;
                 expires_at: string;
                 finished_at?: string | null;
@@ -7120,14 +7120,14 @@ export interface components {
                 /** Format: int32 */
                 max_attempts: number;
                 payload: components["schemas"]["TaskPayload"];
-                presentation?: null | components["schemas"]["TaskPresentation"];
+                presentation?: components["schemas"]["TaskPresentation"] | null;
                 /** Format: int64 */
                 progress_current: number;
                 /** Format: int32 */
                 progress_percent: number;
                 /** Format: int64 */
                 progress_total: number;
-                result?: null | components["schemas"]["TaskResult"];
+                result?: components["schemas"]["TaskResult"] | null;
                 /** Format: int64 */
                 share_id?: number | null;
                 started_at?: string | null;
@@ -7159,15 +7159,15 @@ export interface components {
             /** @description Items in the current page. */
             items: {
                 action: components["schemas"]["AuditAction"];
-                actor?: null | components["schemas"]["UserSummary"];
+                actor?: components["schemas"]["UserSummary"] | null;
                 created_at: string;
                 /** Format: int64 */
                 id: number;
-                member?: null | components["schemas"]["UserSummary"];
-                next_role?: null | components["schemas"]["TeamMemberRole"];
-                presentation?: null | components["schemas"]["AuditPresentation"];
-                previous_role?: null | components["schemas"]["TeamMemberRole"];
-                role?: null | components["schemas"]["TeamMemberRole"];
+                member?: components["schemas"]["UserSummary"] | null;
+                next_role?: components["schemas"]["TeamMemberRole"] | null;
+                presentation?: components["schemas"]["AuditPresentation"] | null;
+                previous_role?: components["schemas"]["TeamMemberRole"] | null;
+                role?: components["schemas"]["TeamMemberRole"] | null;
             }[];
             /**
              * Format: int64
@@ -7239,7 +7239,7 @@ export interface components {
                 /** Format: int64 */
                 team_id?: number | null;
                 updated_at: string;
-                user?: null | components["schemas"]["UserSummary"];
+                user?: components["schemas"]["UserSummary"] | null;
                 /** Format: int64 */
                 user_id: number;
                 username: string;
@@ -7311,9 +7311,9 @@ export interface components {
         };
         /** @description Patch a storage policy group. */
         PatchPolicyGroupReq: {
-            admission?: null | components["schemas"]["StorageAdmissionConstraints"];
+            admission?: components["schemas"]["StorageAdmissionConstraints"] | null;
             description?: string | null;
-            execution_preference?: null | components["schemas"]["UploadExecutionPreference"];
+            execution_preference?: components["schemas"]["UploadExecutionPreference"] | null;
             is_default?: boolean | null;
             is_enabled?: boolean | null;
             name?: string | null;
@@ -7322,11 +7322,11 @@ export interface components {
         /** @description Patch a storage policy. */
         PatchPolicyReq: {
             allowed_types?: string[] | null;
-            behavior?: null | components["schemas"]["StoragePolicyBehaviorConfig"];
+            behavior?: components["schemas"]["StoragePolicyBehaviorConfig"] | null;
             /** Format: int64 */
             chunk_size?: number | null;
-            connector_config?: null | components["schemas"]["ConnectorConfigEnvelope"];
-            credential?: null | components["schemas"]["StorageConnectorCredentialInput"];
+            connector_config?: components["schemas"]["ConnectorConfigEnvelope"] | null;
+            credential?: components["schemas"]["StorageConnectorCredentialInput"] | null;
             is_default?: boolean | null;
             /** Format: int64 */
             max_file_size?: number | null;
@@ -7337,7 +7337,7 @@ export interface components {
             base_url?: string | null;
             is_enabled?: boolean | null;
             name?: string | null;
-            transport_mode?: null | components["schemas"]["RemoteNodeTransportMode"];
+            transport_mode?: components["schemas"]["RemoteNodeTransportMode"] | null;
         };
         PatchTagReq: {
             color?: string | null;
@@ -7362,8 +7362,8 @@ export interface components {
              *     endpoint only supports assigning a policy group, not unassigning one.
              */
             policy_group_id?: number;
-            role?: null | components["schemas"]["UserRole"];
-            status?: null | components["schemas"]["UserStatus"];
+            role?: components["schemas"]["UserRole"] | null;
+            status?: components["schemas"]["UserStatus"] | null;
             /** Format: int64 */
             storage_quota?: number | null;
         };
@@ -7526,7 +7526,7 @@ export interface components {
                 [key: string]: string;
             };
             /** @default null */
-            mode: null | components["schemas"]["PreviewOpenMode"];
+            mode: components["schemas"]["PreviewOpenMode"] | null;
             /** @default null */
             url_template: string | null;
         };
@@ -7667,7 +7667,7 @@ export interface components {
             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
             min_supported_protocol_version?: string;
             protocol_version?: string;
-            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
+            remote_storage_target?: components["schemas"]["RemoteStorageTargetCapabilities"] | null;
             server_version?: string | null;
             supports_capacity?: boolean;
             supports_list?: boolean;
@@ -7729,7 +7729,7 @@ export interface components {
             /** Format: int64 */
             applied_revision: number;
             connector_id: string;
-            multipart?: null | components["schemas"]["RemoteMultipartCapabilities"];
+            multipart?: components["schemas"]["RemoteMultipartCapabilities"] | null;
             range_read?: boolean;
             stream_upload?: boolean;
             target_key: string;
@@ -7748,7 +7748,7 @@ export interface components {
         /** @enum {string} */
         RemoteTunnelOnlineStatus: "online" | "offline";
         RemoteUpdateStorageTargetRequest: {
-            connection?: null | components["schemas"]["StorageConnectionInput"];
+            connection?: components["schemas"]["StorageConnectionInput"] | null;
             name?: string | null;
         };
         RemovedCountResponse: {
@@ -7785,8 +7785,8 @@ export interface components {
             /** Format: int64 */
             namespace_id: number;
             origin: components["schemas"]["LockOrigin"];
-            owner?: null | components["schemas"]["UserSummary"];
-            owner_info?: null | components["schemas"]["ResourceLockOwnerInfo"];
+            owner?: components["schemas"]["UserSummary"] | null;
+            owner_info?: components["schemas"]["ResourceLockOwnerInfo"] | null;
             /** Format: int64 */
             root_file_id?: number | null;
             /** Format: int64 */
@@ -7839,7 +7839,7 @@ export interface components {
             /** Format: int64 */
             duration_ms: number;
             summary?: string | null;
-            system_health?: null | components["schemas"]["RuntimeSystemHealthResult"];
+            system_health?: components["schemas"]["RuntimeSystemHealthResult"] | null;
         };
         SearchParams: {
             /** @description Filter by file category (image, video, audio, document, spreadsheet, presentation, archive, code, other) */
@@ -7879,8 +7879,8 @@ export interface components {
             offset?: number | null;
             /** @description Name search pattern (case-insensitive substring match) */
             q?: string | null;
-            sort_by?: null | components["schemas"]["SortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["SortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
             /** @description Comma-separated tag ids, e.g. "1,2,3" */
             tag_ids?: string | null;
             /** @description Tag filter mode: "any" or "all" (default any) */
@@ -7899,7 +7899,7 @@ export interface components {
         /** @description Set a system configuration value. */
         SetConfigReq: {
             value: components["schemas"]["ConfigValue"];
-            visibility?: null | components["schemas"]["ConfigVisibility"];
+            visibility?: components["schemas"]["ConfigVisibility"] | null;
         };
         /** @description Lock or unlock a file. */
         SetLockReq: {
@@ -7931,7 +7931,7 @@ export interface components {
             team_id?: number | null;
             token: string;
             updated_at: string;
-            user?: null | components["schemas"]["UserSummary"];
+            user?: components["schemas"]["UserSummary"] | null;
             /** Format: int64 */
             view_count: number;
         };
@@ -7939,7 +7939,7 @@ export interface components {
             /** Format: int64 */
             download_count: number;
             expires_at?: string | null;
-            folder_icon?: null | components["schemas"]["FolderIcon"];
+            folder_icon?: components["schemas"]["FolderIcon"] | null;
             has_password: boolean;
             is_expired: boolean;
             /** Format: int64 */
@@ -8024,7 +8024,7 @@ export interface components {
             root_affected: boolean;
             /** Format: int64 */
             storage_delta: number | null;
-            workspace: null | components["schemas"]["StorageChangeWorkspace"];
+            workspace: components["schemas"]["StorageChangeWorkspace"] | null;
         };
         /** @enum {string} */
         StorageChangeKind: "file.created" | "file.updated" | "file.trashed" | "file.restored_from_trash" | "file.purged" | "file.version_restored" | "file.version_deleted" | "folder.created" | "folder.updated" | "folder.trashed" | "folder.restored_from_trash" | "folder.purged" | "tag.created" | "tag.updated" | "tag.deleted" | "tag.assignment_changed" | "lock.created" | "lock.deleted" | "trash.purged_all" | "sync.required";
@@ -8261,7 +8261,7 @@ export interface components {
             config_schema_version: number;
             /** @description 持久化到 policy 的稳定 connector/plugin id。 */
             connector_id: components["schemas"]["ConnectorId"];
-            credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
+            credential_management?: components["schemas"]["StorageConnectorCredentialManagementDescriptor"] | null;
             /** @description connector 的主要凭据模式。 */
             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
             /**
@@ -8349,7 +8349,7 @@ export interface components {
              *     matches, `default_value` remains the fallback.
              */
             default_rules?: components["schemas"]["StorageConnectorFieldDefaultRule"][];
-            default_value?: null | components["schemas"]["StorageConnectorFieldDefaultValue"];
+            default_value?: components["schemas"]["StorageConnectorFieldDefaultValue"] | null;
             /** @description 可选 help 文案 key。 */
             help_key?: string | null;
             /** @description What the form/payload normalizer does when `visible_when` is false. */
@@ -8374,7 +8374,7 @@ export interface components {
             scope: components["schemas"]["StorageConnectorFieldScope"];
             /** @description 是否是敏感字段，前端应按 secret input 处理，后端不应明文回显。 */
             secret: boolean;
-            select?: null | components["schemas"]["StorageConnectorSelectDescriptor"];
+            select?: components["schemas"]["StorageConnectorSelectDescriptor"] | null;
             /** @description true 表示该字段失焦时前端可以安全 trim。 */
             trim_on_blur?: boolean;
             /** @description 编辑已有策略时字段是否可改。`set_once` 只允许给历史空值补值一次。 */
@@ -8586,7 +8586,7 @@ export interface components {
             automatic_default_label_key?: string | null;
             /** @description Connector-owned label for the synthetic custom-value option. */
             custom_value_label_key?: string | null;
-            data_source?: null | components["schemas"]["StorageConnectorSelectDataSource"];
+            data_source?: components["schemas"]["StorageConnectorSelectDataSource"] | null;
             /** @description Field whose current value scopes the dynamic catalog. */
             depends_on?: string | null;
             /** @description Connector-owned fixed choices. Mutually exclusive with `data_source`. */
@@ -8649,7 +8649,7 @@ export interface components {
             edit_context_key: string;
             /** @description 创建向导右侧 helper 文案 key。 */
             helper_key: string;
-            icon?: null | components["schemas"]["StorageConnectorIconDescriptor"];
+            icon?: components["schemas"]["StorageConnectorIconDescriptor"] | null;
             /** @description 前端 i18n label key。 */
             label_key: string;
         };
@@ -8658,12 +8658,12 @@ export interface components {
             frontend_direct_provider_resumable_upload: boolean;
             /** @description 支持对象存储 multipart/block upload 语义。 */
             object_multipart_upload: boolean;
-            object_multipart_upload_capabilities?: null | components["schemas"]["StorageConnectorObjectMultipartUploadCapabilities"];
+            object_multipart_upload_capabilities?: components["schemas"]["StorageConnectorObjectMultipartUploadCapabilities"] | null;
             /** @description 支持浏览器/客户端使用 presigned URL 直传。 */
             presigned_upload: boolean;
             /** @description 支持 provider-native resumable/session upload。 */
             provider_resumable_upload: boolean;
-            provider_resumable_upload_capabilities?: null | components["schemas"]["StorageConnectorProviderResumableUploadCapabilities"];
+            provider_resumable_upload_capabilities?: components["schemas"]["StorageConnectorProviderResumableUploadCapabilities"] | null;
             /** @description 后端/客户端可以用单请求写入小对象。 */
             simple_upload: boolean;
             /** @description 单请求上传的静态语义。实际是否走 direct 仍受 policy chunk_size 限制。 */
@@ -8773,9 +8773,9 @@ export interface components {
         };
         StoragePolicyActionResult: {
             action_id: components["schemas"]["StorageConnectorActionId"];
-            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+            diagnostic?: components["schemas"]["StoragePolicyDiagnostic"] | null;
             ok: boolean;
-            output?: null | components["schemas"]["StorageConnectorActionOutput"];
+            output?: components["schemas"]["StorageConnectorActionOutput"] | null;
         };
         /**
          * @description Core-owned, per-policy storage-native processing preferences.
@@ -8935,7 +8935,7 @@ export interface components {
             provider_max_part_size?: number | null;
             /** Format: int64 */
             provider_max_parts: number;
-            reason?: null | components["schemas"]["StoragePolicyMigrationMultipartBlockReason"];
+            reason?: components["schemas"]["StoragePolicyMigrationMultipartBlockReason"] | null;
             upload_mode: components["schemas"]["StoragePolicyMigrationMultipartUploadMode"];
         };
         /** @enum {string} */
@@ -8947,7 +8947,7 @@ export interface components {
             /** Format: int64 */
             source_policy_id: number;
             source_policy_updated_at: string;
-            source_recovery_probe?: null | components["schemas"]["StoragePolicyRecoveryProbe"];
+            source_recovery_probe?: components["schemas"]["StoragePolicyRecoveryProbe"] | null;
             /** Format: int64 */
             target_policy_id: number;
             target_policy_updated_at: string;
@@ -9024,7 +9024,7 @@ export interface components {
             blob_id: number;
             /** @description Secret-free administrator diagnostic. */
             diagnostic?: string | null;
-            error_kind?: null | components["schemas"]["StorageErrorKind"];
+            error_kind?: components["schemas"]["StorageErrorKind"] | null;
             /** @description Whether retrying the sample may reasonably produce a different result. */
             retryable: boolean;
             /** @description Stable object probe status. */
@@ -9137,7 +9137,7 @@ export interface components {
             attempt_count: number;
             can_retry: boolean;
             created_at: string;
-            creator?: null | components["schemas"]["UserSummary"];
+            creator?: components["schemas"]["UserSummary"] | null;
             display_name: string;
             expires_at: string;
             finished_at?: string | null;
@@ -9149,14 +9149,14 @@ export interface components {
             /** Format: int32 */
             max_attempts: number;
             payload: components["schemas"]["TaskPayload"];
-            presentation?: null | components["schemas"]["TaskPresentation"];
+            presentation?: components["schemas"]["TaskPresentation"] | null;
             /** Format: int64 */
             progress_current: number;
             /** Format: int32 */
             progress_percent: number;
             /** Format: int64 */
             progress_total: number;
-            result?: null | components["schemas"]["TaskResult"];
+            result?: components["schemas"]["TaskResult"] | null;
             /** Format: int64 */
             share_id?: number | null;
             started_at?: string | null;
@@ -9211,8 +9211,8 @@ export interface components {
             kind: "system_runtime";
         });
         TaskPresentation: {
-            status?: null | components["schemas"]["TaskPresentationMessage"];
-            title?: null | components["schemas"]["TaskPresentationMessage"];
+            status?: components["schemas"]["TaskPresentationMessage"] | null;
+            title?: components["schemas"]["TaskPresentationMessage"] | null;
         };
         /** @enum {string} */
         TaskPresentationCode: "blob_maintenance_integrity_check_name" | "blob_maintenance_orphan_cleanup_name" | "blob_maintenance_ref_count_reconcile_name" | "runtime_system_health_issue_detail" | "runtime_task_audit_cleanup" | "runtime_task_auth_session_cleanup" | "runtime_task_background_task_dispatch" | "runtime_task_blob_reconcile" | "runtime_task_completed_upload_cleanup" | "runtime_task_external_auth_flow_cleanup" | "runtime_task_lock_cleanup" | "runtime_task_mail_outbox_dispatch" | "runtime_task_mfa_flow_cleanup" | "runtime_task_remote_node_health_test" | "runtime_task_system_health_check" | "runtime_task_task_cleanup" | "runtime_task_team_archive_cleanup" | "runtime_task_trash_cleanup" | "runtime_task_upload_cleanup" | "runtime_task_wopi_session_cleanup" | "status_text_archive_extracted" | "status_text_archive_preview_ready" | "status_text_archive_ready" | "status_text_blob_maintenance_finished" | "status_text_folder_tree_delete_finished" | "status_text_folder_tree_mutation_scanning" | "status_text_folder_tree_restore_finished" | "status_text_image_preview_already_available" | "status_text_image_preview_ready" | "status_text_media_metadata_failed" | "status_text_media_metadata_ready" | "status_text_media_metadata_unsupported" | "status_text_offline_download_imported" | "status_text_offline_download_downloaded" | "status_text_offline_download_verified" | "status_text_storage_migration_completed" | "status_text_storage_policy_forced_purge_completed" | "status_text_system_healthy" | "status_text_temporary_upload_cleanup_finished" | "status_text_thumbnail_already_available" | "status_text_thumbnail_ready" | "status_text_trash_purged" | "status_text_waiting_presigned_url_expiry" | "task_name_archive_compress" | "task_name_archive_extract" | "task_name_archive_preview_generate" | "task_name_archive_preview_generate_file_id" | "task_name_folder_tree_delete" | "task_name_folder_tree_restore" | "task_name_image_preview_generate" | "task_name_image_preview_generate_blob_with_processor" | "task_name_media_metadata_extract_blob" | "task_name_media_metadata_extract_source" | "task_name_offline_download_source" | "task_name_offline_download_source_with_engine" | "task_name_offline_download_target_folder" | "task_name_offline_download_target_folder_with_engine" | "task_name_offline_download_url" | "task_name_offline_download_url_with_engine" | "task_name_storage_policy_migration" | "task_name_storage_policy_forced_purge" | "task_name_storage_policy_temp_cleanup" | "task_name_storage_policy_temp_cleanup_policy_id" | "task_name_thumbnail_generate" | "task_name_thumbnail_generate_blob_with_processor" | "task_name_trash_purge_all";
@@ -9297,20 +9297,20 @@ export interface components {
         TaskStepStatus: "pending" | "active" | "succeeded" | "failed" | "skipped" | "canceled";
         TeamAuditEntryInfo: {
             action: components["schemas"]["AuditAction"];
-            actor?: null | components["schemas"]["UserSummary"];
+            actor?: components["schemas"]["UserSummary"] | null;
             created_at: string;
             /** Format: int64 */
             id: number;
-            member?: null | components["schemas"]["UserSummary"];
-            next_role?: null | components["schemas"]["TeamMemberRole"];
-            presentation?: null | components["schemas"]["AuditPresentation"];
-            previous_role?: null | components["schemas"]["TeamMemberRole"];
-            role?: null | components["schemas"]["TeamMemberRole"];
+            member?: components["schemas"]["UserSummary"] | null;
+            next_role?: components["schemas"]["TeamMemberRole"] | null;
+            presentation?: components["schemas"]["AuditPresentation"] | null;
+            previous_role?: components["schemas"]["TeamMemberRole"] | null;
+            role?: components["schemas"]["TeamMemberRole"] | null;
         };
         TeamInfo: {
             archived_at?: string | null;
             created_at: string;
-            created_by?: null | components["schemas"]["UserSummary"];
+            created_by?: components["schemas"]["UserSummary"] | null;
             description: string;
             /** Format: int64 */
             id: number;
@@ -9443,7 +9443,7 @@ export interface components {
             folders: components["schemas"]["TrashFolderItem"][];
             /** Format: int64 */
             folders_total: number;
-            next_file_cursor?: null | components["schemas"]["TrashFileCursor"];
+            next_file_cursor?: components["schemas"]["TrashFileCursor"] | null;
         };
         TrashFileCursor: {
             /** Format: date-time */
@@ -9521,7 +9521,7 @@ export interface components {
             auto_link_verified_email_enabled?: boolean | null;
             auto_provision_enabled?: boolean | null;
             avatar_url_claim?: string | null;
-            callback_mode?: null | components["schemas"]["ExternalAuthCallbackMode"];
+            callback_mode?: components["schemas"]["ExternalAuthCallbackMode"] | null;
             client_id?: string | null;
             client_secret?: string | null;
             display_name?: string | null;
@@ -9532,7 +9532,7 @@ export interface components {
             groups_claim?: string | null;
             icon_url?: string | null;
             issuer_url?: string | null;
-            options?: null | components["schemas"]["ExternalAuthProviderOptions"];
+            options?: components["schemas"]["ExternalAuthProviderOptions"] | null;
             require_email_verified?: boolean | null;
             scopes?: string | null;
             subject_claim?: string | null;
@@ -9547,19 +9547,19 @@ export interface components {
          *     - `remove_custom_keys` entries are deleted
          */
         UpdatePreferencesReq: {
-            browser_open_mode?: null | components["schemas"]["BrowserOpenMode"];
-            color_preset?: null | components["schemas"]["ColorPreset"];
+            browser_open_mode?: components["schemas"]["BrowserOpenMode"] | null;
+            color_preset?: components["schemas"]["ColorPreset"] | null;
             custom?: {
                 [key: string]: unknown;
             };
             display_time_zone?: string | null;
-            language?: null | components["schemas"]["LocaleTag"];
+            language?: components["schemas"]["LocaleTag"] | null;
             remove_custom_keys?: string[];
-            sort_by?: null | components["schemas"]["SortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            sort_by?: components["schemas"]["SortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
             storage_event_stream_enabled?: boolean | null;
-            theme_mode?: null | components["schemas"]["ThemeMode"];
-            view_mode?: null | components["schemas"]["PrefViewMode"];
+            theme_mode?: components["schemas"]["ThemeMode"] | null;
+            view_mode?: components["schemas"]["PrefViewMode"] | null;
         };
         /** @description Update display name in user profile. */
         UpdateProfileReq: {
@@ -9585,14 +9585,14 @@ export interface components {
             chunk_size: number;
             chunks_on_disk: number[];
             filename: string;
-            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
             /** Format: int32 */
             received_count: number;
             status: components["schemas"]["UploadSessionStatus"];
             /** Format: int32 */
             total_chunks: number;
             upload_id: string;
-            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
         };
         UploadScheduling: {
             chunk_ordering: components["schemas"]["UploadChunkOrdering"];
@@ -9715,18 +9715,18 @@ export interface components {
         UserInvitationStatus: "pending" | "accepted" | "expired" | "revoked";
         /** @description API-facing user preference payload: built-in preferences plus custom frontend KV entries. */
         UserPreferences: {
-            browser_open_mode?: null | components["schemas"]["BrowserOpenMode"];
-            color_preset?: null | components["schemas"]["ColorPreset"];
+            browser_open_mode?: components["schemas"]["BrowserOpenMode"] | null;
+            color_preset?: components["schemas"]["ColorPreset"] | null;
             custom?: {
                 [key: string]: unknown;
             };
             display_time_zone?: string | null;
-            language?: null | components["schemas"]["LocaleTag"];
-            sort_by?: null | components["schemas"]["SortBy"];
-            sort_order?: null | components["schemas"]["SortOrder"];
+            language?: components["schemas"]["LocaleTag"] | null;
+            sort_by?: components["schemas"]["SortBy"] | null;
+            sort_order?: components["schemas"]["SortOrder"] | null;
             storage_event_stream_enabled?: boolean | null;
-            theme_mode?: null | components["schemas"]["ThemeMode"];
-            view_mode?: null | components["schemas"]["PrefViewMode"];
+            theme_mode?: components["schemas"]["ThemeMode"] | null;
+            view_mode?: components["schemas"]["PrefViewMode"] | null;
         };
         UserProfileInfo: {
             avatar: components["schemas"]["AvatarInfo"];
@@ -9836,7 +9836,7 @@ export interface components {
             /** Format: int64 */
             team_id?: number | null;
             updated_at: string;
-            user?: null | components["schemas"]["UserSummary"];
+            user?: components["schemas"]["UserSummary"] | null;
             /** Format: int64 */
             user_id: number;
             username: string;
@@ -9864,7 +9864,7 @@ export interface components {
             form_fields?: {
                 [key: string]: string;
             };
-            mode?: null | components["schemas"]["PreviewOpenMode"];
+            mode?: components["schemas"]["PreviewOpenMode"] | null;
         };
         WopiLockOwnerInfo: {
             app_key: string;
@@ -9921,12 +9921,12 @@ export interface operations {
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_type?: components["schemas"]["AuditEntityType"] | null;
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
-                sort_by?: null | components["schemas"]["AdminAuditLogSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminAuditLogSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -9956,8 +9956,8 @@ export interface operations {
                                 /** Format: int64 */
                                 id: number;
                                 ip_address?: string | null;
-                                presentation?: null | components["schemas"]["AuditPresentation"];
-                                user?: null | components["schemas"]["UserSummary"];
+                                presentation?: components["schemas"]["AuditPresentation"] | null;
+                                user?: components["schemas"]["UserSummary"] | null;
                                 user_agent?: string | null;
                             }[];
                             /**
@@ -9976,7 +9976,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10002,12 +10002,12 @@ export interface operations {
             query?: {
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_type?: components["schemas"]["AuditEntityType"] | null;
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
-                sort_by?: null | components["schemas"]["AdminAuditLogSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminAuditLogSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -10105,7 +10105,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10148,7 +10148,7 @@ export interface operations {
                             /** Format: int32 */
                             version: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10274,7 +10274,7 @@ export interface operations {
                             value_type: components["schemas"]["ConfigValueType"];
                             visibility: components["schemas"]["ConfigVisibility"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10343,7 +10343,7 @@ export interface operations {
                             value_type: components["schemas"]["ConfigValueType"];
                             visibility: components["schemas"]["ConfigVisibility"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10442,7 +10442,7 @@ export interface operations {
                             message: string;
                             value?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10519,7 +10519,7 @@ export interface operations {
                             unified_callback_uri: string;
                             userinfo_url_required: boolean;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10617,7 +10617,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10695,7 +10695,7 @@ export interface operations {
                             userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10761,7 +10761,7 @@ export interface operations {
                             /** @description Effective userinfo endpoint, when applicable. */
                             userinfo_endpoint?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10845,7 +10845,7 @@ export interface operations {
                             userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -10975,7 +10975,7 @@ export interface operations {
                             userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11047,7 +11047,7 @@ export interface operations {
                             /** @description Effective userinfo endpoint, when applicable. */
                             userinfo_endpoint?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11096,8 +11096,8 @@ export interface operations {
                 ref_count_max?: number | null;
                 size_min?: number | null;
                 size_max?: number | null;
-                sort_by?: null | components["schemas"]["AdminFileBlobSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminFileBlobSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -11160,7 +11160,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11205,7 +11205,7 @@ export interface operations {
                             file_versions: components["schemas"]["AdminFileBlobReferenceVersion"][];
                             files: components["schemas"]["AdminFileBlobReferenceFile"][];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11246,8 +11246,8 @@ export interface operations {
                 owner_user_id?: number | null;
                 team_id?: number | null;
                 deleted?: boolean | null;
-                sort_by?: null | components["schemas"]["AdminFileSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminFileSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -11272,7 +11272,7 @@ export interface operations {
                                 blob_id: number;
                                 compound_extension?: string | null;
                                 created_at: string;
-                                created_by?: null | components["schemas"]["UserSummary"];
+                                created_by?: components["schemas"]["UserSummary"] | null;
                                 /** Format: int64 */
                                 created_by_user_id?: number | null;
                                 created_by_username: string;
@@ -11310,7 +11310,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11354,7 +11354,7 @@ export interface operations {
                         data?: components["schemas"]["AdminFileInfo"] & {
                             versions: components["schemas"]["AdminFileVersionSummary"][];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11389,8 +11389,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
-                sort_by?: null | components["schemas"]["AdminLockSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminLockSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -11419,8 +11419,8 @@ export interface operations {
                                 /** Format: int64 */
                                 namespace_id: number;
                                 origin: components["schemas"]["LockOrigin"];
-                                owner?: null | components["schemas"]["UserSummary"];
-                                owner_info?: null | components["schemas"]["ResourceLockOwnerInfo"];
+                                owner?: components["schemas"]["UserSummary"] | null;
+                                owner_info?: components["schemas"]["ResourceLockOwnerInfo"] | null;
                                 /** Format: int64 */
                                 root_file_id?: number | null;
                                 /** Format: int64 */
@@ -11445,7 +11445,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11480,7 +11480,7 @@ export interface operations {
                             /** Format: int64 */
                             removed: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11561,7 +11561,7 @@ export interface operations {
                             system_health: components["schemas"]["AdminSystemHealthSummary"];
                             timezone: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11589,8 +11589,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
-                sort_by?: null | components["schemas"]["AdminPolicySortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminPolicySortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -11641,7 +11641,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11699,7 +11699,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11743,11 +11743,11 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             action_id: components["schemas"]["StorageConnectorActionId"];
-                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            diagnostic?: components["schemas"]["StoragePolicyDiagnostic"] | null;
                             ok: boolean;
-                            output?: null | components["schemas"]["StorageConnectorActionOutput"];
+                            output?: components["schemas"]["StorageConnectorActionOutput"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11831,7 +11831,7 @@ export interface operations {
                             config_schema_version: number;
                             /** @description 持久化到 policy 的稳定 connector/plugin id。 */
                             connector_id: components["schemas"]["ConnectorId"];
-                            credential_management?: null | components["schemas"]["StorageConnectorCredentialManagementDescriptor"];
+                            credential_management?: components["schemas"]["StorageConnectorCredentialManagementDescriptor"] | null;
                             /** @description connector 的主要凭据模式。 */
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
                             /**
@@ -11869,7 +11869,7 @@ export interface operations {
                             /** @description 上传工作流能力。 */
                             upload_workflows: components["schemas"]["StorageConnectorUploadWorkflows"];
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11914,7 +11914,7 @@ export interface operations {
                             requested_locale: components["schemas"]["LocaleTag"];
                             resources: components["schemas"]["StorageConnectorLocalizationBundle"][];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -11964,7 +11964,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: Record<string, never>;
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12021,7 +12021,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12133,7 +12133,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12187,11 +12187,11 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             action_id: components["schemas"]["StorageConnectorActionId"];
-                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            diagnostic?: components["schemas"]["StoragePolicyDiagnostic"] | null;
                             ok: boolean;
-                            output?: null | components["schemas"]["StorageConnectorActionOutput"];
+                            output?: components["schemas"]["StorageConnectorActionOutput"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12253,11 +12253,11 @@ export interface operations {
                             blob_total_bytes: number;
                             capacity: components["schemas"]["StorageCapacityInfo"];
                             connector_id: string;
-                            diagnostic?: null | components["schemas"]["StoragePolicyDiagnostic"];
+                            diagnostic?: components["schemas"]["StoragePolicyDiagnostic"] | null;
                             /** Format: int64 */
                             policy_id: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12314,7 +12314,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -12326,14 +12326,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -12344,7 +12344,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12462,7 +12462,7 @@ export interface operations {
                              */
                             upload_session_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12530,7 +12530,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12618,7 +12618,7 @@ export interface operations {
                              */
                             virtual_empty_blob_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12671,7 +12671,7 @@ export interface operations {
                             /** Format: int64 */
                             expires_in: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12746,7 +12746,7 @@ export interface operations {
                             tenant_id?: string | null;
                             updated_at: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12800,7 +12800,7 @@ export interface operations {
                             root_item_id: string;
                             root_item_name?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12856,7 +12856,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: Record<string, never>;
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12884,8 +12884,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
-                sort_by?: null | components["schemas"]["AdminPolicyGroupSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminPolicyGroupSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -12935,7 +12935,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -12992,7 +12992,7 @@ export interface operations {
                             rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13055,7 +13055,7 @@ export interface operations {
                             rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13171,7 +13171,7 @@ export interface operations {
                             rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13242,7 +13242,7 @@ export interface operations {
                             /** Format: int64 */
                             target_group_id: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13304,7 +13304,7 @@ export interface operations {
                         data?: {
                             admitted: boolean;
                             classification: components["schemas"]["StoragePlacementClassification"];
-                            decision?: null | components["schemas"]["StorageRoutingDecision"];
+                            decision?: components["schemas"]["StorageRoutingDecision"] | null;
                             evaluated_rules: components["schemas"]["PlacementRuleEvaluation"][];
                             excluded_targets: [
                                 number,
@@ -13312,7 +13312,7 @@ export interface operations {
                             ][];
                             rejection_code?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13354,8 +13354,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
-                sort_by?: null | components["schemas"]["AdminRemoteNodeSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminRemoteNodeSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -13422,7 +13422,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13496,7 +13496,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13544,7 +13544,7 @@ export interface operations {
                             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
                             min_supported_protocol_version?: string;
                             protocol_version?: string;
-                            remote_storage_target?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
+                            remote_storage_target?: components["schemas"]["RemoteStorageTargetCapabilities"] | null;
                             server_version?: string | null;
                             supports_capacity?: boolean;
                             supports_list?: boolean;
@@ -13552,7 +13552,7 @@ export interface operations {
                             supports_stream_upload?: boolean;
                             target_runtime_capabilities?: components["schemas"]["RemoteStorageTargetRuntimeCapabilities"][];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13632,7 +13632,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13758,7 +13758,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13856,7 +13856,7 @@ export interface operations {
                             descriptors: components["schemas"]["StorageConnectorDescriptor"][];
                             localizations: components["schemas"]["StorageConnectorLocalizationCatalog"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13917,7 +13917,7 @@ export interface operations {
                             target_key: string;
                             updated_at: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -13989,7 +13989,7 @@ export interface operations {
                             target_key: string;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14114,7 +14114,7 @@ export interface operations {
                             target_key: string;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14201,7 +14201,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14250,8 +14250,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
-                sort_by?: null | components["schemas"]["AdminShareSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminShareSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -14284,7 +14284,7 @@ export interface operations {
                                 team_id?: number | null;
                                 token: string;
                                 updated_at: string;
-                                user?: null | components["schemas"]["UserSummary"];
+                                user?: components["schemas"]["UserSummary"] | null;
                                 /** Format: int64 */
                                 view_count: number;
                             }[];
@@ -14304,7 +14304,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14393,7 +14393,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -14405,14 +14405,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -14423,7 +14423,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14478,7 +14478,7 @@ export interface operations {
                             content_sha256_blob_count: number;
                             /** Format: int64 */
                             estimated_copy_blob_count: number;
-                            multipart_plan?: null | components["schemas"]["StoragePolicyMigrationMultipartPlan"];
+                            multipart_plan?: components["schemas"]["StoragePolicyMigrationMultipartPlan"] | null;
                             /** Format: int64 */
                             opaque_blob_count: number;
                             /** Format: int64 */
@@ -14487,7 +14487,7 @@ export interface operations {
                             source_blob_count: number;
                             /** Format: int64 */
                             source_policy_id: number;
-                            source_recovery_probe?: null | components["schemas"]["StoragePolicyRecoveryProbe"];
+                            source_recovery_probe?: components["schemas"]["StoragePolicyRecoveryProbe"] | null;
                             /** Format: int64 */
                             source_total_bytes: number;
                             target_capacity: components["schemas"]["StorageCapacityInfo"];
@@ -14500,7 +14500,7 @@ export interface operations {
                             target_supports_stream_upload: boolean;
                             warnings: components["schemas"]["StoragePolicyMigrationDryRunWarning"][];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14553,7 +14553,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -14565,14 +14565,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -14583,7 +14583,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14639,7 +14639,7 @@ export interface operations {
                             build_time: string;
                             version: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14667,10 +14667,10 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
-                kind?: null | components["schemas"]["BackgroundTaskKind"];
-                status?: null | components["schemas"]["BackgroundTaskStatus"];
-                sort_by?: null | components["schemas"]["AdminTaskSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                kind?: components["schemas"]["BackgroundTaskKind"] | null;
+                status?: components["schemas"]["BackgroundTaskStatus"] | null;
+                sort_by?: components["schemas"]["AdminTaskSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -14694,7 +14694,7 @@ export interface operations {
                                 attempt_count: number;
                                 can_retry: boolean;
                                 created_at: string;
-                                creator?: null | components["schemas"]["UserSummary"];
+                                creator?: components["schemas"]["UserSummary"] | null;
                                 display_name: string;
                                 expires_at: string;
                                 finished_at?: string | null;
@@ -14706,14 +14706,14 @@ export interface operations {
                                 /** Format: int32 */
                                 max_attempts: number;
                                 payload: components["schemas"]["TaskPayload"];
-                                presentation?: null | components["schemas"]["TaskPresentation"];
+                                presentation?: components["schemas"]["TaskPresentation"] | null;
                                 /** Format: int64 */
                                 progress_current: number;
                                 /** Format: int32 */
                                 progress_percent: number;
                                 /** Format: int64 */
                                 progress_total: number;
-                                result?: null | components["schemas"]["TaskResult"];
+                                result?: components["schemas"]["TaskResult"] | null;
                                 /** Format: int64 */
                                 share_id?: number | null;
                                 started_at?: string | null;
@@ -14740,7 +14740,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14786,7 +14786,7 @@ export interface operations {
                             /** Format: int64 */
                             removed: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14823,8 +14823,8 @@ export interface operations {
                 offset?: number | null;
                 keyword?: string | null;
                 archived?: boolean | null;
-                sort_by?: null | components["schemas"]["AdminTeamSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_by?: components["schemas"]["AdminTeamSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -14846,7 +14846,7 @@ export interface operations {
                             items: {
                                 archived_at?: string | null;
                                 created_at: string;
-                                created_by?: null | components["schemas"]["UserSummary"];
+                                created_by?: components["schemas"]["UserSummary"] | null;
                                 description: string;
                                 /** Format: int64 */
                                 id: number;
@@ -14877,7 +14877,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14922,7 +14922,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -14937,7 +14937,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -14988,7 +14988,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -15003,7 +15003,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15100,7 +15100,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -15115,7 +15115,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15159,7 +15159,7 @@ export interface operations {
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_type?: components["schemas"]["AuditEntityType"] | null;
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -15186,15 +15186,15 @@ export interface operations {
                             /** @description Items in the current page. */
                             items: {
                                 action: components["schemas"]["AuditAction"];
-                                actor?: null | components["schemas"]["UserSummary"];
+                                actor?: components["schemas"]["UserSummary"] | null;
                                 created_at: string;
                                 /** Format: int64 */
                                 id: number;
-                                member?: null | components["schemas"]["UserSummary"];
-                                next_role?: null | components["schemas"]["TeamMemberRole"];
-                                presentation?: null | components["schemas"]["AuditPresentation"];
-                                previous_role?: null | components["schemas"]["TeamMemberRole"];
-                                role?: null | components["schemas"]["TeamMemberRole"];
+                                member?: components["schemas"]["UserSummary"] | null;
+                                next_role?: components["schemas"]["TeamMemberRole"] | null;
+                                presentation?: components["schemas"]["AuditPresentation"] | null;
+                                previous_role?: components["schemas"]["TeamMemberRole"] | null;
+                                role?: components["schemas"]["TeamMemberRole"] | null;
                             }[];
                             /**
                              * Format: int64
@@ -15212,7 +15212,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15245,7 +15245,7 @@ export interface operations {
             query?: {
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_type?: components["schemas"]["AuditEntityType"] | null;
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -15306,10 +15306,10 @@ export interface operations {
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
-                role?: null | components["schemas"]["TeamMemberRole"];
-                status?: null | components["schemas"]["UserStatus"];
-                sort_by?: null | components["schemas"]["AdminTeamMemberSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                role?: components["schemas"]["TeamMemberRole"] | null;
+                status?: components["schemas"]["UserStatus"] | null;
+                sort_by?: components["schemas"]["AdminTeamMemberSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path: {
@@ -15341,7 +15341,7 @@ export interface operations {
                             /** Format: int64 */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15407,7 +15407,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15519,7 +15519,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15570,7 +15570,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -15585,7 +15585,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15621,10 +15621,10 @@ export interface operations {
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
-                role?: null | components["schemas"]["UserRole"];
-                status?: null | components["schemas"]["UserStatus"];
-                sort_by?: null | components["schemas"]["AdminUserSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                role?: components["schemas"]["UserRole"] | null;
+                status?: components["schemas"]["UserStatus"] | null;
+                sort_by?: components["schemas"]["AdminUserSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path?: never;
@@ -15679,7 +15679,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15725,7 +15725,7 @@ export interface operations {
                             generated_password?: string | null;
                             user: components["schemas"]["UserInfo"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15811,7 +15811,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15870,7 +15870,7 @@ export interface operations {
                             status: components["schemas"]["UserInvitationStatus"];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -15935,7 +15935,7 @@ export interface operations {
                             status: components["schemas"]["UserInvitationStatus"];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16011,7 +16011,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16133,7 +16133,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16374,7 +16374,7 @@ export interface operations {
                             password_login_enabled: boolean;
                             setup_state: components["schemas"]["SystemSetupState"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16443,7 +16443,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16485,7 +16485,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16566,7 +16566,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16621,7 +16621,7 @@ export interface operations {
                             subject: string;
                             updated_at: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16709,7 +16709,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16753,7 +16753,7 @@ export interface operations {
                             key: string;
                             kind: components["schemas"]["ExternalAuthProviderKind"];
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16817,7 +16817,7 @@ export interface operations {
                         data?: {
                             authorization_url: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16862,7 +16862,7 @@ export interface operations {
                             email: string;
                             expires_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16921,7 +16921,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -16974,7 +16974,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17046,7 +17046,7 @@ export interface operations {
                             pending_email?: string | null;
                             /** Format: int64 */
                             policy_group_id?: number | null;
-                            preferences?: null | components["schemas"]["UserPreferences"];
+                            preferences?: components["schemas"]["UserPreferences"] | null;
                             profile: components["schemas"]["UserProfileInfo"];
                             role: components["schemas"]["UserRole"];
                             status: components["schemas"]["UserStatus"];
@@ -17057,7 +17057,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17094,7 +17094,7 @@ export interface operations {
                             /** Format: int64 */
                             recovery_codes_remaining: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17135,7 +17135,7 @@ export interface operations {
                             /** Format: int64 */
                             resend_after: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17195,7 +17195,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17270,7 +17270,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: string[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17309,7 +17309,7 @@ export interface operations {
                             factor: components["schemas"]["MfaFactorInfo"];
                             recovery_codes: string[];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17347,7 +17347,7 @@ export interface operations {
                             otpauth_uri: string;
                             secret: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17391,7 +17391,7 @@ export interface operations {
                             transports?: string[] | null;
                             updated_at: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17444,7 +17444,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17490,7 +17490,7 @@ export interface operations {
                             flow_id: string;
                             public_key: unknown;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17545,7 +17545,7 @@ export interface operations {
                             transports?: string[] | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17591,7 +17591,7 @@ export interface operations {
                             flow_id: string;
                             public_key: unknown;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17677,7 +17677,7 @@ export interface operations {
                             transports?: string[] | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17731,7 +17731,7 @@ export interface operations {
                             /** Format: int64 */
                             expires_in: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17777,7 +17777,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17823,7 +17823,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17860,20 +17860,20 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         /** @description API-facing user preference payload: built-in preferences plus custom frontend KV entries. */
                         data?: {
-                            browser_open_mode?: null | components["schemas"]["BrowserOpenMode"];
-                            color_preset?: null | components["schemas"]["ColorPreset"];
+                            browser_open_mode?: components["schemas"]["BrowserOpenMode"] | null;
+                            color_preset?: components["schemas"]["ColorPreset"] | null;
                             custom?: {
                                 [key: string]: unknown;
                             };
                             display_time_zone?: string | null;
-                            language?: null | components["schemas"]["LocaleTag"];
-                            sort_by?: null | components["schemas"]["SortBy"];
-                            sort_order?: null | components["schemas"]["SortOrder"];
+                            language?: components["schemas"]["LocaleTag"] | null;
+                            sort_by?: components["schemas"]["SortBy"] | null;
+                            sort_order?: components["schemas"]["SortOrder"] | null;
                             storage_event_stream_enabled?: boolean | null;
-                            theme_mode?: null | components["schemas"]["ThemeMode"];
-                            view_mode?: null | components["schemas"]["PrefViewMode"];
+                            theme_mode?: components["schemas"]["ThemeMode"] | null;
+                            view_mode?: components["schemas"]["PrefViewMode"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17912,7 +17912,7 @@ export interface operations {
                             avatar: components["schemas"]["AvatarInfo"];
                             display_name?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -17958,7 +17958,7 @@ export interface operations {
                             avatar: components["schemas"]["AvatarInfo"];
                             display_name?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18005,7 +18005,7 @@ export interface operations {
                             applied: boolean;
                             profile: components["schemas"]["UserProfileInfo"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18083,7 +18083,7 @@ export interface operations {
                             /** Format: int64 */
                             expires_in: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18139,7 +18139,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18178,7 +18178,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18211,7 +18211,7 @@ export interface operations {
                             last_seen_at: string;
                             user_agent?: string | null;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18246,7 +18246,7 @@ export interface operations {
                             /** Format: int64 */
                             removed: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18337,7 +18337,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18377,7 +18377,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -18389,14 +18389,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -18407,7 +18407,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18454,7 +18454,7 @@ export interface operations {
                             expires_at: string;
                             token: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18552,7 +18552,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18601,7 +18601,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18650,7 +18650,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18728,7 +18728,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18781,16 +18781,16 @@ export interface operations {
                             /** Format: int64 */
                             chunk_size?: number | null;
                             mode: components["schemas"]["UploadTransport"];
-                            presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
+                            presigned_request?: components["schemas"]["PresignedUploadRequest"] | null;
                             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
                             presigned_require_etag?: boolean | null;
-                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+                            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
                             /** Format: int32 */
                             total_chunks?: number | null;
                             upload_id?: string | null;
-                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+                            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -18849,7 +18849,7 @@ export interface operations {
                             folder_id?: number | null;
                             mime_type: string;
                             mode: components["schemas"]["UploadTransport"];
-                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+                            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
                             /** Format: int32 */
                             received_count: number;
                             status: components["schemas"]["UploadSessionStatus"];
@@ -18860,9 +18860,9 @@ export interface operations {
                             /** Format: date-time */
                             updated_at: string;
                             upload_id: string;
-                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+                            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19005,7 +19005,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19070,7 +19070,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19125,7 +19125,7 @@ export interface operations {
                                 url: string;
                             };
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19178,7 +19178,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19252,7 +19252,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19365,7 +19365,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19428,7 +19428,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19534,7 +19534,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19626,7 +19626,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19670,7 +19670,7 @@ export interface operations {
                         data?: {
                             token: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19764,7 +19764,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -19776,14 +19776,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -19794,7 +19794,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19949,7 +19949,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -19996,13 +19996,13 @@ export interface operations {
                             blob_id: number;
                             error?: string | null;
                             kind: components["schemas"]["MediaMetadataKind"];
-                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            metadata?: components["schemas"]["MediaMetadataPayload"] | null;
                             parser: string;
                             parser_version: string;
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20055,7 +20055,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20103,10 +20103,10 @@ export interface operations {
                         data?: {
                             delivery: components["schemas"]["FileResourceDeliveryInfo"];
                             identity: components["schemas"]["FileResourceIdentity"];
-                            lifecycle?: null | components["schemas"]["FileResourceLifecycleInfo"];
+                            lifecycle?: components["schemas"]["FileResourceLifecycleInfo"] | null;
                             request: components["schemas"]["FileResourceRequestInfo"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20251,7 +20251,7 @@ export interface operations {
                             /** Format: int64 */
                             version: number;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20357,7 +20357,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20413,9 +20413,9 @@ export interface operations {
                             form_fields?: {
                                 [key: string]: string;
                             };
-                            mode?: null | components["schemas"]["PreviewOpenMode"];
+                            mode?: components["schemas"]["PreviewOpenMode"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20446,9 +20446,9 @@ export interface operations {
                 /** @description 文件最大返回数量（默认 100，最大 1000；传 0 跳过文件查询） */
                 file_limit?: number | null;
                 /** @description 排序字段（name|size|created_at|updated_at|type，默认 name） */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description 排序方向（asc|desc，默认 asc） */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description cursor 分页：上一页最后一条文件的排序字段值（序列化为字符串） */
                 file_after_value?: string | null;
                 /** @description cursor 分页：上一页最后一条文件的 id */
@@ -20475,9 +20475,9 @@ export interface operations {
                             folders: components["schemas"]["FolderListItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["FileCursor"];
+                            next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20540,7 +20540,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20564,9 +20564,9 @@ export interface operations {
                 /** @description 文件最大返回数量（默认 100，最大 1000；传 0 跳过文件查询） */
                 file_limit?: number | null;
                 /** @description 排序字段（name|size|created_at|updated_at|type，默认 name） */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description 排序方向（asc|desc，默认 asc） */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description cursor 分页：上一页最后一条文件的排序字段值（序列化为字符串） */
                 file_after_value?: string | null;
                 /** @description cursor 分页：上一页最后一条文件的 id */
@@ -20596,9 +20596,9 @@ export interface operations {
                             folders: components["schemas"]["FolderListItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["FileCursor"];
+                            next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20651,7 +20651,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -20663,14 +20663,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -20681,7 +20681,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20754,7 +20754,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20801,7 +20801,7 @@ export interface operations {
                             id: number;
                             name: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20874,7 +20874,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -20947,7 +20947,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21023,7 +21023,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21096,7 +21096,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21149,7 +21149,7 @@ export interface operations {
                             namespace: string;
                             value?: string | null;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21206,7 +21206,7 @@ export interface operations {
                             namespace: string;
                             value?: string | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21306,7 +21306,7 @@ export interface operations {
                             /** Format: int32 */
                             version: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21338,7 +21338,7 @@ export interface operations {
                             /** Format: int32 */
                             version: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21367,7 +21367,7 @@ export interface operations {
                             /** Format: int32 */
                             version?: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21445,7 +21445,7 @@ export interface operations {
                             version: number;
                             video_thumbnail: components["schemas"]["PublicExtensionSupport"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21476,7 +21476,7 @@ export interface operations {
                             /** Format: int64 */
                             download_count: number;
                             expires_at?: string | null;
-                            folder_icon?: null | components["schemas"]["FolderIcon"];
+                            folder_icon?: components["schemas"]["FolderIcon"] | null;
                             has_password: boolean;
                             is_expired: boolean;
                             /** Format: int64 */
@@ -21491,7 +21491,7 @@ export interface operations {
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21547,7 +21547,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21636,9 +21636,9 @@ export interface operations {
                 /** @description 文件最大返回数量（默认 100，最大 1000；传 0 跳过文件查询） */
                 file_limit?: number | null;
                 /** @description 排序字段（name|size|created_at|updated_at|type，默认 name） */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description 排序方向（asc|desc，默认 asc） */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description cursor 分页：上一页最后一条文件的排序字段值（序列化为字符串） */
                 file_after_value?: string | null;
                 /** @description cursor 分页：上一页最后一条文件的 id */
@@ -21668,9 +21668,9 @@ export interface operations {
                             folders: components["schemas"]["FolderListItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["FileCursor"];
+                            next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21779,7 +21779,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -21967,13 +21967,13 @@ export interface operations {
                             blob_id: number;
                             error?: string | null;
                             kind: components["schemas"]["MediaMetadataKind"];
-                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            metadata?: components["schemas"]["MediaMetadataPayload"] | null;
                             parser: string;
                             parser_version: string;
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22028,7 +22028,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22075,7 +22075,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22196,7 +22196,7 @@ export interface operations {
                             id: number;
                             name: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22227,9 +22227,9 @@ export interface operations {
                 /** @description 文件最大返回数量（默认 100，最大 1000；传 0 跳过文件查询） */
                 file_limit?: number | null;
                 /** @description 排序字段（name|size|created_at|updated_at|type，默认 name） */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description 排序方向（asc|desc，默认 asc） */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description cursor 分页：上一页最后一条文件的排序字段值（序列化为字符串） */
                 file_after_value?: string | null;
                 /** @description cursor 分页：上一页最后一条文件的 id */
@@ -22261,9 +22261,9 @@ export interface operations {
                             folders: components["schemas"]["FolderListItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["FileCursor"];
+                            next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22380,13 +22380,13 @@ export interface operations {
                             blob_id: number;
                             error?: string | null;
                             kind: components["schemas"]["MediaMetadataKind"];
-                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            metadata?: components["schemas"]["MediaMetadataPayload"] | null;
                             parser: string;
                             parser_version: string;
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22439,7 +22439,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22484,7 +22484,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22688,9 +22688,9 @@ export interface operations {
                 /** @description Tag filter mode: "any" or "all" (default any) */
                 tag_match?: string | null;
                 /** @description Sort field (default name) */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description Sort direction (default asc) */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description Max results per type (default 50, max 100) */
                 limit?: number | null;
                 /** @description Offset for pagination */
@@ -22718,7 +22718,7 @@ export interface operations {
                             /** Format: int64 */
                             total_folders: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22762,7 +22762,7 @@ export interface operations {
                                 /** Format: int64 */
                                 download_count: number;
                                 expires_at?: string | null;
-                                folder_icon?: null | components["schemas"]["FolderIcon"];
+                                folder_icon?: components["schemas"]["FolderIcon"] | null;
                                 has_password: boolean;
                                 /** Format: int64 */
                                 id: number;
@@ -22797,7 +22797,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22846,11 +22846,11 @@ export interface operations {
                             team_id?: number | null;
                             token: string;
                             updated_at: string;
-                            user?: null | components["schemas"]["UserSummary"];
+                            user?: components["schemas"]["UserSummary"] | null;
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22892,7 +22892,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -22986,11 +22986,11 @@ export interface operations {
                             team_id?: number | null;
                             token: string;
                             updated_at: string;
-                            user?: null | components["schemas"]["UserSummary"];
+                            user?: components["schemas"]["UserSummary"] | null;
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23116,7 +23116,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23169,7 +23169,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23258,7 +23258,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23309,7 +23309,7 @@ export interface operations {
                                 attempt_count: number;
                                 can_retry: boolean;
                                 created_at: string;
-                                creator?: null | components["schemas"]["UserSummary"];
+                                creator?: components["schemas"]["UserSummary"] | null;
                                 display_name: string;
                                 expires_at: string;
                                 finished_at?: string | null;
@@ -23321,14 +23321,14 @@ export interface operations {
                                 /** Format: int32 */
                                 max_attempts: number;
                                 payload: components["schemas"]["TaskPayload"];
-                                presentation?: null | components["schemas"]["TaskPresentation"];
+                                presentation?: components["schemas"]["TaskPresentation"] | null;
                                 /** Format: int64 */
                                 progress_current: number;
                                 /** Format: int32 */
                                 progress_percent: number;
                                 /** Format: int64 */
                                 progress_total: number;
-                                result?: null | components["schemas"]["TaskResult"];
+                                result?: components["schemas"]["TaskResult"] | null;
                                 /** Format: int64 */
                                 share_id?: number | null;
                                 started_at?: string | null;
@@ -23355,7 +23355,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23395,7 +23395,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -23407,14 +23407,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -23425,7 +23425,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23471,7 +23471,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -23483,14 +23483,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -23501,7 +23501,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23547,7 +23547,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -23559,14 +23559,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -23577,7 +23577,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23630,7 +23630,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -23646,7 +23646,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23684,7 +23684,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -23700,7 +23700,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23751,7 +23751,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -23767,7 +23767,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23864,7 +23864,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -23880,7 +23880,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -23917,7 +23917,7 @@ export interface operations {
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_type?: components["schemas"]["AuditEntityType"] | null;
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -23944,15 +23944,15 @@ export interface operations {
                             /** @description Items in the current page. */
                             items: {
                                 action: components["schemas"]["AuditAction"];
-                                actor?: null | components["schemas"]["UserSummary"];
+                                actor?: components["schemas"]["UserSummary"] | null;
                                 created_at: string;
                                 /** Format: int64 */
                                 id: number;
-                                member?: null | components["schemas"]["UserSummary"];
-                                next_role?: null | components["schemas"]["TeamMemberRole"];
-                                presentation?: null | components["schemas"]["AuditPresentation"];
-                                previous_role?: null | components["schemas"]["TeamMemberRole"];
-                                role?: null | components["schemas"]["TeamMemberRole"];
+                                member?: components["schemas"]["UserSummary"] | null;
+                                next_role?: components["schemas"]["TeamMemberRole"] | null;
+                                presentation?: components["schemas"]["AuditPresentation"] | null;
+                                previous_role?: components["schemas"]["TeamMemberRole"] | null;
+                                role?: components["schemas"]["TeamMemberRole"] | null;
                             }[];
                             /**
                              * Format: int64
@@ -23970,7 +23970,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24003,7 +24003,7 @@ export interface operations {
             query?: {
                 user_id?: number | null;
                 action?: string | null;
-                entity_type?: null | components["schemas"]["AuditEntityType"];
+                entity_type?: components["schemas"]["AuditEntityType"] | null;
                 entity_id?: number | null;
                 after?: string | null;
                 before?: string | null;
@@ -24064,10 +24064,10 @@ export interface operations {
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
-                role?: null | components["schemas"]["TeamMemberRole"];
-                status?: null | components["schemas"]["UserStatus"];
-                sort_by?: null | components["schemas"]["AdminTeamMemberSortBy"];
-                sort_order?: null | components["schemas"]["SortOrder"];
+                role?: components["schemas"]["TeamMemberRole"] | null;
+                status?: components["schemas"]["UserStatus"] | null;
+                sort_by?: components["schemas"]["AdminTeamMemberSortBy"] | null;
+                sort_order?: components["schemas"]["SortOrder"] | null;
             };
             header?: never;
             path: {
@@ -24099,7 +24099,7 @@ export interface operations {
                             /** Format: int64 */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24165,7 +24165,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24277,7 +24277,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24328,7 +24328,7 @@ export interface operations {
                         data?: {
                             archived_at?: string | null;
                             created_at: string;
-                            created_by?: null | components["schemas"]["UserSummary"];
+                            created_by?: components["schemas"]["UserSummary"] | null;
                             description: string;
                             /** Format: int64 */
                             id: number;
@@ -24344,7 +24344,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24401,7 +24401,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -24413,14 +24413,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -24431,7 +24431,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24488,7 +24488,7 @@ export interface operations {
                             expires_at: string;
                             token: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24591,7 +24591,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24650,7 +24650,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24709,7 +24709,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24797,7 +24797,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24853,16 +24853,16 @@ export interface operations {
                             /** Format: int64 */
                             chunk_size?: number | null;
                             mode: components["schemas"]["UploadTransport"];
-                            presigned_request?: null | components["schemas"]["PresignedUploadRequest"];
+                            presigned_request?: components["schemas"]["PresignedUploadRequest"] | null;
                             /** @description 浏览器直传完成后是否必须从响应读取 ETag。 */
                             presigned_require_etag?: boolean | null;
-                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+                            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
                             /** Format: int32 */
                             total_chunks?: number | null;
                             upload_id?: string | null;
-                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+                            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24931,7 +24931,7 @@ export interface operations {
                             folder_id?: number | null;
                             mime_type: string;
                             mode: components["schemas"]["UploadTransport"];
-                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+                            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
                             /** Format: int32 */
                             received_count: number;
                             status: components["schemas"]["UploadSessionStatus"];
@@ -24942,9 +24942,9 @@ export interface operations {
                             /** Format: date-time */
                             updated_at: string;
                             upload_id: string;
-                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+                            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -24992,16 +24992,16 @@ export interface operations {
                             chunk_size: number;
                             chunks_on_disk: number[];
                             filename: string;
-                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
+                            provider_resumable?: components["schemas"]["ProviderResumableUploadResponse"] | null;
                             /** Format: int32 */
                             received_count: number;
                             status: components["schemas"]["UploadSessionStatus"];
                             /** Format: int32 */
                             total_chunks: number;
                             upload_id: string;
-                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+                            upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25132,7 +25132,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25199,7 +25199,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25263,7 +25263,7 @@ export interface operations {
                                 url: string;
                             };
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25325,7 +25325,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25408,7 +25408,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25539,7 +25539,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25611,7 +25611,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25719,7 +25719,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25820,7 +25820,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25873,7 +25873,7 @@ export interface operations {
                         data?: {
                             token: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -25985,7 +25985,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -25997,14 +25997,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -26015,7 +26015,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26188,7 +26188,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26244,13 +26244,13 @@ export interface operations {
                             blob_id: number;
                             error?: string | null;
                             kind: components["schemas"]["MediaMetadataKind"];
-                            metadata?: null | components["schemas"]["MediaMetadataPayload"];
+                            metadata?: components["schemas"]["MediaMetadataPayload"] | null;
                             parser: string;
                             parser_version: string;
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26312,7 +26312,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26369,10 +26369,10 @@ export interface operations {
                         data?: {
                             delivery: components["schemas"]["FileResourceDeliveryInfo"];
                             identity: components["schemas"]["FileResourceIdentity"];
-                            lifecycle?: null | components["schemas"]["FileResourceLifecycleInfo"];
+                            lifecycle?: components["schemas"]["FileResourceLifecycleInfo"] | null;
                             request: components["schemas"]["FileResourceRequestInfo"];
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26535,7 +26535,7 @@ export interface operations {
                             /** Format: int64 */
                             version: number;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26659,7 +26659,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26724,9 +26724,9 @@ export interface operations {
                             form_fields?: {
                                 [key: string]: string;
                             };
-                            mode?: null | components["schemas"]["PreviewOpenMode"];
+                            mode?: components["schemas"]["PreviewOpenMode"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26764,9 +26764,9 @@ export interface operations {
                 /** @description 文件最大返回数量（默认 100，最大 1000；传 0 跳过文件查询） */
                 file_limit?: number | null;
                 /** @description 排序字段（name|size|created_at|updated_at|type，默认 name） */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description 排序方向（asc|desc，默认 asc） */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description cursor 分页：上一页最后一条文件的排序字段值（序列化为字符串） */
                 file_after_value?: string | null;
                 /** @description cursor 分页：上一页最后一条文件的 id */
@@ -26796,9 +26796,9 @@ export interface operations {
                             folders: components["schemas"]["FolderListItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["FileCursor"];
+                            next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26871,7 +26871,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -26902,9 +26902,9 @@ export interface operations {
                 /** @description 文件最大返回数量（默认 100，最大 1000；传 0 跳过文件查询） */
                 file_limit?: number | null;
                 /** @description 排序字段（name|size|created_at|updated_at|type，默认 name） */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description 排序方向（asc|desc，默认 asc） */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description cursor 分页：上一页最后一条文件的排序字段值（序列化为字符串） */
                 file_after_value?: string | null;
                 /** @description cursor 分页：上一页最后一条文件的 id */
@@ -26936,9 +26936,9 @@ export interface operations {
                             folders: components["schemas"]["FolderListItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["FileCursor"];
+                            next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27000,7 +27000,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -27012,14 +27012,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -27030,7 +27030,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27112,7 +27112,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27168,7 +27168,7 @@ export interface operations {
                             id: number;
                             name: string;
                         }[];
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27250,7 +27250,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27332,7 +27332,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27417,7 +27417,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27499,7 +27499,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27555,9 +27555,9 @@ export interface operations {
                 /** @description Tag filter mode: "any" or "all" (default any) */
                 tag_match?: string | null;
                 /** @description Sort field (default name) */
-                sort_by?: null | components["schemas"]["SortBy"];
+                sort_by?: components["schemas"]["SortBy"] | null;
                 /** @description Sort direction (default asc) */
-                sort_order?: null | components["schemas"]["SortOrder"];
+                sort_order?: components["schemas"]["SortOrder"] | null;
                 /** @description Max results per type (default 50, max 100) */
                 limit?: number | null;
                 /** @description Offset for pagination */
@@ -27588,7 +27588,7 @@ export interface operations {
                             /** Format: int64 */
                             total_folders: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27642,7 +27642,7 @@ export interface operations {
                                 /** Format: int64 */
                                 download_count: number;
                                 expires_at?: string | null;
-                                folder_icon?: null | components["schemas"]["FolderIcon"];
+                                folder_icon?: components["schemas"]["FolderIcon"] | null;
                                 has_password: boolean;
                                 /** Format: int64 */
                                 id: number;
@@ -27677,7 +27677,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27736,11 +27736,11 @@ export interface operations {
                             team_id?: number | null;
                             token: string;
                             updated_at: string;
-                            user?: null | components["schemas"]["UserSummary"];
+                            user?: components["schemas"]["UserSummary"] | null;
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27792,7 +27792,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -27904,11 +27904,11 @@ export interface operations {
                             team_id?: number | null;
                             token: string;
                             updated_at: string;
-                            user?: null | components["schemas"]["UserSummary"];
+                            user?: components["schemas"]["UserSummary"] | null;
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28006,7 +28006,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28069,7 +28069,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28178,7 +28178,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28239,7 +28239,7 @@ export interface operations {
                                 attempt_count: number;
                                 can_retry: boolean;
                                 created_at: string;
-                                creator?: null | components["schemas"]["UserSummary"];
+                                creator?: components["schemas"]["UserSummary"] | null;
                                 display_name: string;
                                 expires_at: string;
                                 finished_at?: string | null;
@@ -28251,14 +28251,14 @@ export interface operations {
                                 /** Format: int32 */
                                 max_attempts: number;
                                 payload: components["schemas"]["TaskPayload"];
-                                presentation?: null | components["schemas"]["TaskPresentation"];
+                                presentation?: components["schemas"]["TaskPresentation"] | null;
                                 /** Format: int64 */
                                 progress_current: number;
                                 /** Format: int32 */
                                 progress_percent: number;
                                 /** Format: int64 */
                                 progress_total: number;
-                                result?: null | components["schemas"]["TaskResult"];
+                                result?: components["schemas"]["TaskResult"] | null;
                                 /** Format: int64 */
                                 share_id?: number | null;
                                 started_at?: string | null;
@@ -28285,7 +28285,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28335,7 +28335,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -28347,14 +28347,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -28365,7 +28365,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28420,7 +28420,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -28432,14 +28432,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -28450,7 +28450,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28505,7 +28505,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -28517,14 +28517,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -28535,7 +28535,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28608,9 +28608,9 @@ export interface operations {
                             folders: components["schemas"]["TrashFolderItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["TrashFileCursor"];
+                            next_file_cursor?: components["schemas"]["TrashFileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28656,7 +28656,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -28668,14 +28668,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -28686,7 +28686,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28789,7 +28789,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -28801,14 +28801,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -28819,7 +28819,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28887,7 +28887,7 @@ export interface operations {
                                 /** Format: int64 */
                                 team_id?: number | null;
                                 updated_at: string;
-                                user?: null | components["schemas"]["UserSummary"];
+                                user?: components["schemas"]["UserSummary"] | null;
                                 /** Format: int64 */
                                 user_id: number;
                                 username: string;
@@ -28908,7 +28908,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -28957,7 +28957,7 @@ export interface operations {
                             team_id?: number | null;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29044,7 +29044,7 @@ export interface operations {
                             user_id: number;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29100,9 +29100,9 @@ export interface operations {
                             folders: components["schemas"]["TrashFolderItem"][];
                             /** Format: int64 */
                             folders_total: number;
-                            next_file_cursor?: null | components["schemas"]["TrashFileCursor"];
+                            next_file_cursor?: components["schemas"]["TrashFileCursor"] | null;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29138,7 +29138,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -29150,14 +29150,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -29168,7 +29168,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29253,7 +29253,7 @@ export interface operations {
                             attempt_count: number;
                             can_retry: boolean;
                             created_at: string;
-                            creator?: null | components["schemas"]["UserSummary"];
+                            creator?: components["schemas"]["UserSummary"] | null;
                             display_name: string;
                             expires_at: string;
                             finished_at?: string | null;
@@ -29265,14 +29265,14 @@ export interface operations {
                             /** Format: int32 */
                             max_attempts: number;
                             payload: components["schemas"]["TaskPayload"];
-                            presentation?: null | components["schemas"]["TaskPresentation"];
+                            presentation?: components["schemas"]["TaskPresentation"] | null;
                             /** Format: int64 */
                             progress_current: number;
                             /** Format: int32 */
                             progress_percent: number;
                             /** Format: int64 */
                             progress_total: number;
-                            result?: null | components["schemas"]["TaskResult"];
+                            result?: components["schemas"]["TaskResult"] | null;
                             /** Format: int64 */
                             share_id?: number | null;
                             started_at?: string | null;
@@ -29283,7 +29283,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29341,7 +29341,7 @@ export interface operations {
                                 /** Format: int64 */
                                 team_id?: number | null;
                                 updated_at: string;
-                                user?: null | components["schemas"]["UserSummary"];
+                                user?: components["schemas"]["UserSummary"] | null;
                                 /** Format: int64 */
                                 user_id: number;
                                 username: string;
@@ -29362,7 +29362,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29408,7 +29408,7 @@ export interface operations {
                             team_id?: number | null;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29444,7 +29444,7 @@ export interface operations {
                             endpoint: string;
                             prefix: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29556,7 +29556,7 @@ export interface operations {
                             user_id: number;
                             username: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29632,7 +29632,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29688,7 +29688,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };
@@ -29758,7 +29758,7 @@ export interface operations {
                         data?: {
                             status: string;
                         };
-                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        error?: components["schemas"]["ApiErrorInfo"] | null;
                         msg: string;
                     };
                 };

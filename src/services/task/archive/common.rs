@@ -446,10 +446,16 @@ fn copy_reader_to_writer_internal<R: Read, W: Write>(
     loop {
         ensure_task_execution_active(execution)?;
         ensure_deadline_active(deadline)?;
-        let read = reader.read(&mut buffer).map_aster_err_ctx(
-            "read archive stream chunk",
-            AsterError::storage_driver_error,
-        )?;
+        let read = reader.read(&mut buffer).map_err(|error| {
+            // zip 9 rejects CRC/declared-size corruption before returning decoded bytes.
+            // Such deterministic input failures must not become retryable storage failures;
+            // actual source I/O and output-write failures keep their infrastructure boundary.
+            if expected.is_some() && error.kind() == std::io::ErrorKind::InvalidData {
+                AsterError::validation_error(format!("invalid archive entry data: {error}"))
+            } else {
+                AsterError::storage_driver_error(format!("read archive stream chunk: {error}"))
+            }
+        })?;
         if read == 0 {
             break;
         }
@@ -622,6 +628,36 @@ mod tests {
         assert_eq!(error.code(), "E005");
         assert!(error.message().contains("expands beyond declared size"));
         assert!(writer.is_empty());
+    }
+
+    #[test]
+    fn archive_entry_corruption_and_source_io_keep_distinct_error_boundaries() {
+        struct ReadFailure(std::io::ErrorKind);
+        impl Read for ReadFailure {
+            fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::new(self.0, "injected read failure"))
+            }
+        }
+        for (kind, invalid_input) in [
+            (std::io::ErrorKind::InvalidData, true),
+            (std::io::ErrorKind::Other, false),
+        ] {
+            let mut output = Vec::new();
+            let error = copy_reader_to_writer_with_execution_and_expected_size(
+                None,
+                &mut ReadFailure(kind),
+                &mut output,
+                4,
+                "entry",
+                None,
+            )
+            .expect_err("injected read failure must propagate");
+            assert_eq!(
+                matches!(error, crate::errors::AsterError::ValidationError(_)),
+                invalid_input
+            );
+            assert_eq!(output, [] as [u8; 0]);
+        }
     }
 
     #[test]

@@ -5,6 +5,8 @@ use crate::services::ops::audit;
 
 /// 记录服务器关闭事件。
 pub async fn record_server_shutdown<S: SharedRuntimeState>(state: &S) {
+    // Idempotent fallback for server termination paths that did not receive an OS signal.
+    state.runtime_config().refresh_coordinator().close();
     audit::log(
         state,
         &audit::AuditContext::system(),
@@ -81,6 +83,7 @@ mod tests {
         let (state, db) = follower_state().await;
 
         record_server_shutdown(&state).await;
+        assert!(state.runtime_config.refresh_coordinator().is_closed());
 
         assert_eq!(
             audit_action_count(&db, aster_drive_model::types::AuditAction::ServerShutdown).await,

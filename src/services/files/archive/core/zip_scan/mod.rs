@@ -22,7 +22,7 @@ use super::scan::{
     ArchiveRawScanEntry, ArchiveRawScanResult, ArchiveScanEntryKind, ArchiveScanLimits,
     ArchiveScanNamePolicy, ArchiveScanResult, ensure_archive_scan_deadline,
 };
-use encoding::{decode_zip_entry_name, decode_zip_entry_name_parts};
+use encoding::{ZIP_UTF8_FLAG, decode_zip_entry_name, decode_zip_entry_name_parts};
 use entry::{
     build_scan_entry, build_scan_entry_from_parts, format_zip_datetime, map_zip_entry_error,
     validate_zip_entry_supported,
@@ -184,10 +184,10 @@ where
     for index in 0..archive.len() {
         ensure_archive_scan_deadline(deadline)?;
         let entry = archive.by_index_raw(index).map_err(map_zip_entry_error)?;
-        validate_zip_entry_supported(&entry, entry.name())?;
+        let display_name = entry.name().map_err(map_zip_entry_error)?.into_owned();
+        validate_zip_entry_supported(&entry, &display_name)?;
         let raw_name = entry.name_raw().to_vec();
-        let display_name = entry.name().to_string();
-        let raw_name_utf8 = entry.get_metadata().is_utf8;
+        let raw_name_utf8 = entry.get_metadata().flags.as_u16() & ZIP_UTF8_FLAG != 0;
 
         if entry.is_dir() {
             directory_count = directory_count
@@ -240,7 +240,7 @@ where
             entry.size(),
             entry.compressed_size(),
             limits.max_entry_compression_ratio,
-            Path::new(entry.name()),
+            Path::new(&display_name),
         )?;
         entries.push(ArchiveRawScanEntry {
             index,

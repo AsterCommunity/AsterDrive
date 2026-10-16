@@ -1,6 +1,5 @@
 //! 认证服务聚合入口。
 
-mod cache;
 mod contact_verification;
 mod password;
 mod registration;
@@ -34,33 +33,52 @@ pub use registration::{
     resend_register_activation, setup,
 };
 pub use session::{
-    cleanup_expired_auth_sessions, get_auth_snapshot, invalidate_auth_snapshot_cache,
-    list_auth_sessions, revoke_auth_session, revoke_other_auth_sessions, revoke_user_sessions,
+    cleanup_expired_auth_sessions, get_current_auth_snapshot, list_auth_sessions,
+    revoke_auth_session, revoke_other_auth_sessions, revoke_user_sessions,
 };
-#[cfg(debug_assertions)]
-pub use tokens::test_support;
 pub use tokens::{
-    authenticate_access_token, authenticate_refresh_token, issue_password_change_tokens_for_user,
-    issue_tokens_for_session, issue_tokens_for_user, issue_tokens_for_user_in_connection,
-    refresh_tokens, revoke_refresh_token, verify_token,
+    authenticate_access_token, issue_tokens_for_session, issue_tokens_for_user, refresh_tokens,
+    revoke_refresh_token, verify_token,
 };
 pub(crate) use validation::{validate_email, validate_password, validate_username};
 
 const INITIAL_SESSION_VERSION: i64 = 1;
 const ACTIVE_VERIFICATION_REQUEST_MESSAGE: &str = "a verification request is already active";
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Drive's request projection of Forge-verified claims, never the JWT wire format.
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Claims {
+    /// Stable Forge session identity. Access revocation still follows Drive's account-version
+    /// policy; carrying sid alone does not promise immediate single-session access revocation.
+    pub sid: String,
+    /// Canonical subject supplied by the verified JWT.
     pub sub: String,
+    /// Drive integer account identity parsed only from `sub`.
     pub user_id: i64,
-    #[serde(default = "default_session_version")]
+    /// Account generation checked against the writer on authenticated requests.
     pub session_version: i64,
-    #[serde(default)]
+    /// Product projection of Forge's explicit login restriction.
     pub password_change: bool,
-    #[serde(default)]
+    /// Refresh identity; absent for access credentials and omitted from Debug.
     pub jti: Option<String>,
+    /// Verified credential purpose, separate from product authorization.
     pub token_type: TokenType,
+    /// Exclusive verified expiry, retained for transport compatibility.
     pub exp: usize,
+}
+
+impl std::fmt::Debug for Claims {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Claims")
+            .field("user_id", &self.user_id)
+            .field("sid", &self.sid)
+            .field("session_version", &self.session_version)
+            .field("password_change", &self.password_change)
+            .field("token_type", &self.token_type)
+            .field("exp", &self.exp)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -222,10 +240,6 @@ impl AuthSnapshot {
             must_change_password: user.must_change_password,
         }
     }
-}
-
-fn default_session_version() -> i64 {
-    0
 }
 
 fn user_audit_info(user: &user::Model) -> UserAuditInfo {

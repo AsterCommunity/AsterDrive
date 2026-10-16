@@ -2,12 +2,11 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
-use crate::db::repository::user_repo;
+use crate::db::repository::{auth_session_repo, user_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use aster_forge_db::transaction;
 
-use super::session::{invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection};
 use super::shared::{find_user_by_identifier, update_password_in_connection};
 use super::validate_password;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
@@ -221,10 +220,10 @@ pub async fn set_password(
         .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let user = user_repo::find_by_id(&txn, user_id).await?;
+        let user = user_repo::lock_by_id(&txn, user_id).await?;
         let was_forced = user.must_change_password;
         let updated = update_password_in_connection(&txn, user, new_password_hash).await?;
-        purge_all_auth_sessions_in_connection(&txn, updated.id).await?;
+        auth_session_repo::delete_all_for_user(&txn, updated.id).await?;
         Ok::<_, AsterError>((updated, was_forced))
     }
     .await;
@@ -238,7 +237,6 @@ pub async fn set_password(
             return Err(error);
         }
     };
-    invalidate_auth_snapshot_cache(state, updated.id).await;
     tracing::debug!(
         user_id = updated.id,
         session_version = updated.session_version,

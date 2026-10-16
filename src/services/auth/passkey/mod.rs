@@ -599,6 +599,12 @@ pub async fn start_login(
     })
 }
 
+/// Consumes the passkey login flow, verifies its assertion and current account policy, then
+/// persists a browser session with the effective password-change restriction.
+///
+/// # Errors
+/// Returns the product WebAuthn/account rejection or database/session issuance error; a failed
+/// outcome must not be converted into authenticated cookies by the transport layer.
 pub async fn finish_login(
     state: &impl SharedRuntimeState,
     flow_id: &str,
@@ -669,11 +675,9 @@ pub async fn finish_login(
     }
 
     let password_change_required = local::password_change_required_for_login(state, &user);
-    let (access, refresh) = if password_change_required {
-        local::issue_password_change_tokens_for_user(state, &user, ip_address, user_agent).await?
-    } else {
-        local::issue_tokens_for_user(state, &user, ip_address, user_agent).await?
-    };
+    let (access, refresh) =
+        local::issue_tokens_for_user(state.writer_db(), state, &user, ip_address, user_agent)
+            .await?;
     let login = LoginResult {
         access_token: access,
         refresh_token: refresh,

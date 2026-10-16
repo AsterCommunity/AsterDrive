@@ -15,23 +15,8 @@ ignore = [
     # 纯编译期宏，零运行时代码，无安全风险
     "RUSTSEC-2024-0436",
 
-    # lru 0.16.4 LruCache::pop() panic-safety issue
-    # 仅由最新 aws-sdk-s3 1.141.0 的 S3 Express identity cache 引入；该缓存使用
-    # CacheKey(String)，不调用 LruCache::pop()，也不通过 catch_unwind 在 key 析构
-    # panic 后继续操作缓存，因此不具备 advisory 所需的触发链路。
-    # AWS SDK 仍约束 lru ^0.16.3；跟踪 awslabs/aws-sdk-rust#1451，迁移到
-    # lru >= 0.18.2 后删除本项。
-    "RUSTSEC-2026-0253",
-
-    # rkyv 0.7.46 archive validation issue
-    # 仅作为 rust_decimal 的 optional dependency 出现在 Cargo.lock；AsterDrive、SeaORM、
-    # SQLx 和所有 workspace feature 均未启用 rust_decimal/rkyv 集成。
-    # `cargo tree --workspace --all-features --target all -i rkyv@0.7.46` 无运行或构建路径。
-    # 上游 rust_decimal 仍声明 rkyv 0.7；待其迁移到 rkyv >= 0.8.17 后删除本项。
-    "RUSTSEC-2026-0235",
-
     # h2 0.3.27 unbounded empty DATA frames (RUSTSEC-2026-0258)
-    # actix-http 3.13.3（当前 crates.io 最新版）仍锁定 h2 ^0.3；AsterDrive
+    # actix-http 3.19.0 仍依赖 h2 ^0.3；AsterDrive
     # 没有可直接替换的 h2 版本，因为 h2 0.4 不满足该依赖的 semver 约束。
     # 保留审计阻塞并不能修复上游协议栈；待 actix-http 发布切换到 h2 >= 0.4.16
     # 的版本后立即删除本项并刷新 Cargo.lock。当前 PR 不扩大为替换 Actix HTTP 栈。

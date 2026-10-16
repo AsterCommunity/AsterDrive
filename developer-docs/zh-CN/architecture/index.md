@@ -309,9 +309,9 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 
 运行态通过 `DbHandles` 同时保存 writer 和 reader：
 
-- `state.db` / `state.writer_db()` 是 writer。所有事务、写入、读后写、配额权威判断、登录签发 session、refresh token rotation、上传 init/chunk/complete/cancel、依赖 SQLite 单连接模拟锁语义的 repo helper，都必须继续走 writer。
+- `state.db` / `state.writer_db()` 是 writer。所有事务、写入、读后写、配额权威判断、当前账号授权、登录签发 session、refresh token rotation、上传 init/chunk/complete/cancel、依赖 SQLite 单连接模拟锁语义的 repo helper，都必须继续走 writer。
 - `state.reader_db()` 是纯读入口。SQLite 文件数据库下它会在 writer 完成 migration 和默认数据初始化后打开独立 reader pool，使用 WAL、`mode=ro` 和 `PRAGMA query_only=ON`；PostgreSQL/MySQL 或内存 SQLite 下它和 writer 指向同一个池。
-- reader 查询允许 WAL 快照级别的短暂滞后。只能用于列表、详情、搜索、上传进度、recoverable sessions、presign 查询阶段、auth snapshot cache miss、public runtime snapshot、admin overview 统计这类不会马上做权威写入判断的路径。
+- reader 查询允许 WAL 快照级别的短暂滞后。只能用于列表、详情、搜索、上传进度、recoverable sessions、presign 查询阶段、public runtime snapshot、admin overview 统计这类不会马上做权威写入判断的路径。
 - 不要把通用校验 helper 偷偷改成 reader，除非已经确认所有调用方都是纯读。更推荐在 service 入口显式选择 `reader_db()` 或 `writer_db()`，让调用语义能从代码上看出来。
 
 ### Primary 特有启动

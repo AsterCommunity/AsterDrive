@@ -10,6 +10,9 @@ use zip::HasZipMetadata;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::types::ArchiveFilenameEncoding;
 
+// ZIP APPNOTE general-purpose bit 11 declares UTF-8 names, independently of decoded display text.
+pub(super) const ZIP_UTF8_FLAG: u16 = 1 << 11;
+
 pub(super) fn decode_zip_entry_name<R: Read>(
     entry: &zip::read::ZipFile<'_, R>,
     filename_encoding: ArchiveFilenameEncoding,
@@ -17,8 +20,8 @@ pub(super) fn decode_zip_entry_name<R: Read>(
     let raw = entry.name_raw();
     decode_zip_entry_name_parts(
         raw,
-        entry.name(),
-        entry.get_metadata().is_utf8,
+        &entry.name().map_err(super::entry::map_zip_entry_error)?,
+        entry.get_metadata().flags.as_u16() & ZIP_UTF8_FLAG != 0,
         filename_encoding,
     )
 }

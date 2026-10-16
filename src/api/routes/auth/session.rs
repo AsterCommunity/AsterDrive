@@ -86,13 +86,20 @@ pub(super) fn login_completion_response(
     }
 }
 
+/// Rechecks the writer before a heartbeat or event can leave an established SSE connection.
+/// A late presentation-cache fill must never restore a revoked, disabled or restricted account.
+/// Team visibility is refreshed only when requested by the event/heartbeat path.
+///
+/// # Errors
+/// Returns the live account rejection or database failure; callers close the stream on either
+/// result and must not emit the pending event after revalidation fails.
 async fn revalidate_storage_event_stream(
     state: &PrimaryAppState,
     user_id: i64,
     session_version: i64,
     refresh_visible_teams: bool,
 ) -> Result<Option<HashSet<i64>>> {
-    let snapshot = local::get_auth_snapshot(state, user_id).await?;
+    let snapshot = local::get_current_auth_snapshot(state, user_id).await?;
     if !snapshot.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }

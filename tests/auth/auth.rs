@@ -29,24 +29,6 @@ const TEST_PUBLIC_SITE_ORIGIN: &str = "https://pan.esaps.net";
 const TEST_HTTP_SETUP_ORIGIN: &str = "http://192.0.2.10:3000";
 const ONE_SECOND_WINDOW_ELAPSED: Duration = Duration::from_millis(1100);
 
-struct RefreshHookGuard {
-    _hook: local::test_support::RefreshRotationTestHook,
-}
-
-impl RefreshHookGuard {
-    fn new(hook: local::test_support::RefreshRotationTestHook) -> Self {
-        Self { _hook: hook }
-    }
-}
-
-impl Drop for RefreshHookGuard {
-    fn drop(&mut self) {
-        tokio::spawn(async {
-            local::test_support::clear_refresh_rotation_test_hook().await;
-        });
-    }
-}
-
 macro_rules! login_user_with_credentials {
     ($app:expr, $identifier:expr, $password:expr) => {{
         let req = test::TestRequest::post()
@@ -1665,17 +1647,12 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     let app = create_test_app!(state.clone());
 
     let (_, refresh) = register_and_login!(app);
-    let hook = local::test_support::install_refresh_rotation_test_hook(
-        &refresh,
-        &state.config.auth.jwt_secret,
-    )
-    .await
-    .unwrap();
-    let _hook_guard = RefreshHookGuard::new(hook.clone());
-
+    let start = std::sync::Arc::new(tokio::sync::Barrier::new(3));
     let first_state = state.clone();
     let first_refresh = refresh.clone();
+    let first_start = start.clone();
     let first_task = tokio::spawn(async move {
+        first_start.wait().await;
         local::refresh_tokens(
             &first_state,
             &first_refresh,
@@ -1684,14 +1661,11 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
         )
         .await
     });
-
-    tokio::time::timeout(Duration::from_secs(2), hook.wait_until_lock_acquired())
-        .await
-        .expect("first refresh should acquire rotation lock");
-
     let second_state = state.clone();
     let second_refresh = refresh.clone();
+    let second_start = start.clone();
     let second_task = tokio::spawn(async move {
+        second_start.wait().await;
         local::refresh_tokens(
             &second_state,
             &second_refresh,
@@ -1700,11 +1674,9 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
         )
         .await
     });
-
-    tokio::time::timeout(Duration::from_secs(2), hook.wait_until_lock_contended())
-        .await
-        .expect("second refresh should wait on the same rotation lock");
-    hook.release_lock();
+    // Forge's gated-store tests prove actual lock contention. This router fixture checks the real
+    // SQLite adapter's one-winner result without installing a product global test hook.
+    start.wait().await;
 
     let (first, second) = tokio::join!(first_task, second_task);
     let first = first.expect("first refresh task should not panic");
@@ -4463,58 +4435,49 @@ async fn test_unauthorized_access() {
     assert_service_status!(app, req, 401);
 }
 
-/// 用户状态缓存：正常认证 → 连续请求不应查 DB（通过 MemoryCache 验证）
+/// A legacy snapshot cannot replace writer authorization, even when its state disagrees.
 #[actix_web::test]
-async fn test_user_status_cached_in_auth_middleware() {
-    // 明确使用 MemoryCache 验证认证缓存命中。
-    let cache_config = aster_forge_cache::CacheConfig {
-        backend: "memory".to_string(),
-        default_ttl: 60,
-        ..Default::default()
-    };
-    let cache = aster_forge_cache::create_cache(&cache_config).await;
+async fn test_auth_middleware_ignores_legacy_status_cache_and_rechecks_writer() {
+    use aster_forge_cache::CacheExt;
 
-    let base = common::setup().await;
-    let state = aster_drive::runtime::PrimaryAppState {
-        db_handles: base.db_handles,
-        driver_registry: base.driver_registry,
-        runtime_config: base.runtime_config,
-        policy_snapshot: base.policy_snapshot,
-        config: base.config,
-        cache,
-        config_sync: base.config_sync,
-        metrics: aster_drive_metrics::NoopMetrics::arc(),
-        mail_sender: base.mail_sender,
-        storage_change_bus: base.storage_change_bus,
-        share_download_rollback: base.share_download_rollback,
-        background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
-        remote_protocol: base.remote_protocol,
-    };
-    let app = create_test_app!(state);
+    let state = common::setup_with_memory_cache().await;
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
-
-    // 第一次请求（cache miss → 查 DB → 写缓存）
-    let req = test::TestRequest::get()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-
-    // 第二次请求（cache hit → 不查 DB）—— 功能正确即可
-    let req = test::TestRequest::get()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    let id = local::verify_token(&token, &state.config.auth.jwt_secret)
+        .unwrap()
+        .user_id;
+    let current = local::get_current_auth_snapshot(&state, id).await.unwrap();
+    let key = format!("auth_snapshot:{id}");
+    for poison_cache in [false, true] {
+        if poison_cache {
+            state
+                .cache
+                .set(
+                    &key,
+                    &local::AuthSnapshot {
+                        status: UserStatus::Disabled,
+                        session_version: current.session_version + 1,
+                        must_change_password: true,
+                        ..current
+                    },
+                    Some(60),
+                )
+                .await;
+        }
+        let request = test::TestRequest::get()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request();
+        assert_eq!(test::call_service(&app, request).await.status(), 200);
+        if !poison_cache {
+            assert!(state.cache.get::<local::AuthSnapshot>(&key).await.is_none());
+        }
+    }
 }
 
-/// admin 禁用用户后，缓存立即失效，后续请求被拒
+/// Admin disablement rejects existing credentials even when a memory cache is configured.
 #[actix_web::test]
-async fn test_disable_user_invalidates_status_cache() {
+async fn test_disable_user_rejects_old_tokens_with_memory_cache() {
     let cache_config = aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
         default_ttl: 60,
@@ -4562,7 +4525,7 @@ async fn test_disable_user_invalidates_status_cache() {
     let bob_token = common::extract_cookie(&resp, "aster_access").unwrap();
     let bob_refresh = common::extract_cookie(&resp, "aster_refresh").unwrap();
 
-    // bob 正常访问（写入缓存）
+    // bob 在 writer 上仍为 active，正常访问。
     let req = test::TestRequest::get()
         .uri("/api/v1/folders")
         .insert_header(("Cookie", common::access_cookie_header(&bob_token)))

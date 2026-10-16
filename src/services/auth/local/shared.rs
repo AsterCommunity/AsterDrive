@@ -425,11 +425,11 @@ pub(super) async fn update_password_in_connection<C: ConnectionTrait>(
     user: user::Model,
     new_password_hash: String,
 ) -> Result<user::Model> {
-    let next_session_version = user.session_version.saturating_add(1);
+    // Keep password writes and atomic generation invalidation in the caller transaction.
+    user_repo::bump_session_version(db, user.id).await?;
     let mut active = user.into_active_model();
     active.password_hash = Set(new_password_hash);
     active.must_change_password = Set(false);
-    active.session_version = Set(next_session_version);
     active.updated_at = Set(Utc::now());
     active
         .update(db)

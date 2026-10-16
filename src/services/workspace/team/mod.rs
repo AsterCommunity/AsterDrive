@@ -69,7 +69,7 @@ pub(crate) async fn create_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<TeamInfo> {
     // 当前产品约束下，普通用户不能自助创建团队；团队创建入口收敛在系统管理员。
-    let snapshot = local::get_auth_snapshot(state, actor_user_id).await?;
+    let snapshot = local::get_current_auth_snapshot(state, actor_user_id).await?;
     if !snapshot.role.is_admin() {
         return Err(AsterError::auth_forbidden(
             "team creation is restricted to system admins",

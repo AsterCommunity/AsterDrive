@@ -102,7 +102,7 @@ pub(crate) async fn create_launch_session_in_scope(
     // launch 阶段做的是“把内部 file 访问权翻译成外部 WOPI app 可用的 action_url +
     // access_token”，并不是立刻打开文档。
     let file = storage::verify_file_access(state, scope, file_id).await?;
-    let auth_snapshot = local::get_auth_snapshot(state, scope.actor_user_id()).await?;
+    let auth_snapshot = local::get_current_auth_snapshot(state, scope.actor_user_id()).await?;
     let app = apps::get_public_preview_apps(state)
         .apps
         .into_iter()
@@ -239,7 +239,7 @@ pub(crate) async fn resolve_access_token(
     }
     // session_version 绑定的是“登录态快照”而不是 WOPI session 自身。
     // 用户登出、改密或被强制刷新会话后，旧的 WOPI token 会一起失效。
-    let auth_snapshot = local::get_auth_snapshot(state, payload.actor_user_id).await?;
+    let auth_snapshot = local::get_current_auth_snapshot(state, payload.actor_user_id).await?;
     if !auth_snapshot.status.is_active() {
         delete_wopi_session(state, &token_hash, session.id).await?;
         return Err(auth_forbidden_with_code(

@@ -88,7 +88,11 @@ pub fn primary_http_component(
         .bind((host.as_str(), port))?
         .workers(workers)
         .run();
-        Ok(http_service_component(server, shutdown_token))
+        Ok(http_service_component(
+            server,
+            shutdown_token,
+            state.runtime_config.refresh_coordinator().clone(),
+        ))
     })
 }
 
@@ -131,13 +135,18 @@ pub fn follower_http_component(
         .bind((host.as_str(), port))?
         .workers(workers)
         .run();
-        Ok(http_service_component(server, shutdown_token))
+        Ok(http_service_component(
+            server,
+            shutdown_token,
+            state.runtime_config.refresh_coordinator().clone(),
+        ))
     })
 }
 
 fn http_service_component(
     server: actix_web::dev::Server,
     shutdown_token: CancellationToken,
+    refresh_coordinator: aster_forge_auth::RefreshCoordinator,
 ) -> HttpServiceComponent {
     let handle = server.handle();
     RuntimeServiceComponent::new(
@@ -146,6 +155,8 @@ fn http_service_component(
         server,
         shutdown_token,
         move || async move {
+            // Wake queued refreshes before draining HTTP; started writer transactions may finish.
+            refresh_coordinator.close();
             handle.stop(true).await;
         },
     )

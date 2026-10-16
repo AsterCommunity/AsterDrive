@@ -488,7 +488,7 @@ fn scan_auto_uses_zip_unicode_path_extra_field_before_heuristics() {
         zip::ZipArchive::new(Cursor::new(bytes)).expect("zip with Unicode path should open");
     let entry = archive.by_index_raw(0).expect("zip entry should open");
     assert!(
-        entry.get_metadata().is_utf8,
+        entry.get_metadata().flags.as_u16() & super::encoding::ZIP_UTF8_FLAG != 0,
         "zip crate should mark names from Unicode path extra fields as UTF-8"
     );
     assert_eq!(entry.name_raw(), "测试/文件.txt".as_bytes());
@@ -616,6 +616,9 @@ fn normalize_archive_entry_path_rejects_unsafe_boundaries() {
         "safe\0bad.txt",
         "../escape.txt",
         "a/../../escape.txt",
+        r"\\?\C:\../escape.txt",
+        r"\\?\C:\..\escape.txt",
+        r"\\server\share\escape.txt",
     ] {
         let error = normalize_archive_entry_path(path, ArchiveScanNamePolicy::StrictAsterName)
             .expect_err("unsafe archive path should be rejected");
@@ -676,13 +679,24 @@ fn scan_rejects_encrypted_entries() {
 
 #[test]
 fn scan_rejects_symlink_entries() {
-    let bytes = create_symlink_zip_bytes("link.txt", "../target");
-    let error = scan_zip(bytes, scan_limits())
-        .expect_err("ZIP symlink entry should be rejected")
-        .message()
-        .to_string();
-
-    assert!(error.contains("symbolic link"));
+    // Reject links before extraction regardless of whether their targets are external or
+    // contained. This does not depend on zip's built-in extract/path containment behavior.
+    for target in [
+        "../target",
+        "/outside/target",
+        r"C:\outside\target",
+        "inside.txt",
+    ] {
+        let bytes = create_symlink_zip_bytes("link.txt", target);
+        let error = scan_zip(bytes, scan_limits())
+            .expect_err("ZIP symlink entry should be rejected")
+            .message()
+            .to_string();
+        assert!(
+            error.contains("symbolic link"),
+            "target {target:?}: {error}"
+        );
+    }
 }
 
 #[test]

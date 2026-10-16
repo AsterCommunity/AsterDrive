@@ -354,7 +354,7 @@ pub async fn reset_user_mfa(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
-        let next_session_version = user.session_version.saturating_add(1);
+        user_repo::bump_session_version(&txn, user_id).await?;
         let factor_count = mfa_factor_repo::list_for_user(&txn, user_id).await?.len();
         let recovery_code_count = mfa_recovery_code_repo::list_unused_for_user(&txn, user_id)
             .await?
@@ -367,16 +367,14 @@ pub async fn reset_user_mfa(
         crate::db::repository::auth_session_repo::delete_all_for_user(&txn, user_id).await?;
         let username = user.username.clone();
         let mut active = user.into_active_model();
-        active.session_version = Set(next_session_version);
         active.updated_at = Set(now_utc());
-        let updated = active.update(&txn).await.map_err(AsterError::from)?;
-        Ok::<_, AsterError>((updated.id, username, factor_count, recovery_code_count))
+        active.update(&txn).await.map_err(AsterError::from)?;
+        Ok::<_, AsterError>((username, factor_count, recovery_code_count))
     }
     .await;
     match result {
-        Ok((updated_user_id, username, factor_count, recovery_code_count)) => {
+        Ok((username, factor_count, recovery_code_count)) => {
             transaction::commit(txn).await?;
-            local::invalidate_auth_snapshot_cache(state, updated_user_id).await;
             audit::log(
                 state,
                 audit_ctx,

@@ -838,6 +838,101 @@ async fn test_password_login_requires_mfa_without_setting_cookies_then_totp_comp
     assert_eq!(body["data"]["status"], "authenticated");
 }
 
+/// Restricted MFA must use the transaction already holding the writer. A session-insert failure
+/// must roll back recovery-code consumption and flow completion before any cookies are returned.
+#[actix_web::test]
+async fn restricted_mfa_session_issuance_shares_flow_transaction_and_rolls_back_on_failure() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive_model::entities::auth_session;
+    use sea_orm::ConnectionTrait;
+
+    for inject_failure in [false, true] {
+        let state = common::setup().await;
+        if inject_failure && state.writer_db().get_database_backend() != sea_orm::DbBackend::Sqlite
+        {
+            continue; // The rollback trigger is deliberately SQLite-specific.
+        }
+        let app = create_test_app!(state.clone());
+        register_user(
+            &app,
+            "restrictedmfa",
+            "restrictedmfa@example.com",
+            "password123",
+        )
+        .await;
+        let (access, _) = login_user!(app, "restrictedmfa", "password123");
+        let (_, _, recovery_codes) = enable_totp(&app, &access).await;
+        let user = user_repo::find_by_username(state.writer_db(), "restrictedmfa")
+            .await
+            .unwrap()
+            .unwrap();
+        let mut active = user.clone().into_active_model();
+        active.must_change_password = Set(true);
+        active.update(state.writer_db()).await.unwrap();
+        let response = login_raw(&app, "restrictedmfa", "password123").await;
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["data"]["status"], "mfa_required");
+        let flow = body["data"]["flow_token"].as_str().unwrap();
+        let recovery = &recovery_codes[0];
+        if inject_failure {
+            let before = auth_session::Entity::find()
+                .count(state.writer_db())
+                .await
+                .unwrap();
+            state.writer_db().execute_unprepared(
+                "CREATE TRIGGER fail_restricted_mfa_session BEFORE INSERT ON auth_sessions BEGIN SELECT RAISE(ABORT, 'injected session failure'); END;"
+            ).await.unwrap();
+            let response = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                verify_mfa(&app, flow, "recovery_code", recovery),
+            )
+            .await
+            .expect("MFA issuance must not reacquire its own writer connection");
+            assert_eq!(response.status(), 500);
+            assert!(common::extract_cookie(&response, "aster_access").is_none());
+            assert!(common::extract_cookie(&response, "aster_refresh").is_none());
+            assert_eq!(
+                auth_session::Entity::find()
+                    .count(state.writer_db())
+                    .await
+                    .unwrap(),
+                before
+            );
+            state
+                .writer_db()
+                .execute_unprepared("DROP TRIGGER fail_restricted_mfa_session")
+                .await
+                .unwrap();
+        }
+        // The same flow and recovery code must remain usable after a failed session write.
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            verify_mfa(&app, flow, "recovery_code", recovery),
+        )
+        .await
+        .expect("restricted MFA issuance must finish inside its flow transaction");
+        assert_eq!(response.status(), StatusCode::OK);
+        let access = common::extract_cookie(&response, "aster_access").unwrap();
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["data"]["status"], "password_change_required");
+        let (claims, _) =
+            aster_drive::services::auth::local::authenticate_access_token(&state, &access)
+                .await
+                .unwrap();
+        assert!(claims.password_change);
+        assert!(
+            aster_drive::db::repository::auth_session_repo::find_by_id_for_user(
+                state.writer_db(),
+                user.id,
+                &claims.sid
+            )
+            .await
+            .unwrap()
+            .is_some()
+        );
+    }
+}
+
 #[tokio::test]
 async fn password_first_factor_mfa_flow_rechecks_hot_updated_login_policy() {
     let state = common::setup().await;

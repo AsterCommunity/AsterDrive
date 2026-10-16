@@ -2,43 +2,34 @@
 
 use aster_forge_db::transaction;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set};
+use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 
-use super::{AuthSessionInfo, AuthSnapshot, UserAuditInfo, cache, user_audit_info};
+use super::{AuthSessionInfo, AuthSnapshot, UserAuditInfo, user_audit_info};
 
-pub async fn get_auth_snapshot(
+/// Loads current account authorization from the writer. Use this for security decisions,
+/// including JWT generations, WOPI session validity and administrator permissions. Unlike the
+/// retired authorization cache, this read cannot authorize from an old cache fill or replica.
+///
+/// # Errors
+/// Returns the product missing-account or database error without substituting cached state.
+pub async fn get_current_auth_snapshot(
     state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<AuthSnapshot> {
-    if let Some(snapshot) = cache::load_auth_snapshot(state, user_id).await {
-        tracing::debug!(user_id, "auth snapshot cache hit");
-        return Ok(snapshot);
-    }
-
-    let user = user_repo::find_by_id(state.reader_db(), user_id).await?;
-    let snapshot = AuthSnapshot::from_user(&user);
-    cache::store_auth_snapshot(state, user_id, &snapshot).await;
-    tracing::debug!(user_id, "auth snapshot cache miss");
-    Ok(snapshot)
+    let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
+    Ok(AuthSnapshot::from_user(&user))
 }
 
-pub async fn invalidate_auth_snapshot_cache(state: &impl SharedRuntimeState, user_id: i64) {
-    cache::invalidate_auth_snapshot(state, user_id).await;
-}
-
-pub(crate) async fn purge_all_auth_sessions_in_connection<C: ConnectionTrait>(
-    db: &C,
-    user_id: i64,
-) -> Result<()> {
-    auth_session_repo::delete_all_for_user(db, user_id).await?;
-    Ok(())
-}
-
+/// Lists the account's active refresh sessions from the writer. The optional current JTI only
+/// marks the caller's session in the product response; it grants no authorization.
+///
+/// # Errors
+/// Returns the original repository error. The caller must already be authorized for this account.
 pub async fn list_auth_sessions(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -63,6 +54,11 @@ pub async fn list_auth_sessions(
         })
 }
 
+/// Revokes a refresh session in a writer transaction and reports whether it was the caller's
+/// current session. Existing access JWTs keep their expiry window; account generation is unchanged.
+///
+/// # Errors
+/// Returns missing-session, database or commit errors; failed transactions do not revoke the row.
 pub async fn revoke_auth_session(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -94,6 +90,11 @@ pub async fn revoke_auth_session(
     }
 }
 
+/// Revokes every other refresh session after checking that the presented current JTI belongs to
+/// this account and is not revoked. Selection and mutation share the writer transaction.
+///
+/// # Errors
+/// Returns invalid-current-session, ownership, database or transaction errors.
 pub async fn revoke_other_auth_sessions(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -136,10 +137,19 @@ pub async fn revoke_other_auth_sessions(
     }
 }
 
+/// Deletes expired refresh rows. Cleanup does not change account generation or extend JWT expiry.
+///
+/// # Errors
+/// Returns the writer repository error; this operation makes no authorization decision.
 pub async fn cleanup_expired_auth_sessions(state: &impl SharedRuntimeState) -> Result<u64> {
     auth_session_repo::delete_expired(state.writer_db()).await
 }
 
+/// Atomically advances the account generation and purges all refresh sessions, then commits the security change. Access authorization checks the writer generation and cannot be restored by
+/// a delayed cache fill.
+///
+/// # Errors
+/// Returns writer/commit errors or generation exhaustion; failed transactions leave sessions intact.
 pub async fn revoke_user_sessions(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -148,15 +158,15 @@ pub async fn revoke_user_sessions(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
-        let next_session_version = user.session_version.saturating_add(1);
+        // Atomic advancement shares the refresh/password/MFA invalidation boundary.
+        user_repo::bump_session_version(&txn, user_id).await?;
         let mut active = user.into_active_model();
-        active.session_version = Set(next_session_version);
         active.updated_at = Set(Utc::now());
         let updated = active
             .update(&txn)
             .await
             .map_aster_err(AsterError::database_operation)?;
-        purge_all_auth_sessions_in_connection(&txn, updated.id).await?;
+        auth_session_repo::delete_all_for_user(&txn, updated.id).await?;
         Ok::<_, AsterError>(updated)
     }
     .await;
@@ -172,7 +182,6 @@ pub async fn revoke_user_sessions(
         }
     };
 
-    invalidate_auth_snapshot_cache(state, updated.id).await;
     tracing::debug!(
         user_id = updated.id,
         session_version = updated.session_version,

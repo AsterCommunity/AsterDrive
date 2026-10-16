@@ -2625,13 +2625,17 @@ async fn test_revoked_user_sessions_invalidate_wopi_access_token() {
     let state = common::setup().await;
     configure_test_wopi_runtime(&state);
     let db = state.writer_db().clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let (access_cookie, _) = register_and_login!(app);
     let user = user_repo::find_by_username(&db, "testuser")
         .await
         .unwrap()
         .expect("registered user should exist");
+    let stale_snapshot =
+        aster_drive::services::auth::local::get_current_auth_snapshot(&state, user.id)
+            .await
+            .unwrap();
     let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
 
     let req = test::TestRequest::post()
@@ -2656,6 +2660,16 @@ async fn test_revoked_user_sessions_invalidate_wopi_access_token() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+
+    // Model a cache fill that started before revocation and finishes after its eviction. WOPI
+    // must still compare its session generation with the writer's committed account state.
+    aster_forge_cache::CacheExt::set(
+        state.cache.as_ref(),
+        &format!("auth_snapshot:{}", user.id),
+        &stale_snapshot,
+        Some(60),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri(&format!(

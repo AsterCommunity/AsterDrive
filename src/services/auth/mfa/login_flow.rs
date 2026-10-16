@@ -81,6 +81,12 @@ enum PreparedEmailCodeVerification {
     },
 }
 
+/// Completes an already-validated first factor by either persisting its browser session or
+/// starting an MFA flow. The effective password-login policy determines the session restriction.
+///
+/// # Errors
+/// Returns account-policy, challenge-persistence or token/session errors. Callers must not send
+/// login cookies until this returns an authenticated result.
 pub async fn complete_primary_login_or_start_mfa(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -92,12 +98,9 @@ pub async fn complete_primary_login_or_start_mfa(
     let methods = available_challenge_methods(state.writer_db(), state, user).await?;
     if methods.is_empty() {
         let password_change_required = local::password_change_required_for_login(state, user);
-        let (access_token, refresh_token) = if password_change_required {
-            local::issue_password_change_tokens_for_user(state, user, ip_address, user_agent)
-                .await?
-        } else {
-            local::issue_tokens_for_user(state, user, ip_address, user_agent).await?
-        };
+        let (access_token, refresh_token) =
+            local::issue_tokens_for_user(state.writer_db(), state, user, ip_address, user_agent)
+                .await?;
         return Ok(PrimaryLoginCompletion::Authenticated(local::LoginResult {
             access_token,
             refresh_token,
@@ -398,6 +401,12 @@ async fn validate_email_code_send<C: ConnectionTrait>(
     Ok((flow, user, effective_expires_in))
 }
 
+/// Verifies a second factor and commits flow consumption and session creation in one writer
+/// transaction. Restricted and unrestricted logins use the same connection-aware issuer.
+///
+/// # Errors
+/// Returns the mapped factor/account rejection or original persistence/commit error. A failed
+/// session insert rolls back factor consumption and flow completion and releases no credentials.
 pub async fn verify_challenge(
     state: &impl SharedRuntimeState,
     flow_token: &str,
@@ -524,24 +533,14 @@ pub async fn verify_challenge(
         }
 
         let password_change_required = local::password_change_required_for_login(state, &user);
-        let (access_token, refresh_token) = if password_change_required {
-            local::issue_password_change_tokens_for_user(
-                state,
-                &user,
-                flow.ip_address.as_deref(),
-                flow.user_agent.as_deref(),
-            )
-            .await?
-        } else {
-            local::issue_tokens_for_user_in_connection(
-                &txn,
-                state,
-                &user,
-                flow.ip_address.as_deref(),
-                flow.user_agent.as_deref(),
-            )
-            .await?
-        };
+        let (access_token, refresh_token) = local::issue_tokens_for_user(
+            &txn,
+            state,
+            &user,
+            flow.ip_address.as_deref(),
+            flow.user_agent.as_deref(),
+        )
+        .await?;
         Ok::<_, AsterError>(MfaChallengeAttempt {
             user_id,
             flow_id: Some(flow.id),
