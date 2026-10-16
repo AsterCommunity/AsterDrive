@@ -881,3 +881,390 @@ async fn sqlite_cas_failure_preserves_old_credential_and_returns_no_replacement_
     assert_eq!(session.current_refresh_jti, original.as_str());
     assert!(session.previous_refresh_jti.is_none());
 }
+
+/// A stale logout credential must never revoke its successor, and non-refresh input must not
+/// mutate any session. A current logout remains idempotent and keeps Drive's access expiry window.
+#[actix_web::test]
+async fn logout_rejects_stale_access_and_malformed_credentials_without_revoking_the_successor() {
+    let (state, access, original, id) = fixture().await;
+    let (_, successor) = refresh(&state, &original).await.unwrap();
+    let before = auth_session_repo::list_active_for_user(state.writer_db(), id)
+        .await
+        .unwrap();
+    for rejected in [&original, &access, "not-a-jwt"] {
+        assert!(!local::revoke_refresh_token(&state, rejected).await.unwrap());
+        assert_eq!(
+            auth_session_repo::list_active_for_user(state.writer_db(), id)
+                .await
+                .unwrap(),
+            before
+        );
+    }
+    assert!(
+        local::revoke_refresh_token(&state, &successor)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !local::revoke_refresh_token(&state, &successor)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        refresh(&state, &successor).await.unwrap_err().code(),
+        "E012"
+    );
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_ok()
+    );
+    assert_eq!(audit_count(&state, id).await, 0);
+}
+
+/// Missing, foreign and revoked current-session identities must roll back the entire request.
+/// In particular, knowing another account's refresh JTI must not revoke either account's devices.
+#[actix_web::test]
+async fn revoke_other_sessions_rejects_unowned_missing_and_revoked_current_identities() {
+    use aster_drive::errors::AsterError;
+
+    let (state, _, current, id) = fixture().await;
+    let other = local::create_user_by_admin(
+        &state,
+        "other-user",
+        "other@example.com",
+        "password123",
+        false,
+    )
+    .await
+    .unwrap();
+    let (_, foreign) = local::issue_tokens_for_session(&state, other.id, 1, None, None)
+        .await
+        .unwrap();
+    let foreign_jti = claims(&state, &foreign, AuthTokenType::Refresh)
+        .jti
+        .unwrap();
+    let before = auth_session_repo::list_active_for_user(state.writer_db(), id)
+        .await
+        .unwrap();
+    let foreign_before = auth_session_repo::list_active_for_user(state.writer_db(), other.id)
+        .await
+        .unwrap();
+    assert!(matches!(
+        local::revoke_other_auth_sessions(&state, id, foreign_jti.as_str()).await,
+        Err(AsterError::AuthForbidden(_))
+    ));
+    assert!(matches!(
+        local::revoke_other_auth_sessions(&state, id, "missing-refresh-identity").await,
+        Err(AsterError::AuthTokenInvalid(_))
+    ));
+    // Ownership is also enforced for targeted revocation, before any update is attempted.
+    assert!(matches!(
+        local::revoke_auth_session(&state, id, &foreign_before[0].id, None).await,
+        Err(AsterError::RecordNotFound(_))
+    ));
+    assert_eq!(
+        auth_session_repo::list_active_for_user(state.writer_db(), id)
+            .await
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        auth_session_repo::list_active_for_user(state.writer_db(), other.id)
+            .await
+            .unwrap(),
+        foreign_before
+    );
+
+    let current_jti = claims(&state, &current, AuthTokenType::Refresh)
+        .jti
+        .unwrap();
+    assert!(local::revoke_refresh_token(&state, &current).await.unwrap());
+    let revoked = auth_session_repo::find_by_refresh_jti(state.writer_db(), current_jti.as_str())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        local::revoke_other_auth_sessions(&state, id, current_jti.as_str()).await,
+        Err(AsterError::AuthTokenInvalid(_))
+    ));
+    assert_eq!(
+        auth_session_repo::find_by_id(state.writer_db(), &revoked.id)
+            .await
+            .unwrap(),
+        Some(revoked)
+    );
+    assert_eq!(
+        auth_session_repo::list_active_for_user(state.writer_db(), other.id)
+            .await
+            .unwrap(),
+        foreign_before
+    );
+    assert!(refresh(&state, &foreign).await.is_ok());
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap()
+            .session_version,
+        1
+    );
+    assert_eq!(audit_count(&state, id).await, 0);
+}
+
+/// Cleanup removes expired rows regardless of revocation, preserves live tombstones and active
+/// sessions, and does not advance the account generation. Fixed past/future dates avoid sleeps.
+#[actix_web::test]
+async fn session_cleanup_only_deletes_expired_rows_and_is_idempotent() {
+    let (state, access, token, id) = fixture().await;
+    let original = auth_session_repo::list_active_for_user(state.writer_db(), id)
+        .await
+        .unwrap()
+        .remove(0);
+    let now = chrono::Utc::now();
+    let mut retained_tombstone = String::new();
+    for (expired, revoked) in [(true, false), (true, true), (false, true)] {
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let mut model = original.clone().into_active_model();
+        model.id = Set(session_id.clone());
+        model.current_refresh_jti = Set(uuid::Uuid::new_v4().to_string());
+        model.refresh_expires_at = Set(if expired {
+            now - chrono::Duration::days(1)
+        } else {
+            now + chrono::Duration::days(1)
+        });
+        model.revoked_at = Set(revoked.then_some(now));
+        auth_session_repo::create(state.writer_db(), model)
+            .await
+            .unwrap();
+        if !expired {
+            retained_tombstone = session_id;
+        }
+    }
+    assert_eq!(
+        local::cleanup_expired_auth_sessions(&state).await.unwrap(),
+        2
+    );
+    assert_eq!(
+        local::cleanup_expired_auth_sessions(&state).await.unwrap(),
+        0
+    );
+    assert_eq!(
+        auth_session::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        auth_session_repo::list_active_for_user(state.writer_db(), id)
+            .await
+            .unwrap(),
+        vec![original]
+    );
+    assert!(
+        auth_session_repo::find_by_id(state.writer_db(), &retained_tombstone)
+            .await
+            .unwrap()
+            .unwrap()
+            .revoked_at
+            .is_some()
+    );
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_ok()
+    );
+    assert!(refresh(&state, &token).await.is_ok());
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap()
+            .session_version,
+        1
+    );
+}
+
+/// Corrupt persistence is an infrastructure failure, not confirmed replay: do not rotate,
+/// revoke the account or write a reuse audit. Repairing the row leaves the original token usable.
+#[actix_web::test]
+async fn invalid_persisted_refresh_identifiers_fail_closed_without_reuse_side_effects() {
+    use aster_drive::errors::AsterError;
+
+    let (state, access, token, id) = fixture().await;
+    let original = auth_session_repo::list_active_for_user(state.writer_db(), id)
+        .await
+        .unwrap()
+        .remove(0);
+    for corrupt_current in [false, true] {
+        let mut broken = original.clone().into_active_model();
+        if corrupt_current {
+            broken.current_refresh_jti = Set(String::new());
+        } else {
+            broken.previous_refresh_jti = Set(Some("invalid\nidentity".into()));
+        }
+        let broken = broken.update(state.writer_db()).await.unwrap();
+        assert!(matches!(
+            refresh(&state, &token).await,
+            Err(AsterError::InternalError(_))
+        ));
+        assert_eq!(
+            auth_session_repo::find_by_id(state.writer_db(), &original.id)
+                .await
+                .unwrap(),
+            Some(broken)
+        );
+        assert_eq!(
+            user_repo::find_by_id(state.writer_db(), id)
+                .await
+                .unwrap()
+                .session_version,
+            1
+        );
+        assert_eq!(audit_count(&state, id).await, 0);
+        assert_eq!(state.runtime_config.refresh_coordinator().tracked_ids(), 0);
+        let mut repair = original.clone().into_active_model();
+        repair.current_refresh_jti = Set(original.current_refresh_jti.clone());
+        repair.previous_refresh_jti = Set(original.previous_refresh_jti.clone());
+        repair.update(state.writer_db()).await.unwrap();
+    }
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_ok()
+    );
+    assert!(refresh(&state, &token).await.is_ok());
+}
+
+/// A zero-row CAS with no committed winner is unresolved infrastructure failure. The conflict
+/// port must re-read in a fresh transaction, reject without cookies, and never rotate twice.
+#[actix_web::test]
+async fn sqlite_unresolved_cas_conflict_returns_no_tokens_and_allows_retry_after_repair() {
+    let (state, access, token, id) = fixture().await;
+    if state.writer_db().get_database_backend() != sea_orm::DbBackend::Sqlite {
+        return;
+    }
+    let before = auth_session_repo::list_active_for_user(state.writer_db(), id)
+        .await
+        .unwrap();
+    state.writer_db().execute_unprepared(
+        "CREATE TRIGGER ignore_refresh_cas BEFORE UPDATE OF current_refresh_jti ON auth_sessions BEGIN SELECT RAISE(IGNORE); END;"
+    ).await.unwrap();
+    let app = create_test_app!(state.clone());
+    let request = test::TestRequest::post()
+        .uri("/api/v1/auth/refresh")
+        .insert_header(("Cookie", common::refresh_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("User-Agent", "browser"))
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 500);
+    assert!(common::extract_cookie(&response, "aster_access").is_none());
+    assert!(common::extract_cookie(&response, "aster_refresh").is_none());
+    let body: serde_json::Value = test::read_body_json(response).await;
+    assert_eq!(body["code"], "database.error");
+    assert_eq!(
+        auth_session_repo::list_active_for_user(state.writer_db(), id)
+            .await
+            .unwrap(),
+        before
+    );
+    assert_eq!(audit_count(&state, id).await, 0);
+    assert_eq!(state.runtime_config.refresh_coordinator().tracked_ids(), 0);
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER ignore_refresh_cas;")
+        .await
+        .unwrap();
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_ok()
+    );
+    assert!(refresh(&state, &token).await.is_ok());
+}
+
+/// Forge's generic subjects/epochs still cross Drive's integer boundary: signed but unknown,
+/// nonnumeric or overflowing identities are authentication failures, without persistence effects.
+#[actix_web::test]
+async fn signed_claims_outside_drive_account_bounds_are_rejected_without_mutation() {
+    let (state, access, token, id) = fixture().await;
+    let before = auth_session_repo::list_active_for_user(state.writer_db(), id)
+        .await
+        .unwrap();
+    for (subject, version) in [
+        ("account-uuid", 1),
+        ("9223372036854775808", 1),
+        ("9999999", 1),
+    ] {
+        for (credential, kind) in [
+            (&access, AuthTokenType::Access),
+            (&token, AuthTokenType::Refresh),
+        ] {
+            let mut wire = claims(&state, credential, kind);
+            wire.sub = aster_forge_auth::Subject::new(subject).unwrap();
+            wire.session_version = aster_forge_auth::SessionVersion::new(version);
+            let signed = jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &wire,
+                &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()),
+            )
+            .unwrap();
+            let error = if kind == AuthTokenType::Access {
+                local::authenticate_access_token(&state, &signed)
+                    .await
+                    .unwrap_err()
+            } else {
+                refresh(&state, &signed).await.unwrap_err()
+            };
+            assert!(matches!(
+                error,
+                aster_drive::errors::AsterError::AuthTokenInvalid(_)
+            ));
+        }
+    }
+    let mut wire = claims(&state, &access, AuthTokenType::Access);
+    wire.session_version = aster_forge_auth::SessionVersion::new(u64::MAX);
+    let signed = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &wire,
+        &jsonwebtoken::EncodingKey::from_secret(state.config.auth.jwt_secret.as_bytes()),
+    )
+    .unwrap();
+    assert!(matches!(
+        local::authenticate_access_token(&state, &signed).await,
+        Err(aster_drive::errors::AsterError::AuthTokenInvalid(_))
+    ));
+    assert_eq!(
+        auth_session_repo::list_active_for_user(state.writer_db(), id)
+            .await
+            .unwrap(),
+        before
+    );
+    assert_eq!(audit_count(&state, id).await, 0);
+    assert!(
+        local::authenticate_access_token(&state, &access)
+            .await
+            .is_ok()
+    );
+    assert!(refresh(&state, &token).await.is_ok());
+}
+
+/// Loss of the authority database stays an infrastructure error for access and refresh; neither
+/// path may fabricate an authentication rejection, consult old cache or leak replacement tokens.
+#[actix_web::test]
+async fn writer_unavailability_is_not_mapped_to_authentication_failure() {
+    use aster_drive::errors::AsterError;
+
+    let (state, access, token, _) = fixture().await;
+    state.writer_db().clone().close().await.unwrap();
+    assert!(matches!(
+        local::authenticate_access_token(&state, &access).await,
+        Err(AsterError::DatabaseConnection(_) | AsterError::DatabaseOperation(_))
+    ));
+    assert!(matches!(
+        refresh(&state, &token).await,
+        Err(AsterError::DatabaseConnection(_) | AsterError::DatabaseOperation(_))
+    ));
+    assert_eq!(state.runtime_config.refresh_coordinator().tracked_ids(), 0);
+}
