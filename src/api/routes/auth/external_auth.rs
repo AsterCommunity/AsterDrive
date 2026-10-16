@@ -4,6 +4,7 @@ use super::cookies::{
     build_access_cookie, build_csrf_cookie, build_external_auth_binding_cookie,
     build_refresh_cookie, clear_external_auth_binding_cookie, external_auth_binding_cookie_name,
 };
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
@@ -41,7 +42,7 @@ fn parse_provider_kind(value: &str) -> Result<ExternalAuthProviderKind> {
 )]
 pub async fn list_providers(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     let providers = external::list_public_providers(state.get_ref()).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(providers)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(providers)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -97,7 +98,7 @@ pub async fn start_login(
             result.browser_binding.max_age_secs,
             auth_policy.cookie_secure,
         ))
-        .json(ApiResponse::ok(result.response)))
+        .json(crate::api::response::success(result.response)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -263,7 +264,7 @@ pub async fn start_email_verification(
         RequestSourceMode::Required,
     )?;
     let response = external::start_email_verification(state.get_ref(), body.into_inner()).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(response)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -577,7 +578,7 @@ pub async fn list_links(
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
     let links = external::list_links(state.get_ref(), claims.user_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(links)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(links)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -628,7 +629,7 @@ pub async fn delete_link(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 fn external_auth_error_redirect_response(

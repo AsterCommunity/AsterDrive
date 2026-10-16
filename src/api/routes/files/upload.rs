@@ -2,6 +2,7 @@
 
 pub use crate::api::dto::files::*;
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -14,7 +15,7 @@ use actix_web::{HttpRequest, HttpResponse, http::header, web};
 fn upload_file_created_response(file: FileInfo) -> HttpResponse {
     HttpResponse::Created()
         .insert_header(header::ContentEncoding::Identity)
-        .json(ApiResponse::ok(file))
+        .json(crate::api::response::success(file))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -50,7 +51,7 @@ pub async fn init_upload_session(
         .with_frontend_client(body.frontend_client_id.as_deref()),
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -77,7 +78,7 @@ pub async fn list_recoverable_upload_sessions(
         query.frontend_client_id.as_deref(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -111,7 +112,7 @@ pub async fn upload_chunk(
         payload,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -205,7 +206,7 @@ pub async fn get_upload_progress(
     path: web::Path<UploadIdPath>,
 ) -> Result<HttpResponse> {
     let resp = upload::get_progress(state.get_ref(), &path.upload_id, claims.user_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -245,7 +246,7 @@ pub async fn cancel_upload(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -275,7 +276,7 @@ pub async fn presign_parts(
         body.into_inner().part_numbers,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(urls)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(urls)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -315,7 +316,7 @@ pub(crate) async fn team_init_upload_session(
         .with_frontend_client(body.frontend_client_id.as_deref()),
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -345,7 +346,7 @@ pub(crate) async fn team_list_recoverable_upload_sessions(
         query.frontend_client_id.as_deref(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -383,7 +384,7 @@ pub(crate) async fn team_upload_chunk(
         payload,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -491,7 +492,7 @@ pub(crate) async fn team_get_upload_progress(
     let (team_id, upload_id) = path.into_inner();
     let resp =
         upload::get_progress_for_team(state.get_ref(), team_id, &upload_id, claims.user_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -536,7 +537,7 @@ pub(crate) async fn team_cancel_upload(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -572,5 +573,5 @@ pub(crate) async fn team_presign_parts(
         body.into_inner().part_numbers,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(urls)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(urls)))
 }

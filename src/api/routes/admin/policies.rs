@@ -7,7 +7,8 @@ use crate::api::dto::admin::{
     StorageConnectorLocalizationCatalogQuery, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
-use crate::api::response::{ApiEmptyData, ApiResponse};
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -120,7 +121,7 @@ pub async fn list_policies(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(policies)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(policies)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -140,7 +141,7 @@ pub async fn list_storage_driver_descriptors(
     state: web::Data<PrimaryAppState>,
     query: web::Query<StorageConnectorCatalogQuery>,
 ) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
         crate::services::storage_policy::connector_catalog::list_storage_connector_catalog(
             state.driver_registry().connectors(),
             state.config(),
@@ -192,7 +193,7 @@ pub async fn list_storage_driver_localizations(
     Ok(HttpResponse::Ok()
         .insert_header((header::ETAG, etag))
         .insert_header((header::CACHE_CONTROL, cache_control))
-        .json(ApiResponse::ok(catalog)))
+        .json(crate::api::response::success(catalog)))
 }
 
 fn if_none_match_matches(value: Option<&header::HeaderValue>, current_etag: &str) -> bool {
@@ -230,7 +231,7 @@ pub async fn create_policy(
     validate_request(&*body)?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let policy = policy::create_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(policy)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(policy)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -252,7 +253,7 @@ pub async fn get_policy(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let policy = policy::get(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(policy)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -274,11 +275,11 @@ pub async fn get_policy_capacity(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let capacity = policy::capacity_info(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(capacity)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(capacity)))
 }
 
 fn storage_policy_action_response(result: policy::StoragePolicyActionResult) -> HttpResponse {
-    HttpResponse::Ok().json(ApiResponse::ok(result))
+    HttpResponse::Ok().json(crate::api::response::success(result))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -307,7 +308,7 @@ pub async fn update_policy(
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let policy =
         policy::update_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(policy)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -333,7 +334,7 @@ pub async fn delete_policy(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     policy::delete_with_audit(state.get_ref(), *path, query.force, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -343,7 +344,7 @@ pub async fn delete_policy(
     operation_id = "test_policy_connection",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Connection successful", body = inline(ApiResponse<ApiEmptyData>)),
+        (status = 200, description = "Connection successful", body = inline(ApiResponse<aster_forge_api::response::ApiEmptyData>)),
         (status = 400, description = "Connection request rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -354,7 +355,7 @@ pub async fn test_policy_connection(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     policy::test_connection(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_object_success()))
 }
 
 /// Runs a bounded read-only recovery probe for one persisted storage policy.
@@ -381,7 +382,7 @@ pub async fn probe_storage_policy_recoverability(
         *path,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(probe)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(probe)))
 }
 
 /// Returns the authoritative destructive impact that must be confirmed before policy purge.
@@ -409,7 +410,7 @@ pub async fn preview_storage_policy_forced_purge(
             *path,
         )
         .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(preview)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(preview)))
 }
 
 /// Creates a fenced background task after exact forced-purge confirmation.
@@ -450,7 +451,7 @@ pub async fn create_storage_policy_forced_purge(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -460,7 +461,7 @@ pub async fn create_storage_policy_forced_purge(
     operation_id = "test_policy_params",
     request_body = TestPolicyParamsReq,
     responses(
-        (status = 200, description = "Connection successful", body = inline(ApiResponse<ApiEmptyData>)),
+        (status = 200, description = "Connection successful", body = inline(ApiResponse<aster_forge_api::response::ApiEmptyData>)),
         (status = 400, description = "Connection request rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -472,7 +473,7 @@ pub async fn test_policy_params(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     policy::test_connection_params(state.get_ref(), body.into_inner().into()).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_object_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -537,7 +538,7 @@ pub async fn promote_storage_policy_connector(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -590,7 +591,7 @@ pub async fn start_storage_authorization(
 ) -> Result<HttpResponse> {
     let response =
         credential::start_authorization(state.get_ref(), &req, *path, claims.user_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(response)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -612,7 +613,7 @@ pub async fn list_storage_policy_credentials(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let credentials = credential::list_policy_credentials(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(credentials)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(credentials)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -637,7 +638,7 @@ pub async fn validate_storage_policy_credential(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let result = credential::validate_policy_credential(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -737,7 +738,7 @@ pub async fn list_policy_groups(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(groups)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -764,7 +765,7 @@ pub async fn create_policy_group(
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let group =
         policy::create_group_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(group)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(group)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -786,7 +787,7 @@ pub async fn get_policy_group(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let group = policy::get_group(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(group)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -839,7 +840,7 @@ pub async fn simulate_policy_group_placement(
         .ok_or_else(|| crate::errors::AsterError::record_not_found("placement profile"))?;
     let result =
         policy::placement::simulate_placement(&profile, &context, folder_override.as_ref());
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -870,7 +871,7 @@ pub async fn update_policy_group(
     let group =
         policy::update_group_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx)
             .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(group)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -896,7 +897,7 @@ pub async fn delete_policy_group(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     policy::delete_group_with_audit(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -931,7 +932,7 @@ pub async fn migrate_policy_group_assignments(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[cfg(test)]

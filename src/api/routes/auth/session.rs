@@ -1,5 +1,7 @@
 //! 认证 API 路由：`session`。
 
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use crate::api::response::ApiResponse;
 use std::collections::HashSet;
 
 use super::{
@@ -7,7 +9,7 @@ use super::{
     storage_event_frame,
 };
 use crate::api::request_auth::{access_cookie_token, bearer_token};
-use crate::api::response::{ApiResponse, RemovedCountResponse};
+use crate::api::response::RemovedCountResponse;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
 use crate::errors::{AsterError, Result};
@@ -54,7 +56,7 @@ pub(super) fn authenticated_login_response(
         .cookie(build_access_cookie(access_token, access_ttl, secure))
         .cookie(build_refresh_cookie(refresh_token, refresh_ttl, secure))
         .cookie(build_csrf_cookie(&csrf_token, refresh_ttl, secure))
-        .json(ApiResponse::ok(if password_change_required {
+        .json(crate::api::response::success(if password_change_required {
             LoginResponse::PasswordChangeRequired {
                 expires_in: auth_policy.access_token_ttl_secs,
             }
@@ -77,7 +79,7 @@ pub(super) fn login_completion_response(
             result.password_change_required,
         ),
         PrimaryLoginCompletion::MfaRequired(challenge) => Ok(HttpResponse::Ok().json(
-            ApiResponse::ok(LoginResponse::MfaRequired {
+            crate::api::response::success(LoginResponse::MfaRequired {
                 flow_token: challenge.flow_token,
                 expires_in: challenge.expires_in,
                 methods: challenge.methods,
@@ -341,7 +343,7 @@ pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Res
         .cookie(build_access_cookie(&access, access_ttl, secure))
         .cookie(build_refresh_cookie(&refresh_token, refresh_ttl, secure))
         .cookie(build_csrf_cookie(&csrf_token, refresh_ttl, secure))
-        .json(ApiResponse::ok(AuthTokenResp {
+        .json(crate::api::response::success(AuthTokenResp {
             expires_in: auth_policy.access_token_ttl_secs,
         })))
 }
@@ -400,7 +402,7 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
         .cookie(clear_access_cookie(secure))
         .cookie(clear_refresh_cookie(secure))
         .cookie(clear_csrf_cookie(secure))
-        .json(ApiResponse::<()>::ok_empty())
+        .json(crate::api::response::empty_success())
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -430,12 +432,12 @@ pub async fn me(
                 fields,
             )
             .await?;
-            Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+            Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
         }
         None => {
             let resp =
                 account::get_me(state.get_ref(), claims.user_id, access_token_expires_at).await?;
-            Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+            Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
         }
     }
 }
@@ -462,7 +464,7 @@ pub async fn list_sessions(
         refresh_cookie_jti(state.get_ref(), &req).as_deref(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(sessions)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(sessions)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -507,7 +509,11 @@ pub async fn delete_other_sessions(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(RemovedCountResponse {
+            removed,
+        })),
+    )
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -568,7 +574,7 @@ pub async fn delete_session(
             .cookie(clear_refresh_cookie(secure))
             .cookie(clear_csrf_cookie(secure));
     }
-    Ok(response.json(ApiResponse::<()>::ok_empty()))
+    Ok(response.json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -621,7 +627,7 @@ pub async fn put_password(
         .cookie(build_access_cookie(&access_token, access_ttl, secure))
         .cookie(build_refresh_cookie(&refresh_token, refresh_ttl, secure))
         .cookie(build_csrf_cookie(&csrf_token, refresh_ttl, secure))
-        .json(ApiResponse::ok(AuthTokenResp {
+        .json(crate::api::response::success(AuthTokenResp {
             expires_in: auth_policy.access_token_ttl_secs,
         })))
 }

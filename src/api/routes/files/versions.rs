@@ -1,6 +1,7 @@
 //! 文件 API 路由：`versions`。
 
 use crate::api::dto::files::VersionPath;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -29,7 +30,7 @@ pub async fn list_versions(
     query: web::Query<crate::services::workspace::models::FileVersionListQuery>,
 ) -> Result<HttpResponse> {
     let versions = version::list_versions(state.get_ref(), *path, claims.user_id, *query).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(versions)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -63,7 +64,7 @@ pub async fn restore_version(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -97,7 +98,7 @@ pub async fn delete_version(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -127,7 +128,7 @@ pub(crate) async fn team_list_versions(
     let versions =
         version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id, *query)
             .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(versions)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -165,7 +166,7 @@ pub(crate) async fn team_restore_version(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -203,5 +204,5 @@ pub(crate) async fn team_delete_version(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }

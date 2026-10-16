@@ -1,5 +1,6 @@
 //! 管理员 API 路由：`external-auth`。
 
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -73,7 +74,7 @@ pub async fn list_external_auth_providers(
         page.offset(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(providers)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(providers)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -93,7 +94,7 @@ pub async fn list_external_auth_provider_kinds(
     req: HttpRequest,
 ) -> Result<HttpResponse> {
     let kinds = external::list_provider_kinds_with_origin(state.get_ref(), request_origin(&req))?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(kinds)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(kinds)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -129,7 +130,7 @@ pub async fn create_external_auth_provider(
         || external_auth_provider_audit_details(&provider),
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(provider)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(provider)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -153,7 +154,7 @@ pub async fn get_external_auth_provider(
 ) -> Result<HttpResponse> {
     let provider =
         external::get_admin_provider(state.get_ref(), request_origin(&req), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(provider)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -197,7 +198,7 @@ pub async fn update_external_auth_provider(
         || external_auth_provider_audit_details(&provider),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(provider)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -234,7 +235,7 @@ pub async fn delete_external_auth_provider(
         || external_auth_provider_audit_details(&provider),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -279,7 +280,7 @@ pub async fn test_external_auth_provider_params(
     )
     .await;
     let result = result?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -317,5 +318,5 @@ pub async fn test_external_auth_provider(
         || external_auth_provider_audit_details(&provider),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }

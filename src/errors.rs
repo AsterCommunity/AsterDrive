@@ -997,7 +997,6 @@ impl actix_web::ResponseError for AsterError {
     }
 
     fn error_response(&self) -> actix_web::HttpResponse {
-        use crate::api::response::ApiResponse;
         let status = self.http_status();
 
         match self.response_log_level() {
@@ -1015,9 +1014,9 @@ impl actix_web::ResponseError for AsterError {
         if self.share_error_should_disable_cache() {
             response.insert_header(("Cache-Control", "no-store, max-age=0"));
         }
-        response.json(ApiResponse::<()>::error_with_details(
+        response.json(crate::api::response::failure_with_details(
             error_code,
-            &self.client_message(),
+            self.client_message(),
             Some(self.api_error_info()),
         ))
     }

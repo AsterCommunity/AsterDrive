@@ -42,7 +42,8 @@ type OperationData<Operation extends keyof ApiOperations> =
 
 // Core responses
 export type ApiErrorCode = components["schemas"]["ApiErrorCode"];
-export type ApiErrorInfo = components["schemas"]["ApiErrorInfo"];
+export type ApiErrorInfo =
+	components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
 // OpenAPI expands Rust ApiResponse<T> into concrete ApiResponse_X schemas, so
 // the frontend keeps this thin generic alias as the single local entry point.
 export type ApiResponse<T = unknown> = {

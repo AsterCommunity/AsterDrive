@@ -4,6 +4,7 @@ use super::{
     PasskeyLoginFinishReq, PasskeyLoginStartReq, PasskeyRegisterFinishReq, PasskeyRegisterStartReq,
     PatchPasskeyReq,
 };
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::db::repository::passkey_repo;
@@ -31,7 +32,7 @@ pub async fn list_passkeys(
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
     let items = passkey::list_passkeys(state.get_ref(), claims.user_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(items)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(items)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -53,7 +54,7 @@ pub async fn start_registration(
 ) -> Result<HttpResponse> {
     let resp =
         passkey::start_registration(state.get_ref(), claims.user_id, body.name.as_deref()).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -95,7 +96,7 @@ pub async fn finish_registration(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(passkey)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(passkey)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -143,7 +144,7 @@ pub async fn rename_passkey(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(passkey)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(passkey)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -191,7 +192,7 @@ pub async fn delete_passkey(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -222,7 +223,7 @@ pub async fn start_login(
         body.conditional.unwrap_or(false),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(resp)))
 }
 
 #[aster_forge_api_docs_macros::path(

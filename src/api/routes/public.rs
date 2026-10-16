@@ -2,6 +2,7 @@
 
 use crate::api::dto::validate_request;
 use crate::api::request_auth::{access_cookie_token, bearer_token};
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -92,7 +93,7 @@ pub async fn get_custom_config(
         return Ok(HttpResponse::Ok()
             .insert_header((header::CACHE_CONTROL, "private, max-age=60"))
             .insert_header((header::VARY, "Authorization, Cookie"))
-            .json(ApiResponse::ok(custom_config)));
+            .json(crate::api::response::success(custom_config)));
     }
     Ok(public_config_response(custom_config))
 }
@@ -129,7 +130,7 @@ fn public_config_response<T: serde::Serialize>(data: T) -> HttpResponse {
     HttpResponse::Ok()
         .insert_header((header::CACHE_CONTROL, config::PUBLIC_CONFIG_CACHE_CONTROL))
         .insert_header((header::VARY, "Authorization, Cookie"))
-        .json(ApiResponse::ok(data))
+        .json(crate::api::response::success(data))
 }
 
 async fn request_has_valid_access_token(
@@ -179,7 +180,7 @@ pub async fn redeem_remote_enrollment(
         }),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(bootstrap)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(bootstrap)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -216,5 +217,5 @@ pub async fn ack_remote_enrollment(
         }),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }

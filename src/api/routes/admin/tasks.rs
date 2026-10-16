@@ -2,7 +2,9 @@
 
 use crate::api::dto::admin::{AdminTaskCleanupReq, AdminTaskListQuery};
 use crate::api::dto::validate_request;
-use crate::api::response::{ApiResponse, RemovedCountResponse};
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use crate::api::response::ApiResponse;
+use crate::api::response::RemovedCountResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, ops::audit, task};
@@ -41,7 +43,7 @@ pub async fn list_tasks(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -92,5 +94,9 @@ pub async fn cleanup_tasks(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(RemovedCountResponse {
+            removed,
+        })),
+    )
 }

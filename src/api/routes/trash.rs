@@ -4,6 +4,7 @@ use crate::api::dto::TrashItemPath;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::pagination::TrashListQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::db::repository::{file_repo, folder_repo};
@@ -70,7 +71,7 @@ pub async fn list_trash(
         file_cursor,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -126,10 +127,10 @@ pub async fn restore(
     .await;
     match folder_outcome {
         Some(crate::services::files::folder::FolderTreeMutationDispatch::Queued(task)) => {
-            Ok(HttpResponse::Accepted().json(ApiResponse::ok(task)))
+            Ok(HttpResponse::Accepted().json(crate::api::response::success(task)))
         }
         Some(crate::services::files::folder::FolderTreeMutationDispatch::Completed) | None => {
-            Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+            Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
         }
     }
 }
@@ -179,7 +180,7 @@ pub async fn purge_one(
         || details.clone(),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -218,7 +219,7 @@ pub async fn purge_all(
         || details.clone(),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -257,7 +258,7 @@ pub(crate) async fn team_list_trash(
         file_cursor,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -317,10 +318,10 @@ pub(crate) async fn team_restore(
     .await;
     match folder_outcome {
         Some(crate::services::files::folder::FolderTreeMutationDispatch::Queued(task)) => {
-            Ok(HttpResponse::Accepted().json(ApiResponse::ok(task)))
+            Ok(HttpResponse::Accepted().json(crate::api::response::success(task)))
         }
         Some(crate::services::files::folder::FolderTreeMutationDispatch::Completed) | None => {
-            Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+            Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
         }
     }
 }
@@ -378,7 +379,7 @@ pub(crate) async fn team_purge_one(
         || details.clone(),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -422,7 +423,7 @@ pub(crate) async fn team_purge_all(
         || details.clone(),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 async fn trash_item_audit_details(

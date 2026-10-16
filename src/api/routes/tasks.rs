@@ -2,6 +2,7 @@
 
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -295,7 +296,7 @@ pub(crate) async fn list_tasks_response(
     let page =
         task::list_tasks_paginated_in_scope(state, scope, query.limit_or(20, 100), query.offset())
             .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 pub(crate) async fn get_task_response(
@@ -304,7 +305,7 @@ pub(crate) async fn get_task_response(
     task_id: i64,
 ) -> Result<HttpResponse> {
     let task = task::get_task_in_scope(state, scope, task_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 pub(crate) async fn retry_task_response(
@@ -314,7 +315,7 @@ pub(crate) async fn retry_task_response(
     audit_ctx: &AuditContext,
 ) -> Result<HttpResponse> {
     let task = task::retry_task_in_scope_with_audit(state, scope, task_id, audit_ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 pub(crate) async fn create_offline_download_response(
@@ -349,5 +350,5 @@ pub(crate) async fn create_offline_download_response(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }

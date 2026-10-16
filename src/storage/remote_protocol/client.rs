@@ -121,13 +121,13 @@ impl RemoteStorageClient {
                     format!("decode remote storage capabilities response: {e}"),
                 )
             })?;
-        if envelope.code != ApiErrorCode::Success {
+        if *envelope.code() != ApiErrorCode::Success {
             return Err(crate::errors::storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote storage capabilities failed: {}", envelope.msg),
+                remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+                format!("remote storage capabilities failed: {}", envelope.message()),
             ));
         }
-        let capabilities = envelope.data.ok_or_else(|| {
+        let capabilities = envelope.into_data().ok_or_else(|| {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage capabilities response missing data",
@@ -243,13 +243,13 @@ impl RemoteStorageClient {
                     format!("decode remote storage metadata response: {e}"),
                 )
             })?;
-        if envelope.code != ApiErrorCode::Success {
+        if *envelope.code() != ApiErrorCode::Success {
             return Err(crate::errors::storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote storage metadata failed: {}", envelope.msg),
+                remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+                format!("remote storage metadata failed: {}", envelope.message()),
             ));
         }
-        let metadata = envelope.data.ok_or_else(|| {
+        let metadata = envelope.into_data().ok_or_else(|| {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage metadata response missing data",
@@ -305,14 +305,14 @@ impl RemoteStorageClient {
                         format!("decode remote storage list response: {e}"),
                     )
                 })?;
-            if envelope.code != ApiErrorCode::Success {
+            if *envelope.code() != ApiErrorCode::Success {
                 return Err(crate::errors::storage_driver_error(
-                    remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                    format!("remote storage list failed: {}", envelope.msg),
+                    remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+                    format!("remote storage list failed: {}", envelope.message()),
                 ));
             }
 
-            let page = envelope.data.unwrap_or_default();
+            let page = envelope.into_data().unwrap_or_default();
             for item in page.items {
                 if matches!(
                     visitor
@@ -361,18 +361,21 @@ impl RemoteStorageClient {
                     format!("decode remote storage capacity response: {e}"),
                 )
             })?;
-        if envelope.code != ApiErrorCode::Success {
+        if *envelope.code() != ApiErrorCode::Success {
             return Err(crate::errors::storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote storage capacity failed: {}", envelope.msg),
+                remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+                format!("remote storage capacity failed: {}", envelope.message()),
             ));
         }
-        envelope.data.map(|data| data.capacity).ok_or_else(|| {
-            crate::errors::storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "remote storage capacity response missing data",
-            )
-        })
+        envelope
+            .into_data()
+            .map(|data| data.capacity)
+            .ok_or_else(|| {
+                crate::errors::storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "remote storage capacity response missing data",
+                )
+            })
     }
 
     pub async fn sync_binding(&self, binding: &RemoteBindingSyncRequest) -> Result<()> {
@@ -412,13 +415,13 @@ impl RemoteStorageClient {
                     format!("decode remote storage target list response: {e}"),
                 )
             })?;
-        if envelope.code != ApiErrorCode::Success {
+        if *envelope.code() != ApiErrorCode::Success {
             return Err(crate::errors::storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote storage target list failed: {}", envelope.msg),
+                remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+                format!("remote storage target list failed: {}", envelope.message()),
             ));
         }
-        envelope.data.ok_or_else(|| {
+        envelope.into_data().ok_or_else(|| {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "list remote storage targets response missing data",
@@ -448,16 +451,16 @@ impl RemoteStorageClient {
                     format!("decode remote storage target connector catalog: {error}"),
                 )
             })?;
-        if envelope.code != ApiErrorCode::Success {
+        if *envelope.code() != ApiErrorCode::Success {
             return Err(crate::errors::storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
+                remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
                 format!(
                     "remote storage target connector catalog failed: {}",
-                    envelope.msg
+                    envelope.message()
                 ),
             ));
         }
-        envelope.data.ok_or_else(|| {
+        envelope.into_data().ok_or_else(|| {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage target connector catalog response missing data",
@@ -589,13 +592,13 @@ impl RemoteStorageClient {
                     format!("decode remote storage compose response: {e}"),
                 )
             })?;
-        if envelope.code != ApiErrorCode::Success {
+        if *envelope.code() != ApiErrorCode::Success {
             return Err(crate::errors::storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote storage compose failed: {}", envelope.msg),
+                remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+                format!("remote storage compose failed: {}", envelope.message()),
             ));
         }
-        envelope.data.ok_or_else(|| {
+        envelope.into_data().ok_or_else(|| {
             crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage compose response missing data",
@@ -708,13 +711,13 @@ async fn parse_storage_target_response(
                 format!("decode remote storage target response: {e}"),
             )
         })?;
-    if envelope.code != ApiErrorCode::Success {
+    if *envelope.code() != ApiErrorCode::Success {
         return Err(crate::errors::storage_driver_error(
-            remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-            format!("{context} failed: {}", envelope.msg),
+            remote_api_error_kind(*envelope.code()).unwrap_or(StorageErrorKind::Unknown),
+            format!("{context} failed: {}", envelope.message()),
         ));
     }
-    envelope.data.ok_or_else(|| {
+    envelope.into_data().ok_or_else(|| {
         crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{context} response missing data"),

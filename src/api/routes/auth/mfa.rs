@@ -1,5 +1,6 @@
 //! 认证 API 路由：`mfa`。
 
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::errors::{AsterError, Result};
@@ -77,7 +78,7 @@ pub async fn send_email_code(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
         mfa::send_email_code(state.get_ref(), &body.flow_token, &audit_info).await?,
     )))
 }
@@ -97,7 +98,7 @@ pub async fn status(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
         mfa::get_status(state.get_ref(), claims.user_id).await?,
     )))
 }
@@ -117,7 +118,7 @@ pub async fn start_totp_setup(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
         mfa::start_totp_setup(state.get_ref(), claims.user_id).await?,
     )))
 }
@@ -141,7 +142,7 @@ pub async fn finish_totp_setup(
     body: web::Json<mfa::TotpSetupFinishRequest>,
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
         mfa::verify_totp_setup(state.get_ref(), claims.user_id, body.into_inner(), &ctx).await?,
     )))
 }
@@ -182,7 +183,7 @@ pub async fn delete_factor(
             "mfa factor #{factor_id}"
         )));
     }
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -204,7 +205,7 @@ pub async fn regenerate_recovery_codes(
     body: web::Json<mfa::MfaSensitiveActionRequest>,
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
         mfa::regenerate_recovery_codes(state.get_ref(), claims.user_id, body.into_inner(), &ctx)
             .await?,
     )))

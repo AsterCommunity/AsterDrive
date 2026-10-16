@@ -6,6 +6,7 @@ use super::{
     RegisterReq, ResendRegisterActivationReq, SetupReq, apply_auth_mail_response_floor,
     contact_verification_redirect_response, request_has_active_access_session,
 };
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::{
     auth_runtime::{self, RuntimeAuthPolicy},
@@ -100,13 +101,15 @@ async fn bootstrap_runtime_config_from_setup(
 pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     let setup = local::check_auth_state(state.get_ref()).await?;
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(CheckResp {
-        setup_state: setup.state,
-        has_users: setup.has_users,
-        allow_user_registration: auth_policy.public_registration_enabled(),
-        passkey_login_enabled: auth_policy.passkey_login_enabled,
-        password_login_enabled: auth_policy.password_login_enabled,
-    })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(CheckResp {
+            setup_state: setup.state,
+            has_users: setup.has_users,
+            allow_user_registration: auth_policy.public_registration_enabled(),
+            passkey_login_enabled: auth_policy.passkey_login_enabled,
+            password_login_enabled: auth_policy.password_login_enabled,
+        })),
+    )
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -138,7 +141,7 @@ pub async fn setup(
         .await?;
         bootstrap_runtime_config_from_setup(state.get_ref(), &req, user.id).await;
         let user_info = account::get_self_info(state.get_ref(), user.id).await?;
-        Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+        Ok(HttpResponse::Created().json(crate::api::response::success(user_info)))
     }
     .await;
     apply_auth_mail_response_floor(started_at).await;
@@ -173,7 +176,7 @@ pub async fn register(
         )
         .await?;
         let user_info = account::get_self_info(state.get_ref(), user.id).await?;
-        Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+        Ok(HttpResponse::Created().json(crate::api::response::success(user_info)))
     }
     .await;
     apply_auth_mail_response_floor(started_at).await;
@@ -212,9 +215,12 @@ pub async fn resend_register_activation(
     };
     apply_auth_mail_response_floor(started_at).await;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ActionMessageResp {
-        message: "If the account can be reactivated, an activation email will be sent".to_string(),
-    })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(ActionMessageResp {
+            message: "If the account can be reactivated, an activation email will be sent"
+                .to_string(),
+        })),
+    )
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -233,7 +239,7 @@ pub async fn verify_user_invitation(
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
     let info = invitation::verify_public_invitation(state.get_ref(), &path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(info)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -270,7 +276,7 @@ pub async fn accept_user_invitation(
     )
     .await;
     let user_info = account::get_self_info(state.get_ref(), user.id).await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(user_info)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -406,9 +412,11 @@ pub async fn request_password_reset(
     }
     apply_auth_mail_response_floor(started_at).await;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ActionMessageResp {
-        message: "If the account is eligible, a password reset email will be sent".to_string(),
-    })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(ActionMessageResp {
+            message: "If the account is eligible, a password reset email will be sent".to_string(),
+        })),
+    )
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -437,7 +445,9 @@ pub async fn confirm_password_reset(
     )
     .await?;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ActionMessageResp {
-        message: "Password reset successful".to_string(),
-    })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(ActionMessageResp {
+            message: "Password reset successful".to_string(),
+        })),
+    )
 }

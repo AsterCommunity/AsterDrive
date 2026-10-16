@@ -171,6 +171,42 @@ async fn storage_driver_error_redacts_response_message() {
 }
 
 #[actix_web::test]
+async fn forge_envelope_retains_drive_diagnostic_and_redaction_policy() {
+    let error =
+        AsterError::validation_error("required provider option field 'endpoint' is missing");
+    let response = error.error_response();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let payload = response_body_json(response).await;
+    assert_eq!(payload["code"], "bad_request");
+    assert!(payload.get("data").is_none());
+    assert_eq!(payload["error"]["retryable"], false);
+    assert_eq!(
+        payload["error"]["diagnostic"]["kind"],
+        "connector_validation"
+    );
+    assert_eq!(payload["error"]["diagnostic"]["field"], "endpoint");
+    assert_eq!(payload["error"]["diagnostic"]["scope"], "connector_config");
+
+    let error = aster_drive::errors::storage_driver_error(
+        aster_drive_storage::StorageErrorKind::Transient,
+        "failed: https://example.com/blob?sig=private-signature&keep=value",
+    );
+    let response = error.error_response();
+    assert_eq!(response.status(), error.http_status());
+    let payload = response_body_json(response).await;
+    assert_eq!(payload["code"], error.api_error_code().as_str());
+    assert!(payload.get("data").is_none());
+    assert_eq!(payload["error"]["retryable"], true);
+    assert_eq!(payload["error"]["diagnostic"]["kind"], "transient");
+    let message = payload["error"]["diagnostic"]["message"].as_str().unwrap();
+    assert!(message.contains("redacted"));
+    assert!(message.contains("keep=value"));
+    assert!(!payload.to_string().contains("private-signature"));
+    assert!(payload["error"]["diagnostic"].get("field").is_none());
+    assert!(payload["error"]["diagnostic"].get("scope").is_none());
+}
+
+#[actix_web::test]
 async fn storage_quota_exceeded_keeps_response_message() {
     let err = AsterError::storage_quota_exceeded("quota 1024, used 1000, need 100");
 

@@ -40,6 +40,8 @@
 
 ## 统一响应格式
 
+序列化容器和状态校验由 `aster_forge_api::response` 提供；Drive 在 `src/api/response.rs` 绑定产品错误码和诊断类型，继续决定 HTTP status、headers、文案、可重试性和脱敏策略。路由使用 `success`、`empty_success`、`empty_object_success`、`failure` 和 `failure_with_details` 构造响应。
+
 大多数 JSON 接口都使用统一包装：
 
 ```json
@@ -54,19 +56,33 @@
 
 - `code`：稳定字符串 `ApiErrorCode`，`success` 表示成功
 - `msg`：错误消息；成功时通常为空
-- `data`：响应体；部分成功接口会省略
+- `data`：响应体；无数据成功会省略，空对象成功保留 `data: {}`，两者与显式 `data: null` 不同
 
-错误响应还会带 `error` 对象：
+错误响应还会带 `error` 对象。登录凭据失败仍使用原有的顶层 `auth.credentials_failed`，普通认证错误不附加诊断：
 
 ```json
 {
   "code": "auth.credentials_failed",
   "msg": "Invalid Credentials",
   "error": {
+    "retryable": false
+  }
+}
+```
+
+下面是另一个场景：连接器缺少必填字段，使用已有的 `bad_request`，并附加字段诊断。这不是对登录失败错误码的替换：
+
+```json
+{
+  "code": "bad_request",
+  "msg": "required provider option field 'endpoint' is missing",
+  "error": {
     "retryable": false,
     "diagnostic": {
-      "kind": "auth",
-      "message": "Invalid Credentials"
+      "kind": "connector_validation",
+      "message": "required provider option field 'endpoint' is missing",
+      "field": "endpoint",
+      "scope": "connector_config"
     }
   }
 }
@@ -75,7 +91,8 @@
 错误字段约定：
 
 - 顶层 `code` 是唯一公开稳定错误码，前端、SDK、脚本和第三方客户端都应该用它做业务分支。
-- `error` 对象只承载行为提示和脱敏诊断。目前公开字段是 `retryable`，以及可选的 `diagnostic.kind` / `diagnostic.message`。
+- Forge 迁移不修改各场景的 `ApiErrorCode` wire value；`diagnostic.kind` 只是补充分类，不替代顶层 `code`。
+- 失败省略 `data`；`error` 与 `diagnostic` 可选，缺失时省略对应字段。`error` 对象只承载 `retryable` 和脱敏诊断；`diagnostic` 包含 `kind` / `message`，以及可选的连接器字段 `field` / `scope`。
 - 存储连接测试、存储 action、远端节点探测等需要给管理员看失败原因的场景，会通过 `error.diagnostic` 返回脱敏原因；成功响应仍是普通空 data，不再把 probe payload 塞到成功响应里。
 - `msg` 是诊断性 fallback 文本，不能作为 i18n key，也不要在客户端用字符串匹配判断业务原因。
 - 新增用户可见错误时，必须新增或复用 `ApiErrorCode`，并同步前端 `ApiErrorCode` 常量、`useApiError` 映射和中英文 locale。
@@ -86,6 +103,7 @@
 - 后端响应必须写顶层 `code: ApiErrorCode`。
 - `ApiErrorInfo` 只能公开 `retryable` 和脱敏 `diagnostic`；不要在 `error` 下重新加入 `code`、`subcode`、`internal_code` 或 `api_code`。
 - OpenAPI 必须注册 `ApiErrorCode`，前端生成 SDK 后通过 `frontend-panel/src/types/api.ts` re-export，不要让业务代码直接依赖 `api.generated.ts`。
+- Drive 的 OpenAPI adapter 对外使用 `ApiResponse<T>`，内部绑定 Forge 的 code/diagnostic 泛型；`ToSchema::name()` 返回基础名 `ApiResponse`，泛型后缀由 Utoipa 添加。错误元数据引用 `ApiErrorInfo_ApiErrorDiagnostic`，诊断引用 `ApiErrorDiagnostic`，避免在每个响应内重复展开。
 - 客户端文案完全以顶层 `code` 为 key。
 
 新增错误时的判断顺序：

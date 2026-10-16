@@ -2,6 +2,7 @@
 
 pub use crate::api::dto::files::*;
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::errors::Result;
@@ -543,7 +544,7 @@ pub(crate) async fn create_empty_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(file)))
 }
 
 pub(crate) async fn extract_archive_response(
@@ -584,7 +585,7 @@ pub(crate) async fn extract_archive_response(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 pub(crate) async fn delete_file_response(
@@ -596,7 +597,7 @@ pub(crate) async fn delete_file_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     file::delete_in_scope_with_audit(state, scope, file_id, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 pub(crate) async fn patch_file_response(
@@ -618,7 +619,7 @@ pub(crate) async fn patch_file_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
 pub(crate) async fn update_content_response(
@@ -648,7 +649,7 @@ pub(crate) async fn update_content_response(
 
     Ok(HttpResponse::Ok()
         .insert_header(("ETag", format!("\"{new_hash}\"")))
-        .json(ApiResponse::ok(file)))
+        .json(crate::api::response::success(file)))
 }
 
 fn request_content_length(req: &HttpRequest) -> Option<i64> {
@@ -669,7 +670,7 @@ pub(crate) async fn set_lock_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     let file = file::set_lock_in_scope_with_audit(state, scope, file_id, locked, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
 pub(crate) async fn copy_file_response(
@@ -683,5 +684,5 @@ pub(crate) async fn copy_file_response(
     let ctx = AuditContext::from_request(req, claims);
     let file =
         file::copy_file_in_scope_with_audit(state, scope, file_id, body.folder_id, &ctx).await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(file)))
 }

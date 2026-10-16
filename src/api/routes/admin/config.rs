@@ -1,6 +1,7 @@
 //! 管理员 API 路由：`config`。
 
 use crate::api::dto::admin::{ExecuteConfigActionReq, ExecuteConfigActionResp, SetConfigReq};
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -29,7 +30,7 @@ pub async fn list_config(
 ) -> Result<HttpResponse> {
     let configs =
         config::list_paginated(state.get_ref(), query.limit_or(50, 100), query.offset()).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(configs)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(configs)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -46,7 +47,7 @@ pub async fn list_config(
 )]
 pub async fn config_schema() -> Result<HttpResponse> {
     let schema = config::get_schema();
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(schema)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(schema)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -63,7 +64,7 @@ pub async fn config_schema() -> Result<HttpResponse> {
 )]
 pub async fn config_template_variables() -> Result<HttpResponse> {
     let groups = mail_template::MAIL_TEMPLATE_REGISTRY.variable_groups();
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(groups)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -82,7 +83,7 @@ pub async fn get_media_processing_runtime_status(
     state: web::Data<PrimaryAppState>,
 ) -> Result<HttpResponse> {
     let status = config::get_media_processing_runtime_status(state.get_ref());
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(status)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(status)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -104,7 +105,7 @@ pub async fn get_config(
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
     let config = config::get_by_key(state.get_ref(), &path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(config)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(config)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -139,7 +140,7 @@ pub async fn set_config(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(config)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(config)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -164,7 +165,7 @@ pub async fn delete_config(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     config::delete_with_audit(state.get_ref(), &path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -210,7 +211,7 @@ pub async fn execute_config_action(
     .await?;
 
     Ok(
-        HttpResponse::Ok().json(ApiResponse::ok(ExecuteConfigActionResp {
+        HttpResponse::Ok().json(crate::api::response::success(ExecuteConfigActionResp {
             message: action_result.message,
             value: action_result.value,
         })),

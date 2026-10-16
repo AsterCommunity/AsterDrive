@@ -1,13 +1,7 @@
+use super::models::ApiEnvelope;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, precondition_failed_with_code, storage_driver_error_with_code};
 use aster_drive_storage::StorageErrorKind;
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-struct RemoteErrorEnvelope {
-    code: ApiErrorCode,
-    msg: String,
-}
 
 pub(super) fn map_reqwest_error(error: reqwest::Error) -> AsterError {
     let message = error.to_string();
@@ -36,12 +30,12 @@ pub fn build_remote_status_error_from_parts(
     context: &str,
     not_found_as_record: bool,
 ) -> AsterError {
-    let envelope = serde_json::from_str::<RemoteErrorEnvelope>(body).ok();
-    let remote_code = envelope.as_ref().map(|value| value.code);
+    let envelope = serde_json::from_str::<ApiEnvelope<serde_json::Value>>(body).ok();
+    let remote_code = envelope.as_ref().map(|value| *value.code());
     let remote_api_code = remote_code;
     let remote_message = envelope
         .as_ref()
-        .map(|envelope| envelope.msg.as_str())
+        .map(|envelope| envelope.message())
         .filter(|msg| !msg.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| body.trim().to_string());

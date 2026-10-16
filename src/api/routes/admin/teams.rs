@@ -3,6 +3,7 @@
 use crate::api::dto::admin::{AdminCreateTeamReq, AdminPatchTeamReq, AdminTeamListQuery};
 use crate::api::dto::teams::{AddTeamMemberReq, ListTeamMembersQuery, PatchTeamMemberReq};
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -40,7 +41,7 @@ pub async fn list_teams(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(teams)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(teams)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -79,7 +80,7 @@ pub async fn create_team(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(team)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(team)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -101,7 +102,7 @@ pub async fn get_team(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let team = team::get_admin_team(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -141,7 +142,7 @@ pub async fn update_team(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -166,7 +167,7 @@ pub async fn delete_team(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     team::archive_admin_team_with_audit(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -191,7 +192,7 @@ pub async fn restore_team(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let team = team::restore_admin_team_with_audit(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(team)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -227,7 +228,7 @@ pub async fn list_team_audit_logs(
     )
     .await?;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -303,7 +304,7 @@ pub async fn list_team_members(
         page.offset(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(members)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(members)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -343,7 +344,7 @@ pub async fn add_team_member(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(member)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(member)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -381,7 +382,7 @@ pub async fn patch_team_member(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(member)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(member)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -410,5 +411,5 @@ pub async fn delete_team_member(
     let (team_id, member_user_id) = path.into_inner();
     let ctx = audit::AuditContext::from_request(&req, &claims);
     team::remove_admin_member_with_audit(state.get_ref(), team_id, member_user_id, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }

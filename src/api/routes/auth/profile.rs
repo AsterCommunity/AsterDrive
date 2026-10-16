@@ -4,6 +4,7 @@ use super::{
     ActionMessageResp, RequestEmailChangeReq, UpdateAvatarSourceReq, UpdatePreferencesReq,
     UpdateProfileReq, apply_auth_mail_response_floor,
 };
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -40,7 +41,7 @@ pub async fn request_email_change(
     )
     .await?;
     let user_info = account::get_self_info(state.get_ref(), user.id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(user_info)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(user_info)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -70,9 +71,11 @@ pub async fn resend_email_change(
         }
     }
     apply_auth_mail_response_floor(started_at).await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ActionMessageResp {
-        message: "If an email change is pending, a confirmation email will be sent".to_string(),
-    })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(ActionMessageResp {
+            message: "If an email change is pending, a confirmation email will be sent".to_string(),
+        })),
+    )
 }
 
 /// Update the current user's preferences.
@@ -146,7 +149,7 @@ pub async fn patch_preferences(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(prefs)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(prefs)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -185,7 +188,7 @@ pub async fn patch_profile(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(profile)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -225,7 +228,7 @@ pub async fn upload_avatar(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -267,7 +270,7 @@ pub async fn put_avatar_source(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(profile)))
 }
 
 #[aster_forge_api_docs_macros::path(

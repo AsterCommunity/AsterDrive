@@ -6,6 +6,7 @@ use crate::api::dto::validate_request;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
 use crate::api::pagination::FolderListQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::{files, team_scope};
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -733,7 +734,7 @@ pub(crate) async fn create_folder_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(folder)))
 }
 
 pub(crate) async fn list_folder_response(
@@ -744,7 +745,7 @@ pub(crate) async fn list_folder_response(
 ) -> Result<HttpResponse> {
     let params = folder::FolderListParams::from(query);
     let contents = folder::list_in_scope(state, scope, parent_id, &params).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
 pub(crate) async fn get_ancestors_response(
@@ -753,7 +754,7 @@ pub(crate) async fn get_ancestors_response(
     folder_id: i64,
 ) -> Result<HttpResponse> {
     let ancestors = folder::get_ancestors_in_scope(state, scope, folder_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ancestors)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(ancestors)))
 }
 
 pub(crate) async fn get_folder_info_response(
@@ -762,7 +763,7 @@ pub(crate) async fn get_folder_info_response(
     folder_id: i64,
 ) -> Result<HttpResponse> {
     let folder = folder::get_info_with_storage_used_in_scope(state, scope, folder_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(folder)))
 }
 
 pub(crate) async fn delete_folder_response(
@@ -775,10 +776,10 @@ pub(crate) async fn delete_folder_response(
     let ctx = AuditContext::from_request(req, claims);
     match folder::delete_in_scope_with_audit(state, scope, folder_id, &ctx).await? {
         folder::FolderTreeMutationDispatch::Completed => {
-            Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+            Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
         }
         folder::FolderTreeMutationDispatch::Queued(task) => {
-            Ok(HttpResponse::Accepted().json(ApiResponse::ok(task)))
+            Ok(HttpResponse::Accepted().json(crate::api::response::success(task)))
         }
     }
 }
@@ -809,7 +810,7 @@ pub(crate) async fn patch_folder_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(folder)))
 }
 
 pub(crate) async fn set_lock_response(
@@ -823,7 +824,7 @@ pub(crate) async fn set_lock_response(
     let ctx = AuditContext::from_request(req, claims);
     let folder =
         folder::set_lock_in_scope_with_audit(state, scope, folder_id, locked, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(folder)))
 }
 
 pub(crate) async fn set_icon_response(
@@ -836,7 +837,7 @@ pub(crate) async fn set_icon_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     let folder = folder::set_icon_in_scope_with_audit(state, scope, folder_id, icon, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(folder)))
 }
 
 pub(crate) async fn copy_folder_response(
@@ -851,5 +852,5 @@ pub(crate) async fn copy_folder_response(
     let folder =
         folder::copy_folder_in_scope_with_audit(state, scope, folder_id, body.parent_id, &ctx)
             .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(folder)))
 }

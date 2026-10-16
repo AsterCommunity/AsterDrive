@@ -1473,18 +1473,18 @@ async fn parse_api_response<T: for<'de> serde::Deserialize<'de>>(
             format!("failed to parse {action} response: {error}"),
         )
     })?;
-    if !status.is_success() || envelope.code != ApiErrorCode::Success {
-        let message = if envelope.msg.trim().is_empty() {
+    if !status.is_success() || *envelope.code() != ApiErrorCode::Success {
+        let message = if envelope.message().trim().is_empty() {
             format!("{action} failed with HTTP {status}")
         } else {
-            envelope.msg
+            envelope.message().to_string()
         };
         return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             message,
         ));
     }
-    envelope.data.ok_or_else(|| {
+    envelope.into_data().ok_or_else(|| {
         crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{action} response missing data"),
@@ -1504,11 +1504,11 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
                 format!("failed to parse {action} response: {error}"),
             )
         })?;
-    if !status.is_success() || envelope.code != ApiErrorCode::Success {
-        let message = if envelope.msg.trim().is_empty() {
+    if !status.is_success() || *envelope.code() != ApiErrorCode::Success {
+        let message = if envelope.message().trim().is_empty() {
             format!("{action} failed with HTTP {status}")
         } else {
-            envelope.msg
+            envelope.message().to_string()
         };
         return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Transient,

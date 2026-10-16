@@ -6,6 +6,7 @@ use crate::api::dto::{
 };
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
@@ -62,7 +63,7 @@ pub async fn list_props(
         claims.user_id,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(props)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(props)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -122,7 +123,7 @@ pub async fn set_prop(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(prop)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(prop)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -179,5 +180,5 @@ pub async fn delete_prop(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }

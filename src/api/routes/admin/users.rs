@@ -4,6 +4,7 @@ use crate::api::dto::admin::{
     AdminUserListQuery, CreateUserInvitationReq, CreateUserReq, PatchUserReq, ResetUserPasswordReq,
 };
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -54,7 +55,7 @@ pub async fn create_user(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(output)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(output)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -88,7 +89,7 @@ pub async fn list_users(
         ),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(users)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(users)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -125,7 +126,7 @@ pub async fn create_user_invitation(
         || invitation_audit_details(&invitation),
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(invitation)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(invitation)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -148,7 +149,7 @@ pub async fn list_user_invitations(
     let invitations =
         invitation::list_invitations(state.get_ref(), page.limit_or(20, 100), page.offset())
             .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(invitations)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(invitations)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -184,7 +185,7 @@ pub async fn revoke_user_invitation(
         || invitation_audit_details(&invitation),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(invitation)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(invitation)))
 }
 
 fn invitation_audit_details(
@@ -219,7 +220,7 @@ pub async fn get_user(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let user = account::get(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(user)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(user)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -244,7 +245,7 @@ pub async fn revoke_user_sessions(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     local::revoke_user_sessions_with_audit(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -288,7 +289,7 @@ pub async fn update_user(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(user)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(user)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -317,7 +318,7 @@ pub async fn reset_user_password(
     validate_request(&*body)?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     local::set_password_with_audit(state.get_ref(), *path, &body.password, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -342,7 +343,7 @@ pub async fn reset_user_mfa(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     mfa::reset_user_mfa(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -368,7 +369,7 @@ pub async fn force_delete_user(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     account::force_delete_with_audit(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(

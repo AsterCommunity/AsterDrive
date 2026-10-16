@@ -447,12 +447,11 @@ pub struct RemoteStorageComposeResponse {
     pub bytes_written: u64,
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct ApiEnvelope<T> {
-    pub(crate) code: ApiErrorCode,
-    pub(crate) msg: String,
-    pub(crate) data: Option<T>,
-}
+pub(crate) type ApiEnvelope<T> = aster_forge_api::response::ApiResponse<
+    T,
+    ApiErrorCode,
+    crate::api::response::ApiErrorDiagnostic,
+>;
 
 #[cfg(test)]
 mod tests {

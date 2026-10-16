@@ -4787,6 +4787,7 @@ export interface components {
         };
         /** @enum {string} */
         AdminUserSortBy: "id" | "username" | "email" | "role" | "status" | "storage_used" | "storage_quota" | "created_at" | "updated_at";
+        /** @description Empty JSON object used for `data: {}`, distinct from omitted data or JSON null. */
         ApiEmptyData: Record<string, never>;
         /** @enum {string} */
         ApiErrorCode: "success" | "bad_request" | "not_found" | "internal_server_error" | "database.error" | "config.error" | "endpoint.not_found" | "rate_limited" | "operation.resource_limit_exceeded" | "mail.not_configured" | "mail.delivery_failed" | "conflict" | "config.public_site_url_required" | "config.public_site_url_invalid" | "auth.failed" | "auth.token_expired" | "auth.token_invalid" | "forbidden" | "auth.pending_activation" | "auth.contact_verification_invalid" | "auth.contact_verification_expired" | "auth.token_missing" | "auth.credentials_failed" | "auth.mfa_failed" | "auth.refresh_token_stale" | "auth.refresh_token_reuse_detected" | "file.not_found" | "file.too_large" | "file.type_not_allowed" | "file.upload_failed" | "upload.session_not_found" | "upload.session_expired" | "upload.chunk_failed" | "upload.assembly_failed" | "upload.target_capacity_insufficient" | "upload.capacity_unavailable" | "upload.staging_capacity_insufficient" | "thumbnail.failed" | "resource.locked" | "precondition_failed" | "upload.assembling" | "storage.policy_not_found" | "storage.driver_error" | "storage.quota_exceeded" | "storage.unsupported_driver" | "storage.auth_failed" | "storage.permission_denied" | "storage.misconfigured" | "storage.object_not_found" | "storage.rate_limited" | "storage.transient_failure" | "storage.precondition_failed" | "storage.operation_unsupported" | "policy.blob_references_exist" | "folder.not_found" | "share.not_found" | "share.expired" | "share.password_required" | "share.download_limit_reached" | "archive_preview.disabled" | "archive_preview.user_disabled" | "archive_preview.share_disabled" | "archive_preview.source_too_large" | "archive_preview.invalid_archive" | "archive_preview.manifest_too_large" | "archive_preview.unsupported_type" | "archive_preview.rejected" | "archive_preview.source_size_mismatch" | "archive_compress.disabled" | "archive_download.user_disabled" | "archive_download.share_disabled" | "auth.username_exists" | "auth.email_exists" | "auth.identifier_exists" | "auth.admin_required" | "auth.account_disabled" | "auth.request_source_untrusted" | "auth.request_origin_untrusted" | "auth.request_referer_untrusted" | "auth.request_source_missing" | "auth.session_user_mismatch" | "auth.csrf_cookie_missing" | "auth.csrf_header_missing" | "auth.csrf_token_invalid" | "auth.passkey_login_disabled" | "auth.password_login_disabled" | "auth.registration_disabled" | "auth.email_blocked" | "auth.email_not_allowlisted" | "auth.mfa_flow_invalid" | "auth.mfa_flow_expired" | "auth.mfa_code_invalid" | "auth.mfa_attempts_exceeded" | "auth.mfa_factor_required" | "auth.mfa_factor_already_exists" | "auth.mfa_recovery_code_used" | "auth.mfa_email_code_required" | "auth.mfa_email_code_expired" | "auth.invitation_invalid" | "auth.invitation_expired" | "auth.invitation_revoked" | "auth.invitation_accepted" | "auth.password_change_required" | "avatar.file_required" | "avatar.upload_read_failed" | "avatar.processor_unavailable" | "avatar.empty_image" | "avatar.render_failed" | "avatar.output_invalid" | "file.name_conflict" | "file.etag_mismatch" | "file.modified_during_write" | "folder.name_conflict" | "lock.not_owner" | "share.scope_denied" | "remote_storage_target.binding_mismatch" | "remote_storage_target.unavailable" | "remote_storage_target.not_applied" | "remote_storage_target.connector_unsupported" | "remote_storage_target.local_path_invalid" | "remote_storage_target.required" | "remote_storage_target.referenced" | "remote_storage_target.single_primary_required" | "remote_storage_target.not_found" | "master_binding.disabled" | "passkey.name_invalid" | "passkey.name_too_long" | "passkey.not_discoverable" | "team.not_member" | "team.owner_required" | "team.admin_or_owner_required" | "policy.upload_sessions_exist" | "policy.storage_access_key_required" | "policy.storage_secret_key_required" | "policy.storage_bucket_required" | "policy.storage_endpoint_invalid" | "policy.remote_node_required" | "policy.remote_node_unexpected" | "policy.remote_storage_target_required" | "policy.remote_storage_location_immutable" | "policy.remote_node_disabled" | "policy.remote_node_base_url_required" | "policy.remote_node_transfer_strategy_unsupported" | "policy.onedrive_options_unsupported" | "policy.sftp_options_unsupported" | "policy.onedrive_account_mode_required" | "policy.onedrive_personal_china_cloud_unsupported" | "policy.onedrive_sharepoint_site_required" | "policy.onedrive_group_required" | "policy.native_thumbnail_unsupported" | "policy.native_media_metadata_unsupported" | "policy.action_unsupported" | "policy.action_parameter_required" | "policy.action_parameter_invalid" | "policy.promotion_source_unsupported" | "policy.promotion_source_config_unsupported" | "policy.promotion_target_unsupported" | "workspace.scope_denied" | "external_auth.provider_disabled" | "external_auth.policy_denied" | "external_auth.callback_redirect_uri_required" | "offline_download.aria2_rpc_auth_failed" | "offline_download.aria2_rpc_probe_failed" | "remote_node.disabled" | "remote_node.enrollment_required" | "remote_node.unique_conflict" | "storage.auth" | "storage.not_found" | "storage.permission" | "storage.precondition" | "storage.transient" | "storage.unsupported" | "storage.unknown" | "task.lease_lost" | "task.lease_renewal_timed_out" | "task.worker_shutdown_requested" | "task.retry_status_conflict" | "task.retry_not_allowed" | "team.member_exists" | "thumbnail.format_guess_failed" | "thumbnail.decode_failed" | "thumbnail.encode_failed" | "thumbnail.source_open_failed" | "thumbnail.source_stream_failed" | "thumbnail.task_panicked" | "thumbnail.source_too_large" | "thumbnail.processor_unavailable" | "thumbnail.render_failed" | "thumbnail.output_invalid" | "thumbnail.source_temp_create_failed" | "thumbnail.source_temp_flush_failed" | "thumbnail.source_temp_copy_failed" | "wopi.public_site_url_required" | "wopi.app_disabled" | "wopi.request_origin_untrusted" | "wopi.request_referer_untrusted" | "upload.temp_dir_create_failed" | "upload.temp_file_create_failed" | "upload.temp_file_write_failed" | "upload.temp_file_flush_failed" | "upload.request_body_read_failed" | "upload.request_body_size_overflow" | "upload.request_size_mismatch" | "upload.hash_temp_open_failed" | "upload.hash_temp_read_failed" | "upload.field_read_failed" | "upload.local_staging_path_resolve_failed" | "upload.local_staging_dir_create_failed" | "upload.local_staging_file_create_failed" | "upload.local_staging_write_failed" | "upload.local_staging_flush_failed" | "upload.direct_relay_write_failed" | "upload.direct_relay_shutdown_failed" | "upload.direct_relay_task_failed" | "upload.body_size_overflow" | "upload.declared_size_invalid" | "upload.empty_file" | "upload.chunk_persist_failed" | "upload.chunk_relay_failed" | "upload.chunk_pending" | "upload.chunk_transport_mismatch" | "upload.chunk_session_invalid" | "upload.chunk_number_out_of_range" | "upload.chunk_size_mismatch" | "upload.chunk_too_large" | "upload.chunk_size_overflow" | "upload.status_conflict" | "upload.completed_file_missing" | "upload.previous_failure" | "upload.parts_required" | "upload.incomplete_chunks" | "upload.incomplete_parts" | "upload.missing_part" | "upload.temp_object_missing" | "upload.temp_object_size_mismatch" | "upload.final_object_size_mismatch" | "upload.session_corrupted" | "upload.part_numbers_empty" | "upload.part_numbers_too_many" | "upload.part_number_out_of_range" | "upload.assembly_io_failed" | "upload.assembly_size_overflow" | "webdav.username_exists" | "wopi.max_expected_size_exceeded" | "validation.request_origin_invalid" | "validation.request_referer_invalid" | "validation.request_host_invalid" | "validation.request_scheme_invalid" | "validation.request_header_value_invalid" | "validation.system_already_initialized" | "validation.system_not_initialized" | "search.query_empty" | "search.type_invalid" | "search.tag_match_invalid" | "search.size_range_invalid" | "search.file_filter_type_conflict" | "search.mime_type_empty" | "search.category_invalid" | "search.extensions_invalid" | "search.tag_ids_invalid" | "search.date_invalid" | "search.date_range_invalid" | "internal_storage.range_length_invalid" | "internal_storage.range_empty_object" | "internal_storage.range_offset_out_of_bounds" | "internal_storage.range_header_invalid" | "internal_storage.range_multiple_unsupported" | "internal_storage.range_bounds_invalid" | "internal_storage.content_length_required" | "internal_storage.content_length_invalid" | "internal_storage.compose_parts_required" | "internal_storage.compose_expected_size_invalid";
@@ -4802,16 +4803,10 @@ export interface components {
             /** @description Connector field scope, for example `connector_config` or `static_credential`. */
             scope?: string | null;
         };
-        ApiErrorInfo: {
-            diagnostic?: components["schemas"]["ApiErrorDiagnostic"] | null;
+        ApiErrorInfo_ApiErrorDiagnostic: {
+            diagnostic?: components["schemas"]["ApiErrorDiagnostic"];
             retryable: boolean;
         };
-        /**
-         * @description 统一 API 响应格式
-         *
-         *     成功: `{ "code": "success", "msg": "", "data": {...} }`
-         *     失败: `{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }`
-         */
         ApiResponse_RemoteEnrollmentBootstrap: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
@@ -4827,15 +4822,9 @@ export interface components {
                 resolved_transport?: components["schemas"]["ResolvedRemoteTransport"];
                 secret_key: string;
             };
-            error?: components["schemas"]["ApiErrorInfo"] | null;
+            error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
             msg: string;
         };
-        /**
-         * @description 统一 API 响应格式
-         *
-         *     成功: `{ "code": "success", "msg": "", "data": {...} }`
-         *     失败: `{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }`
-         */
         ApiResponse_RemoteEnrollmentCommandInfo: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
@@ -4847,15 +4836,9 @@ export interface components {
                 remote_node_name: string;
                 token: string;
             };
-            error?: components["schemas"]["ApiErrorInfo"] | null;
+            error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
             msg: string;
         };
-        /**
-         * @description 统一 API 响应格式
-         *
-         *     成功: `{ "code": "success", "msg": "", "data": {...} }`
-         *     失败: `{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }`
-         */
         ApiResponse_UploadProgressResponse: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
@@ -4872,15 +4855,9 @@ export interface components {
                 upload_id: string;
                 upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
             };
-            error?: components["schemas"]["ApiErrorInfo"] | null;
+            error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
             msg: string;
         };
-        /**
-         * @description 统一 API 响应格式
-         *
-         *     成功: `{ "code": "success", "msg": "", "data": {...} }`
-         *     失败: `{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }`
-         */
         ApiResponse_Vec_ConfigSchemaItem: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
@@ -4896,15 +4873,9 @@ export interface components {
                 requires_restart: boolean;
                 value_type: components["schemas"]["ConfigValueType"];
             }[];
-            error?: components["schemas"]["ApiErrorInfo"] | null;
+            error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
             msg: string;
         };
-        /**
-         * @description 统一 API 响应格式
-         *
-         *     成功: `{ "code": "success", "msg": "", "data": {...} }`
-         *     失败: `{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }`
-         */
         ApiResponse_Vec_TemplateVariableGroup: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
@@ -4917,7 +4888,7 @@ export interface components {
                 /** @description Variables accepted by the template. */
                 variables: components["schemas"]["TemplateVariableItem"][];
             }[];
-            error?: components["schemas"]["ApiErrorInfo"] | null;
+            error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
             msg: string;
         };
         /** @description Request an archive compression task for the selected files and folders. */
@@ -9945,21 +9916,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                action: components["schemas"]["AuditAction"];
-                                created_at: string;
-                                details?: string | null;
-                                /** Format: int64 */
-                                entity_id?: number | null;
-                                entity_name?: string | null;
-                                entity_type: components["schemas"]["AuditEntityType"];
-                                /** Format: int64 */
-                                id: number;
-                                ip_address?: string | null;
-                                presentation?: components["schemas"]["AuditPresentation"] | null;
-                                user?: components["schemas"]["UserSummary"] | null;
-                                user_agent?: string | null;
-                            }[];
+                            items: components["schemas"]["AuditLogEntry"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -9976,7 +9933,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10072,23 +10029,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                category: string;
-                                description: string;
-                                /** Format: int64 */
-                                id: number;
-                                is_sensitive: boolean;
-                                key: string;
-                                namespace: string;
-                                requires_restart: boolean;
-                                source: components["schemas"]["ConfigSource"];
-                                updated_at: string;
-                                /** Format: int64 */
-                                updated_by?: number | null;
-                                value: components["schemas"]["ConfigValue"];
-                                value_type: components["schemas"]["ConfigValueType"];
-                                visibility: components["schemas"]["ConfigVisibility"];
-                            }[];
+                            items: components["schemas"]["SystemConfig"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -10105,7 +10046,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10148,7 +10089,7 @@ export interface operations {
                             /** Format: int32 */
                             version: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10274,7 +10215,7 @@ export interface operations {
                             value_type: components["schemas"]["ConfigValueType"];
                             visibility: components["schemas"]["ConfigVisibility"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10343,7 +10284,7 @@ export interface operations {
                             value_type: components["schemas"]["ConfigValueType"];
                             visibility: components["schemas"]["ConfigVisibility"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10442,7 +10383,7 @@ export interface operations {
                             message: string;
                             value?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10519,7 +10460,7 @@ export interface operations {
                             unified_callback_uri: string;
                             userinfo_url_required: boolean;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10565,42 +10506,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                allowed_domains: string[];
-                                authorization_url?: string | null;
-                                auto_link_verified_email_enabled: boolean;
-                                auto_provision_enabled: boolean;
-                                avatar_url_claim?: string | null;
-                                callback_mode: components["schemas"]["ExternalAuthCallbackMode"];
-                                callback_uri: string;
-                                client_id: string;
-                                client_secret?: string | null;
-                                client_secret_configured: boolean;
-                                created_at: string;
-                                display_name: string;
-                                display_name_claim?: string | null;
-                                email_claim?: string | null;
-                                email_verified_claim?: string | null;
-                                enabled: boolean;
-                                groups_claim?: string | null;
-                                icon_url?: string | null;
-                                /** Format: int64 */
-                                id: number;
-                                issuer_url?: string | null;
-                                key: string;
-                                legacy_callback_uri: string;
-                                options: components["schemas"]["ExternalAuthProviderOptions"];
-                                protocol: components["schemas"]["ExternalAuthProtocol"];
-                                provider_kind: components["schemas"]["ExternalAuthProviderKind"];
-                                require_email_verified: boolean;
-                                scopes: string;
-                                subject_claim?: string | null;
-                                token_url?: string | null;
-                                unified_callback_uri: string;
-                                updated_at: string;
-                                userinfo_url?: string | null;
-                                username_claim?: string | null;
-                            }[];
+                            items: components["schemas"]["AdminExternalAuthProviderInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -10617,7 +10523,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10695,7 +10601,7 @@ export interface operations {
                             userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10761,7 +10667,7 @@ export interface operations {
                             /** @description Effective userinfo endpoint, when applicable. */
                             userinfo_endpoint?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10845,7 +10751,7 @@ export interface operations {
                             userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -10975,7 +10881,7 @@ export interface operations {
                             userinfo_url?: string | null;
                             username_claim?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11047,7 +10953,7 @@ export interface operations {
                             /** @description Effective userinfo endpoint, when applicable. */
                             userinfo_endpoint?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11116,34 +11022,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                /** Format: int64 */
-                                actual_ref_count: number;
-                                created_at: string;
-                                /** Format: int64 */
-                                file_ref_count: number;
-                                hash: string;
-                                hash_kind: components["schemas"]["AdminFileBlobHashKind"];
-                                health: components["schemas"]["AdminFileBlobHealth"];
-                                /** Format: int64 */
-                                id: number;
-                                /** Format: int64 */
-                                policy_id: number;
-                                /** Format: int32 */
-                                ref_count: number;
-                                /** Format: int64 */
-                                size: number;
-                                storage_path?: string | null;
-                                thumbnail_path?: string | null;
-                                thumbnail_processor?: string | null;
-                                thumbnail_version?: string | null;
-                                updated_at: string;
-                                /** Format: int64 */
-                                uploader_count: number;
-                                uploaders: components["schemas"]["UserSummary"][];
-                                /** Format: int64 */
-                                version_ref_count: number;
-                            }[];
+                            items: components["schemas"]["AdminFileBlobInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -11160,7 +11039,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11205,7 +11084,7 @@ export interface operations {
                             file_versions: components["schemas"]["AdminFileBlobReferenceVersion"][];
                             files: components["schemas"]["AdminFileBlobReferenceFile"][];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11266,34 +11145,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                blob: components["schemas"]["AdminFileBlobSummary"];
-                                /** Format: int64 */
-                                blob_id: number;
-                                compound_extension?: string | null;
-                                created_at: string;
-                                created_by?: components["schemas"]["UserSummary"] | null;
-                                /** Format: int64 */
-                                created_by_user_id?: number | null;
-                                created_by_username: string;
-                                deleted_at?: string | null;
-                                extension: string;
-                                file_category: components["schemas"]["FileCategory"];
-                                /** Format: int64 */
-                                folder_id?: number | null;
-                                /** Format: int64 */
-                                id: number;
-                                lock_state: components["schemas"]["ResourceLockState"];
-                                mime_type: string;
-                                name: string;
-                                /** Format: int64 */
-                                owner_user_id?: number | null;
-                                /** Format: int64 */
-                                size: number;
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["AdminFileInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -11310,7 +11162,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11354,7 +11206,7 @@ export interface operations {
                         data?: components["schemas"]["AdminFileInfo"] & {
                             versions: components["schemas"]["AdminFileVersionSummary"][];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11409,26 +11261,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                depth: components["schemas"]["LockDepth"];
-                                /** Format: int64 */
-                                id: number;
-                                lockroot_path?: string | null;
-                                mode: components["schemas"]["LockMode"];
-                                /** Format: int64 */
-                                namespace_id: number;
-                                origin: components["schemas"]["LockOrigin"];
-                                owner?: components["schemas"]["UserSummary"] | null;
-                                owner_info?: components["schemas"]["ResourceLockOwnerInfo"] | null;
-                                /** Format: int64 */
-                                root_file_id?: number | null;
-                                /** Format: int64 */
-                                root_folder_id?: number | null;
-                                root_kind: components["schemas"]["LockRootKind"];
-                                timeout_at?: string | null;
-                                token: string;
-                            }[];
+                            items: components["schemas"]["ResourceLock"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -11445,7 +11278,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11480,7 +11313,7 @@ export interface operations {
                             /** Format: int64 */
                             removed: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11561,7 +11394,7 @@ export interface operations {
                             system_health: components["schemas"]["AdminSystemHealthSummary"];
                             timezone: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11609,22 +11442,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                allowed_types: string[];
-                                behavior: components["schemas"]["StoragePolicyBehaviorConfig"];
-                                /** Format: int64 */
-                                chunk_size: number;
-                                connector_config: components["schemas"]["ConnectorConfigEnvelope"];
-                                connector_id: string;
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                is_default: boolean;
-                                /** Format: int64 */
-                                max_file_size: number;
-                                name: string;
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["StoragePolicy"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -11641,7 +11459,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11699,7 +11517,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11747,7 +11565,7 @@ export interface operations {
                             ok: boolean;
                             output?: components["schemas"]["StorageConnectorActionOutput"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11869,7 +11687,7 @@ export interface operations {
                             /** @description 上传工作流能力。 */
                             upload_workflows: components["schemas"]["StorageConnectorUploadWorkflows"];
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11914,7 +11732,7 @@ export interface operations {
                             requested_locale: components["schemas"]["LocaleTag"];
                             resources: components["schemas"]["StorageConnectorLocalizationBundle"][];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -11963,8 +11781,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Empty JSON object used for `data: {}`, distinct from omitted data or JSON null. */
                         data?: Record<string, never>;
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12021,7 +11840,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12133,7 +11952,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12191,7 +12010,7 @@ export interface operations {
                             ok: boolean;
                             output?: components["schemas"]["StorageConnectorActionOutput"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12257,7 +12076,7 @@ export interface operations {
                             /** Format: int64 */
                             policy_id: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12344,7 +12163,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12462,7 +12281,7 @@ export interface operations {
                              */
                             upload_session_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12530,7 +12349,7 @@ export interface operations {
                             name: string;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12618,7 +12437,7 @@ export interface operations {
                              */
                             virtual_empty_blob_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12671,7 +12490,7 @@ export interface operations {
                             /** Format: int64 */
                             expires_in: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12746,7 +12565,7 @@ export interface operations {
                             tenant_id?: string | null;
                             updated_at: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12800,7 +12619,7 @@ export interface operations {
                             root_item_id: string;
                             root_item_name?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12855,8 +12674,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Empty JSON object used for `data: {}`, distinct from omitted data or JSON null. */
                         data?: Record<string, never>;
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12904,21 +12724,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                admission: components["schemas"]["StorageAdmissionConstraints"];
-                                created_at: string;
-                                description: string;
-                                execution_preference: components["schemas"]["UploadExecutionPreference"];
-                                /** Format: int64 */
-                                id: number;
-                                is_default: boolean;
-                                is_enabled: boolean;
-                                name: string;
-                                /** Format: int64 */
-                                routing_revision: number;
-                                rules: components["schemas"]["StoragePlacementRuleInfo"][];
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["StoragePolicyGroupInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -12935,7 +12741,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -12992,7 +12798,7 @@ export interface operations {
                             rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13055,7 +12861,7 @@ export interface operations {
                             rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13171,7 +12977,7 @@ export interface operations {
                             rules: components["schemas"]["StoragePlacementRuleInfo"][];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13242,7 +13048,7 @@ export interface operations {
                             /** Format: int64 */
                             target_group_id: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13312,7 +13118,7 @@ export interface operations {
                             ][];
                             rejection_code?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13374,38 +13180,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                /** @description Direct transport base URL, or empty when reverse tunnel is selected. */
-                                base_url: string;
-                                /** @description Capabilities returned by the most recent explicit probe. */
-                                capabilities: components["schemas"]["RemoteStorageCapabilities"];
-                                /** @description Time at which the remote node was created. */
-                                created_at: string;
-                                /** @description Current enrollment lifecycle state. */
-                                enrollment_status: components["schemas"]["RemoteNodeEnrollmentStatus"];
-                                /**
-                                 * Format: int64
-                                 * @description Stable database identifier of the remote node.
-                                 */
-                                id: number;
-                                /** @description Whether the remote node is enabled for administration and transport. */
-                                is_enabled: boolean;
-                                /**
-                                 * Format: date-time
-                                 * @description Timestamp of the most recent explicit capability probe.
-                                 */
-                                last_probe_at?: string | null;
-                                /** @description Result of the most recent explicit capability probe or connection test. */
-                                last_probe_error: string;
-                                /** @description Administrative display name. */
-                                name: string;
-                                /** @description Configured transport choice; `auto` is resolved from `base_url` at runtime. */
-                                transport_mode: components["schemas"]["RemoteNodeTransportMode"];
-                                /** @description Runtime reverse-tunnel health telemetry, separate from probe state above. */
-                                tunnel: components["schemas"]["RemoteTunnelInfo"];
-                                /** @description Time of the latest administrative remote-node change. */
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["RemoteNodeInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -13422,7 +13197,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13496,7 +13271,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13552,7 +13327,7 @@ export interface operations {
                             supports_stream_upload?: boolean;
                             target_runtime_capabilities?: components["schemas"]["RemoteStorageTargetRuntimeCapabilities"][];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13632,7 +13407,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13758,7 +13533,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13856,7 +13631,7 @@ export interface operations {
                             descriptors: components["schemas"]["StorageConnectorDescriptor"][];
                             localizations: components["schemas"]["StorageConnectorLocalizationCatalog"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13917,7 +13692,7 @@ export interface operations {
                             target_key: string;
                             updated_at: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -13989,7 +13764,7 @@ export interface operations {
                             target_key: string;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14114,7 +13889,7 @@ export interface operations {
                             target_key: string;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14201,7 +13976,7 @@ export interface operations {
                             /** @description Time of the latest administrative remote-node change. */
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14270,24 +14045,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                /** Format: int64 */
-                                download_count: number;
-                                expires_at?: string | null;
-                                /** Format: int64 */
-                                id: number;
-                                /** Format: int64 */
-                                max_downloads: number;
-                                target: components["schemas"]["ShareTarget"];
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                token: string;
-                                updated_at: string;
-                                user?: components["schemas"]["UserSummary"] | null;
-                                /** Format: int64 */
-                                view_count: number;
-                            }[];
+                            items: components["schemas"]["ShareInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -14304,7 +14062,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14423,7 +14181,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14500,7 +14258,7 @@ export interface operations {
                             target_supports_stream_upload: boolean;
                             warnings: components["schemas"]["StoragePolicyMigrationDryRunWarning"][];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14583,7 +14341,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14639,7 +14397,7 @@ export interface operations {
                             build_time: string;
                             version: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14689,41 +14447,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                /** Format: int32 */
-                                attempt_count: number;
-                                can_retry: boolean;
-                                created_at: string;
-                                creator?: components["schemas"]["UserSummary"] | null;
-                                display_name: string;
-                                expires_at: string;
-                                finished_at?: string | null;
-                                /** Format: int64 */
-                                id: number;
-                                kind: components["schemas"]["BackgroundTaskKind"];
-                                last_error?: string | null;
-                                lease_expires_at?: string | null;
-                                /** Format: int32 */
-                                max_attempts: number;
-                                payload: components["schemas"]["TaskPayload"];
-                                presentation?: components["schemas"]["TaskPresentation"] | null;
-                                /** Format: int64 */
-                                progress_current: number;
-                                /** Format: int32 */
-                                progress_percent: number;
-                                /** Format: int64 */
-                                progress_total: number;
-                                result?: components["schemas"]["TaskResult"] | null;
-                                /** Format: int64 */
-                                share_id?: number | null;
-                                started_at?: string | null;
-                                status: components["schemas"]["BackgroundTaskStatus"];
-                                status_text?: string | null;
-                                steps: components["schemas"]["TaskStepInfo"][];
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["TaskInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -14740,7 +14464,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14786,7 +14510,7 @@ export interface operations {
                             /** Format: int64 */
                             removed: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14843,24 +14567,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                archived_at?: string | null;
-                                created_at: string;
-                                created_by?: components["schemas"]["UserSummary"] | null;
-                                description: string;
-                                /** Format: int64 */
-                                id: number;
-                                /** Format: int64 */
-                                member_count: number;
-                                name: string;
-                                /** Format: int64 */
-                                policy_group_id?: number | null;
-                                /** Format: int64 */
-                                storage_quota: number;
-                                /** Format: int64 */
-                                storage_used: number;
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["AdminTeamInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -14877,7 +14584,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -14937,7 +14644,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15003,7 +14710,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15115,7 +14822,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15184,18 +14891,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                action: components["schemas"]["AuditAction"];
-                                actor?: components["schemas"]["UserSummary"] | null;
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                member?: components["schemas"]["UserSummary"] | null;
-                                next_role?: components["schemas"]["TeamMemberRole"] | null;
-                                presentation?: components["schemas"]["AuditPresentation"] | null;
-                                previous_role?: components["schemas"]["TeamMemberRole"] | null;
-                                role?: components["schemas"]["TeamMemberRole"] | null;
-                            }[];
+                            items: components["schemas"]["TeamAuditEntryInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -15212,7 +14908,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15341,7 +15037,7 @@ export interface operations {
                             /** Format: int64 */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15407,7 +15103,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15519,7 +15215,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15585,7 +15281,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15643,26 +15339,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                email: string;
-                                email_verified: boolean;
-                                /** Format: int64 */
-                                id: number;
-                                must_change_password: boolean;
-                                pending_email?: string | null;
-                                /** Format: int64 */
-                                policy_group_id?: number | null;
-                                profile: components["schemas"]["UserProfileInfo"];
-                                role: components["schemas"]["UserRole"];
-                                status: components["schemas"]["UserStatus"];
-                                /** Format: int64 */
-                                storage_quota: number;
-                                /** Format: int64 */
-                                storage_used: number;
-                                updated_at: string;
-                                username: string;
-                            }[];
+                            items: components["schemas"]["UserInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -15679,7 +15356,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15725,7 +15402,7 @@ export interface operations {
                             generated_password?: string | null;
                             user: components["schemas"]["UserInfo"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15778,23 +15455,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                accepted_at?: string | null;
-                                /** Format: int64 */
-                                accepted_user_id?: number | null;
-                                created_at: string;
-                                email: string;
-                                expires_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                invitation_url?: string | null;
-                                /** Format: int64 */
-                                invited_by: number;
-                                mail_queued: boolean;
-                                revoked_at?: string | null;
-                                status: components["schemas"]["UserInvitationStatus"];
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["AdminUserInvitationInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -15811,7 +15472,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15870,7 +15531,7 @@ export interface operations {
                             status: components["schemas"]["UserInvitationStatus"];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -15935,7 +15596,7 @@ export interface operations {
                             status: components["schemas"]["UserInvitationStatus"];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16011,7 +15672,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16133,7 +15794,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16374,7 +16035,7 @@ export interface operations {
                             password_login_enabled: boolean;
                             setup_state: components["schemas"]["SystemSetupState"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16443,7 +16104,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16485,7 +16146,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16566,7 +16227,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16621,7 +16282,7 @@ export interface operations {
                             subject: string;
                             updated_at: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16709,7 +16370,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16753,7 +16414,7 @@ export interface operations {
                             key: string;
                             kind: components["schemas"]["ExternalAuthProviderKind"];
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16817,7 +16478,7 @@ export interface operations {
                         data?: {
                             authorization_url: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16862,7 +16523,7 @@ export interface operations {
                             email: string;
                             expires_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16921,7 +16582,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -16974,7 +16635,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17057,7 +16718,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17094,7 +16755,7 @@ export interface operations {
                             /** Format: int64 */
                             recovery_codes_remaining: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17135,7 +16796,7 @@ export interface operations {
                             /** Format: int64 */
                             resend_after: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17195,7 +16856,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17270,7 +16931,7 @@ export interface operations {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: string[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17309,7 +16970,7 @@ export interface operations {
                             factor: components["schemas"]["MfaFactorInfo"];
                             recovery_codes: string[];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17347,7 +17008,7 @@ export interface operations {
                             otpauth_uri: string;
                             secret: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17391,7 +17052,7 @@ export interface operations {
                             transports?: string[] | null;
                             updated_at: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17444,7 +17105,7 @@ export interface operations {
                             /** @enum {string} */
                             status: "mfa_required";
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17490,7 +17151,7 @@ export interface operations {
                             flow_id: string;
                             public_key: unknown;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17545,7 +17206,7 @@ export interface operations {
                             transports?: string[] | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17591,7 +17252,7 @@ export interface operations {
                             flow_id: string;
                             public_key: unknown;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17677,7 +17338,7 @@ export interface operations {
                             transports?: string[] | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17731,7 +17392,7 @@ export interface operations {
                             /** Format: int64 */
                             expires_in: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17777,7 +17438,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17823,7 +17484,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17873,7 +17534,7 @@ export interface operations {
                             theme_mode?: components["schemas"]["ThemeMode"] | null;
                             view_mode?: components["schemas"]["PrefViewMode"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17912,7 +17573,7 @@ export interface operations {
                             avatar: components["schemas"]["AvatarInfo"];
                             display_name?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -17958,7 +17619,7 @@ export interface operations {
                             avatar: components["schemas"]["AvatarInfo"];
                             display_name?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18005,7 +17666,7 @@ export interface operations {
                             applied: boolean;
                             profile: components["schemas"]["UserProfileInfo"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18083,7 +17744,7 @@ export interface operations {
                             /** Format: int64 */
                             expires_in: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18139,7 +17800,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18178,7 +17839,7 @@ export interface operations {
                         data?: {
                             message: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18211,7 +17872,7 @@ export interface operations {
                             last_seen_at: string;
                             user_agent?: string | null;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18246,7 +17907,7 @@ export interface operations {
                             /** Format: int64 */
                             removed: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18337,7 +17998,7 @@ export interface operations {
                             updated_at: string;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18407,7 +18068,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18454,7 +18115,7 @@ export interface operations {
                             expires_at: string;
                             token: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18552,7 +18213,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18601,7 +18262,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18650,7 +18311,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18728,7 +18389,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18790,7 +18451,7 @@ export interface operations {
                             upload_id?: string | null;
                             upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -18862,7 +18523,7 @@ export interface operations {
                             upload_id: string;
                             upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19005,7 +18666,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19070,7 +18731,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19125,7 +18786,7 @@ export interface operations {
                                 url: string;
                             };
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19178,7 +18839,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19252,7 +18913,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19365,7 +19026,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19428,7 +19089,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19534,7 +19195,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19626,7 +19287,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19670,7 +19331,7 @@ export interface operations {
                         data?: {
                             token: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19794,7 +19455,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -19949,7 +19610,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20002,7 +19663,7 @@ export interface operations {
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20055,7 +19716,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20106,7 +19767,7 @@ export interface operations {
                             lifecycle?: components["schemas"]["FileResourceLifecycleInfo"] | null;
                             request: components["schemas"]["FileResourceRequestInfo"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20251,7 +19912,7 @@ export interface operations {
                             /** Format: int64 */
                             version: number;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20357,7 +20018,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20415,7 +20076,7 @@ export interface operations {
                             };
                             mode?: components["schemas"]["PreviewOpenMode"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20477,7 +20138,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20540,7 +20201,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20598,7 +20259,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20681,7 +20342,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20754,7 +20415,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20801,7 +20462,7 @@ export interface operations {
                             id: number;
                             name: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20874,7 +20535,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -20947,7 +20608,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21023,7 +20684,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21096,7 +20757,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21149,7 +20810,7 @@ export interface operations {
                             namespace: string;
                             value?: string | null;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21206,7 +20867,7 @@ export interface operations {
                             namespace: string;
                             value?: string | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21306,7 +20967,7 @@ export interface operations {
                             /** Format: int32 */
                             version: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21338,7 +20999,7 @@ export interface operations {
                             /** Format: int32 */
                             version: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21367,7 +21028,7 @@ export interface operations {
                             /** Format: int32 */
                             version?: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21445,7 +21106,7 @@ export interface operations {
                             version: number;
                             video_thumbnail: components["schemas"]["PublicExtensionSupport"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21491,7 +21152,7 @@ export interface operations {
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21547,7 +21208,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21670,7 +21331,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21779,7 +21440,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -21973,7 +21634,7 @@ export interface operations {
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22028,7 +21689,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22075,7 +21736,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22196,7 +21857,7 @@ export interface operations {
                             id: number;
                             name: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22263,7 +21924,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22386,7 +22047,7 @@ export interface operations {
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22439,7 +22100,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22484,7 +22145,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22718,7 +22379,7 @@ export interface operations {
                             /** Format: int64 */
                             total_folders: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22757,30 +22418,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                /** Format: int64 */
-                                download_count: number;
-                                expires_at?: string | null;
-                                folder_icon?: components["schemas"]["FolderIcon"] | null;
-                                has_password: boolean;
-                                /** Format: int64 */
-                                id: number;
-                                /** Format: int64 */
-                                max_downloads: number;
-                                /** Format: int64 */
-                                remaining_downloads?: number | null;
-                                resource_deleted: boolean;
-                                /** Format: int64 */
-                                resource_id: number;
-                                resource_name: string;
-                                resource_type: components["schemas"]["EntityType"];
-                                status: components["schemas"]["ShareStatus"];
-                                token: string;
-                                updated_at: string;
-                                /** Format: int64 */
-                                view_count: number;
-                            }[];
+                            items: components["schemas"]["MyShareInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -22797,7 +22435,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22850,7 +22488,7 @@ export interface operations {
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22892,7 +22530,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -22990,7 +22628,7 @@ export interface operations {
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23082,24 +22720,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                color: string;
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                name: string;
-                                normalized_name: string;
-                                /** Format: int64 */
-                                owner_user_id?: number | null;
-                                scope_type: components["schemas"]["TagScopeType"];
-                                /** Format: int32 */
-                                sort_order: number;
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                                /** Format: int64 */
-                                usage_count: number;
-                            }[];
+                            items: components["schemas"]["TagInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -23116,7 +22737,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23169,7 +22790,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23258,7 +22879,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23304,41 +22925,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                /** Format: int32 */
-                                attempt_count: number;
-                                can_retry: boolean;
-                                created_at: string;
-                                creator?: components["schemas"]["UserSummary"] | null;
-                                display_name: string;
-                                expires_at: string;
-                                finished_at?: string | null;
-                                /** Format: int64 */
-                                id: number;
-                                kind: components["schemas"]["BackgroundTaskKind"];
-                                last_error?: string | null;
-                                lease_expires_at?: string | null;
-                                /** Format: int32 */
-                                max_attempts: number;
-                                payload: components["schemas"]["TaskPayload"];
-                                presentation?: components["schemas"]["TaskPresentation"] | null;
-                                /** Format: int64 */
-                                progress_current: number;
-                                /** Format: int32 */
-                                progress_percent: number;
-                                /** Format: int64 */
-                                progress_total: number;
-                                result?: components["schemas"]["TaskResult"] | null;
-                                /** Format: int64 */
-                                share_id?: number | null;
-                                started_at?: string | null;
-                                status: components["schemas"]["BackgroundTaskStatus"];
-                                status_text?: string | null;
-                                steps: components["schemas"]["TaskStepInfo"][];
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["TaskInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -23355,7 +22942,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23425,7 +23012,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23501,7 +23088,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23577,7 +23164,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23646,7 +23233,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23700,7 +23287,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23767,7 +23354,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23880,7 +23467,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -23942,18 +23529,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                action: components["schemas"]["AuditAction"];
-                                actor?: components["schemas"]["UserSummary"] | null;
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                member?: components["schemas"]["UserSummary"] | null;
-                                next_role?: components["schemas"]["TeamMemberRole"] | null;
-                                presentation?: components["schemas"]["AuditPresentation"] | null;
-                                previous_role?: components["schemas"]["TeamMemberRole"] | null;
-                                role?: components["schemas"]["TeamMemberRole"] | null;
-                            }[];
+                            items: components["schemas"]["TeamAuditEntryInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -23970,7 +23546,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24099,7 +23675,7 @@ export interface operations {
                             /** Format: int64 */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24165,7 +23741,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24277,7 +23853,7 @@ export interface operations {
                             /** Format: int64 */
                             user_id: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24344,7 +23920,7 @@ export interface operations {
                             storage_used: number;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24431,7 +24007,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24488,7 +24064,7 @@ export interface operations {
                             expires_at: string;
                             token: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24591,7 +24167,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24650,7 +24226,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24709,7 +24285,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24797,7 +24373,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24862,7 +24438,7 @@ export interface operations {
                             upload_id?: string | null;
                             upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -24944,7 +24520,7 @@ export interface operations {
                             upload_id: string;
                             upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25001,7 +24577,7 @@ export interface operations {
                             upload_id: string;
                             upload_scheduling?: components["schemas"]["UploadScheduling"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25132,7 +24708,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25199,7 +24775,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25263,7 +24839,7 @@ export interface operations {
                                 url: string;
                             };
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25325,7 +24901,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25408,7 +24984,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25539,7 +25115,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25611,7 +25187,7 @@ export interface operations {
                             total_uncompressed_size: number;
                             truncated: boolean;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25719,7 +25295,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25820,7 +25396,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -25873,7 +25449,7 @@ export interface operations {
                         data?: {
                             token: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26015,7 +25591,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26188,7 +25764,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26250,7 +25826,7 @@ export interface operations {
                             status: components["schemas"]["MediaMetadataStatus"];
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26312,7 +25888,7 @@ export interface operations {
                             expires_at: string;
                             path: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26372,7 +25948,7 @@ export interface operations {
                             lifecycle?: components["schemas"]["FileResourceLifecycleInfo"] | null;
                             request: components["schemas"]["FileResourceRequestInfo"];
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26535,7 +26111,7 @@ export interface operations {
                             /** Format: int64 */
                             version: number;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26659,7 +26235,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26726,7 +26302,7 @@ export interface operations {
                             };
                             mode?: components["schemas"]["PreviewOpenMode"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26798,7 +26374,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26871,7 +26447,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -26938,7 +26514,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["FileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27030,7 +26606,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27112,7 +26688,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27168,7 +26744,7 @@ export interface operations {
                             id: number;
                             name: string;
                         }[];
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27250,7 +26826,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27332,7 +26908,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27417,7 +26993,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27499,7 +27075,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27588,7 +27164,7 @@ export interface operations {
                             /** Format: int64 */
                             total_folders: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27637,30 +27213,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                /** Format: int64 */
-                                download_count: number;
-                                expires_at?: string | null;
-                                folder_icon?: components["schemas"]["FolderIcon"] | null;
-                                has_password: boolean;
-                                /** Format: int64 */
-                                id: number;
-                                /** Format: int64 */
-                                max_downloads: number;
-                                /** Format: int64 */
-                                remaining_downloads?: number | null;
-                                resource_deleted: boolean;
-                                /** Format: int64 */
-                                resource_id: number;
-                                resource_name: string;
-                                resource_type: components["schemas"]["EntityType"];
-                                status: components["schemas"]["ShareStatus"];
-                                token: string;
-                                updated_at: string;
-                                /** Format: int64 */
-                                view_count: number;
-                            }[];
+                            items: components["schemas"]["MyShareInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -27677,7 +27230,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27740,7 +27293,7 @@ export interface operations {
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27792,7 +27345,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27908,7 +27461,7 @@ export interface operations {
                             /** Format: int64 */
                             view_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -27972,24 +27525,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                color: string;
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                name: string;
-                                normalized_name: string;
-                                /** Format: int64 */
-                                owner_user_id?: number | null;
-                                scope_type: components["schemas"]["TagScopeType"];
-                                /** Format: int32 */
-                                sort_order: number;
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                                /** Format: int64 */
-                                usage_count: number;
-                            }[];
+                            items: components["schemas"]["TagInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -28006,7 +27542,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28069,7 +27605,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28178,7 +27714,7 @@ export interface operations {
                             /** Format: int64 */
                             usage_count: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28234,41 +27770,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                /** Format: int32 */
-                                attempt_count: number;
-                                can_retry: boolean;
-                                created_at: string;
-                                creator?: components["schemas"]["UserSummary"] | null;
-                                display_name: string;
-                                expires_at: string;
-                                finished_at?: string | null;
-                                /** Format: int64 */
-                                id: number;
-                                kind: components["schemas"]["BackgroundTaskKind"];
-                                last_error?: string | null;
-                                lease_expires_at?: string | null;
-                                /** Format: int32 */
-                                max_attempts: number;
-                                payload: components["schemas"]["TaskPayload"];
-                                presentation?: components["schemas"]["TaskPresentation"] | null;
-                                /** Format: int64 */
-                                progress_current: number;
-                                /** Format: int32 */
-                                progress_percent: number;
-                                /** Format: int64 */
-                                progress_total: number;
-                                result?: components["schemas"]["TaskResult"] | null;
-                                /** Format: int64 */
-                                share_id?: number | null;
-                                started_at?: string | null;
-                                status: components["schemas"]["BackgroundTaskStatus"];
-                                status_text?: string | null;
-                                steps: components["schemas"]["TaskStepInfo"][];
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                            }[];
+                            items: components["schemas"]["TaskInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -28285,7 +27787,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28365,7 +27867,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28450,7 +27952,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28535,7 +28037,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28610,7 +28112,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["TrashFileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28686,7 +28188,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28819,7 +28321,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28875,23 +28377,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                is_active: boolean;
-                                /** Format: int64 */
-                                root_folder_id?: number | null;
-                                /** @description 文件夹路径，如 "/Documents/Photos"，None 表示全部访问 */
-                                root_folder_path?: string | null;
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                                user?: components["schemas"]["UserSummary"] | null;
-                                /** Format: int64 */
-                                user_id: number;
-                                username: string;
-                            }[];
+                            items: components["schemas"]["WebdavAccountInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -28908,7 +28394,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -28957,7 +28443,7 @@ export interface operations {
                             team_id?: number | null;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29044,7 +28530,7 @@ export interface operations {
                             user_id: number;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29102,7 +28588,7 @@ export interface operations {
                             folders_total: number;
                             next_file_cursor?: components["schemas"]["TrashFileCursor"] | null;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29168,7 +28654,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29283,7 +28769,7 @@ export interface operations {
                             team_id?: number | null;
                             updated_at: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29329,23 +28815,7 @@ export interface operations {
                         /** @description Serialized offset page response. */
                         data?: {
                             /** @description Items in the current page. */
-                            items: {
-                                created_at: string;
-                                /** Format: int64 */
-                                id: number;
-                                is_active: boolean;
-                                /** Format: int64 */
-                                root_folder_id?: number | null;
-                                /** @description 文件夹路径，如 "/Documents/Photos"，None 表示全部访问 */
-                                root_folder_path?: string | null;
-                                /** Format: int64 */
-                                team_id?: number | null;
-                                updated_at: string;
-                                user?: components["schemas"]["UserSummary"] | null;
-                                /** Format: int64 */
-                                user_id: number;
-                                username: string;
-                            }[];
+                            items: components["schemas"]["WebdavAccountInfo"][];
                             /**
                              * Format: int64
                              * @description Effective page size.
@@ -29362,7 +28832,7 @@ export interface operations {
                              */
                             total: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29408,7 +28878,7 @@ export interface operations {
                             team_id?: number | null;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29444,7 +28914,7 @@ export interface operations {
                             endpoint: string;
                             prefix: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29556,7 +29026,7 @@ export interface operations {
                             user_id: number;
                             username: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29632,7 +29102,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29688,7 +29158,7 @@ export interface operations {
                             /** Format: int32 */
                             succeeded: number;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };
@@ -29758,7 +29228,7 @@ export interface operations {
                         data?: {
                             status: string;
                         };
-                        error?: components["schemas"]["ApiErrorInfo"] | null;
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };
                 };

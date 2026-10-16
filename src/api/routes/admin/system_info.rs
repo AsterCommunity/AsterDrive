@@ -1,5 +1,6 @@
 //! 管理员 API 路由：`system_info`。
 
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::health;
 use actix_web::HttpResponse;
@@ -17,5 +18,5 @@ use actix_web::HttpResponse;
     security(("bearer" = [])),
 )]
 pub async fn get_system_info() -> HttpResponse {
-    HttpResponse::Ok().json(ApiResponse::ok(health::system_info_response()))
+    HttpResponse::Ok().json(crate::api::response::success(health::system_info_response()))
 }

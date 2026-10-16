@@ -5,6 +5,7 @@ pub use crate::api::dto::batch::*;
 use crate::api::dto::validate_request;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::config::operations;
@@ -461,7 +462,7 @@ pub(crate) async fn batch_delete_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 pub(crate) async fn batch_move_response(
@@ -482,7 +483,7 @@ pub(crate) async fn batch_move_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 pub(crate) async fn batch_copy_response(
@@ -503,7 +504,7 @@ pub(crate) async fn batch_copy_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 pub(crate) async fn archive_download_ticket_response(
@@ -544,7 +545,7 @@ pub(crate) async fn archive_download_ticket_response(
     )
     .await;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ticket)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(ticket)))
 }
 
 pub(crate) async fn archive_compress_response(
@@ -584,7 +585,7 @@ pub(crate) async fn archive_compress_response(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 pub(crate) async fn archive_download_stream_response(

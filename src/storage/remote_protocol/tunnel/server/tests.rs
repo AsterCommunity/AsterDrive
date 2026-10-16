@@ -1,6 +1,5 @@
 use super::frame::{REMOTE_TUNNEL_STREAM_FRAME_VERSION, REMOTE_TUNNEL_STREAM_META_LIMIT};
 use super::*;
-use crate::api::response::ApiResponse;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT,
 };
@@ -212,10 +211,11 @@ fn poll_response_serialized_length_matches_json_at_base64_boundaries() {
             )],
             body: Bytes::from(vec![0x5a; body_len]),
         };
-        let expected = serde_json::to_vec(&ApiResponse::ok(RemoteTunnelPollResponse {
-            request: Some(request.clone()),
-        }))
-        .expect("poll response should serialize");
+        let expected =
+            serde_json::to_vec(&crate::api::response::success(RemoteTunnelPollResponse {
+                request: Some(request.clone()),
+            }))
+            .expect("poll response should serialize");
         let measured = super::payload::serialized_poll_response_len(&request)
             .expect("poll response length should be measurable");
         assert_eq!(measured, expected.len(), "body length {body_len}");
@@ -446,21 +446,18 @@ async fn registry_poll_accepts_body_at_exact_policy_limit() {
         .expect("exact-limit response length should be measurable");
     assert!(measured_len <= REMOTE_CONTROL_PLANE_BODY_LIMIT);
 
-    let encoded = serde_json::to_vec(&ApiResponse::ok(RemoteTunnelPollResponse {
+    let encoded = serde_json::to_vec(&crate::api::response::success(RemoteTunnelPollResponse {
         request: Some(request.clone()),
     }))
     .expect("exact-limit poll response should serialize");
     assert_eq!(encoded.len(), measured_len);
     assert!(encoded.len() <= REMOTE_CONTROL_PLANE_BODY_LIMIT);
-    #[derive(serde::Deserialize)]
-    struct FollowerPollEnvelope {
-        data: Option<RemoteTunnelPollResponse>,
-    }
-    let decoded: FollowerPollEnvelope = serde_json::from_slice(&encoded)
-        .expect("follower should deserialize exact-limit poll response");
+    let decoded: crate::storage::remote_protocol::ApiEnvelope<RemoteTunnelPollResponse> =
+        serde_json::from_slice(&encoded)
+            .expect("follower should deserialize exact-limit poll response");
     assert_eq!(
         decoded
-            .data
+            .into_data()
             .and_then(|poll| poll.request)
             .map(|request| request.body.len()),
         Some(REMOTE_TUNNEL_POLL_BODY_LIMIT)

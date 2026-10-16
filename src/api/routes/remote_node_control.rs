@@ -3,7 +3,6 @@
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde::Deserialize;
 
-use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::remote::remote_node;
@@ -43,5 +42,5 @@ async fn get_binding_state(
     let desired =
         remote_node::binding_desired_state(state.get_ref(), &remote_node, query.applied_revision)
             .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(desired)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(desired)))
 }
