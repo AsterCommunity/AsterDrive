@@ -12,6 +12,7 @@ pub(super) struct CommonRuntimeParts {
     pub cfg: Arc<crate::config::Config>,
     pub db_handles: aster_forge_db::DbHandles,
     pub database: sea_orm::DatabaseConnection,
+    pub audit_writer: Arc<aster_forge_audit::AuditWriter>,
     pub driver_registry: Arc<DriverRegistry>,
     pub policy_snapshot: Arc<crate::storage::PolicySnapshot>,
     pub cache: Arc<dyn aster_forge_cache::CacheBackend>,
@@ -74,6 +75,7 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     Ok(CommonRuntimeParts {
         cfg,
         db_handles,
+        audit_writer: Arc::new(aster_forge_audit::AuditWriter::new(database.clone())),
         database,
         driver_registry,
         policy_snapshot,

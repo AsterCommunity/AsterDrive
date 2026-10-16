@@ -7,6 +7,20 @@ use aster_drive_model::types::{AuditAction, AuditEntityType};
 
 use super::context::AuditContext;
 
+pub const AUDIT_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Queries and exports must not present an incomplete buffer as a complete result.
+pub async fn flush(state: &impl SharedRuntimeState) -> crate::errors::Result<()> {
+    state
+        .audit_writer()
+        .flush(tokio::time::Instant::now() + AUDIT_FLUSH_TIMEOUT)
+        .await
+        .map_err(|_| {
+            tracing::error!("audit flush failed; retained records require reconciliation");
+            crate::errors::AsterError::internal_error("audit persistence is incomplete")
+        })
+}
+
 pub fn should_record<S: SharedRuntimeState>(state: &S, action: AuditAction) -> bool {
     state.runtime_config().should_record_audit_action(action)
 }
@@ -57,7 +71,29 @@ async fn record_prechecked<S: SharedRuntimeState>(
     // Callers must pass the action-scope check before we allocate the DB model.
     let request = audit_log_request(ctx, action, entity_type, entity_id, entity_name, details);
 
-    aster_forge_audit::record_audit_log(state.writer_db(), request).await;
+    // Best effort: a rejected record was never accepted; direct failures remain owned
+    // by the writer. Neither case may fall back to a second, potentially duplicate write.
+    if let Err(error) = state.audit_writer().record(request).await {
+        use aster_forge_runtime::RecordError;
+        match error {
+            RecordError::NotRunning(_) => {
+                tracing::warn!(
+                    action = action.as_str(),
+                    "audit record rejected: writer not running"
+                );
+            }
+            RecordError::Full(_) => {
+                tracing::warn!(
+                    action = action.as_str(),
+                    "audit record rejected: writer full"
+                );
+            }
+            RecordError::DirectFailed(failure) => {
+                tracing::error!(action = action.as_str(), class = ?failure.class,
+                    "audit direct write failed; record retained for reconciliation");
+            }
+        }
+    }
 }
 
 async fn record_prechecked_with_db(
@@ -70,7 +106,16 @@ async fn record_prechecked_with_db(
     details: Option<serde_json::Value>,
 ) {
     let request = audit_log_request(ctx, action, entity_type, entity_id, entity_name, details);
-    aster_forge_audit::write_audit_log_direct(db, request).await;
+    if aster_forge_db::create_audit_log_row(db, request)
+        .await
+        .is_err()
+    {
+        // Do not log DB errors or requests: drivers can embed SQL values in errors.
+        tracing::error!(
+            action = action.as_str(),
+            "best-effort direct audit write failed"
+        );
+    }
 }
 
 pub async fn log<S: SharedRuntimeState>(

@@ -42,7 +42,7 @@ pub use export::{
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{
-    AuditLogInput, log, log_with_db_and_config, log_with_details, log_with_transaction,
+    AuditLogInput, flush, log, log_with_db_and_config, log_with_details, log_with_transaction,
     should_record, should_record_with_config,
 };
 pub use models::{AuditLogEntry, AuditPresentation, AuditPresentationMessage, TeamAuditEntryInfo};

@@ -17,7 +17,6 @@ pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
         )?,
     );
     runtime_config.reload(&common.database).await?;
-    aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
     tracing::debug!(
         mode = NodeRuntimeMode::Follower.as_str(),
@@ -27,6 +26,7 @@ pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
     Ok(PreparedFollowerRuntime {
         state: FollowerAppState {
             db_handles: common.db_handles,
+            audit_writer: common.audit_writer,
             driver_registry: common.driver_registry,
             runtime_config,
             policy_snapshot: common.policy_snapshot,

@@ -621,6 +621,7 @@ mod tests {
             );
 
         let state = PrimaryAppState {
+            audit_writer: crate::runtime::test_support::audit_writer(&db).await,
             db_handles: aster_forge_db::DbHandles::single(db.clone()),
             driver_registry,
             runtime_config: runtime_config.clone(),

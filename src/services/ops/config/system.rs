@@ -545,6 +545,7 @@ mod tests {
 
         (
             PrimaryAppState {
+                audit_writer: crate::runtime::test_support::audit_writer(&db).await,
                 db_handles: aster_forge_db::DbHandles::single(db),
                 driver_registry: Arc::new(
                     crate::storage::DriverRegistry::noop()

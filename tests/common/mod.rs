@@ -1081,6 +1081,7 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
     let cache = aster_forge_cache::create_cache(&cache_config).await;
 
     PrimaryAppState {
+        audit_writer: base.audit_writer,
         db_handles: base.db_handles,
         driver_registry: base.driver_registry,
         runtime_config: base.runtime_config,
@@ -1681,6 +1682,7 @@ async fn setup_with_database_url_and_pool_size(
     driver_registry.set_remote_protocol(remote_protocol.clone());
 
     PrimaryAppState {
+        audit_writer: audit_writer(&db).await,
         db_handles: aster_drive::db::connect_reader_for_writer_with_metrics(
             &db_cfg,
             db.clone(),
@@ -2217,4 +2219,14 @@ macro_rules! setup_with_webdav_and_mail {
         .await;
         (app, db, mail_sender)
     }};
+}
+
+/// Each integration fixture owns and explicitly starts its audit worker.
+pub async fn audit_writer(db: &sea_orm::DatabaseConnection) -> Arc<aster_forge_audit::AuditWriter> {
+    let writer = Arc::new(aster_forge_audit::AuditWriter::new(db.clone()));
+    writer
+        .start()
+        .await
+        .expect("test audit writer should start");
+    writer
 }

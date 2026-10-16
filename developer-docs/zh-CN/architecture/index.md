@@ -230,7 +230,11 @@ database       -> depends_on audit_manager
 
 follower 没有邮件发送器，因此不会注册假的 mail component；它保持 `audit_logs -> background_tasks`。关闭 primary 时会先停止后台任务，再 drain mail outbox、记录 `server_shutdown`、flush audit buffer，最后关闭全部 reader / writer DB pool。注册顺序不决定关闭顺序，component graph 会在服务启动前完成校验。
 
-primary 的 audit assembly 直接调用 `aster_forge_audit::audit_component_infallible(...)`；`mail-outbox-dependency` feature 负责声明 `audit_logs -> mail_outbox`，Drive 不再重复传递这个依赖，也不需要为内部自行处理错误的审计 hook 重复包装 `Ok(())`。follower 因为没有 mail outbox，直接调用 `audit_component_after_infallible(...)` 声明 `audit_logs -> background_tasks`。database assembly 同样直接调用 `aster_forge_db::database_component_after(...)`，不保留只改名转发的产品 wrapper。
+primary 的 audit assembly 使用 `aster_forge_audit::audit_component_with_writer(...)`，follower 使用 `audit_component_with_writer_after(...)` 并声明 `audit_logs -> background_tasks`。共用 startup 构造 `Arc<AuditWriter>`，state 显式持有；构造不启动后台任务，owned bundle 在产品启动审计前启动 writer，并在 producer / mail drain 和产品关闭审计之后限时 drain、取消并 join worker。database 继续通过 `database_component_after(...)` 依赖 `audit_manager`，writer 的 stop phase 不设置外层 timeout。
+
+Drive 的 action 过滤、惰性 detail 构造与 best-effort 策略留在审计 service；拒绝记录和 direct 失败显式记录安全元数据，不隐式 fallback 或自动重试。mandatory 审计继续使用 Forge DB helper，和产品更新保持同一事务。查询、导出和 retention 清理必须等待当前 state 的限时 flush；失败和超时返回产品错误，审计查询使用 writer DB，避免 flush 后读取延迟副本。
+
+runtime 的 shutdown、startup cleanup、before-shutdown 和 service panic 错误均传播到进程退出结果。清理结束后仍有未确认记录时，Drive 在 `data/audit-recovery/audit-<UUID>.json` 保存独立恢复文件并返回失败；Unix 文件权限为 `0600`，新建恢复目录为 `0700`。文件保留原请求、batch/direct 数量和失败分类，不包含原始 driver 错误。文件写入失败也必须报错。恢复记录可能已在数据库提交，必须先人工核对，不能直接重放；恢复目录不属于临时目录清理范围。
 
 邮件 outbox 的共享边界也已收敛到 Forge：
 

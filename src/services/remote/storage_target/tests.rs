@@ -30,6 +30,7 @@ use std::fs;
 use std::sync::Arc;
 
 struct TestFollowerState {
+    audit_writer: Arc<aster_forge_audit::AuditWriter>,
     db: DatabaseConnection,
     driver_registry: Arc<crate::storage::DriverRegistry>,
     runtime_config: Arc<crate::config::RuntimeConfig>,
@@ -59,6 +60,10 @@ impl StorageConnectorRuntimeState for TestFollowerState {
 }
 
 impl SharedRuntimeState for TestFollowerState {
+    fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter> {
+        &self.audit_writer
+    }
+
     fn reader_db(&self) -> &DatabaseConnection {
         &self.db
     }
@@ -117,6 +122,7 @@ async fn setup_state() -> TestFollowerState {
     .await;
 
     TestFollowerState {
+        audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db,
         driver_registry: Arc::new(
             crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),

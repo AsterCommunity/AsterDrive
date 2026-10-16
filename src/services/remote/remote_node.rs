@@ -915,6 +915,7 @@ mod tests {
             );
 
         crate::runtime::PrimaryAppState {
+            audit_writer: crate::runtime::test_support::audit_writer(&database).await,
             db_handles: aster_forge_db::DbHandles::single(database),
             driver_registry: Arc::new(
                 DriverRegistry::noop().expect("built-in storage connector registry"),

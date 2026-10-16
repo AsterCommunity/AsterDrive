@@ -51,6 +51,7 @@ mod tests {
         .await;
 
         let state = FollowerAppState {
+            audit_writer: crate::runtime::test_support::audit_writer(&db).await,
             db_handles: aster_forge_db::DbHandles::single(db.clone()),
             driver_registry: Arc::new(
                 crate::storage::DriverRegistry::noop()
@@ -83,6 +84,7 @@ mod tests {
         let (state, db) = follower_state().await;
 
         record_server_shutdown(&state).await;
+        crate::services::ops::audit::flush(&state).await.unwrap();
         assert!(state.runtime_config.refresh_coordinator().is_closed());
 
         assert_eq!(

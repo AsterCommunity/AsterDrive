@@ -297,6 +297,7 @@ async fn assert_concurrent_remote_enrollment_single_winner(database_url: String)
     .await
     .expect("second writer connection should open");
     let state_b = PrimaryAppState {
+        audit_writer: common::audit_writer(&second_db).await,
         db_handles: aster_forge_db::DbHandles::single(second_db),
         ..state_a.clone()
     };

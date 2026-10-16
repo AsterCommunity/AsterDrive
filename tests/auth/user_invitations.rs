@@ -337,7 +337,7 @@ async fn test_invitation_revoke_blocks_accept_and_rejects_non_pending_revoke() {
 async fn test_invitation_create_and_revoke_audit_invitation_entity() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
 
     let invitation = create_invitation!(app, admin_token, "audit-invite@example.com");
@@ -353,7 +353,9 @@ async fn test_invitation_create_and_revoke_audit_invitation_entity() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let entries = audit_log::Entity::find()
         .filter(audit_log::Column::Action.is_in([
             AuditAction::AdminCreateInvitation,

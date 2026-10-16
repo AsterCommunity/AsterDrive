@@ -20,6 +20,9 @@ async fn property_audit_count(
     use aster_drive_model::types::{AuditAction, AuditEntityType};
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
+    aster_drive::services::ops::audit::flush(state)
+        .await
+        .unwrap();
     audit_log::Entity::find()
         .filter(audit_log::Column::EntityId.eq(entity_id))
         .filter(audit_log::Column::EntityType.eq(AuditEntityType::File.as_str()))

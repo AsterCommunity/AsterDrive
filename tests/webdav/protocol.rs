@@ -167,7 +167,9 @@ async fn remove_resource_lock_failure_trigger(db: &DatabaseConnection, name: &st
 }
 
 async fn count_file_download_audit_rows(state: &PrimaryAppState, entity_name: &str) -> u64 {
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush(state)
+        .await
+        .unwrap();
     audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileDownload))
         .filter(audit_log::Column::EntityName.eq(entity_name))

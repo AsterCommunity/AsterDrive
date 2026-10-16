@@ -1,6 +1,7 @@
 //! 运行时模块导出。
 
 pub mod assembly;
+mod audit_recovery;
 pub mod components;
 pub mod shutdown;
 pub mod startup;
@@ -21,6 +22,7 @@ use tokio::sync::Notify;
 #[derive(Clone)]
 pub struct PrimaryAppState {
     pub db_handles: DbHandles,
+    pub audit_writer: Arc<aster_forge_audit::AuditWriter>,
     pub driver_registry: Arc<DriverRegistry>,
     pub runtime_config: Arc<RuntimeConfig>,
     pub policy_snapshot: Arc<PolicySnapshot>,
@@ -42,6 +44,7 @@ pub struct PrimaryAppState {
 #[derive(Clone)]
 pub struct FollowerAppState {
     pub db_handles: DbHandles,
+    pub audit_writer: Arc<aster_forge_audit::AuditWriter>,
     pub driver_registry: Arc<DriverRegistry>,
     pub runtime_config: Arc<RuntimeConfig>,
     pub policy_snapshot: Arc<PolicySnapshot>,
@@ -70,6 +73,7 @@ pub trait StorageConnectorRuntimeState {
 /// this broader contract is for use cases that also need read projections or
 /// other product-wide runtime services.
 pub trait SharedRuntimeState: StorageConnectorRuntimeState {
+    fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter>;
     fn reader_db(&self) -> &DatabaseConnection;
     fn policy_snapshot(&self) -> &Arc<PolicySnapshot>;
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend>;
@@ -148,6 +152,7 @@ impl From<&PrimaryAppState> for FollowerAppState {
     fn from(state: &PrimaryAppState) -> Self {
         Self {
             db_handles: state.db_handles.clone(),
+            audit_writer: state.audit_writer.clone(),
             driver_registry: state.driver_registry.clone(),
             runtime_config: state.runtime_config.clone(),
             policy_snapshot: state.policy_snapshot.clone(),
@@ -204,6 +209,10 @@ impl StorageConnectorRuntimeState for PrimaryAppState {
 }
 
 impl SharedRuntimeState for PrimaryAppState {
+    fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter> {
+        &self.audit_writer
+    }
+
     fn reader_db(&self) -> &DatabaseConnection {
         self.db_handles.reader()
     }
@@ -274,6 +283,10 @@ impl StorageConnectorRuntimeState for FollowerAppState {
 }
 
 impl SharedRuntimeState for FollowerAppState {
+    fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter> {
+        &self.audit_writer
+    }
+
     fn reader_db(&self) -> &DatabaseConnection {
         self.db_handles.reader()
     }
@@ -306,6 +319,17 @@ pub(crate) mod test_support {
     use aster_forge_cache::CacheConfig;
     use sea_orm::DatabaseConnection;
     use std::sync::Arc;
+
+    pub(crate) async fn audit_writer(
+        db: &DatabaseConnection,
+    ) -> Arc<aster_forge_audit::AuditWriter> {
+        let writer = Arc::new(aster_forge_audit::AuditWriter::new(db.clone()));
+        writer
+            .start()
+            .await
+            .expect("test audit writer should start");
+        writer
+    }
 
     pub(crate) struct CacheOnlyState {
         cache: Arc<dyn aster_forge_cache::CacheBackend>,
@@ -348,6 +372,10 @@ pub(crate) mod test_support {
     }
 
     impl SharedRuntimeState for CacheOnlyState {
+        fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter> {
+            panic!("cache-only test state must not access audit_writer")
+        }
+
         fn reader_db(&self) -> &DatabaseConnection {
             panic!("cache-only test state must not access reader_db")
         }
@@ -410,6 +438,7 @@ mod tests {
         );
 
         let state = PrimaryAppState {
+            audit_writer: crate::runtime::test_support::audit_writer(&db).await,
             db_handles: aster_forge_db::DbHandles::single(db),
             driver_registry: Arc::new(
                 DriverRegistry::noop().expect("built-in storage connector registry"),

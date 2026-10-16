@@ -30,7 +30,6 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
             rollback_queue_capacity,
             common.metrics.clone(),
         );
-    aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_metrics(common.metrics.clone());
@@ -53,6 +52,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
     Ok(PreparedPrimaryRuntime {
         state: PrimaryAppState {
             db_handles: common.db_handles,
+            audit_writer: common.audit_writer,
             driver_registry: common.driver_registry,
             runtime_config,
             policy_snapshot: common.policy_snapshot,

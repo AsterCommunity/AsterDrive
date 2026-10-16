@@ -53,11 +53,18 @@ pub async fn run_primary(
             crate::runtime::components::MailOutboxRuntimeResources::from_state(&mail_state),
             crate::runtime::components::drain_mail_outbox_on_shutdown,
         ))
-        .component(aster_forge_audit::audit_component_infallible(
-            audit_state,
-            |state| async move { crate::runtime::startup::record_server_start(&state).await },
-            |state| async move { crate::runtime::shutdown::record_server_shutdown(&state).await },
-            |()| async { aster_forge_audit::shutdown_global_audit_log_manager().await },
+        .component(aster_forge_audit::audit_component_with_writer(
+            audit_state.clone(),
+            audit_state.audit_writer.clone(),
+            std::time::Duration::from_secs(5),
+            |state| async move {
+                crate::runtime::startup::record_server_start(&state).await;
+                Ok(())
+            },
+            |state| async move {
+                crate::runtime::shutdown::record_server_shutdown(&state).await;
+                Ok(())
+            },
         ))
         .component(aster_forge_db::database_component_after(
             db_handles,
@@ -69,6 +76,12 @@ pub async fn run_primary(
         .await
         .map_err(to_io_error)
         .and_then(std::convert::identity);
+    let result = super::audit_recovery::finish_audit(
+        result,
+        &audit_state.audit_writer,
+        std::path::Path::new("data/audit-recovery"),
+    )
+    .await;
     finish_metrics(result, telemetry_provider).await
 }
 
@@ -105,12 +118,19 @@ pub async fn run_follower(
                 },
             ),
         )
-        .component(aster_forge_audit::audit_component_after_infallible(
-            audit_state,
+        .component(aster_forge_audit::audit_component_with_writer_after(
+            audit_state.clone(),
+            audit_state.audit_writer.clone(),
+            std::time::Duration::from_secs(5),
             &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT],
-            |state| async move { crate::runtime::startup::record_server_start(&state).await },
-            |state| async move { crate::runtime::shutdown::record_server_shutdown(&state).await },
-            |()| async { aster_forge_audit::shutdown_global_audit_log_manager().await },
+            |state| async move {
+                crate::runtime::startup::record_server_start(&state).await;
+                Ok(())
+            },
+            |state| async move {
+                crate::runtime::shutdown::record_server_shutdown(&state).await;
+                Ok(())
+            },
         ))
         .component(aster_forge_db::database_component_after(
             db_handles,
@@ -122,6 +142,12 @@ pub async fn run_follower(
         .await
         .map_err(to_io_error)
         .and_then(std::convert::identity);
+    let result = super::audit_recovery::finish_audit(
+        result,
+        &audit_state.audit_writer,
+        std::path::Path::new("data/audit-recovery"),
+    )
+    .await;
     finish_metrics(result, telemetry_provider).await
 }
 
