@@ -450,7 +450,7 @@ async fn test_email_code_send_records_mail_delivery_and_security_audits() {
     let state = common::setup().await;
     apply_email_code_login_config(&state, false);
     let db = state.writer_db().clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     register_user(&app, "emailaudit", "emailaudit@example.com", "password123").await;
 
     let resp = login_raw(&app, "emailaudit", "password123").await;
@@ -463,6 +463,9 @@ async fn test_email_code_send_records_mail_delivery_and_security_audits() {
     assert_eq!(status, StatusCode::OK, "{body:#?}");
 
     let flow = find_mfa_flow_by_token(&db, &flow_token).await;
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let mail_entries = audit_entries(&db, AuditAction::MailSend).await;
     assert_eq!(mail_entries.len(), 1);
     let mail_entry = &mail_entries[0];

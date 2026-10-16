@@ -162,6 +162,7 @@ fn follower_view_with_server_port(
 
     aster_drive::runtime::FollowerAppState {
         db_handles: state.db_handles.clone(),
+        audit_writer: state.audit_writer.clone(),
         driver_registry: state.driver_registry.clone(),
         runtime_config: state.runtime_config.clone(),
         policy_snapshot: state.policy_snapshot.clone(),
@@ -1607,13 +1608,16 @@ fn managed_ingress_object_path(
 }
 
 async fn latest_audit_log(
-    db: &sea_orm::DatabaseConnection,
+    state: &impl aster_drive::runtime::SharedRuntimeState,
     action: aster_drive_model::types::AuditAction,
 ) -> aster_drive_model::entities::audit_log::Model {
+    aster_drive::services::ops::audit::flush(state)
+        .await
+        .unwrap();
     aster_drive_model::entities::audit_log::Entity::find()
         .filter(aster_drive_model::entities::audit_log::Column::Action.eq(action))
         .order_by_desc(aster_drive_model::entities::audit_log::Column::Id)
-        .one(db)
+        .one(state.writer_db())
         .await
         .expect("audit log query should succeed")
         .expect("audit log entry should exist")
@@ -2394,7 +2398,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .await
         .expect("object write should succeed");
     let write_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerObjectWrite,
     )
     .await;
@@ -2417,7 +2421,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .expect("object read should succeed");
     assert_eq!(downloaded, b"audit payload");
     let read_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerObjectRead,
     )
     .await;
@@ -2433,7 +2437,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .await
         .expect("object delete should succeed");
     let delete_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerObjectDelete,
     )
     .await;
@@ -2466,7 +2470,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .expect("object compose should succeed");
     assert_eq!(composed.bytes_written, 6);
     let compose_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerObjectCompose,
     )
     .await;
@@ -2540,7 +2544,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         ResolvedRemoteTransport::Direct
     );
     let sync_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerBindingSync,
     )
     .await;
@@ -2582,7 +2586,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .await
         .expect("remote storage target create should succeed");
     let create_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerIngressProfileCreate,
     )
     .await;
@@ -2607,7 +2611,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .await
         .expect("remote storage target update should succeed");
     let update_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerIngressProfileUpdate,
     )
     .await;
@@ -2626,7 +2630,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .await
         .expect("remote storage target delete should succeed");
     let delete_entry = latest_audit_log(
-        provider_state.writer_db(),
+        &provider_state,
         aster_drive_model::types::AuditAction::FollowerIngressProfileDelete,
     )
     .await;

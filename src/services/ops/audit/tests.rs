@@ -390,7 +390,7 @@ fn audit_action_strings_match_existing_contract() {
 }
 
 #[tokio::test]
-async fn log_writes_synchronously_without_global_manager() {
+async fn log_uses_owned_writer_and_flush_keeps_admission_open() {
     let db = in_memory_db().await;
 
     let runtime_config = std::sync::Arc::new(crate::config::RuntimeConfig::new());
@@ -411,6 +411,7 @@ async fn log_writes_synchronously_without_global_manager() {
             crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         );
     let state = crate::runtime::PrimaryAppState {
+        audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(
             crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
@@ -444,6 +445,7 @@ async fn log_writes_synchronously_without_global_manager() {
     )
     .await;
 
+    super::flush(&state).await.unwrap();
     let count = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileUpload))
         .count(&db)
@@ -475,6 +477,7 @@ async fn log_writes_synchronously_without_global_manager() {
     )
     .await;
 
+    super::flush(&state).await.unwrap();
     let entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::RemoteNodeConnected))
         .one(&db)
@@ -503,6 +506,7 @@ async fn follower_state_can_record_allowed_audit_log() {
     })
     .await;
     let state = crate::runtime::FollowerAppState {
+        audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(
             crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
@@ -526,6 +530,7 @@ async fn follower_state_can_record_allowed_audit_log() {
     )
     .await;
 
+    super::flush(&state).await.unwrap();
     let count = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FollowerObjectWrite))
         .count(&db)
@@ -567,6 +572,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
             crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         );
     let state = crate::runtime::PrimaryAppState {
+        audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(
             crate::storage::DriverRegistry::noop().expect("built-in storage connector registry"),
@@ -605,6 +611,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
     .await;
 
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    super::flush(&state).await.unwrap();
     let count = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileUpload))
         .count(&db)

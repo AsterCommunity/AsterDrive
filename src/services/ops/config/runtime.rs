@@ -286,6 +286,7 @@ mod tests {
     use crate::runtime::{SharedRuntimeState, StorageConnectorRuntimeState};
 
     struct ReloadTestState {
+        audit_writer: Arc<aster_forge_audit::AuditWriter>,
         db: sea_orm::DatabaseConnection,
         runtime_config: Arc<crate::config::RuntimeConfig>,
         driver_registry: Arc<crate::storage::DriverRegistry>,
@@ -315,6 +316,10 @@ mod tests {
     }
 
     impl SharedRuntimeState for ReloadTestState {
+        fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter> {
+            &self.audit_writer
+        }
+
         fn reader_db(&self) -> &sea_orm::DatabaseConnection {
             &self.db
         }
@@ -462,6 +467,7 @@ mod tests {
             .await
             .expect("initial policy snapshot should load");
         let state = Arc::new(ReloadTestState {
+            audit_writer: crate::runtime::test_support::audit_writer(&db).await,
             db: db.clone(),
             runtime_config: runtime_config.clone(),
             driver_registry,
@@ -472,6 +478,10 @@ mod tests {
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
             metrics: aster_drive_metrics::NoopMetrics::arc(),
         });
+
+        // Runtime reload must leave accepted audit records and their owner intact.
+        let audit_writer = state.audit_writer().clone();
+        crate::runtime::startup::record_server_start(state.as_ref()).await;
 
         let notifier: aster_forge_config::SharedConfigChangeNotifier =
             Arc::new(aster_forge_config::InMemoryConfigNotifier::default());
@@ -487,7 +497,7 @@ mod tests {
         );
         let shutdown = tokio_util::sync::CancellationToken::new();
         let worker = tokio::spawn(super::run_config_reload_subscription(
-            state,
+            state.clone(),
             receiver,
             shutdown.clone(),
         ));
@@ -563,5 +573,12 @@ mod tests {
             .await
             .expect("config reload worker should join")
             .expect("config reload worker should stop cleanly");
+        assert!(Arc::ptr_eq(&audit_writer, state.audit_writer()));
+        crate::runtime::startup::record_server_start(state.as_ref()).await;
+        crate::services::ops::audit::flush(state.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(audit_writer.snapshot().persisted, 2);
+        audit_writer.stop(tokio::time::Instant::now()).await;
     }
 }

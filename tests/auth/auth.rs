@@ -997,6 +997,7 @@ async fn assert_concurrent_setup_across_independent_connections(database_url: St
     .await
     .expect("second SQLite writer connection should open");
     let state_b = aster_drive::runtime::PrimaryAppState {
+        audit_writer: common::audit_writer(&second_db).await,
         db_handles: aster_forge_db::DbHandles::single(second_db),
         ..state_a.clone()
     };
@@ -3015,7 +3016,7 @@ async fn test_password_reset_rotates_session_and_sends_notice_and_records_audit_
     let db = state.writer_db().clone();
     let mail_sender = state.mail_sender.clone();
     let runtime_config = state.runtime_config.clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (access, refresh) = register_and_login!(app);
 
     let req = test::TestRequest::post()
@@ -3105,6 +3106,9 @@ async fn test_password_reset_rotates_session_and_sends_notice_and_records_audit_
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let actions: Vec<String> = audit_log::Entity::find()
         .all(&db)
         .await
@@ -4491,6 +4495,7 @@ async fn test_disable_user_rejects_old_tokens_with_memory_cache() {
 
     let base = common::setup().await;
     let state = aster_drive::runtime::PrimaryAppState {
+        audit_writer: base.audit_writer,
         db_handles: base.db_handles,
         driver_registry: base.driver_registry,
         runtime_config: base.runtime_config,
@@ -5016,6 +5021,9 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["must_change_password"], true);
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let (admin_updates, _) = audit_log_repo::find_with_filters(
         state.reader_db(),
         audit_log_repo::AuditLogQuery {
@@ -5316,6 +5324,9 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         .await
         .unwrap();
     assert!(!updated.must_change_password);
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let (password_changes, _) = audit_log_repo::find_with_filters(
         state.reader_db(),
         audit_log_repo::AuditLogQuery {
@@ -5401,6 +5412,9 @@ async fn test_admin_can_clear_forced_password_change_before_next_login() {
         let body: Value = test::read_body_json(resp).await;
         assert_eq!(body["data"]["must_change_password"], value);
     }
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let (admin_updates, _) = audit_log_repo::find_with_filters(
         state.reader_db(),
         audit_log_repo::AuditLogQuery {

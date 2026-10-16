@@ -24,10 +24,10 @@ async fn query_models(
     sort_by: AdminAuditLogSortBy,
     sort_order: SortOrder,
 ) -> Result<OffsetPage<audit_log::Model>> {
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    super::flush(state).await?;
     load_offset_page(limit, offset, 200, |limit, offset| async move {
         audit_log_repo::find_with_filters(
-            state.reader_db(),
+            state.writer_db(),
             audit_log_repo::AuditLogQuery {
                 user_id: filters.user_id,
                 action: filters.action.as_deref(),
@@ -221,7 +221,7 @@ pub async fn query_team_entries(
 
 /// 清理过期审计日志
 pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    super::flush(state).await?;
     let retention_days = state
         .runtime_config()
         .get_i64("audit_log_retention_days")

@@ -708,6 +708,7 @@ async fn test_state_with_driver_and_options(
         );
 
     PrimaryAppState {
+        audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db),
         driver_registry,
         runtime_config,

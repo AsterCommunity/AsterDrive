@@ -1028,6 +1028,9 @@ async fn test_admin_create_blob_maintenance_task_audits_and_deduplicates_targets
         1
     );
 
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let audit_entries = audit_log_repo::find_with_filters(
         state.reader_db(),
         audit_log_repo::AuditLogQuery {

@@ -480,11 +480,11 @@ async fn build_daily_reports(
     let start = start_of_local_day(oldest_date, timezone)?;
     let end = start_of_local_day(today + Duration::days(1), timezone)?;
 
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    crate::services::ops::audit::flush(state).await?;
     let mut cursor = None;
     loop {
         let events = audit_log_repo::find_action_page_in_range(
-            state.reader_db(),
+            state.writer_db(),
             start,
             end,
             cursor,

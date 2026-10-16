@@ -333,6 +333,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         );
 
     let state = PrimaryAppState {
+        audit_writer: crate::runtime::test_support::audit_writer(&db).await,
         db_handles: aster_forge_db::DbHandles::single(db),
         driver_registry: Arc::new(
             DriverRegistry::noop().expect("built-in storage connector registry"),

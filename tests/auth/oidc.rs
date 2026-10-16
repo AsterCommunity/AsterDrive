@@ -859,7 +859,9 @@ async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
         .await
         .expect("providers should query");
     assert!(providers.is_empty());
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let audit_entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))
         .order_by_desc(audit_log::Column::Id)
@@ -892,7 +894,9 @@ async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let audit_entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))
         .order_by_desc(audit_log::Column::Id)

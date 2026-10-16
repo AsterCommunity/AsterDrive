@@ -346,7 +346,7 @@ pub async fn prepare_csv_export(
     sort_by: AdminAuditLogSortBy,
     sort_order: SortOrder,
 ) -> Result<PreparedAuditCsvExport> {
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    super::flush(&state).await?;
     let query = export_query(filters, sort_by, sort_order);
     let snapshot = audit_log_repo::export_snapshot(state.writer_db(), &query).await?;
     let total = snapshot.map_or(0, |snapshot| snapshot.total);

@@ -1804,7 +1804,9 @@ async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
     let first = test::call_service(&app, create("idempotent-empty.txt", "stable-key")).await;
     assert_eq!(first.status(), StatusCode::CREATED);
     let first: Value = test::read_body_json(first).await;
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let audit_count_after_first = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
         .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
@@ -1817,7 +1819,9 @@ async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
     let replay: Value = test::read_body_json(replay).await;
     assert_eq!(replay["data"]["id"], first["data"]["id"]);
     assert_eq!(replay["data"]["blob_id"], first["data"]["blob_id"]);
-    aster_forge_audit::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
     let audit_count_after_replay = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
         .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))

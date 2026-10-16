@@ -256,6 +256,7 @@ mod tests {
             aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default()).await;
 
         FollowerAppState {
+            audit_writer: std::sync::Arc::new(aster_forge_audit::AuditWriter::new(db.clone())),
             db_handles: aster_forge_db::DbHandles::single(db),
             driver_registry: Arc::new(
                 crate::storage::DriverRegistry::noop()
@@ -273,17 +274,20 @@ mod tests {
     #[tokio::test]
     async fn audit_and_database_components_have_explicit_shutdown_order() {
         let state = follower_state().await;
-        let registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
+        let mut registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
             aster_forge_runtime::runtime_component(register_background_tasks).register(registry);
-            aster_forge_audit::audit_component_after_infallible(
+            aster_forge_audit::audit_component_with_writer_after(
                 state.clone(),
+                state.audit_writer.clone(),
+                std::time::Duration::from_secs(5),
                 &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT],
-                |state| async move { crate::runtime::startup::record_server_start(&state).await },
                 |state| async move {
-                    crate::runtime::shutdown::record_server_shutdown(&state).await
+                    crate::runtime::startup::record_server_start(&state).await;
+                    Ok(())
                 },
-                |()| async {
-                    aster_forge_audit::shutdown_global_audit_log_manager().await
+                |state| async move {
+                    crate::runtime::shutdown::record_server_shutdown(&state).await;
+                    Ok(())
                 },
             )
             .register(registry);
@@ -311,6 +315,13 @@ mod tests {
                 .dependencies,
             vec![aster_forge_audit::AUDIT_MANAGER_COMPONENT]
         );
+        assert!(!registry.startup().await.aborted());
+        assert!(!registry.shutdown().await.has_failures());
+        assert_eq!(state.audit_writer.snapshot().persisted, 2);
+        assert_eq!(
+            state.audit_writer.snapshot().state,
+            aster_forge_runtime::BufferedWriterState::Stopped
+        );
     }
 
     #[tokio::test]
@@ -321,18 +332,21 @@ mod tests {
             state.runtime_config.clone(),
             aster_forge_mail::memory_sender(),
         );
-        let registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
+        let mut registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
             aster_forge_runtime::runtime_component(register_background_tasks).register(registry);
             aster_forge_mail::mail_outbox_component(resources, drain_mail_outbox_on_shutdown)
                 .register(registry);
-            aster_forge_audit::audit_component_infallible(
+            aster_forge_audit::audit_component_with_writer(
                 state.clone(),
-                |state| async move { crate::runtime::startup::record_server_start(&state).await },
+                state.audit_writer.clone(),
+                std::time::Duration::from_secs(5),
                 |state| async move {
-                    crate::runtime::shutdown::record_server_shutdown(&state).await
+                    crate::runtime::startup::record_server_start(&state).await;
+                    Ok(())
                 },
-                |()| async {
-                    aster_forge_audit::shutdown_global_audit_log_manager().await
+                |state| async move {
+                    crate::runtime::shutdown::record_server_shutdown(&state).await;
+                    Ok(())
                 },
             )
             .register(registry);
@@ -367,6 +381,131 @@ mod tests {
                 .dependencies,
             vec![aster_forge_audit::AUDIT_MANAGER_COMPONENT]
         );
+        assert!(!registry.startup().await.aborted());
+        assert!(!registry.shutdown().await.has_failures());
+        assert_eq!(state.audit_writer.snapshot().persisted, 2);
+        assert_eq!(
+            state.audit_writer.snapshot().state,
+            aster_forge_runtime::BufferedWriterState::Stopped
+        );
+    }
+
+    #[tokio::test]
+    async fn product_lifecycle_preserves_audit_and_database_cleanup_on_success_error_and_panic() {
+        use aster_forge_runtime::*;
+        use sea_orm::{EntityTrait, PaginatorTrait};
+        for scenario in [
+            "success",
+            "product_error",
+            "startup",
+            "before_shutdown",
+            "shutdown",
+            "service",
+        ] {
+            let state = follower_state().await;
+            let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let close_flag = closed.clone();
+            let close_state = state.clone();
+            let result = AsterRuntime::builder()
+                .component(runtime_component_with_shutdown(move |shutdown| {
+                    RuntimeServiceComponent::new(
+                        "http",
+                        RuntimeComponentKind::Core,
+                        async move {
+                            assert_ne!(scenario, "service", "injected service panic");
+                            if scenario == "product_error" {
+                                Err("product error")
+                            } else {
+                                Ok(())
+                            }
+                        },
+                        shutdown,
+                        || async {},
+                    )
+                }))
+                .component(runtime_component(register_background_tasks))
+                .component(aster_forge_audit::audit_component_with_writer_after(
+                    state.clone(),
+                    state.audit_writer.clone(),
+                    std::time::Duration::from_secs(5),
+                    &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT],
+                    move |state| async move {
+                        crate::runtime::startup::record_server_start(&state).await;
+                        assert_ne!(scenario, "startup", "injected startup panic");
+                        Ok(())
+                    },
+                    move |state| async move {
+                        crate::runtime::shutdown::record_server_shutdown(&state).await;
+                        assert_ne!(scenario, "shutdown", "injected shutdown panic");
+                        Ok(())
+                    },
+                ))
+                .before_shutdown(move || async move {
+                    assert_ne!(
+                        scenario, "before_shutdown",
+                        "injected before-shutdown panic"
+                    );
+                })
+                .component(runtime_component(
+                    move |registry: &mut RuntimeComponentRegistry| {
+                        registry
+                            .component("database")
+                            .depends_on(aster_forge_audit::AUDIT_MANAGER_COMPONENT)
+                            .shutdown("database_close", None, move || {
+                                let close_state = close_state.clone();
+                                let close_flag = close_flag.clone();
+                                async move {
+                                    assert_eq!(
+                                        close_state.audit_writer.snapshot().state,
+                                        BufferedWriterState::Stopped
+                                    );
+                                    assert_eq!(
+                                        aster_drive_model::entities::audit_log::Entity::find()
+                                            .count(close_state.writer_db())
+                                            .await
+                                            .unwrap(),
+                                        2
+                                    );
+                                    close_state
+                                        .writer_db()
+                                        .clone()
+                                        .close()
+                                        .await
+                                        .map_err(|error| error.to_string())?;
+                                    close_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                                    Ok(())
+                                }
+                            });
+                    },
+                ))
+                .run()
+                .await;
+            assert!(
+                closed.load(std::sync::atomic::Ordering::SeqCst),
+                "{scenario}"
+            );
+            assert!(state.audit_writer.unconfirmed().is_empty());
+            match (scenario, result) {
+                ("success", Ok(Ok(()))) | ("product_error", Ok(Err("product error"))) => {}
+                (
+                    "startup",
+                    Err(AsterRuntimeError::Startup {
+                        shutdown_report, ..
+                    }),
+                )
+                | ("before_shutdown", Err(AsterRuntimeError::BeforeShutdown { shutdown_report }))
+                | (
+                    "service",
+                    Err(AsterRuntimeError::Service {
+                        shutdown_report, ..
+                    }),
+                ) => assert!(!shutdown_report.has_failures()),
+                ("shutdown", Err(AsterRuntimeError::Shutdown { report })) => {
+                    assert!(report.has_failures())
+                }
+                other => panic!("unexpected lifecycle outcome: {other:?}"),
+            }
+        }
     }
 
     #[test]

@@ -56,6 +56,7 @@ mod tests {
         .await;
 
         let state = FollowerAppState {
+            audit_writer: crate::runtime::test_support::audit_writer(&db).await,
             db_handles: aster_forge_db::DbHandles::single(db.clone()),
             driver_registry: Arc::new(
                 crate::storage::DriverRegistry::noop()
@@ -77,6 +78,7 @@ mod tests {
         let (state, db) = follower_state().await;
 
         record_server_start(&state).await;
+        crate::services::ops::audit::flush(&state).await.unwrap();
 
         let count = aster_drive_model::entities::audit_log::Entity::find()
             .filter(
