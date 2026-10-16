@@ -6976,7 +6976,10 @@ async fn test_sqlite_reader_queries_stay_independent_but_auth_waits_for_writer_r
             .uri(&uri)
             .insert_header(("Authorization", format!("Bearer {access_token}")))
             .to_request();
-        assert_eq!(test::call_service(&app, request).await.status(), 401);
+        let error = test::try_call_service(&app, request)
+            .await
+            .expect_err("revoked JWT must be rejected by the authentication middleware");
+        assert_eq!(error.as_response_error().status_code(), 401);
     }
 }
 
