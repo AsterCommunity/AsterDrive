@@ -80,14 +80,28 @@ async fn preserve_unconfirmed(
     #[cfg(unix)]
     builder.mode(0o700);
     builder.create(directory).await?;
-    let path = directory.join(format!("audit-{}.json", uuid::Uuid::new_v4()));
+    let id = uuid::Uuid::new_v4();
+    let temporary_path = directory.join(format!("audit-{id}.json.tmp"));
+    let path = directory.join(format!("audit-{id}.json"));
     let mut options = tokio::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     options.mode(0o600);
-    let mut file = options.open(&path).await?;
-    file.write_all(payload.as_bytes()).await?;
-    file.sync_all().await?;
+    let mut file = options.open(&temporary_path).await?;
+    let write_result = async {
+        file.write_all(payload.as_bytes()).await?;
+        file.sync_all().await
+    }
+    .await;
+    drop(file);
+    if let Err(error) = write_result {
+        let _ = tokio::fs::remove_file(&temporary_path).await;
+        return Err(error);
+    }
+    if let Err(error) = tokio::fs::rename(&temporary_path, &path).await {
+        let _ = tokio::fs::remove_file(&temporary_path).await;
+        return Err(error);
+    }
     Ok(path)
 }
 
@@ -154,6 +168,10 @@ mod tests {
             .map(|file| file.unwrap().path())
             .collect();
         assert_eq!(files.len(), 2);
+        assert!(files.iter().all(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        }));
         for path in files {
             let saved: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
