@@ -195,7 +195,7 @@ Dashboard queries are based on AsterDrive's current metric labels:
 
 ## Explicit enablement and scrape authentication
 
-Exporters are disabled by default. Cargo features compile capabilities; static configuration enables them. Restart after configuration changes. This replaces the previous compile-only automatic endpoint registration.
+Exporters are disabled by default. Cargo features compile capabilities; static configuration enables them. Restart after configuration changes. This replaces the previous compile-only automatic endpoint registration. Static configuration rejects unknown fields. Remove obsolete sections when upgrading and replace the unpublished `[metrics.basic_auth]` with `[observability.prometheus.basic_auth]` so misspelled authentication cannot silently disappear. Errors retain safe field names or parse byte positions, without configuration values.
 
 ```toml
 [observability.prometheus]
@@ -232,7 +232,7 @@ scrape_configs:
 
 Prometheus supplies the original password; the server stores only its verifier. Use HTTPS or a trusted TLS termination proxy. Disabled Basic Auth leaves an explicitly enabled endpoint anonymous. JWT/cookies are not substitutes. Missing, malformed, duplicate or incorrect Authorization receives an empty 401 with `WWW-Authenticate: Basic realm="AsterDrive metrics"`. Authentication runs before export and availability checks. Authorized requests retain 200 text exposition / 503 unavailable; export and denial responses use `Cache-Control: no-store`. Health/readiness are unaffected.
 
-Verification uses an independent blocking budget of two jobs, with immediate uniform 401 on saturation. Cancelling a request does not release a still-running job's permit.
+Verification uses an independent blocking budget of two jobs, with immediate uniform 401 on saturation. Cancelling a request does not release a still-running job's permit. Syntactically valid Basic credentials run password verification regardless of username match, keeping the verification path the same. Wrong usernames also consume the two permits, so sustained scanning can temporarily cause legitimate scrapes to receive 401.
 
 ## Optional OTLP metrics
 

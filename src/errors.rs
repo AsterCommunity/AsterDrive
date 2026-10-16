@@ -165,6 +165,12 @@ macro_rules! define_errors {
                 }
             }
 
+            pub(crate) fn storage_error_context(&self) -> Option<&StorageErrorContext> {
+                match self {
+                    $(AsterError::$variant(payload) => payload.storage_context.as_ref(),)*
+                }
+            }
+
             pub(crate) fn with_storage_error_context(self, context: StorageErrorContext) -> Self {
                 match self {
                     $(AsterError::$variant(payload) => {

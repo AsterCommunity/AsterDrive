@@ -18,9 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-#[cfg(feature = "metrics")]
-use aster_forge_metrics::MetricsRecorder as ForgeMetricsRecorder;
-use aster_forge_metrics::{DbQueryMetric, SharedMetricsRecorder as SharedForgeMetricsRecorder};
+use aster_forge_metrics::SharedMetricsRecorder as SharedForgeMetricsRecorder;
 use aster_forge_runtime::{HealthCheckScope, SystemHealthReport};
 use tokio_util::sync::CancellationToken;
 
@@ -90,12 +88,6 @@ pub trait MetricsRecorder: Send + Sync {
     fn forge_recorder(&self) -> SharedForgeMetricsRecorder {
         aster_forge_metrics::NoopMetrics::arc()
     }
-
-    /// Records one completed HTTP request.
-    fn record_http_request(&self, method: &str, route: &str, status: u16, duration_seconds: f64) {}
-
-    /// Records one database query measurement.
-    fn record_db_query(&self, metric: &DbQueryMetric) {}
 
     /// Records an authentication event.
     fn record_auth_event(&self, action: &'static str, status: &'static str, reason: &'static str) {}
@@ -261,16 +253,6 @@ impl NoopMetrics {
         Arc::new(Self::new())
     }
 }
-
-impl aster_forge_metrics::DbMetricsRecorder for NoopMetrics {
-    fn enabled(&self) -> bool {
-        false
-    }
-
-    fn record_db_query(&self, _metric: &DbQueryMetric) {}
-}
-
-impl aster_forge_metrics::MetricsRecorder for NoopMetrics {}
 
 impl Default for NoopMetrics {
     fn default() -> Self {
@@ -521,94 +503,6 @@ struct DriveMetricsRecorder {
 }
 
 #[cfg(feature = "metrics")]
-impl aster_forge_metrics::DbMetricsRecorder for DriveMetricsRecorder {
-    fn enabled(&self) -> bool {
-        self.forge.enabled()
-    }
-
-    fn record_db_query(&self, metric: &DbQueryMetric) {
-        self.forge.record_db_query(metric);
-    }
-}
-
-#[cfg(feature = "metrics")]
-impl ForgeMetricsRecorder for DriveMetricsRecorder {
-    fn provider(&self) -> Option<aster_forge_metrics::MetricsProvider> {
-        self.forge.provider()
-    }
-    fn record_health(&self, scope: &'static str, report: &SystemHealthReport) {
-        self.forge.record_health(scope, report);
-    }
-
-    fn record_http_request(&self, method: &str, route: &str, status: u16, duration_seconds: f64) {
-        self.forge
-            .record_http_request(method, route, status, duration_seconds);
-    }
-
-    fn record_auth_event(&self, action: &'static str, status: &'static str, reason: &'static str) {
-        self.forge.record_auth_event(action, status, reason);
-    }
-
-    fn record_application_event(
-        &self,
-        category: &'static str,
-        event: &'static str,
-        status: &'static str,
-    ) {
-        self.forge.record_application_event(category, event, status);
-    }
-
-    fn record_config_reload(
-        &self,
-        source: &'static str,
-        decision: &'static str,
-        status: &'static str,
-        changed_keys: u64,
-        duration_seconds: f64,
-    ) {
-        self.forge
-            .record_config_reload(source, decision, status, changed_keys, duration_seconds);
-    }
-
-    fn record_config_mutation(
-        &self,
-        source: &'static str,
-        operation: &'static str,
-        status: &'static str,
-        changed_keys: u64,
-    ) {
-        self.forge
-            .record_config_mutation(source, operation, status, changed_keys);
-    }
-
-    fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {
-        self.forge.record_background_task_transition(kind, status);
-    }
-
-    fn set_background_tasks_pending(&self, pending: u64) {
-        self.forge.set_background_tasks_pending(pending);
-    }
-
-    fn record_external_operation(
-        &self,
-        system: &'static str,
-        operation: &'static str,
-        status: &'static str,
-        duration_seconds: f64,
-    ) {
-        self.forge
-            .record_external_operation(system, operation, status, duration_seconds);
-    }
-
-    fn system_metrics_updater_task(
-        &self,
-        shutdown_token: CancellationToken,
-    ) -> Option<Pin<Box<dyn Future<Output = ()> + Send + 'static>>> {
-        self.forge.system_metrics_updater_task(shutdown_token)
-    }
-}
-
-#[cfg(feature = "metrics")]
 impl MetricsRecorder for DriveMetricsRecorder {
     fn admission_rejection(&self, reason: AdmissionReason) {
         {
@@ -765,15 +659,6 @@ impl MetricsRecorder for DriveMetricsRecorder {
 
     fn forge_recorder(&self) -> SharedForgeMetricsRecorder {
         self.forge.clone()
-    }
-
-    fn record_http_request(&self, method: &str, route: &str, status: u16, duration_seconds: f64) {
-        self.forge
-            .record_http_request(method, route, status, duration_seconds);
-    }
-
-    fn record_db_query(&self, metric: &DbQueryMetric) {
-        self.forge.record_db_query(metric);
     }
 
     fn record_auth_event(&self, action: &'static str, status: &'static str, reason: &'static str) {

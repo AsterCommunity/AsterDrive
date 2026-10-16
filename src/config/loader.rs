@@ -51,10 +51,44 @@ impl ConfigLoadReport {
 }
 
 fn map_static_config_error(error: config::ConfigError) -> AsterError {
+    if let config::ConfigError::FileParse { uri, cause } = &error {
+        let position = cause
+            .downcast_ref::<toml::de::Error>()
+            .and_then(toml::de::Error::span)
+            .map(|span| format!("bytes {}..{}", span.start, span.end))
+            .unwrap_or_else(|| "position unavailable".into());
+        return AsterError::config_error(format!(
+            "invalid static configuration TOML in {} at {position} (values redacted)",
+            uri.as_deref().unwrap_or("<inline>"),
+        ));
+    }
+    // Unknown-field diagnostics contain only a schema key. Keep a bounded,
+    // conventional key name without echoing arbitrary parser text or values.
+    let mut cause = &error;
+    while let config::ConfigError::At { error, .. } = cause {
+        cause = error;
+    }
+    if let config::ConfigError::Message(message) = cause
+        && let Some((field, _)) = message
+            .strip_prefix("unknown field `")
+            .and_then(|message| message.split_once('`'))
+    {
+        let field = if !field.is_empty()
+            && field.len() <= 128
+            && field
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            field
+        } else {
+            "[REDACTED]"
+        };
+        return AsterError::config_error(format!(
+            "unknown static configuration field `{field}` (values redacted)"
+        ));
+    }
     let message = error.to_string();
-    if matches!(error, config::ConfigError::FileParse { .. }) {
-        AsterError::config_error("invalid static configuration TOML (values redacted)")
-    } else if message.contains("observability") {
+    if message.contains("observability") {
         AsterError::config_error("invalid observability configuration (values redacted)")
     } else {
         AsterError::config_error(message)
@@ -201,9 +235,13 @@ fn ensure_stable_default_config_keys(
         })?,
     };
 
-    let mut doc = content.parse::<DocumentMut>().map_err(|_| {
+    let mut doc = content.parse::<DocumentMut>().map_err(|error| {
+        let position = error
+            .span()
+            .map(|span| format!("bytes {}..{}", span.start, span.end))
+            .unwrap_or_else(|| "position unavailable".into());
         AsterError::config_error(format!(
-            "failed to parse {}: invalid TOML (values redacted)",
+            "failed to parse {} at {position}: invalid TOML (values redacted)",
             config_path.display()
         ))
     })?;
@@ -990,5 +1028,62 @@ burst_size = 0
                 .to_string();
             assert!(!error.contains("credential-marker"), "{error}");
         }
+    }
+    #[test]
+    fn strict_unknown_fields_keep_safe_keys_and_parse_errors_keep_positions_without_values() {
+        for (content, field) in [
+            ("legacy_unused = 'credential-marker'\n", "legacy_unused"),
+            (
+                "[observability.prometheus.basic_auth]\npassword_has = 'credential-marker'\n",
+                "password_has",
+            ),
+            (
+                "[metrics.basic_auth]\nenabled = true\npassword_hash = 'credential-marker'\n",
+                "metrics",
+            ),
+        ] {
+            let dir = aster_forge_utils::raii::TempDirGuard::new(
+                make_temp_dir("strict-fields"),
+                "loader strict fields test",
+            );
+            write(&dir.path().join(DEFAULT_CONFIG_PATH), content.as_bytes());
+            for error in [
+                load_from_dir(dir.path(), None, false)
+                    .unwrap_err()
+                    .to_string(),
+                load_read_only_from_dir(dir.path(), false)
+                    .unwrap_err()
+                    .to_string(),
+            ] {
+                assert!(error.contains(field), "{error}");
+                assert!(!error.contains("credential-marker"), "{error}");
+            }
+        }
+        let dir = aster_forge_utils::raii::TempDirGuard::new(
+            make_temp_dir("parse-position"),
+            "loader parse position test",
+        );
+        write(
+            &dir.path().join(DEFAULT_CONFIG_PATH),
+            b"[observability]\nenvironment = \"credential-marker\n",
+        );
+        for error in [
+            load_from_dir(dir.path(), None, false)
+                .unwrap_err()
+                .to_string(),
+            load_read_only_from_dir(dir.path(), false)
+                .unwrap_err()
+                .to_string(),
+        ] {
+            assert!(error.contains("bytes "), "{error}");
+            assert!(!error.contains("credential-marker"), "{error}");
+        }
+        let error = super::map_static_config_error(config::ConfigError::FileParse {
+            uri: None,
+            cause: Box::new(std::io::Error::other("credential-marker")),
+        })
+        .to_string();
+        assert!(error.contains("<inline>") && error.contains("position unavailable"));
+        assert!(!error.contains("credential-marker"));
     }
 }

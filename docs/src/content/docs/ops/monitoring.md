@@ -195,7 +195,7 @@ dashboard 的查询基于 AsterDrive 当前指标标签：
 
 ## 显式开启与抓取认证
 
-观测默认关闭。Cargo feature 提供能力，静态配置决定是否运行；修改配置后重启。旧版仅编译 `metrics` 就暴露端点的默认行为已改为显式启用。
+观测默认关闭。Cargo feature 提供能力，静态配置决定是否运行；修改配置后重启。旧版仅编译 `metrics` 就暴露端点的默认行为已改为显式启用。静态配置现在拒绝未知字段；升级时删除废弃配置段，将未发布的 `[metrics.basic_auth]` 改为 `[observability.prometheus.basic_auth]`，防止认证拼错后静默失效。错误保留安全字段名或解析字节位置，不输出配置值。
 
 ```toml
 [observability.prometheus]
@@ -234,7 +234,7 @@ scrape_configs:
 
 通过 HTTPS 或受信任的 TLS 终止代理传输 Basic Auth。关闭认证后已开启的端点允许匿名抓取；普通 JWT/cookie 不能替代抓取凭据。错误、畸形、重复 Authorization 都是空 body 的 401 + `WWW-Authenticate: Basic realm="AsterDrive metrics"`。认证先于导出与初始化状态检查；正确凭据后仍遵循成功 200、导出不可用 503。指标与认证失败响应均 `Cache-Control: no-store`；health/readiness 不受保护。
 
-密码验证在独立、有界 blocking executor 中执行，最多两个任务；忙时立即返回统一 401，不排队，也不与用户登录共用额度。取消 HTTP 请求不提前释放仍在执行的密码工作额度。
+密码验证在独立、有界 blocking executor 中执行，最多两个任务；忙时立即返回统一 401，不排队，也不与用户登录共用额度。取消 HTTP 请求不提前释放仍在执行的密码工作额度。 对语法有效的 Basic 凭据，无论用户名是否匹配都执行密码验证，以保持相同的验证路径；错误用户名也消耗这两个额度，密集扫描可能让合法抓取暂时收到 401。
 
 ## 可选 OTLP metrics
 

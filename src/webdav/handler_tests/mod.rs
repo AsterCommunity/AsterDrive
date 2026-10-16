@@ -2070,3 +2070,85 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);
 }
+
+#[actix_web::test]
+async fn put_transfer_outcome_waits_for_writer_finalization_and_keeps_exact_bytes() {
+    #[derive(Default)]
+    struct Capture {
+        bytes: Mutex<u64>,
+        active: Mutex<i64>,
+        outcomes: Mutex<Vec<aster_drive_metrics::TransferOutcome>>,
+    }
+    impl aster_drive_metrics::MetricsRecorder for Capture {
+        fn enabled(&self) -> bool {
+            true
+        }
+        fn transfer_bytes(&self, _: aster_drive_metrics::TransferLabels, bytes: u64) {
+            *self.bytes.lock().unwrap() += bytes;
+        }
+        fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, delta: i64) {
+            *self.active.lock().unwrap() += delta;
+        }
+        fn transfer_finished(
+            &self,
+            _: aster_drive_metrics::TransferLabels,
+            outcome: aster_drive_metrics::TransferOutcome,
+            _: f64,
+        ) {
+            self.outcomes.lock().unwrap().push(outcome);
+        }
+    }
+    for finalization_fails in [false, true] {
+        let driver = CountingDirectUploadDriver::default();
+        let (mut state, user, _, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;
+        let capture = Arc::new(Capture::default());
+        state.metrics = capture.clone();
+        let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+        let policy = crate::webdav::system_file::SystemFileBlockPolicy::from_runtime_config(
+            &state.runtime_config,
+        );
+        let mut builder = actix_web::test::TestRequest::put()
+            .uri("/webdav/finalize.txt")
+            .set_payload("abc");
+        if finalization_fails {
+            // Temp-file writing accepts the body; finish detects the short body.
+            builder = builder.insert_header((header::CONTENT_LENGTH, "4"));
+        }
+        let (request, mut body) = builder.to_http_parts();
+        let mut payload = web::Payload::from_request(&request, &mut body)
+            .await
+            .unwrap();
+        let response = handle_put(
+            &request,
+            &parsed_request_head(&request),
+            &dav_fs,
+            &NoopLockSystem::default(),
+            "/webdav",
+            &policy,
+            &mut payload,
+            &capability_snapshot(aster_forge_webdav::DavResourceState::Unmapped),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            if finalization_fails {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::CREATED
+            }
+        );
+        assert_eq!(*capture.bytes.lock().unwrap(), 3);
+        assert_eq!(*capture.active.lock().unwrap(), 0);
+        assert_eq!(
+            *capture.outcomes.lock().unwrap(),
+            vec![if finalization_fails {
+                aster_drive_metrics::TransferOutcome::Failure
+            } else {
+                aster_drive_metrics::TransferOutcome::Success
+            }]
+        );
+        drop(dav_fs);
+        drop(state);
+        std::fs::remove_dir_all(temp_root).unwrap();
+    }
+}

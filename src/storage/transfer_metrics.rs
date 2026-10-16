@@ -20,23 +20,31 @@ pub(crate) fn payload(
     }
     actix_web::dev::Payload::from(Box::pin(ObservedPayload {
         inner: payload,
-        guard: TransferGuard::new(metrics, labels),
+        guard: None,
+        metrics,
+        labels,
     })
         as Pin<Box<dyn Stream<Item = Result<Bytes, actix_web::error::PayloadError>>>>)
 }
 struct ObservedPayload {
     inner: actix_web::dev::Payload,
-    guard: TransferGuard,
+    // A rejected request that never polls the body is not a cancelled transfer.
+    guard: Option<TransferGuard>,
+    metrics: SharedMetricsRecorder,
+    labels: TransferLabels,
 }
 impl Stream for ObservedPayload {
     type Item = Result<Bytes, actix_web::error::PayloadError>;
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
+        let guard = this
+            .guard
+            .get_or_insert_with(|| TransferGuard::new(this.metrics.clone(), this.labels));
         let result = Pin::new(&mut this.inner).poll_next(context);
         match &result {
-            Poll::Ready(Some(Ok(bytes))) => this.guard.bytes(bytes.len() as u64),
-            Poll::Ready(Some(Err(_))) => this.guard.finish(TransferOutcome::Failure),
-            Poll::Ready(None) => this.guard.finish(TransferOutcome::Success),
+            Poll::Ready(Some(Ok(bytes))) => guard.bytes(bytes.len() as u64),
+            Poll::Ready(Some(Err(_))) => guard.finish(TransferOutcome::Failure),
+            Poll::Ready(None) => guard.finish(TransferOutcome::Success),
             Poll::Pending => {}
         }
         result
@@ -277,5 +285,14 @@ mod tests {
         let mut body = Vec::new();
         assert!(observed.read_to_end(&mut body).await.is_err());
         assert_eq!(body, b"abc");
+    }
+    #[test]
+    fn unconsumed_payload_does_not_create_or_cancel_a_transfer() {
+        let capture = Arc::new(Capture::default());
+        let observed = payload(actix_web::dev::Payload::None, capture.clone(), labels());
+        assert_eq!(*capture.active.lock().unwrap(), 0);
+        drop(observed);
+        assert_eq!(*capture.bytes.lock().unwrap(), 0);
+        assert!(capture.outcomes.lock().unwrap().is_empty());
     }
 }

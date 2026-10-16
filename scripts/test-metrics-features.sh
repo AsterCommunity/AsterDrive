@@ -12,7 +12,7 @@ for features in server server,metrics server,otlp-metrics server,metrics,otlp-me
     fi
 done
 otlp_tree=$(cargo "$@" tree --locked --no-default-features --features server,otlp-metrics -e normal)
-if rg -q '(prometheus|opentelemetry-prometheus) v' <<< "$otlp_tree"; then
+if grep -Eq '(prometheus|opentelemetry-prometheus) v' <<< "$otlp_tree"; then
     printf 'Drive OTLP-only builds must not include a Prometheus exporter\n' >&2
     exit 1
 fi

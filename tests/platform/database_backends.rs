@@ -5,7 +5,7 @@ use crate::common;
 use actix_web::test;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    DbBackend, EntityTrait, PaginatorTrait, QueryFilter, Statement,
+    DbBackend, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect, Statement,
 };
 use serde_json::Value;
 use tokio::time::{Duration, timeout};
@@ -111,6 +111,10 @@ async fn current_schema_enforces_virtual_empty_and_file_create_idempotency_const
     );
     assert_eq!(
         file_blob::Entity::find()
+            // Later migrations may already have rolled back successfully.
+            // Inspect only columns guaranteed by the historical backing schema.
+            .select_only()
+            .column(file_blob::Column::Id)
             .filter(file_blob::Column::Backing.eq(FileBlobBacking::VirtualEmpty))
             .count(state.writer_db())
             .await

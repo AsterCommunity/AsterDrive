@@ -411,6 +411,7 @@ pub fn reverse_tunnel_offline_error(remote_node_id: i64) -> crate::errors::Aster
         StorageErrorKind::Transient,
         format!("remote node #{remote_node_id} reverse tunnel is offline"),
     )
+    .with_storage_error_context(aster_drive_storage::StorageErrorContext::TransportDisconnected)
 }
 
 #[cfg(test)]

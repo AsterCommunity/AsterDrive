@@ -290,7 +290,7 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 
 `src/runtime/startup/common.rs` 会做所有节点共享的准备：
 
-1. 创建 `MetricsRecorder`，让数据库连接和后续运行时状态都能共享同一个 recorder
+1. 构造 config sync runtime，生成进程内稳定的 runtime_id；随后创建 `MetricsRecorder`，让数据库连接和后续运行时状态共享同一个 recorder
 2. 连接 writer 数据库
 3. 执行全部 migration
 4. 准备 SQLite 搜索加速能力（若当前后端适用）
@@ -303,7 +303,6 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 11. 重载 `PolicySnapshot`
 12. 根据节点模式重载 `DriverRegistry`
 13. 以显式 `ReturnError` 策略创建配置指定的 cache backend
-14. 构造 config sync runtime
 
 ### 数据库连接句柄
 

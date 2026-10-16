@@ -194,13 +194,13 @@ histogram_quantile(0.95, sum by (le,phase,mode) (rate(upload_phase_duration_seco
 ```prometheus
 max by (job,instance) (upload_session_oldest_age_seconds)
 and on (job,instance) (observability_snapshot_valid{source="database"} == 1)
-and on (job,instance) (time() - observability_snapshot_last_success_timestamp_seconds{source="database"} < 120)
+and on (job,instance) (time() - observability_snapshot_last_success_timestamp_seconds{source="database"} < 180)
 ```
 
 ```prometheus
 blob_cleanup_oldest_age_seconds
 and on (job,instance) (observability_snapshot_valid{source="database"} == 1)
-and on (job,instance) (time() - observability_snapshot_last_success_timestamp_seconds{source="database"} < 120)
+and on (job,instance) (time() - observability_snapshot_last_success_timestamp_seconds{source="database"} < 180)
 ```
 
 受支持的 staging 盘可用量与隧道异常：

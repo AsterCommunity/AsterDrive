@@ -681,25 +681,6 @@ async fn upload_chunk_payload_impl(
     chunk_number: i32,
     payload: actix_web::dev::Payload,
 ) -> Result<ChunkUploadResponse> {
-    let mut payload = crate::storage::transfer_metrics::payload(
-        payload,
-        state.metrics().clone(),
-        aster_drive_metrics::TransferLabels {
-            direction: aster_drive_metrics::TransferDirection::Ingress,
-            source: aster_drive_metrics::TransferSource::File,
-            mode: match session.session_kind {
-                aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
-                | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart => {
-                    aster_drive_metrics::TransferMode::Multipart
-                }
-                aster_drive_model::types::UploadSessionKind::ProviderRelayResumable => {
-                    aster_drive_metrics::TransferMode::Resumable
-                }
-                _ => aster_drive_metrics::TransferMode::Chunked,
-            },
-        },
-    );
-
     let db = state.writer_db();
     let upload_id = session.id.as_str();
     tracing::debug!(
@@ -739,6 +720,25 @@ async fn upload_chunk_payload_impl(
             "presigned upload sessions do not accept server chunk PUT",
         ));
     }
+
+    let mut payload = crate::storage::transfer_metrics::payload(
+        payload,
+        state.metrics().clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source: aster_drive_metrics::TransferSource::File,
+            mode: match session_kind {
+                aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+                | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart => {
+                    aster_drive_metrics::TransferMode::Multipart
+                }
+                aster_drive_model::types::UploadSessionKind::ProviderRelayResumable => {
+                    aster_drive_metrics::TransferMode::Resumable
+                }
+                _ => aster_drive_metrics::TransferMode::Chunked,
+            },
+        },
+    );
 
     if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
         return crate::services::files::upload::ingest::provider_relay::upload_payload(
@@ -1399,5 +1399,63 @@ mod tests {
             err.api_error_code_override(),
             Some(ApiErrorCode::UploadStatusConflict)
         );
+    }
+    #[tokio::test]
+    async fn rejected_chunk_payloads_do_not_start_or_cancel_data_plane_transfers() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        #[derive(Default)]
+        struct Capture(AtomicUsize);
+        impl aster_drive_metrics::MetricsRecorder for Capture {
+            fn enabled(&self) -> bool {
+                true
+            }
+            fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, _: i64) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            fn transfer_finished(
+                &self,
+                _: aster_drive_metrics::TransferLabels,
+                _: aster_drive_metrics::TransferOutcome,
+                _: f64,
+            ) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let mut state = crate::runtime::tasks::test_support::setup_primary_state()
+            .await
+            .get_ref()
+            .clone();
+        let capture = Arc::new(Capture::default());
+        state.metrics = capture.clone();
+        for case in 0..5 {
+            let mut session = relay_session(Some("temp"), Some("multipart"));
+            let chunk = match case {
+                0 => {
+                    session.status = UploadSessionStatus::Assembling;
+                    0
+                }
+                1 => {
+                    session.expires_at = Utc::now() - chrono::Duration::seconds(1);
+                    0
+                }
+                2 => -1,
+                3 => session.total_chunks,
+                _ => {
+                    session.session_kind =
+                        aster_drive_model::types::UploadSessionKind::ProviderPresignedMultipart;
+                    0
+                }
+            };
+            let payload = payload_from_bytes(b"12345").await;
+            assert!(
+                upload_chunk_payload_impl(&state, session, chunk, payload.into_inner())
+                    .await
+                    .is_err()
+            );
+        }
+        assert_eq!(capture.0.load(Ordering::SeqCst), 0);
     }
 }

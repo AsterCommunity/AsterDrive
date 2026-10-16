@@ -73,7 +73,9 @@ impl ObservabilityConfig {
             ));
         }
         if (self.prometheus.enabled || self.otlp_metrics.enabled)
-            && (self.environment.len() > 128 || self.environment.chars().any(char::is_control))
+            && (self.environment.trim().is_empty()
+                || self.environment.len() > 128
+                || self.environment.chars().any(char::is_control))
         {
             return Err(AsterError::config_error(
                 "invalid observability deployment identity",
@@ -325,5 +327,34 @@ mod tests {
         );
         let debug = format!("{config:?}");
         assert!(!debug.contains("env-user") && !debug.contains("env-hash"));
+    }
+    #[cfg(any(feature = "metrics", feature = "otlp-metrics"))]
+    #[test]
+    fn enabled_exporters_require_a_nonblank_bounded_environment() {
+        for prometheus in [true, false] {
+            if (prometheus && !cfg!(feature = "metrics"))
+                || (!prometheus && !cfg!(feature = "otlp-metrics"))
+            {
+                continue;
+            }
+            let mut config = ObservabilityConfig::default();
+            config.prometheus.enabled = prometheus;
+            config.otlp_metrics.enabled = !prometheus;
+            for environment in [
+                "".to_owned(),
+                " ".into(),
+                "\t".into(),
+                "prod\n".into(),
+                "x".repeat(129),
+            ] {
+                config.environment = environment;
+                assert!(config.validate().is_err());
+            }
+            config.environment = "x".repeat(128);
+            config.validate().unwrap();
+        }
+        let mut disabled = ObservabilityConfig::default();
+        disabled.environment.clear();
+        disabled.validate().unwrap();
     }
 }

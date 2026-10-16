@@ -11,7 +11,7 @@ Both `primary` and `follower` nodes register this group.
 | `GET` / `HEAD` | `/health` | Liveness check |
 | `GET` / `HEAD` | `/health/ready` | Readiness check covering the database, setup state, and lightweight prerequisites for the active node mode |
 | `GET` | `/health/memory` | Heap statistics, registered only in `debug_assertions + openapi` builds |
-| `GET` | `/health/metrics` | Prometheus metrics, present only when the `metrics` feature is enabled |
+| `GET` | `/health/metrics` | Prometheus metrics; requires the `metrics` feature and explicit `[observability.prometheus].enabled = true` |
 
 ## `GET /health`
 
@@ -133,6 +133,6 @@ The current schema is defined once in `crates/aster_drive_metrics/src/lib.rs`. I
 
 `source=remote` is follower-observed data-plane I/O and must not be added to primary user boundaries. Presigned/redirect flows bypassing AD have no fabricated bytes; AD followers carrying remote-presigned traffic do count their own observed bytes. Transfer bytes exclude TLS/HTTP framing. Completed upload replays do not recount phases. Cleanup retirement bytes are acknowledged backing accounting after row removal, not physical disk blocks; the independent pending timestamp survives retries and clears on referencing. Existing pending timestamps are backfilled from updated_at at upgrade.
 
-Primary aggregates run every 60 seconds with a five-second DB budget; follower does not query primary backlog. Scrape does no business I/O. Filter snapshots by `observability_snapshot_valid` and a last-success age below 120 seconds. Capacity values require `storage_capacity_known == 1`; unsupported/unknown is not zero. `observed_target_minimum` contains independent minima over recent existing probe-cache observations, not summed or comparable numerator/denominator values. Staging filesystem usage includes the entire volume, while `upload_staging_bytes` explicitly reports declared/staged reservations and safety floor.
+Primary aggregates run every 60 seconds with a five-second DB budget; follower does not query primary backlog. Scrape does no business I/O. Filter snapshots by `observability_snapshot_valid` and a last-success age below 180 seconds. Capacity values require `storage_capacity_known == 1`; unsupported/unknown is not zero. `observed_target_minimum` contains independent minima over recent existing probe-cache observations, not summed or comparable numerator/denominator values. Staging filesystem usage includes the entire volume, while `upload_staging_bytes` explicitly reports declared/staged reservations and safety floor.
 
 See the [Chinese metric contract](../../zh-CN/api/health.md) for the full type/unit/label table and runnable PromQL for throughput, failures, phase p95, backlog age, capacity and tunnel errors. P1 workspace quota aggregates and dedicated protocol-operation metrics remain follow-up work; tracing/Tempo is outside this metrics batch.

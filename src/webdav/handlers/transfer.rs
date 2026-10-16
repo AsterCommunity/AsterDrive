@@ -330,15 +330,15 @@ pub(crate) async fn handle_put(
         }
     }
 
-    transfer.finish(aster_drive_metrics::TransferOutcome::Success);
-
     if let Err(error) = writer.finish().await {
+        transfer.finish(aster_drive_metrics::TransferOutcome::Failure);
         tracing::warn!(path = %relative, error = %error, "WebDAV PUT finish failed");
         return aster_forge_webdav::actix::into_response(
             aster_forge_webdav::backend_error_response(&error),
         );
     }
 
+    transfer.finish(aster_drive_metrics::TransferOutcome::Success);
     match put_success_response(&plan, prefix, &path) {
         Ok(response) => aster_forge_webdav::actix::into_response(response),
         Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),

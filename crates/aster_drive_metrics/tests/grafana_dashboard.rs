@@ -248,3 +248,30 @@ fn dashboard_preserves_unknown_capacity_and_snapshot_failure_boundaries() {
         );
     }
 }
+
+#[test]
+fn all_jobs_expand_only_the_asterdrive_candidates_for_target_health() {
+    let dashboard = dashboard();
+    let job = dashboard["templating"]["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|variable| variable["name"] == "job")
+        .unwrap();
+    assert_eq!(job["includeAll"], true);
+    assert!(
+        job.get("allValue").is_none(),
+        "custom wildcard bypasses the AsterDrive candidate query"
+    );
+    assert!(
+        job["query"]["query"]
+            .as_str()
+            .unwrap()
+            .contains("service_name=\"asterdrive\"")
+    );
+    let (_, target_health) = expressions(&dashboard)
+        .into_iter()
+        .find(|(title, _)| *title == "Target Health")
+        .unwrap();
+    assert!(target_health.contains("job=~\"$job\""));
+}

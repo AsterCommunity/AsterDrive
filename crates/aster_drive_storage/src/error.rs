@@ -31,12 +31,16 @@ pub enum StorageErrorKind {
     Unknown,
 }
 
-/// Provider-specific diagnostic data attached to a storage error.
+/// Machine-readable diagnostics and transport failures attached to a storage error.
 ///
 /// Context is machine-readable metadata for callers that need more detail
 /// than [`StorageErrorKind`]. It must not contain secrets or credentials.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageErrorContext {
+    /// The transport deadline expired before a response was received.
+    TransportTimeout,
+    /// The transport connection or response channel closed.
+    TransportDisconnected,
     /// The SFTP server rejected the presented host key.
     SftpHostKeyRejected {
         /// The configured expected fingerprint, when one was configured.

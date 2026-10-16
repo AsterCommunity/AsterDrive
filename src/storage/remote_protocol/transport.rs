@@ -152,10 +152,16 @@ pub struct RemoteTransportError {
 }
 impl From<AsterError> for RemoteTransportError {
     fn from(error: AsterError) -> Self {
-        Self {
-            error,
-            reason: aster_drive_metrics::RemoteReason::Error,
-        }
+        let reason = match error.storage_error_context() {
+            Some(aster_drive_storage::StorageErrorContext::TransportTimeout) => {
+                aster_drive_metrics::RemoteReason::Timeout
+            }
+            Some(aster_drive_storage::StorageErrorContext::TransportDisconnected) => {
+                aster_drive_metrics::RemoteReason::Disconnected
+            }
+            _ => aster_drive_metrics::RemoteReason::Error,
+        };
+        Self { error, reason }
     }
 }
 impl std::fmt::Debug for RemoteTransportError {
@@ -376,7 +382,7 @@ impl RemoteTransport for ReverseTunnelTransport {
                 .await
             {
                 Ok(response) => return Ok(RemoteTransportResponse::TunnelStream(response)),
-                Err(error) if should_fallback_stream_error_to_poll(error.message()) => {
+                Err(error) if should_fallback_stream_error_to_poll(&error) => {
                     let Some(fallback_body) = fallback_body else {
                         return Err(error.into());
                     };
@@ -415,12 +421,14 @@ impl RemoteTransport for ReverseTunnelTransport {
     }
 }
 
-fn should_fallback_stream_error_to_poll(message: &str) -> bool {
-    message.contains("reverse tunnel is offline")
-        || message.contains("reverse tunnel streaming lane closed")
-        || message.contains("reverse tunnel streaming response channel closed")
-        || message
-            .contains("reverse tunnel streaming request timed out waiting for follower response")
+fn should_fallback_stream_error_to_poll(error: &AsterError) -> bool {
+    matches!(
+        error.storage_error_context(),
+        Some(
+            aster_drive_storage::StorageErrorContext::TransportTimeout
+                | aster_drive_storage::StorageErrorContext::TransportDisconnected
+        )
+    )
 }
 
 pub async fn ensure_success(response: RemoteTransportResponse, context: &str) -> Result<Vec<u8>> {
@@ -925,6 +933,9 @@ mod tests {
                 return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming lane closed",
+                )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportDisconnected,
                 ));
             }
             assert_eq!(method, HttpMethod::PUT);
@@ -1209,6 +1220,10 @@ mod tests {
 
         assert!(error.error.message().contains("streaming lane closed"));
         assert_eq!(
+            error.reason,
+            aster_drive_metrics::RemoteReason::Disconnected
+        );
+        assert_eq!(
             error.error.storage_error_kind(),
             Some(StorageErrorKind::Transient)
         );
@@ -1217,21 +1232,34 @@ mod tests {
     }
 
     #[test]
-    fn stream_fallback_classifier_only_accepts_replayable_transport_failures() {
-        for message in [
-            "remote node #9 reverse tunnel is offline",
-            "reverse tunnel streaming lane closed",
-            "reverse tunnel streaming response channel closed",
-            "reverse tunnel streaming request timed out waiting for follower response",
+    fn tunnel_failure_classification_uses_context_not_remote_error_text() {
+        use aster_drive_metrics::RemoteReason;
+        use aster_drive_storage::StorageErrorContext;
+        for (context, reason) in [
+            (StorageErrorContext::TransportTimeout, RemoteReason::Timeout),
+            (
+                StorageErrorContext::TransportDisconnected,
+                RemoteReason::Disconnected,
+            ),
         ] {
-            assert!(
-                should_fallback_stream_error_to_poll(message),
-                "expected replayable stream failure: {message}"
-            );
+            let error = crate::errors::storage_driver_error(
+                StorageErrorKind::Transient,
+                "opaque transport details",
+            )
+            .with_storage_error_context(context);
+            assert!(should_fallback_stream_error_to_poll(&error));
+            let mapped = RemoteTransportError::from(error);
+            assert_eq!(mapped.reason, reason);
         }
-        assert!(!should_fallback_stream_error_to_poll(
-            "reverse tunnel returned invalid response metadata"
-        ));
+        let remote_error = crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            "reverse tunnel streaming lane closed; timed out",
+        );
+        assert!(!should_fallback_stream_error_to_poll(&remote_error));
+        assert_eq!(
+            RemoteTransportError::from(remote_error).reason,
+            RemoteReason::Error
+        );
     }
 
     #[tokio::test]
