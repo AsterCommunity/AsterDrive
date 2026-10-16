@@ -4536,7 +4536,7 @@ async fn test_archive_extract_task_rejects_entry_size_tampering() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
-    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "3", 1)
         .await
         .expect("background task max attempts config should update");
 
@@ -4600,13 +4600,15 @@ async fn test_archive_extract_task_rejects_entry_size_tampering() {
             ("import_result", "pending"),
         ],
     );
+    let last_error = body["data"]["last_error"]
+        .as_str()
+        .expect("failed task should record last error");
     assert!(
-        body["data"]["last_error"]
-            .as_str()
-            .expect("failed task should record last error")
-            .contains("declared size"),
-        "size tampering should be surfaced"
+        last_error.contains("declared size") || last_error.contains("invalid archive entry data"),
+        "size tampering should be surfaced: {last_error}"
     );
+    assert_eq!(body["data"]["attempt_count"], 1);
+    assert_eq!(body["data"]["can_retry"], false);
 
     let task_temp_dir =
         aster_forge_utils::paths::task_temp_dir(&state.config.server.temp_dir, task_id);
