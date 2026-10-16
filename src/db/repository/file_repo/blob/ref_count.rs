@@ -26,6 +26,10 @@ pub async fn find_active_blob_by_hash<C: ConnectionTrait>(
 pub async fn increment_blob_ref_count<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = FileBlob::update_many()
         .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            Expr::value(Option::<chrono::DateTime<Utc>>::None),
+        )
+        .col_expr(
             file_blob::Column::RefCount,
             Expr::col(file_blob::Column::RefCount).add(1i32),
         )
@@ -57,6 +61,10 @@ pub async fn increment_blob_ref_count_by<C: ConnectionTrait>(
     }
     let result = FileBlob::update_many()
         .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            Expr::value(Option::<chrono::DateTime<Utc>>::None),
+        )
+        .col_expr(
             file_blob::Column::RefCount,
             Expr::col(file_blob::Column::RefCount).add(delta),
         )
@@ -86,6 +94,10 @@ pub async fn increment_blob_ref_counts_by<C: ConnectionTrait>(
     let expected_rows = usize_to_u64(deltas.len(), "blob ref_count increment row count")?;
     let result = FileBlob::update_many()
         .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            Expr::value(Option::<chrono::DateTime<Utc>>::None),
+        )
+        .col_expr(
             file_blob::Column::RefCount,
             blob_ref_count_increment_expr(&deltas),
         )
@@ -106,6 +118,14 @@ pub async fn increment_blob_ref_counts_by<C: ConnectionTrait>(
 /// 原子递减 blob ref_count（floor 0，防止并发丢更新）
 pub async fn decrement_blob_ref_count<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     FileBlob::update_many()
+        .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            cleanup_pending_since_expr(
+                Expr::case(Expr::col(file_blob::Column::RefCount).lt(1i32), 0)
+                    .finally(Expr::col(file_blob::Column::RefCount).sub(1i32))
+                    .into(),
+            ),
+        )
         .col_expr(
             file_blob::Column::RefCount,
             Expr::case(Expr::col(file_blob::Column::RefCount).lt(1i32), 0)
@@ -136,6 +156,14 @@ pub async fn decrement_blob_ref_count_by<C: ConnectionTrait>(
     }
     FileBlob::update_many()
         .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            cleanup_pending_since_expr(
+                Expr::case(Expr::col(file_blob::Column::RefCount).lt(delta), 0)
+                    .finally(Expr::col(file_blob::Column::RefCount).sub(delta))
+                    .into(),
+            ),
+        )
+        .col_expr(
             file_blob::Column::RefCount,
             Expr::case(Expr::col(file_blob::Column::RefCount).lt(delta), 0)
                 .finally(Expr::col(file_blob::Column::RefCount).sub(delta))
@@ -161,6 +189,10 @@ pub async fn decrement_blob_ref_counts_by<C: ConnectionTrait>(
 
     let ids: Vec<i64> = deltas.iter().map(|(id, _)| *id).collect();
     FileBlob::update_many()
+        .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            cleanup_pending_since_expr(blob_ref_count_decrement_expr(&deltas)),
+        )
         .col_expr(
             file_blob::Column::RefCount,
             blob_ref_count_decrement_expr(&deltas),
@@ -218,4 +250,17 @@ pub(super) fn blob_ref_count_decrement_expr(
         case = case.case(Expr::col(file_blob::Column::Id).eq(id), decrement);
     }
     case.finally(Expr::col(file_blob::Column::RefCount)).into()
+}
+
+/// Timestamp the zero-reference interval in the same SQL statement. Keep this
+/// assignment before RefCount: MySQL evaluates SET assignments left-to-right.
+pub(super) fn cleanup_pending_since_expr(
+    next_ref_count: sea_orm::sea_query::Expr,
+) -> sea_orm::sea_query::Expr {
+    Expr::case(
+        next_ref_count.lte(0),
+        Expr::col(file_blob::Column::CleanupPendingSince).if_null(Expr::value(Utc::now())),
+    )
+    .finally(Expr::value(Option::<chrono::DateTime<Utc>>::None))
+    .into()
 }

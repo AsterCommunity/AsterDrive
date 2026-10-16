@@ -6,9 +6,9 @@ use sea_orm::ConnectionTrait;
 
 use crate::config::audit::{self, AuditLogRuntimeSettings};
 use crate::config::avatar_render::AvatarRenderRuntime;
-use crate::config::password_hash::PasswordHashRuntime;
 use crate::db::repository::config_repo;
 use crate::errors::Result;
+use aster_forge_auth::PasswordHashRuntime;
 use aster_forge_db::system_config;
 
 pub struct RuntimeConfig {

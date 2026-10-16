@@ -188,6 +188,7 @@ impl StorageDriver for RangeOnlyDriver {
 
 fn test_blob(size: usize) -> file_blob::Model {
     file_blob::Model {
+        cleanup_pending_since: None,
         id: 1,
         hash: "hash".to_string(),
         size: i64::try_from(size).expect("test size should fit i64"),
@@ -407,6 +408,7 @@ async fn webp_exif_metadata_extracts_through_builtin_processor() {
     let driver = Arc::new(RangeOnlyDriver::new(bytes.clone()));
     let state = test_state_with_driver(driver.clone()).await;
     let blob = file_blob::Model {
+        cleanup_pending_since: None,
         policy_id: 1,
         ..test_blob(bytes.len())
     };
@@ -484,6 +486,7 @@ async fn image_extract_uses_range_source_for_efficient_remote_driver() {
     let driver = Arc::new(RangeOnlyDriver::new(bytes.clone()));
     let state = test_state_with_driver(driver.clone()).await;
     let blob = file_blob::Model {
+        cleanup_pending_since: None,
         policy_id: 1,
         ..test_blob(bytes.len())
     };
@@ -530,6 +533,7 @@ async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
     )
     .await;
     let blob = file_blob::Model {
+        cleanup_pending_since: None,
         policy_id: 1,
         ..test_blob(1024)
     };
@@ -571,6 +575,7 @@ async fn storage_native_media_metadata_keeps_dormant_suffixes_without_running_pr
     )
     .await;
     let blob = file_blob::Model {
+        cleanup_pending_since: None,
         policy_id: 1,
         ..test_blob(1024)
     };
@@ -604,6 +609,7 @@ async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_imag
     )
     .await;
     let blob = file_blob::Model {
+        cleanup_pending_since: None,
         policy_id: 1,
         ..test_blob(1024)
     };

@@ -69,6 +69,20 @@ pub(crate) async fn ingest_stream(
         );
     }
 
+    let payload = crate::storage::transfer_metrics::payload(
+        payload.into_inner(),
+        state.metrics().clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source: aster_drive_metrics::TransferSource::File,
+            mode: aster_drive_metrics::TransferMode::Stream,
+        },
+    );
+    let mut phase = aster_drive_metrics::UploadPhaseGuard::new(
+        state.metrics().clone(),
+        "stream",
+        aster_drive_metrics::UploadPhase::Ingest,
+    );
     let file = match storage::ingest_stream(
         state,
         payload,
@@ -87,6 +101,7 @@ pub(crate) async fn ingest_stream(
     {
         Ok(file) => file,
         Err(error) => {
+            phase.finish(aster_drive_metrics::TransferOutcome::Failure);
             let transition = crate::db::repository::upload_session_repo::try_fail_with_expiration(
                 state.writer_db(),
                 upload_id,
@@ -100,6 +115,7 @@ pub(crate) async fn ingest_stream(
         }
     };
 
+    phase.finish(aster_drive_metrics::TransferOutcome::Success);
     record_stream_completion_metric(state, true);
 
     let details = super::audit_details_with_data_plane(

@@ -2,7 +2,11 @@ use super::common::api_not_found;
 use super::routes;
 use actix_web::web;
 
-pub fn configure_primary(cfg: &mut web::ServiceConfig, db: &sea_orm::DatabaseConnection) {
+pub fn configure_primary(
+    cfg: &mut web::ServiceConfig,
+    db: &sea_orm::DatabaseConnection,
+    observability: &crate::config::metrics::ObservabilityConfig,
+) {
     let route_config = crate::config::try_get_config()
         .map(|c| (*c).clone())
         .unwrap_or_default();
@@ -33,7 +37,7 @@ pub fn configure_primary(cfg: &mut web::ServiceConfig, db: &sea_orm::DatabaseCon
             .service(routes::wopi::routes())
             .default_service(web::to(api_not_found)),
     )
-    .service(routes::health::primary_routes())
+    .service(routes::health::primary_routes(observability))
     .service(routes::share_public::direct_routes(rl, network_trust));
 
     #[cfg(all(debug_assertions, feature = "openapi"))]

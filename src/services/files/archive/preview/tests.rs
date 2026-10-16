@@ -166,6 +166,7 @@ fn preview_test_file(size: i64) -> file::Model {
 fn preview_test_blob(size: i64) -> file_blob::Model {
     let now = Utc::now();
     file_blob::Model {
+        cleanup_pending_since: None,
         id: 9,
         hash: "hash".to_string(),
         size,
@@ -183,6 +184,7 @@ fn preview_test_blob(size: i64) -> file_blob::Model {
 
 fn preview_test_virtual_empty_blob() -> file_blob::Model {
     file_blob::Model {
+        cleanup_pending_since: None,
         hash: file_blob::Model::EMPTY_SHA256.to_string(),
         size: 0,
         storage_path: None,

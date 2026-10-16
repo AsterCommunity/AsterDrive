@@ -49,12 +49,26 @@ pub(crate) fn outcome_to_response(outcome: DownloadOutcome) -> HttpResponse {
             // 跳过全局 Compress 中间件，避免压缩编码器为了攒出更大的压缩块而额外缓存，
             // 让大文件下载从"稳定流式"退化成高内存占用。
             response.insert_header(("Content-Encoding", "identity"));
+            let body = crate::storage::transfer_metrics::stream(
+                streamed.body,
+                streamed.metrics,
+                aster_drive_metrics::TransferLabels {
+                    direction: aster_drive_metrics::TransferDirection::Egress,
+                    source: streamed.transfer_source,
+                    mode: if streamed.range.is_some() {
+                        aster_drive_metrics::TransferMode::Range
+                    } else {
+                        aster_drive_metrics::TransferMode::Stream
+                    },
+                },
+                u64::try_from(streamed.content_length).ok(),
+            );
             match streamed.on_abort {
                 Some(hook) => response.streaming(AbortAwareStream {
-                    inner: streamed.body,
+                    inner: body,
                     hook: Some(hook),
                 }),
-                None => response.streaming(streamed.body),
+                None => response.streaming(body),
             }
         }
     }

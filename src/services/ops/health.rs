@@ -65,7 +65,11 @@ where
     let mut registry = RuntimeComponentRegistry::new();
     registry.register_bundle(primary_health_component(state.clone()));
     let report = registry.run_health(HealthCheckScope::Diagnostics).await;
-    aster_drive_metrics::record_health_report(HealthCheckScope::Diagnostics, &report);
+    aster_drive_metrics::record_health_report(
+        state.metrics(),
+        HealthCheckScope::Diagnostics,
+        &report,
+    );
     tracing::debug!(
         component_count = report.components.len(),
         unhealthy_count = report

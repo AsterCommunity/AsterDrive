@@ -22,8 +22,18 @@ pub(super) struct CommonRuntimeParts {
 pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
     crate::config::deployment::validate_static(cfg.as_ref())?;
+    cfg.observability.validate()?;
     crate::services::mail::template::validate_template_registry()?;
-    let metrics = aster_drive_metrics::create_metrics_recorder();
+    let config_sync = aster_forge_config::build_config_sync_runtime(
+        &cfg.config_sync,
+        crate::services::ops::config::runtime::CONFIG_RELOAD_NAMESPACE,
+    )
+    .map_err(crate::services::ops::config::runtime::map_config_core_error)?;
+    let metrics = aster_drive_metrics::create_metrics_recorder(
+        cfg.observability
+            .create_provider(mode, config_sync.runtime_id())?,
+    )
+    .map_err(|error| AsterError::config_error(error.to_string()))?;
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
     let connector_registry =
         Arc::new(initialize_database_state(&database, cfg.as_ref(), mode).await?);
@@ -60,11 +70,6 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     }
 
     let cache = create_runtime_cache(cfg.as_ref()).await?;
-    let config_sync = aster_forge_config::build_config_sync_runtime(
-        &cfg.config_sync,
-        crate::services::ops::config::runtime::CONFIG_RELOAD_NAMESPACE,
-    )
-    .map_err(crate::services::ops::config::runtime::map_config_core_error)?;
 
     Ok(CommonRuntimeParts {
         cfg,

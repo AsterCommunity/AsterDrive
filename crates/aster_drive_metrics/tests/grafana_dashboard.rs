@@ -1,0 +1,277 @@
+//! Keep the shipped dashboard in sync with the actual registered metric schema.
+#![cfg(feature = "prometheus")]
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use aster_forge_metrics::{MetricKind, MetricsProvider, MetricsResource};
+use serde_json::Value;
+
+fn dashboard() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../docs/public/grafana/asterdrive-overview.json"
+    ))
+    .unwrap()
+}
+
+fn expressions(dashboard: &Value) -> Vec<(&str, &str)> {
+    dashboard["panels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|panel| {
+            panel["targets"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(move |target| {
+                    (
+                        panel["title"].as_str().unwrap(),
+                        target["expr"].as_str().unwrap(),
+                    )
+                })
+        })
+        .collect()
+}
+
+// Every shipped query uses explicit selectors. This small extractor checks their
+// names and label contract; it deliberately does not claim to parse PromQL.
+fn selectors(expression: &str) -> Vec<(&str, Vec<&str>)> {
+    expression
+        .match_indices('{')
+        .map(|(index, _)| {
+            let prefix = &expression[..index];
+            let name = prefix
+                .rsplit(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .next()
+                .unwrap();
+            let end = expression[index + 1..].find('}').unwrap() + index + 1;
+            let labels = expression[index + 1..end]
+                .split(',')
+                .map(|matcher| matcher.trim().split(['=', '!']).next().unwrap().trim())
+                .collect();
+            (name, labels)
+        })
+        .collect()
+}
+
+#[test]
+fn dashboard_selectors_use_registered_names_and_supported_labels() {
+    let provider = MetricsProvider::builder()
+        .with_prometheus()
+        .unwrap()
+        .build()
+        .unwrap();
+    let _recorder = aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
+    let mut schema = BTreeMap::new();
+    for descriptor in provider.descriptors() {
+        let name = if descriptor.subsystem.is_empty() {
+            descriptor.name.to_owned()
+        } else {
+            format!("{}_{}", descriptor.subsystem, descriptor.name)
+        };
+        let mut labels: BTreeSet<_> = descriptor.labels.iter().copied().collect();
+        schema.insert(name.clone(), labels.clone());
+        if descriptor.kind == MetricKind::Histogram {
+            schema.insert(format!("{name}_count"), labels.clone());
+            schema.insert(format!("{name}_sum"), labels.clone());
+            labels.insert("le");
+            schema.insert(format!("{name}_bucket"), labels);
+        }
+    }
+    let common_labels = BTreeSet::from([
+        "job",
+        "instance",
+        "service_name",
+        "deployment_environment_name",
+        "aster_role",
+        "service_instance_id",
+    ]);
+    let dashboard = dashboard();
+    for (title, expression) in expressions(&dashboard) {
+        assert!(!selectors(expression).is_empty(), "{title}");
+        for (name, labels) in selectors(expression) {
+            if name == "up" {
+                assert!(
+                    labels
+                        .iter()
+                        .all(|label| ["job", "instance"].contains(label))
+                );
+                continue;
+            }
+            // Exporter self-observation is absent in a pull-only binary. The
+            // all-features run checks these selectors against real descriptors.
+            #[cfg(not(feature = "otlp"))]
+            if name.starts_with("telemetry_export_") {
+                continue;
+            }
+            let supported = schema
+                .get(name)
+                .unwrap_or_else(|| panic!("{title} queries unregistered metric {name}"));
+            for label in labels {
+                assert!(
+                    supported.contains(label) || common_labels.contains(label),
+                    "{title}: {name} has no {label} label"
+                );
+            }
+            for filter in [
+                "job=~\"$job\"",
+                "instance=~\"$instance\"",
+                "service_name=\"asterdrive\"",
+                "deployment_environment_name=~\"$environment\"",
+                "aster_role=~\"$role\"",
+                "service_instance_id=~\"$runtime_instance\"",
+            ] {
+                assert!(expression.contains(filter), "{title} missing {filter}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn dashboard_resource_filters_exist_in_actual_prometheus_output() {
+    let provider = MetricsProvider::builder()
+        .with_resource(MetricsResource {
+            service_name: "asterdrive".into(),
+            service_version: "test".into(),
+            environment: "dashboard-test".into(),
+            role: "primary".into(),
+            instance_id: "test-boot-id".into(),
+        })
+        .unwrap()
+        .with_prometheus()
+        .unwrap()
+        .build()
+        .unwrap();
+    let recorder = aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
+    recorder.record_file_upload("stream", "success");
+    let body = provider
+        .export_prometheus(std::time::Duration::from_secs(1))
+        .await
+        .unwrap();
+    let sample = body
+        .lines()
+        .find(|line| line.starts_with("file_uploads_total{"))
+        .unwrap();
+    for label in [
+        "service_name=\"asterdrive\"",
+        "deployment_environment_name=\"dashboard-test\"",
+        "aster_role=\"primary\"",
+        "service_instance_id=\"test-boot-id\"",
+    ] {
+        assert!(sample.contains(label), "missing {label}: {sample}");
+    }
+}
+
+#[test]
+fn dashboard_variables_and_layout_are_well_formed() {
+    let dashboard = dashboard();
+    let variables: BTreeSet<_> = dashboard["templating"]["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|variable| variable["name"].as_str().unwrap())
+        .chain(["__rate_interval"])
+        .collect();
+    let mut ids = BTreeSet::new();
+    let mut rectangles = Vec::new();
+    for panel in dashboard["panels"].as_array().unwrap() {
+        assert!(ids.insert(panel["id"].as_u64().unwrap()));
+        let grid = &panel["gridPos"];
+        let (x, y, w, h) = (
+            grid["x"].as_u64().unwrap(),
+            grid["y"].as_u64().unwrap(),
+            grid["w"].as_u64().unwrap(),
+            grid["h"].as_u64().unwrap(),
+        );
+        assert!(w > 0 && h > 0 && x + w <= 24);
+        for &(other_x, other_y, other_w, other_h) in &rectangles {
+            assert!(
+                x + w <= other_x
+                    || other_x + other_w <= x
+                    || y + h <= other_y
+                    || other_y + other_h <= y,
+                "panel {} overlaps another panel",
+                panel["title"]
+            );
+        }
+        rectangles.push((x, y, w, h));
+    }
+    for (title, expression) in expressions(&dashboard) {
+        for (index, _) in expression.match_indices('$') {
+            let suffix = &expression[index + 1..];
+            let variable = suffix
+                .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                .next()
+                .unwrap();
+            assert!(variables.contains(variable), "{title}: unknown ${variable}");
+        }
+    }
+}
+
+#[test]
+fn dashboard_preserves_unknown_capacity_and_snapshot_failure_boundaries() {
+    let dashboard = dashboard();
+    for (title, expression) in expressions(&dashboard) {
+        if selectors(expression)
+            .iter()
+            .any(|(metric, _)| *metric == "storage_capacity_bytes")
+        {
+            assert!(expression.contains("storage_capacity_known{"));
+            assert!(expression.contains(" == 1"));
+            assert!(
+                !expression.contains("sum("),
+                "{title}: capacity is not additive"
+            );
+            assert!(
+                !expression.contains(" / "),
+                "{title}: minima are independent"
+            );
+        }
+        if selectors(expression).iter().any(|(metric, _)| {
+            [
+                "upload_sessions_active",
+                "upload_session_oldest_age_seconds",
+                "blob_cleanup_pending",
+                "blob_cleanup_oldest_age_seconds",
+                "remote_nodes",
+            ]
+            .contains(metric)
+        }) {
+            assert!(expression.contains("observability_snapshot_valid{"));
+            assert!(expression.contains("observability_snapshot_last_success_timestamp_seconds{"));
+            assert!(expression.contains(" < 180"));
+            assert!(!expression.contains("sum("), "{title}: shared DB snapshot");
+        }
+        assert!(
+            !expression.contains("or vector(0)"),
+            "{title}: no data is not zero"
+        );
+    }
+}
+
+#[test]
+fn all_jobs_expand_only_the_asterdrive_candidates_for_target_health() {
+    let dashboard = dashboard();
+    let job = dashboard["templating"]["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|variable| variable["name"] == "job")
+        .unwrap();
+    assert_eq!(job["includeAll"], true);
+    assert!(
+        job.get("allValue").is_none(),
+        "custom wildcard bypasses the AsterDrive candidate query"
+    );
+    assert!(
+        job["query"]["query"]
+            .as_str()
+            .unwrap()
+            .contains("service_name=\"asterdrive\"")
+    );
+    let (_, target_health) = expressions(&dashboard)
+        .into_iter()
+        .find(|(title, _)| *title == "Target Health")
+        .unwrap();
+    assert!(target_health.contains("job=~\"$job\""));
+}

@@ -14,9 +14,11 @@ default = []
 metrics = [
     "dep:tracing",
     "aster_forge_metrics/allocator-metrics",
-    "aster_forge_metrics/backend-prometheus",
     "aster_forge_metrics/runtime-health",
 ]
+
+prometheus = ["metrics", "aster_forge_metrics/backend-prometheus"]
+otlp = ["metrics", "aster_forge_metrics/otlp"]
 
 [dependencies]
 aster_forge_metrics = { workspace = true }
@@ -26,3 +28,7 @@ tracing = { workspace = true, optional = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

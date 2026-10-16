@@ -106,7 +106,7 @@ pub async fn get_file_contents(
     }
 
     let item_version = revision.etag;
-    let outcome = file::build_stream_outcome_with_disposition(
+    let mut outcome = file::build_stream_outcome_with_disposition(
         state,
         &file,
         &blob,
@@ -115,6 +115,9 @@ pub async fn get_file_contents(
         &item_version,
     )
     .await?;
+    if let file::DownloadOutcome::Stream(stream) = &mut outcome {
+        stream.transfer_source = aster_drive_metrics::TransferSource::Wopi;
+    }
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
     let details = file::audit_location_details_for_model(state, scope, &file).await;
     audit::log_with_details(
@@ -165,6 +168,7 @@ pub async fn put_file_contents(
         content_length,
         None,
         lock_credentials,
+        aster_drive_metrics::TransferSource::Wopi,
     )
     .await?;
     let audit_ctx = audit_info.to_context(resolved.payload.actor_user_id);

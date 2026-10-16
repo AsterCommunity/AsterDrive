@@ -342,7 +342,9 @@ impl SftpDriver {
     }
 
     pub fn host_key_rejection(error: &StorageError) -> Option<SftpHostKeyRejection> {
-        let StorageErrorContext::SftpHostKeyRejected { expected, actual } = error.context()?;
+        let StorageErrorContext::SftpHostKeyRejected { expected, actual } = error.context()? else {
+            return None;
+        };
         Some(SftpHostKeyRejection {
             expected: expected.clone(),
             actual: actual.clone(),

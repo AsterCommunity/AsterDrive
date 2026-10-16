@@ -128,6 +128,34 @@ async fn cleanup_claimed_blob<F>(
 where
     F: FnMut(&storage_policy::Model) -> crate::errors::Result<Arc<dyn StorageDriver>>,
 {
+    let mut attempt = aster_drive_metrics::BlobCleanupGuard::new(state.metrics().clone());
+    let result = cleanup_claimed_blob_impl(state, current_blob, driver_for_policy).await;
+    let outcome = if !result {
+        aster_drive_metrics::CleanupOutcome::Failure
+    } else if current_blob.is_virtual_empty() {
+        aster_drive_metrics::CleanupOutcome::Virtual
+    } else {
+        aster_drive_metrics::CleanupOutcome::Deleted
+    };
+    attempt.finish(
+        outcome,
+        if result && !current_blob.is_virtual_empty() {
+            u64::try_from(current_blob.size).unwrap_or(0)
+        } else {
+            0
+        },
+    );
+    result
+}
+
+async fn cleanup_claimed_blob_impl<F>(
+    state: &PrimaryAppState,
+    current_blob: &file_blob::Model,
+    driver_for_policy: &mut F,
+) -> bool
+where
+    F: FnMut(&storage_policy::Model) -> crate::errors::Result<Arc<dyn StorageDriver>>,
+{
     async fn restore_cleanup_claim(state: &PrimaryAppState, blob_id: i64, reason: &str) {
         match file_repo::restore_blob_cleanup_claim(state.writer_db(), blob_id).await {
             Ok(true) => {}

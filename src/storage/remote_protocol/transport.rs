@@ -145,9 +145,39 @@ impl RemoteTransportResponse {
     }
 }
 
+/// Wire failure classification stays beside the transport that observed it.
+pub struct RemoteTransportError {
+    pub error: AsterError,
+    pub reason: aster_drive_metrics::RemoteReason,
+}
+impl From<AsterError> for RemoteTransportError {
+    fn from(error: AsterError) -> Self {
+        let reason = match error.storage_error_context() {
+            Some(aster_drive_storage::StorageErrorContext::TransportTimeout) => {
+                aster_drive_metrics::RemoteReason::Timeout
+            }
+            Some(aster_drive_storage::StorageErrorContext::TransportDisconnected) => {
+                aster_drive_metrics::RemoteReason::Disconnected
+            }
+            _ => aster_drive_metrics::RemoteReason::Error,
+        };
+        Self { error, reason }
+    }
+}
+impl std::fmt::Debug for RemoteTransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteTransportError")
+            .field("reason", &self.reason)
+            .finish_non_exhaustive()
+    }
+}
+
 #[async_trait]
 pub trait RemoteTransport: Send + Sync {
-    async fn send(&self, request: RemoteTransportRequest) -> Result<RemoteTransportResponse>;
+    async fn send(
+        &self,
+        request: RemoteTransportRequest,
+    ) -> std::result::Result<RemoteTransportResponse, RemoteTransportError>;
 
     fn presigned_url(
         &self,
@@ -213,7 +243,10 @@ impl DirectHttpTransport {
 
 #[async_trait]
 impl RemoteTransport for DirectHttpTransport {
-    async fn send(&self, request: RemoteTransportRequest) -> Result<RemoteTransportResponse> {
+    async fn send(
+        &self,
+        request: RemoteTransportRequest,
+    ) -> std::result::Result<RemoteTransportResponse, RemoteTransportError> {
         let content_length = request.body.content_length()?;
         let url = self.url_for_request(&request.path_and_query)?;
         let mut builder = signed_request(
@@ -241,7 +274,19 @@ impl RemoteTransport for DirectHttpTransport {
             .send()
             .await
             .map(RemoteTransportResponse::Direct)
-            .map_err(map_reqwest_error)
+            .map_err(|error| {
+                let reason = if error.is_timeout() {
+                    aster_drive_metrics::RemoteReason::Timeout
+                } else if error.is_connect() {
+                    aster_drive_metrics::RemoteReason::Disconnected
+                } else {
+                    aster_drive_metrics::RemoteReason::Error
+                };
+                RemoteTransportError {
+                    error: map_reqwest_error(error),
+                    reason,
+                }
+            })
     }
 
     fn presigned_url(
@@ -285,7 +330,10 @@ impl ReverseTunnelTransport {
 
 #[async_trait]
 impl RemoteTransport for ReverseTunnelTransport {
-    async fn send(&self, request: RemoteTransportRequest) -> Result<RemoteTransportResponse> {
+    async fn send(
+        &self,
+        request: RemoteTransportRequest,
+    ) -> std::result::Result<RemoteTransportResponse, RemoteTransportError> {
         let content_length = request.body.content_length()?;
         let method =
             HttpMethod::from_bytes(request.method.as_str().as_bytes()).map_err(|error| {
@@ -307,7 +355,8 @@ impl RemoteTransport for ReverseTunnelTransport {
                 return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Precondition,
                     "reverse tunnel request body was consumed before dispatch",
-                ));
+                )
+                .into());
             };
             let (stream_body, fallback_body) = match body {
                 RemoteRequestBody::Empty => {
@@ -333,9 +382,9 @@ impl RemoteTransport for ReverseTunnelTransport {
                 .await
             {
                 Ok(response) => return Ok(RemoteTransportResponse::TunnelStream(response)),
-                Err(error) if should_fallback_stream_error_to_poll(error.message()) => {
+                Err(error) if should_fallback_stream_error_to_poll(&error) => {
                     let Some(fallback_body) = fallback_body else {
-                        return Err(error);
+                        return Err(error.into());
                     };
                     polling_body = Some(fallback_body);
                     tracing::warn!(
@@ -344,7 +393,7 @@ impl RemoteTransport for ReverseTunnelTransport {
                         "reverse tunnel stream transport failed; falling back to poll mode"
                     );
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
         }
 
@@ -352,7 +401,8 @@ impl RemoteTransport for ReverseTunnelTransport {
             return Err(crate::errors::storage_driver_error(
                 StorageErrorKind::Precondition,
                 "reverse tunnel polling body was consumed before dispatch",
-            ));
+            )
+            .into());
         };
         let body = body.into_buffered_bytes().await?;
         self.broker
@@ -367,15 +417,18 @@ impl RemoteTransport for ReverseTunnelTransport {
             )
             .await
             .map(RemoteTransportResponse::Tunnel)
+            .map_err(RemoteTransportError::from)
     }
 }
 
-fn should_fallback_stream_error_to_poll(message: &str) -> bool {
-    message.contains("reverse tunnel is offline")
-        || message.contains("reverse tunnel streaming lane closed")
-        || message.contains("reverse tunnel streaming response channel closed")
-        || message
-            .contains("reverse tunnel streaming request timed out waiting for follower response")
+fn should_fallback_stream_error_to_poll(error: &AsterError) -> bool {
+    matches!(
+        error.storage_error_context(),
+        Some(
+            aster_drive_storage::StorageErrorContext::TransportTimeout
+                | aster_drive_storage::StorageErrorContext::TransportDisconnected
+        )
+    )
 }
 
 pub async fn ensure_success(response: RemoteTransportResponse, context: &str) -> Result<Vec<u8>> {
@@ -880,6 +933,9 @@ mod tests {
                 return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming lane closed",
+                )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportDisconnected,
                 ));
             }
             assert_eq!(method, HttpMethod::PUT);
@@ -1162,9 +1218,13 @@ mod tests {
             Err(error) => error,
         };
 
-        assert!(error.message().contains("streaming lane closed"));
+        assert!(error.error.message().contains("streaming lane closed"));
         assert_eq!(
-            error.storage_error_kind(),
+            error.reason,
+            aster_drive_metrics::RemoteReason::Disconnected
+        );
+        assert_eq!(
+            error.error.storage_error_kind(),
             Some(StorageErrorKind::Transient)
         );
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 1);
@@ -1172,21 +1232,34 @@ mod tests {
     }
 
     #[test]
-    fn stream_fallback_classifier_only_accepts_replayable_transport_failures() {
-        for message in [
-            "remote node #9 reverse tunnel is offline",
-            "reverse tunnel streaming lane closed",
-            "reverse tunnel streaming response channel closed",
-            "reverse tunnel streaming request timed out waiting for follower response",
+    fn tunnel_failure_classification_uses_context_not_remote_error_text() {
+        use aster_drive_metrics::RemoteReason;
+        use aster_drive_storage::StorageErrorContext;
+        for (context, reason) in [
+            (StorageErrorContext::TransportTimeout, RemoteReason::Timeout),
+            (
+                StorageErrorContext::TransportDisconnected,
+                RemoteReason::Disconnected,
+            ),
         ] {
-            assert!(
-                should_fallback_stream_error_to_poll(message),
-                "expected replayable stream failure: {message}"
-            );
+            let error = crate::errors::storage_driver_error(
+                StorageErrorKind::Transient,
+                "opaque transport details",
+            )
+            .with_storage_error_context(context);
+            assert!(should_fallback_stream_error_to_poll(&error));
+            let mapped = RemoteTransportError::from(error);
+            assert_eq!(mapped.reason, reason);
         }
-        assert!(!should_fallback_stream_error_to_poll(
-            "reverse tunnel returned invalid response metadata"
-        ));
+        let remote_error = crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            "reverse tunnel streaming lane closed; timed out",
+        );
+        assert!(!should_fallback_stream_error_to_poll(&remote_error));
+        assert_eq!(
+            RemoteTransportError::from(remote_error).reason,
+            RemoteReason::Error
+        );
     }
 
     #[tokio::test]
@@ -1250,10 +1323,10 @@ mod tests {
         };
 
         assert_eq!(
-            error.storage_error_kind(),
+            error.error.storage_error_kind(),
             Some(StorageErrorKind::Unsupported)
         );
-        assert!(error.message().contains("polling upload exceeds"));
+        assert!(error.error.message().contains("polling upload exceeds"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
     }
@@ -1312,10 +1385,10 @@ mod tests {
         };
 
         assert_eq!(
-            error.storage_error_kind(),
+            error.error.storage_error_kind(),
             Some(StorageErrorKind::Precondition)
         );
-        assert!(error.message().contains("length mismatch"));
+        assert!(error.error.message().contains("length mismatch"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
     }
@@ -1342,10 +1415,10 @@ mod tests {
         };
 
         assert_eq!(
-            error.storage_error_kind(),
+            error.error.storage_error_kind(),
             Some(StorageErrorKind::Precondition)
         );
-        assert!(error.message().contains("expected 9, got 8"));
+        assert!(error.error.message().contains("expected 9, got 8"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
     }
@@ -1385,10 +1458,15 @@ mod tests {
         };
 
         assert_eq!(
-            error.storage_error_kind(),
+            error.error.storage_error_kind(),
             Some(StorageErrorKind::Transient)
         );
-        assert!(error.message().contains("synthetic polling reader failure"));
+        assert!(
+            error
+                .error
+                .message()
+                .contains("synthetic polling reader failure")
+        );
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
     }

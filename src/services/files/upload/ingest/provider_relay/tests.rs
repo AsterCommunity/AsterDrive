@@ -527,7 +527,7 @@ async fn relay_pipe_accepts_exact_body_and_rejects_short_or_long_body() {
             let mut data = Vec::new();
             reader.read_to_end(&mut data).await.map(|_| data)
         });
-        let result = pipe_payload(payload, writer, expected_size, 0).await;
+        let result = pipe_payload(payload.into_inner(), writer, expected_size, 0).await;
         assert_eq!(result.is_ok(), succeeds);
         let relayed = read_task
             .await
@@ -735,11 +735,13 @@ async fn ambiguous_failure_with_query_error_preserves_claim_for_later_reconcilia
 async fn active_claim_blocks_second_primary_until_first_put_finishes() {
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
-    let fixture = Fixture::new([FragmentBehavior::Wait {
+    let mut fixture = Fixture::new([FragmentBehavior::Wait {
         started: started.clone(),
         release: release.clone(),
     }])
     .await;
+    let metrics = Arc::new(AdmissionMetrics::default());
+    Arc::make_mut(&mut fixture.state).metrics = metrics.clone();
     let state = fixture.state.clone();
     let session = fixture.session.clone();
     let context = fixture.context.clone();
@@ -760,7 +762,7 @@ async fn active_claim_blocks_second_primary_until_first_put_finishes() {
             fixture.state.as_ref(),
             fixture.current_session().await,
             0,
-            payload_from_chunks(&[b"abc"]).await,
+            payload_from_chunks(&[b"abc"]).await.into_inner(),
             &fixture.context,
         )
         .await,
@@ -776,13 +778,17 @@ async fn active_claim_blocks_second_primary_until_first_put_finishes() {
             fixture.state.as_ref(),
             fixture.current_session().await,
             0,
-            payload_from_chunks(&[b"abcde"]).await,
+            payload_from_chunks(&[b"abcde"]).await.into_inner(),
             &fixture.context,
         )
         .await,
         "active shared claim should reject concurrent upload after draining the payload",
     );
     assert_eq!(second.api_error_code(), ApiErrorCode::UploadChunkPending);
+    assert_eq!(
+        *metrics.0.lock(),
+        vec![aster_drive_metrics::AdmissionReason::Concurrency]
+    );
     assert!(second.api_error_info().retryable);
     assert_eq!(second.http_status(), actix_web::http::StatusCode::ACCEPTED);
     assert_eq!(fixture.driver.snapshot().fragment_calls.len(), 1);
@@ -930,7 +936,7 @@ async fn payload_size_errors_preserve_provider_truth() {
             short.state.as_ref(),
             short.session.clone(),
             0,
-            payload_from_chunks(&[b"abc"]).await,
+            payload_from_chunks(&[b"abc"]).await.into_inner(),
             &short.context,
         )
         .await,
@@ -949,7 +955,7 @@ async fn payload_size_errors_preserve_provider_truth() {
             long.state.as_ref(),
             long.session.clone(),
             0,
-            payload_from_chunks(&[b"abcde", b"f"]).await,
+            payload_from_chunks(&[b"abcde", b"f"]).await.into_inner(),
             &long.context,
         )
         .await,
@@ -995,4 +1001,15 @@ async fn explicit_query_not_found_requires_final_object_to_exist() {
     let snapshot = fixture.driver.snapshot();
     assert_eq!(snapshot.abort_calls, 0);
     assert_eq!(snapshot.delete_calls, 0);
+}
+
+#[derive(Default)]
+struct AdmissionMetrics(Mutex<Vec<aster_drive_metrics::AdmissionReason>>);
+impl aster_drive_metrics::MetricsRecorder for AdmissionMetrics {
+    fn enabled(&self) -> bool {
+        true
+    }
+    fn admission_rejection(&self, reason: aster_drive_metrics::AdmissionReason) {
+        self.0.lock().push(reason);
+    }
 }

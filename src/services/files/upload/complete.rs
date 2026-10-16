@@ -126,6 +126,13 @@ async fn complete_upload_impl_with_hints(
     } else {
         session_kind.as_str()
     };
+    let mut phase = (!completed_retry).then(|| {
+        aster_drive_metrics::UploadPhaseGuard::new(
+            state.metrics().clone(),
+            mode,
+            aster_drive_metrics::UploadPhase::Complete,
+        )
+    });
     let completion = async move {
         match plan {
             CompletionPlan::ReturnCompleted => {
@@ -167,6 +174,13 @@ async fn complete_upload_impl_with_hints(
         success = result.is_ok(),
         "upload completion plan finished"
     );
+    if let Some(phase) = &mut phase {
+        phase.finish(if result.is_ok() {
+            aster_drive_metrics::TransferOutcome::Success
+        } else {
+            aster_drive_metrics::TransferOutcome::Failure
+        });
+    }
     if !completed_retry {
         record_upload_completion_metric(state, mode, result.is_ok());
     }

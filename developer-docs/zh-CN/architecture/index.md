@@ -282,15 +282,15 @@ cargo check --tests -j 1
 
 Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中通过 `aster_drive_metrics` 创建产品 `MetricsRecorder`：
 
-- 启用 `metrics` feature 时初始化 Prometheus registry，并注入 Prometheus recorder
-- 未启用时注入 `NoopMetrics`
+- 先创建 config-sync runtime_id，再注入实例级 Forge MetricsProvider；静态配置分别显式开启已编译的 Prometheus/OTLP metrics reader，默认 Noop
+- `metrics` 只提供 pull 能力，`otlp-metrics` 只提供 push 能力；单份 typed schema 记录一次，两个 reader 独立导出；未启用时不采样、不推送、不注册端点
 - 业务层、存储驱动 wrapper 和后台任务直接依赖 `aster_drive_metrics::MetricsRecorder`；需要接入 Forge middleware / DB runtime 时通过 `forge_recorder()` 暴露 `aster_forge_metrics::MetricsRecorder`
 
 ### `prepare_common()`
 
 `src/runtime/startup/common.rs` 会做所有节点共享的准备：
 
-1. 创建 `MetricsRecorder`，让数据库连接和后续运行时状态都能共享同一个 recorder
+1. 构造 config sync runtime，生成进程内稳定的 runtime_id；随后创建 `MetricsRecorder`，让数据库连接和后续运行时状态共享同一个 recorder
 2. 连接 writer 数据库
 3. 执行全部 migration
 4. 准备 SQLite 搜索加速能力（若当前后端适用）
@@ -303,7 +303,6 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 11. 重载 `PolicySnapshot`
 12. 根据节点模式重载 `DriverRegistry`
 13. 以显式 `ReturnError` 策略创建配置指定的 cache backend
-14. 构造 config sync runtime
 
 ### 数据库连接句柄
 

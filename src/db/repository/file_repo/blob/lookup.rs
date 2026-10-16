@@ -438,9 +438,17 @@ pub async fn summarize_missing_blobs_between_policies<C: ConnectionTrait>(
 
 pub async fn create_blob<C: ConnectionTrait>(
     db: &C,
-    model: file_blob::ActiveModel,
+    mut model: file_blob::ActiveModel,
 ) -> Result<file_blob::Model> {
     validate_blob_active_model_backing(&model)?;
+    if matches!(&model.ref_count, ActiveValue::Set(value) | ActiveValue::Unchanged(value) if *value <= 0)
+        && matches!(
+            &model.cleanup_pending_since,
+            ActiveValue::NotSet | ActiveValue::Set(None) | ActiveValue::Unchanged(None)
+        )
+    {
+        model.cleanup_pending_since = Set(Some(Utc::now()));
+    }
     model.insert(db).await.map_err(AsterError::from)
 }
 

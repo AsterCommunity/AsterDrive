@@ -33,6 +33,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
     aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
+    remote_protocol.set_metrics(common.metrics.clone());
     remote_protocol.set_persistence_db(common.database.clone());
     remote_protocol.set_audit_runtime_config(runtime_config.clone());
     remote_protocol.configure_tunnel_owner_directory(

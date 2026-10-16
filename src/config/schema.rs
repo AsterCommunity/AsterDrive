@@ -8,7 +8,10 @@ use aster_forge_config::ConfigSyncConfig;
 use aster_forge_logging::LoggingConfig;
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub observability: crate::config::metrics::ObservabilityConfig,
     #[serde(default)]
     pub deployment: crate::config::deployment::DeploymentConfig,
     #[serde(default)]
@@ -211,7 +214,7 @@ impl AuthConfig {
         Self::random_hex_secret()
     }
     fn default_password_hash_max_concurrency() -> usize {
-        crate::config::password_hash::DEFAULT_PASSWORD_HASH_MAX_CONCURRENCY
+        aster_forge_auth::DEFAULT_PASSWORD_HASH_MAX_CONCURRENCY
     }
     fn default_bootstrap_insecure_cookies() -> bool {
         true

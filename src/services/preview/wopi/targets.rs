@@ -415,6 +415,7 @@ pub(crate) async fn store_relative_target_from_stream(
         payload,
         resolved_policy_hint,
         declared_size,
+        aster_drive_metrics::TransferSource::Wopi,
     )
     .await?;
     let file_ops::StreamedTempUpload {

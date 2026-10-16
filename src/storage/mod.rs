@@ -14,6 +14,7 @@ pub mod read_probe;
 pub mod registry;
 pub mod remote_protocol;
 pub(crate) mod staging_capacity;
+pub(crate) mod transfer_metrics;
 pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
     StorageConnectionInput, StorageConnectorActionOutput, StorageConnectorActionResult,

@@ -7,3 +7,5 @@ pub mod deployment;
 pub mod health;
 pub mod integrity;
 pub mod maintenance;
+
+pub(crate) mod metrics;

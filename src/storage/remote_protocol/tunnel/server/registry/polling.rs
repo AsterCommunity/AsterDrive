@@ -178,6 +178,9 @@ impl RemoteTunnelRegistry {
             let error = crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 "reverse tunnel poll closed before request dispatch",
+            )
+            .with_storage_error_context(
+                aster_drive_storage::StorageErrorContext::TransportDisconnected,
             );
             self.record_error(remote_node.id, error.message());
             return Err(error);
@@ -190,6 +193,9 @@ impl RemoteTunnelRegistry {
                 let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     format!("reverse tunnel response channel closed: {error}"),
+                )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportDisconnected,
                 );
                 self.record_error(remote_node.id, error.message());
                 return Err(error);
@@ -198,6 +204,9 @@ impl RemoteTunnelRegistry {
                 let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel request timed out waiting for follower response",
+                )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportTimeout,
                 );
                 self.record_error(remote_node.id, error.message());
                 return Err(error);

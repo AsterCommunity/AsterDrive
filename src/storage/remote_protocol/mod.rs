@@ -5,6 +5,7 @@ mod client;
 mod errors;
 mod follower_auth;
 mod models;
+mod observation;
 mod primary_auth;
 mod runtime;
 #[cfg(test)]

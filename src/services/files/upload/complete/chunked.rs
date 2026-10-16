@@ -93,7 +93,13 @@ async fn finalize_chunked_upload_session(
     let prepare_started_at = Instant::now();
     let should_dedup =
         storage::local_content_dedup_enabled(state.driver_registry().connectors(), policy)?;
-    let chunked_temp = load_offset_staging_file(state, session, should_dedup).await?;
+    let chunked_temp = aster_drive_metrics::observe_upload_phase(
+        state.metrics().clone(),
+        session_kind.as_str(),
+        aster_drive_metrics::UploadPhase::Assemble,
+        load_offset_staging_file(state, session, should_dedup),
+    )
+    .await?;
     let prepare_elapsed_ms = prepare_started_at.elapsed().as_millis();
 
     let stage_started_at = Instant::now();
@@ -109,19 +115,24 @@ async fn finalize_chunked_upload_session(
     let stage_elapsed_ms = stage_started_at.elapsed().as_millis();
 
     let persist_started_at = Instant::now();
-    persist_chunked_upload(state, session, driver, &verified, actor_username)
-        .await
-        .inspect(|file| {
-            tracing::debug!(
-                upload_id = %session.id,
-                file_id = file.id,
-                size = staged_size,
-                prepare_elapsed_ms,
-                stage_elapsed_ms,
-                persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
-                "local chunked upload finalized"
-            );
-        })
+    aster_drive_metrics::observe_upload_phase(
+        state.metrics().clone(),
+        session_kind.as_str(),
+        aster_drive_metrics::UploadPhase::Finalize,
+        persist_chunked_upload(state, session, driver, &verified, actor_username),
+    )
+    .await
+    .inspect(|file| {
+        tracing::debug!(
+            upload_id = %session.id,
+            file_id = file.id,
+            size = staged_size,
+            prepare_elapsed_ms,
+            stage_elapsed_ms,
+            persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
+            "local chunked upload finalized"
+        );
+    })
 }
 
 async fn validate_offset_staging_file(

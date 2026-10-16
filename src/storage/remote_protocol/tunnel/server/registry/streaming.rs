@@ -110,6 +110,7 @@ impl Drop for StreamingLaneLease {
 }
 
 pub(crate) struct RemoteTunnelStreamRegistrationGuard {
+    _metrics: aster_drive_metrics::RemoteConnectionGuard,
     registry: Arc<RemoteTunnelRegistry>,
     access_key: String,
     remote_node_id: i64,
@@ -166,6 +167,12 @@ impl RemoteTunnelRegistry {
         self.update_last_handshake(remote_node.id);
         self.connection_notify.notify_waiters();
         let guard = RemoteTunnelStreamRegistrationGuard {
+            _metrics: aster_drive_metrics::RemoteConnectionGuard::new(
+                self.metrics
+                    .read()
+                    .clone()
+                    .unwrap_or_else(aster_drive_metrics::NoopMetrics::arc),
+            ),
             registry: self.clone(),
             access_key: remote_node.access_key.clone(),
             remote_node_id: remote_node.id,
@@ -246,6 +253,9 @@ impl RemoteTunnelRegistry {
             let error = crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("reverse tunnel streaming lane closed before request start: {error}"),
+            )
+            .with_storage_error_context(
+                aster_drive_storage::StorageErrorContext::TransportDisconnected,
             );
             self.record_error(remote_node.id, error.message());
             return Err(error);
@@ -278,6 +288,9 @@ impl RemoteTunnelRegistry {
                 let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     format!("reverse tunnel streaming response channel closed: {error}"),
+                )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportDisconnected,
                 );
                 self.record_error(remote_node.id, error.message());
                 return Err(error);
@@ -287,6 +300,9 @@ impl RemoteTunnelRegistry {
                 let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming request timed out waiting for follower response",
+                )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportTimeout,
                 );
                 self.record_error(remote_node.id, error.message());
                 return Err(error);
@@ -500,7 +516,10 @@ impl RemoteTunnelRegistry {
         for request_id in request_ids {
             if let Some((_, pending)) = self.stream_pending.remove(&request_id) {
                 let error =
-                    crate::errors::storage_driver_error(StorageErrorKind::Transient, message);
+                    crate::errors::storage_driver_error(StorageErrorKind::Transient, message)
+                        .with_storage_error_context(
+                            aster_drive_storage::StorageErrorContext::TransportDisconnected,
+                        );
                 if let Some(sender) = pending.start_tx.lock().take() {
                     let _ = sender.send(Err(error));
                 } else {
@@ -603,6 +622,9 @@ async fn send_stream_request_body(
                     StorageErrorKind::Transient,
                     format!("reverse tunnel streaming lane closed while sending body: {error}"),
                 )
+                .with_storage_error_context(
+                    aster_drive_storage::StorageErrorContext::TransportDisconnected,
+                )
             })?;
     }
 
@@ -623,6 +645,9 @@ async fn send_stream_request_body(
             crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("reverse tunnel streaming lane closed before request end: {error}"),
+            )
+            .with_storage_error_context(
+                aster_drive_storage::StorageErrorContext::TransportDisconnected,
             )
         })
 }

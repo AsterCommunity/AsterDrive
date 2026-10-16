@@ -106,6 +106,7 @@ struct ConnectionLifecycleState {
 
 #[derive(Default)]
 pub struct RemoteTunnelRegistry {
+    metrics: parking_lot::RwLock<Option<aster_drive_metrics::SharedMetricsRecorder>>,
     connections: DashMap<String, RemoteTunnelConnection>,
     stream_lanes: DashMap<String, Vec<Arc<StreamingTunnelLane>>>,
     pending: DashMap<String, PendingTunnelResponse>,
@@ -122,6 +123,10 @@ pub struct RemoteTunnelRegistry {
 impl RemoteTunnelRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_metrics(&self, metrics: aster_drive_metrics::SharedMetricsRecorder) {
+        *self.metrics.write() = Some(metrics);
     }
 
     pub fn set_persistence_db(&self, db: DatabaseConnection) {
@@ -406,6 +411,7 @@ pub fn reverse_tunnel_offline_error(remote_node_id: i64) -> crate::errors::Aster
         StorageErrorKind::Transient,
         format!("remote node #{remote_node_id} reverse tunnel is offline"),
     )
+    .with_storage_error_context(aster_drive_storage::StorageErrorContext::TransportDisconnected)
 }
 
 #[cfg(test)]

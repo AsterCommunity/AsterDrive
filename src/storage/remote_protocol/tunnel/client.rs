@@ -73,11 +73,19 @@ enum StreamLaneExit {
     Shutdown,
 }
 
-#[derive(Debug, Default)]
 struct BindingConnectionState {
+    metrics: aster_drive_metrics::SharedMetricsRecorder,
     primary_shutdown: AtomicBool,
 }
 
+impl Default for BindingConnectionState {
+    fn default() -> Self {
+        Self {
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
+            primary_shutdown: AtomicBool::new(false),
+        }
+    }
+}
 impl BindingConnectionState {
     fn mark_primary_shutdown(&self) {
         self.primary_shutdown.store(true, Ordering::Release);
@@ -194,7 +202,15 @@ async fn reconcile_binding_workers(
     }
 
     for binding in enabled {
-        ensure_binding_worker(client, local_base_url, parent_shutdown, workers, binding).await;
+        ensure_binding_worker(
+            client,
+            local_base_url,
+            parent_shutdown,
+            workers,
+            binding,
+            state.metrics.clone(),
+        )
+        .await;
     }
     true
 }
@@ -205,6 +221,7 @@ async fn ensure_binding_worker(
     parent_shutdown: &CancellationToken,
     workers: &mut HashMap<i64, BindingTunnelWorker>,
     binding: master_binding::Model,
+    metrics: aster_drive_metrics::SharedMetricsRecorder,
 ) {
     let binding_id = binding.id;
     let fingerprint = binding_worker_fingerprint(&binding);
@@ -231,7 +248,7 @@ async fn ensure_binding_worker(
     let worker_shutdown = parent_shutdown.child_token();
     let loop_shutdown = worker_shutdown.clone();
     let handle = tokio::spawn(async move {
-        run_binding_tunnel_loop(client, binding, local_base_url, loop_shutdown).await;
+        run_binding_tunnel_loop(client, binding, local_base_url, loop_shutdown, metrics).await;
     });
     workers.insert(
         binding_id,
@@ -345,9 +362,13 @@ async fn run_binding_tunnel_loop(
     binding: master_binding::Model,
     local_base_url: String,
     shutdown_token: CancellationToken,
+    metrics: aster_drive_metrics::SharedMetricsRecorder,
 ) {
     let task_shutdown = shutdown_token.child_token();
-    let connection_state = Arc::new(BindingConnectionState::default());
+    let connection_state = Arc::new(BindingConnectionState {
+        metrics,
+        ..BindingConnectionState::default()
+    });
     let mut tasks = JoinSet::new();
     for lane_index in 0..FOLLOWER_TUNNEL_STREAM_LANES {
         let lane_client = client.clone();
@@ -474,10 +495,16 @@ async fn run_binding_stream_lane_loop(
             }
             Ok(StreamLaneExit::Shutdown) => break,
             Ok(StreamLaneExit::Reconnect) => {
+                connection_state
+                    .metrics
+                    .remote_reconnect(aster_drive_metrics::RemoteReason::Disconnected);
                 warning_state.record_success();
                 backoff = FOLLOWER_TUNNEL_BASE_BACKOFF;
             }
             Err(error) => {
+                connection_state
+                    .metrics
+                    .remote_reconnect(aster_drive_metrics::RemoteReason::Error);
                 if connection_state.is_primary_shutdown() {
                     tracing::debug!(
                         binding_id = binding.id,
@@ -558,6 +585,8 @@ async fn connect_stream_lane_once(
             format!("connect reverse tunnel streaming lane: {error}"),
         )
     })?;
+    let _connection_metrics =
+        aster_drive_metrics::RemoteConnectionGuard::new(connection_state.metrics.clone());
     tracing::debug!(
         binding_id = binding.id,
         master_url = %binding.master_url,
@@ -631,6 +660,7 @@ async fn connect_stream_lane_once(
             &mut read,
             &mut write,
             shutdown_token,
+            connection_state.metrics.clone(),
         )
         .await?
         {
@@ -646,6 +676,7 @@ async fn execute_stream_tunnel_request_or_close<R, W>(
     read: &mut R,
     write: &mut W,
     shutdown_token: &CancellationToken,
+    metrics: aster_drive_metrics::SharedMetricsRecorder,
 ) -> Result<bool>
 where
     R: futures::Stream<
@@ -653,8 +684,16 @@ where
         > + Unpin,
     W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
-    match execute_stream_tunnel_request(client, local_base_url, start, read, write, shutdown_token)
-        .await?
+    match execute_stream_tunnel_request(
+        client,
+        local_base_url,
+        start,
+        read,
+        write,
+        shutdown_token,
+        metrics,
+    )
+    .await?
     {
         StreamRequestOutcome::Completed => Ok(true),
         StreamRequestOutcome::Shutdown => {
@@ -744,6 +783,47 @@ async fn execute_stream_tunnel_request<R, W>(
     read: &mut R,
     write: &mut W,
     shutdown_token: &CancellationToken,
+    metrics: aster_drive_metrics::SharedMetricsRecorder,
+) -> Result<StreamRequestOutcome>
+where
+    R: futures::Stream<
+            Item = std::result::Result<WsMessage, tokio_tungstenite::tungstenite::Error>,
+        > + Unpin,
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    use aster_drive_metrics::{RemoteReason, RemoteRequestGuard, RemoteTransport, TransferOutcome};
+    let operation = crate::storage::remote_protocol::observation::operation(
+        start.method.as_deref().unwrap_or(""),
+        start.path_and_query.as_deref().unwrap_or(""),
+    );
+    let mut guard = RemoteRequestGuard::new(metrics, RemoteTransport::Reverse, operation);
+    let result = execute_stream_tunnel_request_inner(
+        client,
+        local_base_url,
+        start,
+        read,
+        write,
+        shutdown_token,
+        &mut guard,
+    )
+    .await;
+    let (outcome, reason) = match &result {
+        Err(_) => (TransferOutcome::Failure, RemoteReason::Error),
+        Ok(StreamRequestOutcome::Completed) => (TransferOutcome::Success, RemoteReason::Ok),
+        Ok(_) => (TransferOutcome::Cancelled, RemoteReason::Disconnected),
+    };
+    guard.finish(outcome, reason);
+    result
+}
+
+async fn execute_stream_tunnel_request_inner<R, W>(
+    client: &reqwest::Client,
+    local_base_url: &str,
+    start: RemoteTunnelStreamFrame,
+    read: &mut R,
+    write: &mut W,
+    shutdown_token: &CancellationToken,
+    guard: &mut aster_drive_metrics::RemoteRequestGuard,
 ) -> Result<StreamRequestOutcome>
 where
     R: futures::Stream<
@@ -761,6 +841,10 @@ where
     })?;
 
     if !is_allowed_tunnel_target(path_and_query) {
+        guard.finish(
+            aster_drive_metrics::TransferOutcome::Failure,
+            aster_drive_metrics::RemoteReason::Rejected,
+        );
         send_stream_error_response(
             write,
             &request_id,
@@ -874,6 +958,10 @@ where
         }
     };
     if remote_cancelled {
+        guard.finish(
+            aster_drive_metrics::TransferOutcome::Cancelled,
+            aster_drive_metrics::RemoteReason::Cancelled,
+        );
         response_task.abort();
         let _ = response_task.await;
         return Ok(StreamRequestOutcome::Completed);
@@ -919,6 +1007,16 @@ where
     let response = match response_result {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
+            guard.finish(
+                aster_drive_metrics::TransferOutcome::Failure,
+                if error.is_timeout() {
+                    aster_drive_metrics::RemoteReason::Timeout
+                } else if error.is_connect() {
+                    aster_drive_metrics::RemoteReason::Disconnected
+                } else {
+                    aster_drive_metrics::RemoteReason::Error
+                },
+            );
             let _ = send_stream_frame(
                 write,
                 RemoteTunnelStreamFrame::error(
@@ -930,6 +1028,10 @@ where
             return Ok(StreamRequestOutcome::Completed);
         }
         Err(error) => {
+            guard.finish(
+                aster_drive_metrics::TransferOutcome::Failure,
+                aster_drive_metrics::RemoteReason::Error,
+            );
             let _ = send_stream_frame(
                 write,
                 RemoteTunnelStreamFrame::error(
@@ -941,6 +1043,12 @@ where
             return Ok(StreamRequestOutcome::Completed);
         }
     };
+    if !response.status().is_success() {
+        guard.finish(
+            aster_drive_metrics::TransferOutcome::Failure,
+            aster_drive_metrics::RemoteReason::Rejected,
+        );
+    }
     send_stream_response(read, write, &request_id, response, shutdown_token).await
 }
 
@@ -1662,6 +1770,7 @@ mod tests {
             &mut read,
             &mut write,
             &CancellationToken::new(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("local early response should not close the streaming lane");
@@ -1714,6 +1823,7 @@ mod tests {
             &mut read,
             &mut write,
             &CancellationToken::new(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("local request failure should be reported as a stream error frame");
@@ -1928,6 +2038,7 @@ mod tests {
             &parent_shutdown,
             &mut workers,
             binding,
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await;
 
@@ -2002,6 +2113,7 @@ mod tests {
             &mut read,
             &mut write,
             &CancellationToken::new(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("peer close should not become a lane error");
@@ -2031,6 +2143,7 @@ mod tests {
             &mut read,
             &mut write,
             &shutdown,
+            aster_drive_metrics::NoopMetrics::arc(),
         );
         let peer = async {
             tokio::task::yield_now().await;
@@ -2074,6 +2187,7 @@ mod tests {
             &mut read,
             &mut write,
             &shutdown,
+            aster_drive_metrics::NoopMetrics::arc(),
         );
         let peer = async {
             entered_rx

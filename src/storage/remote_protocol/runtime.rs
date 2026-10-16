@@ -14,6 +14,7 @@ use super::tunnel::server::{
 
 #[derive(Clone)]
 pub struct RemoteProtocolRuntime {
+    metrics: Arc<parking_lot::RwLock<Option<aster_drive_metrics::SharedMetricsRecorder>>>,
     tunnel_registry: Arc<RemoteTunnelRegistry>,
     tunnel_owner_directory: Arc<parking_lot::RwLock<Option<Arc<RemoteTunnelOwnerDirectory>>>>,
 }
@@ -21,9 +22,15 @@ pub struct RemoteProtocolRuntime {
 impl RemoteProtocolRuntime {
     pub fn new() -> Self {
         Self {
+            metrics: Arc::new(parking_lot::RwLock::new(None)),
             tunnel_registry: Arc::new(RemoteTunnelRegistry::new()),
             tunnel_owner_directory: Arc::new(parking_lot::RwLock::new(None)),
         }
+    }
+
+    pub fn set_metrics(&self, metrics: aster_drive_metrics::SharedMetricsRecorder) {
+        self.tunnel_registry.set_metrics(metrics.clone());
+        *self.metrics.write() = Some(metrics);
     }
 
     pub fn set_persistence_db(&self, db: DatabaseConnection) {
@@ -81,6 +88,14 @@ impl RemoteProtocolRuntime {
                 }
             }
         }
+        .map(|client| {
+            client.with_metrics(
+                self.metrics
+                    .read()
+                    .clone()
+                    .unwrap_or_else(aster_drive_metrics::NoopMetrics::arc),
+            )
+        })
     }
 
     pub(crate) fn driver_for_config(

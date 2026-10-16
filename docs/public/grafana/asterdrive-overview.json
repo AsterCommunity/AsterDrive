@@ -55,7 +55,7 @@
       }
     ]
   },
-  "description": "AsterDrive Prometheus dashboard for HTTP, database, storage, uploads, downloads, background tasks, authentication, share rollback, and process health.",
+  "description": "AsterDrive instance-scoped metrics: HTTP/DB/auth/tasks, measured file stream throughput and lifecycle, upload phases/backlog, capacity/staging validity, blob cleanup, remote transport, process/runtime health, and OTLP export diagnostics. Prometheus-compatible data source required. Select one deployment for database-wide snapshots; independent target-capacity minima and both ends of remote I/O must not be summed. Presigned transfers bypassing AD have no measured stream bytes. Traces/Tempo are separate.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -68,7 +68,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Prometheus scrape health for the selected AsterDrive target.",
+      "description": "Minimum scrape health across the selected Prometheus targets: DOWN if any selected target is down. The environment, role, and runtime instance filters apply to application metrics only; scrape health follows Job and Target.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -136,7 +136,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "max(up{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "min(up{job=~\"$job\", instance=~\"$instance\"})",
           "instant": false,
           "legendFormat": "up",
           "range": true,
@@ -151,7 +151,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "AsterDrive process uptime from metrics initialization.",
+      "description": "Youngest process uptime among the selected runtime instances; a drop highlights restarts.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -203,7 +203,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "max(process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "min(process_uptime_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"})",
           "instant": false,
           "legendFormat": "uptime",
           "range": true,
@@ -218,7 +218,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "Current RSS memory reported by sysinfo.",
+      "description": "Total RSS memory of the selected runtime instances.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -278,7 +278,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "max(process_memory_rss_bytes{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "sum(process_memory_rss_bytes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"})",
           "instant": false,
           "legendFormat": "rss",
           "range": true,
@@ -293,7 +293,7 @@
         "type": "prometheus",
         "uid": "$datasource"
       },
-      "description": "CPU seconds consumed per wall-clock second. 1.0 means one full CPU core.",
+      "description": "Total CPU cores consumed across selected runtime instances. 1.0 means one full CPU core.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -353,7 +353,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "clamp_min(rate(process_cpu_milliseconds_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]) / 1000, 0)",
+          "expr": "sum(clamp_min(rate(process_cpu_milliseconds_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]) / 1000, 0))",
           "instant": false,
           "legendFormat": "cpu cores",
           "range": true,
@@ -420,7 +420,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "requests/s",
           "range": true,
@@ -495,7 +495,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "instant": false,
           "legendFormat": "5xx ratio",
           "range": true,
@@ -585,7 +585,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (method, route, status) (rate(http_requests_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (method, route, status) (rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{method}} {{route}} {{status}}",
           "range": true,
@@ -670,7 +670,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "p95",
           "range": true,
@@ -682,7 +682,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
           "hide": false,
           "instant": false,
           "legendFormat": "p99",
@@ -759,7 +759,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(http_requests_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (status) (rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{status}}",
           "range": true,
@@ -844,7 +844,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "topk(10, histogram_quantile(0.95, sum by (le, method, route) (rate(http_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))))",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, method, route) (rate(http_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))))",
           "instant": false,
           "legendFormat": "{{method}} {{route}}",
           "range": true,
@@ -931,7 +931,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", status=~\"4..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status=~\"4..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "instant": false,
           "legendFormat": "4xx",
           "range": true,
@@ -943,7 +943,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "hide": false,
           "instant": false,
           "legendFormat": "5xx",
@@ -1034,7 +1034,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (backend, kind, status) (rate(db_queries_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (backend, kind, status) (rate(db_queries_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{backend}} {{kind}} {{status}}",
           "range": true,
@@ -1119,7 +1119,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, backend, kind) (rate(db_query_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, backend, kind) (rate(db_query_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "{{backend}} {{kind}} p95",
           "range": true,
@@ -1200,7 +1200,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (backend, kind) (rate(db_queries_total{job=~\"$job\", instance=~\"$instance\", status=\"error\"}[$__rate_interval]))",
+          "expr": "sum by (backend, kind) (rate(db_queries_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status=\"error\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{backend}} {{kind}}",
           "range": true,
@@ -1277,7 +1277,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (backend) (rate(db_queries_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (backend) (rate(db_queries_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{backend}}",
           "range": true,
@@ -1362,7 +1362,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (backend, kind) (rate(db_query_duration_seconds_sum{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])) / clamp_min(sum by (backend, kind) (rate(db_query_duration_seconds_count{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum by (backend, kind) (rate(db_query_duration_seconds_sum{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])) / clamp_min(sum by (backend, kind) (rate(db_query_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "instant": false,
           "legendFormat": "{{backend}} {{kind}} avg",
           "range": true,
@@ -1452,7 +1452,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (driver, operation, status, kind) (rate(storage_driver_operations_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (driver, operation, status, kind) (rate(storage_driver_operations_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{driver}} {{operation}} {{status}} {{kind}}",
           "range": true,
@@ -1537,7 +1537,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, driver, operation, status) (rate(storage_driver_operation_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, driver, operation, status) (rate(storage_driver_operation_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
           "instant": false,
           "legendFormat": "{{driver}} {{operation}} {{status}} p95",
           "range": true,
@@ -1614,7 +1614,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (driver, operation) (rate(storage_driver_operations_total{job=~\"$job\", instance=~\"$instance\", status=\"failure\", kind=\"not_found\"}[$__rate_interval]))",
+          "expr": "sum by (driver, operation) (rate(storage_driver_operations_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status=\"failure\", kind=\"not_found\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{driver}} {{operation}} not_found",
           "range": true,
@@ -1695,7 +1695,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (driver, operation, kind) (rate(storage_driver_operations_total{job=~\"$job\", instance=~\"$instance\", status=\"failure\", kind!=\"not_found\"}[$__rate_interval]))",
+          "expr": "sum by (driver, operation, kind) (rate(storage_driver_operations_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status=\"failure\", kind!=\"not_found\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{driver}} {{operation}} {{kind}}",
           "range": true,
@@ -1780,7 +1780,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (driver, operation, status) (rate(storage_driver_operation_duration_seconds_sum{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])) / clamp_min(sum by (driver, operation, status) (rate(storage_driver_operation_duration_seconds_count{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum by (driver, operation, status) (rate(storage_driver_operation_duration_seconds_sum{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])) / clamp_min(sum by (driver, operation, status) (rate(storage_driver_operation_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "instant": false,
           "legendFormat": "{{driver}} {{operation}} {{status}} avg",
           "range": true,
@@ -1800,7 +1800,7 @@
       },
       "id": 40,
       "panels": [],
-      "title": "Transfers",
+      "title": "Upload / Download Attempts",
       "type": "row"
     },
     {
@@ -1870,7 +1870,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (mode, status) (rate(file_uploads_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (mode, status) (rate(file_uploads_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{mode}} {{status}}",
           "range": true,
@@ -1947,7 +1947,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (mode) (rate(upload_sessions_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (mode) (rate(upload_sessions_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{mode}}",
           "range": true,
@@ -2024,7 +2024,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (source, outcome, range) (rate(file_downloads_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (source, outcome, range) (rate(file_downloads_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{source}} {{outcome}} {{range}}",
           "range": true,
@@ -2101,7 +2101,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (mode, event, status) (rate(upload_session_events_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (mode, event, status) (rate(upload_session_events_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{mode}} {{event}} {{status}}",
           "range": true,
@@ -2182,7 +2182,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (mode) (rate(file_uploads_total{job=~\"$job\", instance=~\"$instance\", status!=\"success\"}[$__rate_interval]))",
+          "expr": "sum by (mode) (rate(file_uploads_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status!=\"success\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "upload {{mode}}",
           "range": true,
@@ -2194,7 +2194,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (source) (rate(file_downloads_total{job=~\"$job\", instance=~\"$instance\", outcome=\"failure\"}[$__rate_interval]))",
+          "expr": "sum by (source) (rate(file_downloads_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", outcome=\"failure\"}[$__rate_interval]))",
           "hide": false,
           "instant": false,
           "legendFormat": "download {{source}}",
@@ -2202,7 +2202,7 @@
           "refId": "B"
         }
       ],
-      "title": "Transfer Failures",
+      "title": "Upload / Download Attempt Failures",
       "type": "timeseries"
     },
     {
@@ -2212,6 +2212,2122 @@
         "w": 24,
         "x": 0,
         "y": 70
+      },
+      "id": 80,
+      "panels": [],
+      "title": "Observed File Streams",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Bytes consumed by AD streams, including bytes before failure or cancellation. Presigned transfers and external redirects bypassing AD contribute no measured bytes. Internal remote I/O is shown separately; do not add remote to user-facing sources.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 71
+      },
+      "id": 81,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (direction, source, mode) (rate(file_transfer_bytes_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{direction}} {{source}} {{mode}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Actual AD Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Each stream stays active until EOF, error, or drop; returning response headers does not finish it.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 71
+      },
+      "id": 82,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (direction, source, mode) (file_transfers_in_flight{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"})",
+          "instant": false,
+          "legendFormat": "{{direction}} {{source}} {{mode}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Streams In Flight",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Full observed stream duration, including failed and cancelled streams. Quantiles merge histogram buckets before calculation.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 79
+      },
+      "id": 83,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, direction, source, mode, outcome) (rate(file_transfer_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "{{direction}} {{source}} {{mode}} {{outcome}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Stream Lifecycle P95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Ratios use completed stream lifecycle histogram counts. Cancelled means the body/future was dropped before a terminal result. No traffic remains no data.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 79
+      },
+      "id": 84,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (direction, source) (rate(file_transfer_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", outcome=\"failure\"}[$__rate_interval])) / sum by (direction, source) (rate(file_transfer_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{direction}} {{source}} failure",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (direction, source) (rate(file_transfer_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", outcome=\"cancelled\"}[$__rate_interval])) / sum by (direction, source) (rate(file_transfer_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{direction}} {{source}} cancelled",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Failed / Cancelled Stream Ratio",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 87
+      },
+      "id": 85,
+      "panels": [],
+      "title": "Upload Phases & Persisted Backlog",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Assemble, finalize, complete, and ingest timings represent their own boundaries; nested phases must not be added together.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "id": 86,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, mode, phase, status) (rate(upload_phase_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "{{mode}} {{phase}} {{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Upload Phase P95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Database-wide snapshot, deduplicated with max across replicas reading the same database. Shows successful samples younger than 180 seconds; failed or stale samples are absent. Select one deployment when comparing its backlog.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
+      "id": 87,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "max by (mode, state) ((upload_sessions_active{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
+          "instant": false,
+          "legendFormat": "{{mode}} {{state}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Persisted Upload Sessions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Maximum age since session creation, by mode/state. Expired sessions are shown separately. Failed/stale samples are absent.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 96
+      },
+      "id": 88,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "max by (mode, state) ((upload_session_oldest_age_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
+          "instant": false,
+          "legendFormat": "{{mode}} {{state}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Oldest Upload Session",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Stable resource boundaries: quota, target capacity, staging capacity, concurrency, and capacity unavailable. These are admission events, not stream failures.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 96
+      },
+      "id": 89,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (reason) (rate(upload_admission_rejections_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Upload Admission Rejections",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 104
+      },
+      "id": 90,
+      "panels": [],
+      "title": "Capacity & Staging",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Capacity values are visible only when their supported/current marker is 1. Filesystem space shared by staging and other users of the same mount; per-instance observations must not be summed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 105
+      },
+      "id": 91,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "(storage_capacity_bytes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", scope=\"staging_filesystem\"} and (storage_capacity_known{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", scope=\"staging_filesystem\"} == 1)) and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"staging_filesystem\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"staging_filesystem\"} < 180))",
+          "instant": false,
+          "legendFormat": "{{instance}} {{kind}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Staging Filesystem",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Capacity values are visible only when their supported/current marker is 1. Available, total, and used are independent minima of observed targets. They can come from different targets: never sum these series or derive a used/total ratio. Unknown dimensions remain absent.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 105
+      },
+      "id": 92,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "storage_capacity_bytes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", scope=\"observed_target_minimum\"} and (storage_capacity_known{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", scope=\"observed_target_minimum\"} == 1)",
+          "instant": false,
+          "legendFormat": "{{instance}} {{kind}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Observed Target Capacity Minima",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Declared reservations and staged reservations are database-wide logical budgets (max across replicas), not measured on-disk bytes. Staged reservations are a subset of declared reservations. Safety floor is configured per process; do not add these series.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 113
+      },
+      "id": 93,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "max by (kind) ((upload_staging_bytes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", kind!=\"safety_floor\"} and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
+          "instant": false,
+          "legendFormat": "{{kind}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "upload_staging_bytes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", kind=\"safety_floor\"}",
+          "instant": false,
+          "legendFormat": "{{instance}} safety floor",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Staging Reservations & Safety Floor",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "1 means the dimension is supported and current; 0 means unknown/unavailable. The corresponding capacity value is hidden when 0, even if an earlier sample existed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 113
+      },
+      "id": 94,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "storage_capacity_known{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}",
+          "instant": false,
+          "legendFormat": "{{instance}} {{scope}} {{kind}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Capacity Dimension Known",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 121
+      },
+      "id": 95,
+      "panels": [],
+      "title": "Blob Cleanup",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Database-wide pending blob count and oldest cleanup age. Retries retain the original cleanup interval. Uses max across replicas and excludes invalid/stale database samples.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 122
+      },
+      "id": 96,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "max((blob_cleanup_pending{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
+          "instant": false,
+          "legendFormat": "pending objects",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cleanup Backlog",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Age of the oldest pending cleanup interval; successful snapshots only, at most 180 seconds old.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 122
+      },
+      "id": 97,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "max((blob_cleanup_oldest_age_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
+          "instant": false,
+          "legendFormat": "oldest cleanup",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Oldest Cleanup",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Outcomes are counted once per cleanup attempt, including failures and cancellation. Virtual/missing outcomes do not imply physical space was freed.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 122
+      },
+      "id": 98,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (outcome) (rate(blob_cleanup_objects_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{outcome}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cleanup Outcomes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Backing bytes retired after acknowledged deletion and metadata removal. This is not measured filesystem free space: deduplication, shared buckets, and provider deletion semantics can differ.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 130
+      },
+      "id": 99,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(blob_cleanup_retired_backing_bytes_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "retired backing bytes/s",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Retired Blob Backing Bytes",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 138
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Remote Nodes & Transport",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Primary database projection of last probe state, not a live network probe during scrape. max deduplicates primary replicas sharing a database; invalid/stale snapshots are absent.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 139
+      },
+      "id": 101,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "max by (status) ((remote_nodes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
+          "instant": false,
+          "legendFormat": "{{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Persisted Remote Node Status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Connections observed by each runtime instance. Both ends may report the same tunnel; do not sum primary and follower as unique connections.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 139
+      },
+      "id": 102,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "remote_tunnel_connections{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}",
+          "instant": false,
+          "legendFormat": "{{aster_role}} {{instance}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Local Reverse Tunnel Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Local tunnel retry/reconnect decisions by reason; separate from request failures.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 139
+      },
+      "id": 103,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (aster_role, reason) (rate(remote_tunnel_reconnects_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{aster_role}} {{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Tunnel Reconnect Decisions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Wire/transport observations on each node, by direct/reverse transport. Separate from storage driver operations; do not add the two counters or both ends as unique user requests.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 147
+      },
+      "id": 104,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum by (aster_role, transport, operation, status, reason) (rate(remote_requests_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{aster_role}} {{transport}} {{operation}} {{status}} {{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Remote Request Results",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Transport lifecycle duration, separate from user-facing stream duration and storage-driver latency.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 147
+      },
+      "id": 105,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, aster_role, transport, operation, status) (rate(remote_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
+          "instant": false,
+          "legendFormat": "{{aster_role}} {{transport}} {{operation}} {{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Remote Request P95",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 155
+      },
+      "id": 106,
+      "panels": [],
+      "title": "Sampling, Runtime Health & Export",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Last sampling attempt: 1 success, 0 failure. Scraping only reads memory and does not trigger database queries, directory scans, or remote probes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 156
+      },
+      "id": 107,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}",
+          "instant": false,
+          "legendFormat": "{{instance}} {{source}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Snapshot Validity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Seconds since last successful sampling. No successful sample means no series, not a fresh zero. Values older than 180 seconds are excluded from backlog and filesystem panels.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 156
+      },
+      "id": 108,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "clamp_min(time() - observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}, 0)",
+          "instant": false,
+          "legendFormat": "{{instance}} {{source}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Snapshot Age",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "0 healthy, 1 degraded, 2 unhealthy. Recorded when a health check runs; this panel does not initiate checks.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 156
+      },
+      "id": 109,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "health_component_status{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}",
+          "instant": false,
+          "legendFormat": "{{instance}} {{scope}} {{component}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Runtime Component Health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Locally sampled cumulative export diagnostics. Only present when the OTLP exporter is enabled. Failed export attempts never fail file operations.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 164
+      },
+      "id": 110,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(telemetry_export_successes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "success/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(telemetry_export_failures{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "failure/s",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "OTLP Export Attempts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Seconds since the last acknowledged OTLP export. Missing or zero timestamps mean no successful export and stay absent; inspect export failures. This does not measure Tempo traces.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 164
+      },
+      "id": 111,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "editorMode": "code",
+          "expr": "clamp_min(time() - (telemetry_export_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} > 0), 0)",
+          "instant": false,
+          "legendFormat": "{{instance}} {{exporter}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "OTLP Last Success Age",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 172
       },
       "id": 50,
       "panels": [],
@@ -2255,7 +4371,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 71
+        "y": 173
       },
       "id": 51,
       "options": {
@@ -2283,7 +4399,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "max(background_tasks_pending{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "max(background_tasks_pending{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"})",
           "instant": false,
           "legendFormat": "pending",
           "range": true,
@@ -2330,7 +4446,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 71
+        "y": 173
       },
       "id": 52,
       "options": {
@@ -2358,7 +4474,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "max(share_download_rollback_pending{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "max(share_download_rollback_pending{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"})",
           "instant": false,
           "legendFormat": "pending",
           "range": true,
@@ -2409,7 +4525,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 71
+        "y": 173
       },
       "id": 53,
       "options": {
@@ -2435,7 +4551,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (kind, status) (rate(background_tasks_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (kind, status) (rate(background_tasks_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{kind}} {{status}}",
           "range": true,
@@ -2494,7 +4610,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 79
+        "y": 181
       },
       "id": 54,
       "options": {
@@ -2520,7 +4636,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (kind) (rate(background_task_retries_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (kind) (rate(background_task_retries_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{kind}}",
           "range": true,
@@ -2571,7 +4687,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 79
+        "y": 181
       },
       "id": 55,
       "options": {
@@ -2597,7 +4713,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (event) (rate(share_download_rollback_events_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (event) (rate(share_download_rollback_events_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{event}}",
           "range": true,
@@ -2613,7 +4729,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 86
+        "y": 188
       },
       "id": 60,
       "panels": [],
@@ -2661,7 +4777,7 @@
         "h": 8,
         "w": 16,
         "x": 0,
-        "y": 87
+        "y": 189
       },
       "id": 61,
       "options": {
@@ -2687,7 +4803,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum by (action, status, reason) (rate(auth_events_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (action, status, reason) (rate(auth_events_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
           "legendFormat": "{{action}} {{status}} {{reason}}",
           "range": true,
@@ -2748,7 +4864,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 87
+        "y": 189
       },
       "id": 62,
       "options": {
@@ -2774,7 +4890,7 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "sum(rate(auth_events_total{job=~\"$job\", instance=~\"$instance\", status!=\"success\"}[$__rate_interval])) / clamp_min(sum(rate(auth_events_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])), 1e-9)",
+          "expr": "sum(rate(auth_events_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", status!=\"success\"}[$__rate_interval])) / clamp_min(sum(rate(auth_events_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "instant": false,
           "legendFormat": "failure ratio",
           "range": true,
@@ -2790,7 +4906,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 95
+        "y": 197
       },
       "id": 70,
       "panels": [],
@@ -2846,7 +4962,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 96
+        "y": 198
       },
       "id": 71,
       "options": {
@@ -2872,9 +4988,9 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "process_memory_rss_bytes{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "process_memory_rss_bytes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}",
           "instant": false,
-          "legendFormat": "{{instance}} rss",
+          "legendFormat": "{{instance}} / {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -2932,7 +5048,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 96
+        "y": 198
       },
       "id": 72,
       "options": {
@@ -2958,9 +5074,9 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "clamp_min(rate(process_cpu_milliseconds_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]) / 1000, 0)",
+          "expr": "clamp_min(rate(process_cpu_milliseconds_total{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]) / 1000, 0)",
           "instant": false,
-          "legendFormat": "{{instance}} cpu cores",
+          "legendFormat": "{{instance}} / {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -3009,7 +5125,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 96
+        "y": 198
       },
       "id": 73,
       "options": {
@@ -3035,9 +5151,9 @@
             "uid": "$datasource"
           },
           "editorMode": "code",
-          "expr": "process_uptime_seconds{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "process_uptime_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}",
           "instant": false,
-          "legendFormat": "{{instance}} uptime",
+          "legendFormat": "{{instance}} / {{service_instance_id}}",
           "range": true,
           "refId": "A"
         }
@@ -3084,7 +5200,60 @@
           "type": "prometheus",
           "uid": "$datasource"
         },
-        "definition": "label_values(up, job)",
+        "definition": "label_values(process_uptime_seconds{service_name=\"asterdrive\"}, deployment_environment_name)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Environment",
+        "multi": false,
+        "name": "environment",
+        "options": [],
+        "query": {
+          "query": "label_values(process_uptime_seconds{service_name=\"asterdrive\"}, deployment_environment_name)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "definition": "label_values(process_uptime_seconds{service_name=\"asterdrive\", deployment_environment_name=~\"$environment\"}, aster_role)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Role",
+        "multi": true,
+        "name": "role",
+        "options": [],
+        "query": {
+          "query": "label_values(process_uptime_seconds{service_name=\"asterdrive\", deployment_environment_name=~\"$environment\"}, aster_role)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "definition": "label_values(process_uptime_seconds{service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\"}, job)",
         "hide": 0,
         "includeAll": true,
         "label": "Job",
@@ -3092,10 +5261,10 @@
         "name": "job",
         "options": [],
         "query": {
-          "query": "label_values(up, job)",
+          "query": "label_values(process_uptime_seconds{service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\"}, job)",
           "refId": "StandardVariableQuery"
         },
-        "refresh": 1,
+        "refresh": 2,
         "regex": "",
         "sort": 1,
         "type": "query"
@@ -3114,7 +5283,7 @@
         "definition": "label_values(up{job=~\"$job\"}, instance)",
         "hide": 0,
         "includeAll": true,
-        "label": "Instance",
+        "label": "Target",
         "multi": true,
         "name": "instance",
         "options": [],
@@ -3122,7 +5291,34 @@
           "query": "label_values(up{job=~\"$job\"}, instance)",
           "refId": "StandardVariableQuery"
         },
-        "refresh": 1,
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$datasource"
+        },
+        "definition": "label_values(process_uptime_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\"}, service_instance_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Runtime Instance",
+        "multi": true,
+        "name": "runtime_instance",
+        "options": [],
+        "query": {
+          "query": "label_values(process_uptime_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\"}, service_instance_id)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
         "regex": "",
         "sort": 1,
         "type": "query"
@@ -3148,6 +5344,6 @@
   "timezone": "browser",
   "title": "AsterDrive Overview",
   "uid": "asterdrive-overview",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

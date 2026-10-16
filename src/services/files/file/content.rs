@@ -48,6 +48,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     payload: &mut Payload,
     resolved_policy_hint: Option<aster_drive_model::entities::storage_policy::Model>,
     declared_size: Option<i64>,
+    source: aster_drive_metrics::TransferSource,
 ) -> Result<StreamedTempUpload> {
     let local_projection = resolved_policy_hint
         .as_ref()
@@ -96,6 +97,14 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     let mut size: i64 = 0;
     let mut hasher = should_hash.then(Sha256::new);
 
+    let mut transfer = aster_drive_metrics::TransferGuard::new(
+        state.metrics.clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source,
+            mode: aster_drive_metrics::TransferMode::Stream,
+        },
+    );
     let write_result = async {
         while let Some(chunk) = payload.next().await {
             let chunk = chunk.map_aster_err_with(|| {
@@ -104,6 +113,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
                     "failed to read request body",
                 )
             })?;
+            transfer.bytes(chunk.len() as u64);
             if let Some(hasher) = hasher.as_mut() {
                 hasher.update(&chunk);
             }
@@ -131,6 +141,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     drop(temp_file);
 
     if let Err(error) = write_result {
+        transfer.finish(aster_drive_metrics::TransferOutcome::Failure);
         aster_forge_utils::fs::cleanup_temp_file(&temp_path).await;
         return Err(error);
     }
@@ -138,6 +149,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     if let Some(declared_size) = declared_size
         && size != declared_size
     {
+        transfer.finish(aster_drive_metrics::TransferOutcome::Failure);
         aster_forge_utils::fs::cleanup_temp_file(&temp_path).await;
         return Err(validation_error_with_code(
             ApiErrorCode::UploadRequestSizeMismatch,
@@ -145,6 +157,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
         ));
     }
 
+    transfer.finish(aster_drive_metrics::TransferOutcome::Success);
     let precomputed_hash =
         hasher.map(|hasher| aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize()));
 
@@ -371,6 +384,10 @@ pub(crate) async fn update_content_in_scope(
     Ok((updated, revision_etag))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the file use case receives scope, body boundaries, preconditions and bounded observation source explicitly"
+)]
 pub(crate) async fn update_content_stream_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -379,6 +396,7 @@ pub(crate) async fn update_content_stream_in_scope(
     declared_size: Option<i64>,
     if_match: Option<&str>,
     lock_credentials: crate::services::files::lock::LockMutationCredentials,
+    transfer_source: aster_drive_metrics::TransferSource,
 ) -> Result<(aster_drive_model::entities::file::Model, String)> {
     let db = state.writer_db();
     tracing::debug!(
@@ -426,9 +444,14 @@ pub(crate) async fn update_content_stream_in_scope(
         .await?
         .policy,
     );
-    let streamed =
-        stream_request_body_to_temp_upload(state, payload, resolved_policy_hint, declared_size)
-            .await?;
+    let streamed = stream_request_body_to_temp_upload(
+        state,
+        payload,
+        resolved_policy_hint,
+        declared_size,
+        transfer_source,
+    )
+    .await?;
     let StreamedTempUpload {
         temp_path,
         size,

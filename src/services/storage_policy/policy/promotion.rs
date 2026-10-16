@@ -704,6 +704,7 @@ mod tests {
     fn promotion_blob(size: i64) -> aster_drive_model::entities::file_blob::Model {
         let now = chrono::Utc::now();
         aster_drive_model::entities::file_blob::Model {
+            cleanup_pending_since: None,
             id: 7,
             hash: "hash".to_string(),
             size,

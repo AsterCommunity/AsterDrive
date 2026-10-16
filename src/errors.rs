@@ -165,6 +165,12 @@ macro_rules! define_errors {
                 }
             }
 
+            pub(crate) fn storage_error_context(&self) -> Option<&StorageErrorContext> {
+                match self {
+                    $(AsterError::$variant(payload) => payload.storage_context.as_ref(),)*
+                }
+            }
+
             pub(crate) fn with_storage_error_context(self, context: StorageErrorContext) -> Self {
                 match self {
                     $(AsterError::$variant(payload) => {
@@ -1214,6 +1220,12 @@ impl<T, E: std::fmt::Display + 'static> MapAsterErr<T> for std::result::Result<T
 
     fn map_aster_err_with(self, f: impl FnOnce() -> AsterError) -> Result<T> {
         self.map_err(|_| f())
+    }
+}
+
+impl From<aster_forge_auth::PasswordWorkError> for AsterError {
+    fn from(error: aster_forge_auth::PasswordWorkError) -> Self {
+        Self::internal_error(error.to_string())
     }
 }
 

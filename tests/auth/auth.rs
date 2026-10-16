@@ -3880,7 +3880,9 @@ async fn test_storage_events_stream_closes_on_server_shutdown() {
                 .app_data(web::JsonConfig::default().limit(1024 * 1024))
                 .app_data(web::Data::new(shutdown_token.clone()))
                 .app_data(web::Data::new(state))
-                .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+                .configure(move |cfg| {
+                    aster_drive::api::configure_primary(cfg, &db, &Default::default())
+                }),
         )
         .await
     };
@@ -3917,7 +3919,9 @@ async fn test_storage_events_stream_rejects_new_connections_after_shutdown() {
                 .app_data(web::JsonConfig::default().limit(1024 * 1024))
                 .app_data(web::Data::new(shutdown_token.clone()))
                 .app_data(web::Data::new(state))
-                .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+                .configure(move |cfg| {
+                    aster_drive::api::configure_primary(cfg, &db, &Default::default())
+                }),
         )
         .await
     };

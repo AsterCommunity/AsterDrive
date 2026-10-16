@@ -285,7 +285,7 @@ fn ensure_chunk_body_exact_size(
 }
 
 async fn drain_chunk_payload_exact_size(
-    payload: &mut actix_web::web::Payload,
+    payload: &mut actix_web::dev::Payload,
     expected_size: i64,
     chunk_number: i32,
 ) -> Result<()> {
@@ -302,7 +302,7 @@ async fn write_chunk_payload_to_staging_file(
     state: &PrimaryAppState,
     session: &upload_session::Model,
     chunk_number: i32,
-    payload: &mut actix_web::web::Payload,
+    payload: &mut actix_web::dev::Payload,
     expected_size: i64,
 ) -> Result<()> {
     use tokio::io::BufWriter;
@@ -338,7 +338,7 @@ async fn write_chunk_payload_to_staging_file(
 }
 
 async fn pipe_payload_to_writer(
-    mut payload: actix_web::web::Payload,
+    mut payload: actix_web::dev::Payload,
     mut writer: tokio::io::DuplexStream,
     expected_size: i64,
     chunk_number: i32,
@@ -376,7 +376,7 @@ async fn upload_multipart_part_payload(
     temp_key: &str,
     multipart_id: &str,
     object_part_number: i32,
-    payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
     expected_size: i64,
     chunk_number: i32,
 ) -> Result<String> {
@@ -679,12 +679,10 @@ async fn upload_chunk_payload_impl(
     state: &PrimaryAppState,
     session: upload_session::Model,
     chunk_number: i32,
-    mut payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
 ) -> Result<ChunkUploadResponse> {
-    let db = state.writer_db();
-    let upload_id = session.id.as_str();
     tracing::debug!(
-        upload_id,
+        upload_id = %session.id,
         chunk_number,
         status = ?session.status,
         total_chunks = session.total_chunks,
@@ -721,61 +719,116 @@ async fn upload_chunk_payload_impl(
         ));
     }
 
-    if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
-        return crate::services::files::upload::ingest::provider_relay::upload_payload(
-            state,
-            session,
-            chunk_number,
-            payload,
-        )
-        .await;
-    }
-
-    if matches!(
-        session_kind,
-        aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
-            | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart
-    ) {
-        let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
-        let object_part_number = chunk_number + 1;
-
-        if !upload_session_part_repo::try_claim_part(db, upload_id, object_part_number).await? {
-            drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
-            let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-            tracing::debug!(
-                upload_id,
+    let db = state.writer_db();
+    let upload_id = session.id.clone();
+    let (mut payload, transfer_completion) = crate::storage::transfer_metrics::payload_deferred(
+        payload,
+        state.metrics().clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source: aster_drive_metrics::TransferSource::File,
+            mode: match session_kind {
+                aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+                | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart => {
+                    aster_drive_metrics::TransferMode::Multipart
+                }
+                aster_drive_model::types::UploadSessionKind::ProviderRelayResumable => {
+                    aster_drive_metrics::TransferMode::Resumable
+                }
+                _ => aster_drive_metrics::TransferMode::Chunked,
+            },
+        },
+    );
+    let result = async {
+        if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
+            return crate::services::files::upload::ingest::provider_relay::upload_payload(
+                state,
+                session,
                 chunk_number,
-                part_number = object_part_number,
-                received_count = updated.received_count,
-                total_chunks = updated.total_chunks,
-                "skipping already claimed relay multipart part"
-            );
-            return Ok(ChunkUploadResponse {
-                received_count: updated.received_count,
-                total_chunks: updated.total_chunks,
-            });
+                payload,
+            )
+            .await;
         }
 
-        let policy = state
-            .policy_snapshot()
-            .get_policy_or_err(session.policy_id)?;
-        let multipart = state.driver_registry().get_multipart_driver(&policy)?;
-        let etag = match upload_multipart_part_payload(
-            multipart.as_ref(),
-            temp_key,
-            multipart_id,
-            object_part_number,
-            payload,
-            expected_size,
-            chunk_number,
-        )
-        .await
-        {
-            Ok(etag) => etag,
-            Err(err) => {
+        if matches!(
+            session_kind,
+            aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+                | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart
+        ) {
+            let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
+            let object_part_number = chunk_number + 1;
+
+            if !upload_session_part_repo::try_claim_part(db, &upload_id, object_part_number).await? {
+                drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
+                let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
+                tracing::debug!(
+                    upload_id,
+                    chunk_number,
+                    part_number = object_part_number,
+                    received_count = updated.received_count,
+                    total_chunks = updated.total_chunks,
+                    "skipping already claimed relay multipart part"
+                );
+                return Ok(ChunkUploadResponse {
+                    received_count: updated.received_count,
+                    total_chunks: updated.total_chunks,
+                });
+            }
+
+            let policy = state
+                .policy_snapshot()
+                .get_policy_or_err(session.policy_id)?;
+            let multipart = state.driver_registry().get_multipart_driver(&policy)?;
+            let etag = match upload_multipart_part_payload(
+                multipart.as_ref(),
+                temp_key,
+                multipart_id,
+                object_part_number,
+                payload,
+                expected_size,
+                chunk_number,
+            )
+            .await
+            {
+                Ok(etag) => etag,
+                Err(err) => {
+                    if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
+                        db,
+                        &upload_id,
+                        object_part_number,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            upload_id,
+                            part_number = object_part_number,
+                            "failed to release relay multipart part claim after upload error: {cleanup_err}"
+                        );
+                    }
+                    return Err(err);
+                }
+            };
+
+            let txn = transaction::begin(db).await?;
+            let finalize_result = async {
+                upload_session_part_repo::upsert_part(
+                    &txn,
+                    &upload_id,
+                    object_part_number,
+                    &etag,
+                    expected_size,
+                )
+                .await?;
+                increment_session_received_count(&txn, &upload_id).await?;
+                transaction::commit(txn).await?;
+                Ok::<(), AsterError>(())
+            }
+            .await;
+
+            if let Err(err) = finalize_result {
                 if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
                     db,
-                    upload_id,
+                    &upload_id,
                     object_part_number,
                 )
                 .await
@@ -783,88 +836,20 @@ async fn upload_chunk_payload_impl(
                     tracing::warn!(
                         upload_id,
                         part_number = object_part_number,
-                        "failed to release relay multipart part claim after upload error: {cleanup_err}"
+                        "failed to release relay multipart part claim after DB finalize error: {cleanup_err}"
                     );
                 }
                 return Err(err);
             }
-        };
 
-        let txn = transaction::begin(db).await?;
-        let finalize_result = async {
-            upload_session_part_repo::upsert_part(
-                &txn,
-                upload_id,
-                object_part_number,
-                &etag,
-                expected_size,
-            )
-            .await?;
-            increment_session_received_count(&txn, upload_id).await?;
-            transaction::commit(txn).await?;
-            Ok::<(), AsterError>(())
-        }
-        .await;
-
-        if let Err(err) = finalize_result {
-            if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
-                db,
-                upload_id,
-                object_part_number,
-            )
-            .await
-            {
-                tracing::warn!(
-                    upload_id,
-                    part_number = object_part_number,
-                    "failed to release relay multipart part claim after DB finalize error: {cleanup_err}"
-                );
-            }
-            return Err(err);
-        }
-
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-        tracing::debug!(
-            upload_id,
-            chunk_number,
-            part_number = object_part_number,
-            received_count = updated.received_count,
-            total_chunks = updated.total_chunks,
-            "stored relay multipart chunk"
-        );
-        return Ok(ChunkUploadResponse {
-            received_count: updated.received_count,
-            total_chunks: updated.total_chunks,
-        });
-    }
-
-    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
-
-    if matches!(
-        session_kind,
-        aster_drive_model::types::UploadSessionKind::OffsetStaging
-            | aster_drive_model::types::UploadSessionKind::StreamStaging
-    ) {
-        staging::ensure_reservations_recovered(state).await?;
-        #[cfg(debug_assertions)]
-        test_support::rendezvous_before_staging_write_lock(upload_id).await;
-        let _chunk_write_lock =
-            acquire_local_chunk_write_lock(&chunk_dir, upload_id, chunk_number).await?;
-        #[cfg(debug_assertions)]
-        let _staging_write_test_guard =
-            test_support::enter_staging_write_critical_section(upload_id).await;
-        if has_staged_chunk_receipt(db, upload_id, chunk_number, expected_size).await? {
-            drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
-            let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-            if updated.status != UploadSessionStatus::Uploading {
-                return Err(upload_session_chunk_unavailable_error(&updated));
-            }
+            let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
             tracing::debug!(
                 upload_id,
                 chunk_number,
+                part_number = object_part_number,
                 received_count = updated.received_count,
                 total_chunks = updated.total_chunks,
-                "skipping already uploaded staged chunk"
+                "stored relay multipart chunk"
             );
             return Ok(ChunkUploadResponse {
                 received_count: updated.received_count,
@@ -872,37 +857,78 @@ async fn upload_chunk_payload_impl(
             });
         }
 
-        write_chunk_payload_to_staging_file(
-            state,
-            &session,
-            chunk_number,
-            &mut payload,
-            expected_size,
-        )
-        .await?;
-        commit_staged_chunk_receipt(state, upload_id, chunk_number, expected_size).await?;
+        let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, &upload_id);
 
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-        tracing::debug!(
-            upload_id,
-            chunk_number,
-            received_count = updated.received_count,
-            total_chunks = updated.total_chunks,
-            "stored upload chunk stream in staging file"
-        );
-        return Ok(ChunkUploadResponse {
-            received_count: updated.received_count,
-            total_chunks: updated.total_chunks,
-        });
-    }
+        if matches!(
+            session_kind,
+            aster_drive_model::types::UploadSessionKind::OffsetStaging
+                | aster_drive_model::types::UploadSessionKind::StreamStaging
+        ) {
+            staging::ensure_reservations_recovered(state).await?;
+            #[cfg(debug_assertions)]
+            test_support::rendezvous_before_staging_write_lock(&upload_id).await;
+            let _chunk_write_lock =
+                acquire_local_chunk_write_lock(&chunk_dir, &upload_id, chunk_number).await?;
+            #[cfg(debug_assertions)]
+            let _staging_write_test_guard =
+                test_support::enter_staging_write_critical_section(&upload_id).await;
+            if has_staged_chunk_receipt(db, &upload_id, chunk_number, expected_size).await? {
+                drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
+                let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
+                if updated.status != UploadSessionStatus::Uploading {
+                    return Err(upload_session_chunk_unavailable_error(&updated));
+                }
+                tracing::debug!(
+                    upload_id,
+                    chunk_number,
+                    received_count = updated.received_count,
+                    total_chunks = updated.total_chunks,
+                    "skipping already uploaded staged chunk"
+                );
+                return Ok(ChunkUploadResponse {
+                    received_count: updated.received_count,
+                    total_chunks: updated.total_chunks,
+                });
+            }
 
-    Err(crate::errors::upload_assembly_error_with_code(
-        ApiErrorCode::UploadSessionCorrupted,
-        format!(
-            "session kind {} does not accept server chunk PUT",
-            session_kind.as_str()
-        ),
-    ))
+            write_chunk_payload_to_staging_file(
+                state,
+                &session,
+                chunk_number,
+                &mut payload,
+                expected_size,
+            )
+            .await?;
+            commit_staged_chunk_receipt(state, &upload_id, chunk_number, expected_size).await?;
+
+            let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
+            tracing::debug!(
+                upload_id,
+                chunk_number,
+                received_count = updated.received_count,
+                total_chunks = updated.total_chunks,
+                "stored upload chunk stream in staging file"
+            );
+            return Ok(ChunkUploadResponse {
+                received_count: updated.received_count,
+                total_chunks: updated.total_chunks,
+            });
+        }
+
+        Err(crate::errors::upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            format!(
+                "session kind {} does not accept server chunk PUT",
+                session_kind.as_str()
+            ),
+        ))
+    }.await;
+    transfer_completion.finish(if result.is_ok() {
+        aster_drive_metrics::TransferOutcome::Success
+    } else {
+        aster_drive_metrics::TransferOutcome::Failure
+    });
+    result
 }
 
 /// 上传单个分片
@@ -955,7 +981,7 @@ pub async fn upload_chunk_payload(
     run_upload_stage_operation(
         state,
         &session,
-        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload),
+        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload.into_inner()),
     )
     .await
 }
@@ -1011,7 +1037,7 @@ pub async fn upload_chunk_payload_for_team(
     run_upload_stage_operation(
         state,
         &session,
-        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload),
+        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload.into_inner()),
     )
     .await
 }
@@ -1325,7 +1351,15 @@ mod tests {
 
         let result = tokio::time::timeout(
             Duration::from_millis(100),
-            upload_multipart_part_payload(&multipart, "tmp", "multipart-id", 1, payload, 4, 0),
+            upload_multipart_part_payload(
+                &multipart,
+                "tmp",
+                "multipart-id",
+                1,
+                payload.into_inner(),
+                4,
+                0,
+            ),
         )
         .await
         .expect("payload validation error should not wait for the upload future");
@@ -1372,5 +1406,63 @@ mod tests {
             err.api_error_code_override(),
             Some(ApiErrorCode::UploadStatusConflict)
         );
+    }
+    #[tokio::test]
+    async fn rejected_chunk_payloads_do_not_start_or_cancel_data_plane_transfers() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        #[derive(Default)]
+        struct Capture(AtomicUsize);
+        impl aster_drive_metrics::MetricsRecorder for Capture {
+            fn enabled(&self) -> bool {
+                true
+            }
+            fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, _: i64) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            fn transfer_finished(
+                &self,
+                _: aster_drive_metrics::TransferLabels,
+                _: aster_drive_metrics::TransferOutcome,
+                _: f64,
+            ) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let mut state = crate::runtime::tasks::test_support::setup_primary_state()
+            .await
+            .get_ref()
+            .clone();
+        let capture = Arc::new(Capture::default());
+        state.metrics = capture.clone();
+        for case in 0..5 {
+            let mut session = relay_session(Some("temp"), Some("multipart"));
+            let chunk = match case {
+                0 => {
+                    session.status = UploadSessionStatus::Assembling;
+                    0
+                }
+                1 => {
+                    session.expires_at = Utc::now() - chrono::Duration::seconds(1);
+                    0
+                }
+                2 => -1,
+                3 => session.total_chunks,
+                _ => {
+                    session.session_kind =
+                        aster_drive_model::types::UploadSessionKind::ProviderPresignedMultipart;
+                    0
+                }
+            };
+            let payload = payload_from_bytes(b"12345").await;
+            assert!(
+                upload_chunk_payload_impl(&state, session, chunk, payload.into_inner())
+                    .await
+                    .is_err()
+            );
+        }
+        assert_eq!(capture.0.load(Ordering::SeqCst), 0);
     }
 }

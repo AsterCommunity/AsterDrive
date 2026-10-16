@@ -4,6 +4,8 @@ use super::range::ResolvedDownloadRange;
 
 /// 服务层文件流下载数据。路由层负责把这些字段组装成 HttpResponse。
 pub struct StreamedFile {
+    pub(crate) metrics: aster_drive_metrics::SharedMetricsRecorder,
+    pub(crate) transfer_source: aster_drive_metrics::TransferSource,
     pub content_type: String,
     pub content_length: i64,
     pub content_disposition: String,

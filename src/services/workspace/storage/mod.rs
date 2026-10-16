@@ -83,7 +83,7 @@ pub(crate) struct IngestStreamRequest<'a> {
 
 pub(crate) async fn ingest_stream(
     state: &crate::runtime::PrimaryAppState,
-    payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
     request: IngestStreamRequest<'_>,
 ) -> crate::errors::Result<aster_drive_model::entities::file::Model> {
     let IngestStreamRequest {

@@ -155,6 +155,15 @@ pub fn spawn_primary_background_tasks(
 ) -> BackgroundTasks {
     let mut tasks = build_background_tasks_base(&state.metrics, shutdown_token);
     let shutdown_token = tasks.shutdown_token();
+    if state.metrics.enabled() {
+        tasks.push(metrics_sampling_loop(
+            state.clone(),
+            shutdown_token.clone(),
+            |state| async move {
+                crate::services::ops::metrics::sample_primary(state.get_ref()).await;
+            },
+        ));
+    }
 
     if state.config_sync().enabled() {
         tasks.push(spawn_config_reload_subscription(
@@ -615,6 +624,16 @@ pub fn spawn_follower_background_tasks(
     tracing::info!("follower mode enabled; skipping primary-only background tasks");
     let mut tasks = build_background_tasks_base(&state.metrics, shutdown_token);
     let shutdown_token = tasks.shutdown_token();
+    if state.metrics.enabled() {
+        tasks.push(metrics_sampling_loop(
+            state.clone(),
+            shutdown_token.clone(),
+            |state| async move {
+                crate::services::ops::metrics::sample_capacity(state.get_ref()).await;
+            },
+        ));
+    }
+
     if state.config_sync().enabled() {
         tasks.push(spawn_config_reload_subscription(
             shutdown_token.clone(),
@@ -693,6 +712,23 @@ fn system_health_check_interval_for_web_state(state: &web::Data<PrimaryAppState>
     )
 }
 
+async fn metrics_sampling_loop<S, F, Fut>(
+    state: web::Data<S>,
+    shutdown: CancellationToken,
+    sample: F,
+) where
+    S: Send + Sync + 'static,
+    F: Fn(web::Data<S>) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! { biased; () = shutdown.cancelled() => break, _ = interval.tick() => {} }
+        tokio::select! { biased; () = shutdown.cancelled() => break, () = sample(state.clone()) => {} }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::sync::Arc;
@@ -752,5 +788,55 @@ pub(crate) mod test_support {
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         })
+    }
+}
+
+#[cfg(test)]
+mod metrics_sampling_tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[tokio::test]
+    async fn cancelled_sampler_never_starts_database_work() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let stop = CancellationToken::new();
+        stop.cancel();
+        metrics_sampling_loop(web::Data::new(()), stop, move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async {}
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn sampler_runs_immediately_and_cancels_an_inflight_sample() {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let stop = CancellationToken::new();
+        let worker_stop = stop.clone();
+        let worker_entered = entered.clone();
+        let worker = tokio::spawn(metrics_sampling_loop(
+            web::Data::new(()),
+            worker_stop,
+            move |_| {
+                let entered = worker_entered.clone();
+                async move {
+                    entered.notify_one();
+                    std::future::pending::<()>().await;
+                }
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        stop.cancel();
+        tokio::time::timeout(Duration::from_secs(2), worker)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

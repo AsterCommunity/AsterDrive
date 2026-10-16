@@ -2656,7 +2656,9 @@ async fn test_personal_archive_stream_preserves_empty_folders() {
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
 
@@ -2775,7 +2777,9 @@ async fn test_personal_archive_stream_marks_chinese_names_as_utf8() {
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
 
@@ -2870,7 +2874,9 @@ async fn test_team_archive_stream_is_scoped_to_team_routes() {
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
 
@@ -2962,7 +2968,9 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
 
@@ -3182,7 +3190,9 @@ async fn test_archive_compress_disabled_rejects_team_task_without_creating_recor
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
 
@@ -3773,7 +3783,9 @@ async fn test_team_archive_extract_task_creates_team_folder_tree() {
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
 

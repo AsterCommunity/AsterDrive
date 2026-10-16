@@ -5,7 +5,7 @@ use std::time::Instant;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, upload_session_repo};
 use crate::errors::{Result, upload_assembly_error_with_code};
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::events::storage_change;
 use crate::services::workspace::scope::WorkspaceStorageScope;
 use aster_drive_model::entities::{file, file_blob, upload_session};
@@ -80,6 +80,19 @@ pub(crate) struct FinalizeUploadSessionFileParams<'a> {
 }
 
 pub(crate) async fn finalize_upload_session_file(
+    state: &PrimaryAppState,
+    params: FinalizeUploadSessionFileParams<'_>,
+) -> Result<file::Model> {
+    aster_drive_metrics::observe_upload_phase(
+        state.metrics().clone(),
+        params.session.session_kind.as_str(),
+        aster_drive_metrics::UploadPhase::Finalize,
+        finalize_upload_session_file_impl(state, params),
+    )
+    .await
+}
+
+async fn finalize_upload_session_file_impl(
     state: &PrimaryAppState,
     params: FinalizeUploadSessionFileParams<'_>,
 ) -> Result<file::Model> {

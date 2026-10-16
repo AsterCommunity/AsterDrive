@@ -76,7 +76,12 @@ async fn upload_bytes_with_context(
 
     match claim_or_reconcile(state, &session, chunk_number, expected_size, context).await? {
         ClaimOutcome::Completed => return response(state, &session.id).await,
-        ClaimOutcome::Pending => return Err(chunk_pending_error(chunk_number)),
+        ClaimOutcome::Pending => {
+            state
+                .metrics()
+                .admission_rejection(aster_drive_metrics::AdmissionReason::Concurrency);
+            return Err(chunk_pending_error(chunk_number));
+        }
         ClaimOutcome::Claimed => {}
     }
 
@@ -110,7 +115,7 @@ pub(super) async fn upload_payload(
     state: &PrimaryAppState,
     session: upload_session::Model,
     chunk_number: i32,
-    payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
 ) -> Result<ChunkUploadResponse> {
     let context = load_context(state, &session)?;
     upload_payload_with_context(state, session, chunk_number, payload, &context).await
@@ -120,7 +125,7 @@ async fn upload_payload_with_context(
     state: &PrimaryAppState,
     session: upload_session::Model,
     chunk_number: i32,
-    payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
     context: &ProviderRelayContext,
 ) -> Result<ChunkUploadResponse> {
     validate_chunk_request(&session, chunk_number)?;
@@ -132,6 +137,9 @@ async fn upload_payload_with_context(
         }
         ClaimOutcome::Pending => {
             drain_payload_exact_size(payload, expected_size, chunk_number).await?;
+            state
+                .metrics()
+                .admission_rejection(aster_drive_metrics::AdmissionReason::Concurrency);
             return Err(chunk_pending_error(chunk_number));
         }
         ClaimOutcome::Claimed => {}
@@ -605,7 +613,7 @@ async fn release_claim(state: &PrimaryAppState, upload_id: &str, chunk_number: i
 }
 
 async fn pipe_payload(
-    mut payload: actix_web::web::Payload,
+    mut payload: actix_web::dev::Payload,
     mut writer: tokio::io::DuplexStream,
     expected_size: i64,
     chunk_number: i32,
@@ -646,7 +654,7 @@ async fn pipe_payload(
 }
 
 async fn drain_payload_exact_size(
-    mut payload: actix_web::web::Payload,
+    mut payload: actix_web::dev::Payload,
     expected_size: i64,
     chunk_number: i32,
 ) -> Result<()> {

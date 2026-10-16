@@ -116,7 +116,7 @@ pub async fn link_with_password(
 
 #[cfg(test)]
 mod tests {
-    use crate::config::password_hash::PasswordHashRuntime;
+    use aster_forge_auth::PasswordHashRuntime;
 
     use super::DUMMY_PASSWORD_HASH;
 

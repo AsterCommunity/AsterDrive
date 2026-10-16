@@ -25,6 +25,7 @@ pub async fn run_primary(
     let audit_state = state.clone();
     let mail_state = state.clone();
     let state = web::Data::new(state);
+    let telemetry_provider = state.metrics.forge_recorder().provider();
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
 
@@ -63,7 +64,12 @@ pub async fn run_primary(
             &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
         ));
 
-    runtime.run().await.map_err(to_io_error)?
+    let result = runtime
+        .run()
+        .await
+        .map_err(to_io_error)
+        .and_then(std::convert::identity);
+    finish_metrics(result, telemetry_provider).await
 }
 
 /// Assembles and runs the follower Forge runtime.
@@ -79,6 +85,7 @@ pub async fn run_follower(
     let db_handles = state.db_handles.clone();
     let audit_state = state.clone();
     let state = web::Data::new(state);
+    let telemetry_provider = state.metrics.forge_recorder().provider();
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
 
@@ -110,7 +117,31 @@ pub async fn run_follower(
             &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
         ));
 
-    runtime.run().await.map_err(to_io_error)?
+    let result = runtime
+        .run()
+        .await
+        .map_err(to_io_error)
+        .and_then(std::convert::identity);
+    finish_metrics(result, telemetry_provider).await
+}
+
+async fn finish_metrics(
+    result: io::Result<()>,
+    provider: Option<aster_forge_metrics::MetricsProvider>,
+) -> io::Result<()> {
+    if let Some(provider) = provider {
+        let shutdown = provider
+            .shutdown(std::time::Duration::from_secs(10))
+            .await
+            .map_err(to_io_error);
+        if let Err(error) = &shutdown {
+            tracing::warn!(%error, "metrics shutdown failed");
+        }
+        if result.is_ok() {
+            shutdown?;
+        }
+    }
+    result
 }
 
 fn worker_count(configured_workers: usize) -> usize {
@@ -128,6 +159,32 @@ fn to_io_error(error: impl std::fmt::Display) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::worker_count;
+
+    #[tokio::test]
+    async fn final_metrics_shutdown_preserves_runtime_error_and_closes_provider() {
+        use super::finish_metrics;
+        let provider = aster_forge_metrics::MetricsProvider::builder()
+            .build()
+            .unwrap();
+        let error = finish_metrics(
+            Err(std::io::Error::other("runtime failed")),
+            Some(provider.clone()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), "runtime failed");
+        assert_eq!(provider.shutdown_result(), Some(Ok(())));
+        assert!(!provider.enabled());
+        finish_metrics(Ok(()), Some(provider)).await.unwrap();
+        finish_metrics(Ok(()), None).await.unwrap();
+        assert_eq!(
+            finish_metrics(Err(std::io::Error::other("original")), None)
+                .await
+                .unwrap_err()
+                .to_string(),
+            "original"
+        );
+    }
 
     #[test]
     fn worker_count_uses_cpu_count_when_configured_zero() {

@@ -97,6 +97,10 @@ impl DriverRegistry {
         &self.connectors
     }
 
+    pub(crate) fn observed_capacity_minima(&self) -> [Option<u64>; 3] {
+        self.capacity_probes.observed_minima()
+    }
+
     pub(crate) fn staging_capacity(&self) -> &StagingCapacityCoordinator {
         &self.staging_capacity
     }
