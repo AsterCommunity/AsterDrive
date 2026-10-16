@@ -775,7 +775,7 @@ dependencies = [
  "aster_forge_auth",
  "aster_forge_cache",
  "aster_forge_config",
- "aster_forge_crypto",
+ "aster_forge_crypto 0.1.0 (git+https://github.com/AsterCommunity/AsterForge?rev=869756f0605c898420a28d3d45006cc33a87d17c)",
  "aster_forge_db",
  "aster_forge_events",
  "aster_forge_external_auth",
@@ -981,9 +981,9 @@ dependencies = [
 [[package]]
 name = "aster_forge_auth"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge?rev=43a98173baa0e4af0494922333f8d7f846d849bc#43a98173baa0e4af0494922333f8d7f846d849bc"
+source = "git+https://github.com/AsterCommunity/AsterForge?rev=869756f0605c898420a28d3d45006cc33a87d17c#869756f0605c898420a28d3d45006cc33a87d17c"
 dependencies = [
- "aster_forge_crypto",
+ "aster_forge_crypto 0.1.0 (git+https://github.com/AsterCommunity/AsterForge?rev=869756f0605c898420a28d3d45006cc33a87d17c)",
  "async-trait",
  "jsonwebtoken",
  "serde",
@@ -1046,6 +1046,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aster_forge_crypto"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge?rev=869756f0605c898420a28d3d45006cc33a87d17c#869756f0605c898420a28d3d45006cc33a87d17c"
+dependencies = [
+ "aes-gcm 0.11.1",
+ "argon2 0.6.0",
+ "base64 0.23.1",
+ "hkdf 0.13.0",
+ "hmac 0.13.0",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "aster_forge_db"
 version = "0.1.0"
 source = "git+https://github.com/AsterCommunity/AsterForge?rev=43a98173baa0e4af0494922333f8d7f846d849bc#43a98173baa0e4af0494922333f8d7f846d849bc"
@@ -1096,7 +1110,7 @@ name = "aster_forge_external_auth"
 version = "0.1.0"
 source = "git+https://github.com/AsterCommunity/AsterForge?rev=43a98173baa0e4af0494922333f8d7f846d849bc#43a98173baa0e4af0494922333f8d7f846d849bc"
 dependencies = [
- "aster_forge_crypto",
+ "aster_forge_crypto 0.1.0 (git+https://github.com/AsterCommunity/AsterForge?rev=43a98173baa0e4af0494922333f8d7f846d849bc)",
  "aster_forge_http",
  "aster_forge_utils",
  "aster_forge_validation",

@@ -143,6 +143,8 @@ async fn main() -> std::io::Result<()> {
 
     dotenvy::dotenv().ok();
 
+    aster_forge_auth::initialize_jwt_crypto_provider().map_err(io_other)?;
+
     #[cfg(feature = "cli")]
     {
         let cli = RootCli::parse();
