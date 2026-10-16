@@ -8694,21 +8694,34 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
 }
 
 #[derive(Default)]
-struct UploadPhaseMetrics(
-    Mutex<
+struct UploadPhaseMetrics {
+    phases: Mutex<
         Vec<(
             aster_drive_metrics::UploadPhase,
             aster_drive_metrics::TransferOutcome,
         )>,
     >,
-    Mutex<u64>,
-);
+    bytes: Mutex<u64>,
+    active: Mutex<i64>,
+    transfers: Mutex<Vec<aster_drive_metrics::TransferOutcome>>,
+}
 impl aster_drive_metrics::MetricsRecorder for UploadPhaseMetrics {
     fn enabled(&self) -> bool {
         true
     }
     fn transfer_bytes(&self, _: aster_drive_metrics::TransferLabels, bytes: u64) {
-        *self.1.lock().unwrap() += bytes;
+        *self.bytes.lock().unwrap() += bytes;
+    }
+    fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, delta: i64) {
+        *self.active.lock().unwrap() += delta;
+    }
+    fn transfer_finished(
+        &self,
+        _: aster_drive_metrics::TransferLabels,
+        outcome: aster_drive_metrics::TransferOutcome,
+        _: f64,
+    ) {
+        self.transfers.lock().unwrap().push(outcome);
     }
     fn upload_phase(
         &self,
@@ -8717,7 +8730,7 @@ impl aster_drive_metrics::MetricsRecorder for UploadPhaseMetrics {
         outcome: aster_drive_metrics::TransferOutcome,
         _: f64,
     ) {
-        self.0.lock().unwrap().push((phase, outcome));
+        self.phases.lock().unwrap().push((phase, outcome));
     }
 }
 
@@ -8755,12 +8768,12 @@ async fn test_metrics_completed_retry_does_not_recount_phases_or_bytes() {
             .await
             .unwrap();
     }
-    let observed_bytes = *metrics.1.lock().unwrap();
+    let observed_bytes = *metrics.bytes.lock().unwrap();
     assert_eq!(observed_bytes, (TEST_CHUNK_SIZE * 2) as u64);
     let first = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
-    let phases = metrics.0.lock().unwrap().clone();
+    let phases = metrics.phases.lock().unwrap().clone();
     for phase in [
         UploadPhase::Assemble,
         UploadPhase::Finalize,
@@ -8778,8 +8791,60 @@ async fn test_metrics_completed_retry_does_not_recount_phases_or_bytes() {
         .await
         .unwrap();
     assert_eq!(repeated.id, first.id);
-    assert_eq!(*metrics.0.lock().unwrap(), phases);
-    assert_eq!(*metrics.1.lock().unwrap(), observed_bytes);
+    assert_eq!(*metrics.phases.lock().unwrap(), phases);
+    assert_eq!(*metrics.bytes.lock().unwrap(), observed_bytes);
+}
+
+#[actix_web::test]
+async fn test_metrics_short_chunk_eof_is_failure_and_new_upload_is_success() {
+    use actix_web::FromRequest;
+    use aster_drive::services::files::upload;
+    use aster_drive_metrics::TransferOutcome;
+    let mut state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "metricchunk", "metricchunk@test.com", "password123")
+            .await
+            .unwrap();
+    let metrics = Arc::new(UploadPhaseMetrics::default());
+    state.metrics = metrics.clone();
+    // A size mismatch terminates the session; successful retry requires a new init.
+    for (bytes, expected) in [
+        (b"abc".to_vec(), TransferOutcome::Failure),
+        (vec![b'm'; TEST_CHUNK_SIZE], TransferOutcome::Success),
+    ] {
+        let init = upload::init_upload(
+            &state,
+            user.id,
+            "metric-chunk.bin",
+            (TEST_CHUNK_SIZE * 2) as i64,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let upload_id = init.upload_id.unwrap();
+        let (request, mut body) = test::TestRequest::default()
+            .set_payload(bytes)
+            .to_http_parts();
+        let payload = actix_web::web::Payload::from_request(&request, &mut body)
+            .await
+            .unwrap();
+        let result = upload::upload_chunk_payload(&state, &upload_id, 0, user.id, payload).await;
+        assert_eq!(result.is_ok(), expected == TransferOutcome::Success);
+        if let Err(error) = result {
+            assert_eq!(
+                error.api_error_code(),
+                ApiErrorCode::UploadChunkSizeMismatch
+            );
+        }
+        assert_eq!(*metrics.active.lock().unwrap(), 0);
+        assert_eq!(metrics.transfers.lock().unwrap().last(), Some(&expected));
+    }
+    assert_eq!(*metrics.bytes.lock().unwrap(), TEST_CHUNK_SIZE as u64 + 3);
+    assert_eq!(
+        *metrics.transfers.lock().unwrap(),
+        vec![TransferOutcome::Failure, TransferOutcome::Success]
+    );
 }
 
 #[derive(Default)]

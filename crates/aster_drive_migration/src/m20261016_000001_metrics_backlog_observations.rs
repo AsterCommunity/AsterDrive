@@ -1,6 +1,6 @@
 //! Persist the cleanup interval independently of retry timestamps and index periodic backlog reads.
 use sea_orm_migration::prelude::*;
-use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend};
+use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};
 
 const BACKFILL_BATCH_SIZE: u64 = 1_000;
 
@@ -36,40 +36,26 @@ impl MigrationTrait for Migration {
                 .await?;
         }
         backfill_cleanup_pending_since(manager).await?;
-        if !manager
-            .has_index("upload_sessions", "idx_upload_sessions_observation")
-            .await?
-        {
-            let mut index = Index::create()
-                .name("idx_upload_sessions_observation")
-                .table(UploadSessions::Table)
-                .col(UploadSessions::Status)
-                .col(UploadSessions::SessionKind)
-                .col(UploadSessions::ExpiresAt)
-                .col(UploadSessions::CreatedAt)
-                .col(UploadSessions::TotalSize)
-                .to_owned();
-            if manager.get_database_backend() == DbBackend::Postgres {
-                index.concurrently();
-            }
-            manager.create_index(index).await?;
-        }
-        if !manager
-            .has_index("file_blobs", "idx_file_blobs_cleanup_observation")
-            .await?
-        {
-            let mut index = Index::create()
-                .name("idx_file_blobs_cleanup_observation")
-                .table(FileBlobs::Table)
-                .col(FileBlobs::RefCount)
-                .col(FileBlobs::Backing)
-                .col(FileBlobs::CleanupPendingSince)
-                .to_owned();
-            if manager.get_database_backend() == DbBackend::Postgres {
-                index.concurrently();
-            }
-            manager.create_index(index).await?;
-        }
+        ensure_observation_index(
+            manager,
+            "upload_sessions",
+            "idx_upload_sessions_observation",
+            &[
+                "status",
+                "session_kind",
+                "expires_at",
+                "created_at",
+                "total_size",
+            ],
+        )
+        .await?;
+        ensure_observation_index(
+            manager,
+            "file_blobs",
+            "idx_file_blobs_cleanup_observation",
+            &["ref_count", "backing", "cleanup_pending_since"],
+        )
+        .await?;
         Ok(())
     }
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -78,22 +64,11 @@ impl MigrationTrait for Migration {
             ("upload_sessions", "idx_upload_sessions_observation"),
         ] {
             if manager.has_index(table, name).await? {
-                if name.contains("file_blobs") {
-                    let mut drop = Index::drop().name(name).table(FileBlobs::Table).to_owned();
-                    if manager.get_database_backend() == DbBackend::Postgres {
-                        drop.concurrently();
-                    }
-                    manager.drop_index(drop).await?;
-                } else {
-                    let mut drop = Index::drop()
-                        .name(name)
-                        .table(UploadSessions::Table)
-                        .to_owned();
-                    if manager.get_database_backend() == DbBackend::Postgres {
-                        drop.concurrently();
-                    }
-                    manager.drop_index(drop).await?;
+                let mut drop = Index::drop().name(name).table(Alias::new(table)).to_owned();
+                if manager.get_database_backend() == DbBackend::Postgres {
+                    drop.concurrently();
                 }
+                manager.drop_index(drop).await?;
             }
         }
         if manager
@@ -111,6 +86,56 @@ impl MigrationTrait for Migration {
         }
         Ok(())
     }
+}
+
+/// A failed concurrent build is still visible by name. Only a valid index can
+/// satisfy the migration; resolve it through its table's namespace, not search-path
+/// lookup of the index name alone.
+async fn ensure_observation_index(
+    manager: &SchemaManager<'_>,
+    table: &str,
+    name: &str,
+    columns: &[&str],
+) -> Result<(), DbErr> {
+    let postgres = manager.get_database_backend() == DbBackend::Postgres;
+    if postgres {
+        let db = manager.get_connection();
+        if let Some(row) = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "SELECT i.indisvalid, n.nspname FROM pg_index i \
+             JOIN pg_class c ON c.oid = i.indexrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE i.indrelid = to_regclass($1) AND c.relname = $2",
+                [table.into(), name.into()],
+            ))
+            .await?
+        {
+            if row.try_get::<bool>("", "indisvalid")? {
+                return Ok(());
+            }
+            let schema = row.try_get::<String>("", "nspname")?;
+            db.execute_unprepared(&format!(
+                "DROP INDEX CONCURRENTLY \"{}\".\"{}\"",
+                schema.replace('"', "\"\""),
+                name.replace('"', "\"\""),
+            ))
+            .await?;
+        }
+    } else if manager.has_index(table, name).await? {
+        return Ok(());
+    }
+    let mut index = Index::create()
+        .name(name)
+        .table(Alias::new(table))
+        .to_owned();
+    for column in columns {
+        index.col(Alias::new(*column));
+    }
+    if postgres {
+        index.concurrently();
+    }
+    manager.create_index(index).await
 }
 
 async fn backfill_cleanup_pending_since(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
@@ -153,20 +178,12 @@ async fn backfill_cleanup_pending_since(manager: &SchemaManager<'_>) -> Result<(
 }
 
 #[derive(DeriveIden)]
-enum UploadSessions {
-    Table,
-    Status,
-    SessionKind,
-    ExpiresAt,
-    CreatedAt,
-    TotalSize,
-}
-#[derive(DeriveIden)]
 enum FileBlobs {
     Table,
     Id,
     UpdatedAt,
     RefCount,
+    #[cfg(test)]
     Backing,
     CleanupPendingSince,
 }

@@ -33,11 +33,18 @@ pub(crate) fn payload_deferred(
     metrics: SharedMetricsRecorder,
     labels: TransferLabels,
 ) -> (actix_web::dev::Payload, TransferCompletion) {
-    let guard = std::sync::Arc::new(std::sync::Mutex::new(TransferGuard::new(metrics, labels)));
-    let completion = TransferCompletion(guard.clone());
+    if !metrics.enabled() {
+        return (payload, TransferCompletion(None));
+    }
+    // Actix Payload is local to its worker; sharing completion needs no atomic
+    // reference counting or mutex on the per-chunk recording path.
+    let guard = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let completion = TransferCompletion(Some(guard.clone()));
     let observed = DeferredPayload {
         inner: payload,
         guard,
+        metrics,
+        labels,
     };
     (
         actix_web::dev::Payload::from(Box::pin(observed)
@@ -46,10 +53,14 @@ pub(crate) fn payload_deferred(
     )
 }
 
-pub(crate) struct TransferCompletion(std::sync::Arc<std::sync::Mutex<TransferGuard>>);
+type DeferredGuard = std::rc::Rc<std::cell::RefCell<Option<TransferGuard>>>;
+
+pub(crate) struct TransferCompletion(Option<DeferredGuard>);
 impl TransferCompletion {
     pub(crate) fn finish(&self, outcome: TransferOutcome) {
-        if let Ok(mut guard) = self.0.lock() {
+        if let Some(shared) = &self.0
+            && let Some(guard) = shared.borrow_mut().as_mut()
+        {
             guard.finish(outcome);
         }
     }
@@ -62,23 +73,27 @@ impl Drop for TransferCompletion {
 
 struct DeferredPayload {
     inner: actix_web::dev::Payload,
-    guard: std::sync::Arc<std::sync::Mutex<TransferGuard>>,
+    guard: DeferredGuard,
+    metrics: SharedMetricsRecorder,
+    labels: TransferLabels,
 }
 impl Stream for DeferredPayload {
     type Item = Result<Bytes, actix_web::error::PayloadError>;
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let result = Pin::new(&mut this.inner).poll_next(context);
-        if let Ok(mut guard) = this.guard.lock() {
-            match &result {
-                Poll::Ready(Some(Ok(bytes))) => guard.bytes(bytes.len() as u64),
-                Poll::Ready(Some(Err(_))) => guard.finish(TransferOutcome::Failure),
-                Poll::Ready(None) | Poll::Pending => {}
-            }
+        let mut shared = this.guard.borrow_mut();
+        let guard =
+            shared.get_or_insert_with(|| TransferGuard::new(this.metrics.clone(), this.labels));
+        match &result {
+            Poll::Ready(Some(Ok(bytes))) => guard.bytes(bytes.len() as u64),
+            Poll::Ready(Some(Err(_))) => guard.finish(TransferOutcome::Failure),
+            Poll::Ready(None) | Poll::Pending => {}
         }
         result
     }
 }
+
 struct ObservedPayload {
     inner: actix_web::dev::Payload,
     // A rejected request that never polls the body is not a cancelled transfer.
@@ -347,5 +362,96 @@ mod tests {
         drop(observed);
         assert_eq!(*capture.bytes.lock().unwrap(), 0);
         assert!(capture.outcomes.lock().unwrap().is_empty());
+    }
+    fn input_payload(
+        items: Vec<Result<Bytes, actix_web::error::PayloadError>>,
+    ) -> actix_web::dev::Payload {
+        actix_web::dev::Payload::from(
+            Box::pin(futures::stream::iter(items)) as Pin<Box<dyn Stream<Item = _>>>
+        )
+    }
+
+    #[actix_web::test]
+    async fn deferred_eof_waits_for_validation_or_writer_result_and_finishes_once() {
+        use futures::StreamExt;
+        for bytes in [b"".as_slice(), b"abc".as_slice()] {
+            for outcome in [
+                TransferOutcome::Success,
+                TransferOutcome::Failure,
+                TransferOutcome::Cancelled,
+            ] {
+                let capture = Arc::new(Capture::default());
+                let (mut body, completion) = payload_deferred(
+                    input_payload(vec![Ok(Bytes::copy_from_slice(bytes))]),
+                    capture.clone(),
+                    labels(),
+                );
+                assert_eq!(*capture.active.lock().unwrap(), 0);
+                assert_eq!(body.next().await.unwrap().unwrap(), bytes);
+                assert!(body.next().await.is_none());
+                assert!(body.next().await.is_none());
+                assert_eq!(*capture.active.lock().unwrap(), 1);
+                assert!(
+                    capture.outcomes.lock().unwrap().is_empty(),
+                    "EOF is not a committed upload"
+                );
+                drop(body);
+                if outcome != TransferOutcome::Cancelled {
+                    completion.finish(outcome);
+                    completion.finish(TransferOutcome::Success);
+                }
+                drop(completion);
+                assert_capture(&capture, bytes.len() as u64, outcome);
+            }
+        }
+    }
+
+    #[actix_web::test]
+    async fn deferred_payload_error_and_cancellation_preserve_bytes_and_first_outcome() {
+        use futures::StreamExt;
+        for fail in [false, true] {
+            let capture = Arc::new(Capture::default());
+            let (mut body, completion) = payload_deferred(
+                input_payload(vec![
+                    Ok(Bytes::from_static(b"abc")),
+                    Err(actix_web::error::PayloadError::Incomplete(None)),
+                ]),
+                capture.clone(),
+                labels(),
+            );
+            assert!(body.next().await.unwrap().is_ok());
+            if fail {
+                assert!(body.next().await.unwrap().is_err());
+                completion.finish(TransferOutcome::Success);
+            }
+            drop(completion);
+            drop(body);
+            assert_capture(
+                &capture,
+                3,
+                if fail {
+                    TransferOutcome::Failure
+                } else {
+                    TransferOutcome::Cancelled
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn deferred_unpolled_body_and_disabled_metrics_have_no_observation_state() {
+        let capture = Arc::new(Capture::default());
+        let (body, completion) =
+            payload_deferred(actix_web::dev::Payload::None, capture.clone(), labels());
+        drop((body, completion));
+        assert_eq!(*capture.active.lock().unwrap(), 0);
+        assert!(capture.outcomes.lock().unwrap().is_empty());
+        let (body, completion) = payload_deferred(
+            actix_web::dev::Payload::None,
+            aster_drive_metrics::NoopMetrics::arc(),
+            labels(),
+        );
+        assert!(matches!(body, actix_web::dev::Payload::None));
+        assert!(completion.0.is_none());
     }
 }

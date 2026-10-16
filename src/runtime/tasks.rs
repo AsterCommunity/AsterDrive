@@ -790,3 +790,53 @@ pub(crate) mod test_support {
         })
     }
 }
+
+#[cfg(test)]
+mod metrics_sampling_tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[tokio::test]
+    async fn cancelled_sampler_never_starts_database_work() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let stop = CancellationToken::new();
+        stop.cancel();
+        metrics_sampling_loop(web::Data::new(()), stop, move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            async {}
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn sampler_runs_immediately_and_cancels_an_inflight_sample() {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let stop = CancellationToken::new();
+        let worker_stop = stop.clone();
+        let worker_entered = entered.clone();
+        let worker = tokio::spawn(metrics_sampling_loop(
+            web::Data::new(()),
+            worker_stop,
+            move |_| {
+                let entered = worker_entered.clone();
+                async move {
+                    entered.notify_one();
+                    std::future::pending::<()>().await;
+                }
+            },
+        ));
+        tokio::time::timeout(Duration::from_secs(2), entered.notified())
+            .await
+            .unwrap();
+        stop.cancel();
+        tokio::time::timeout(Duration::from_secs(2), worker)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}

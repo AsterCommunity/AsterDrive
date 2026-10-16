@@ -1166,4 +1166,181 @@ mod tests {
         assert!(body.contains("data_plane=\"streaming_direct\""));
         assert!(body.contains("data_plane=\"staged\""));
     }
+    #[cfg(feature = "prometheus")]
+    #[tokio::test]
+    async fn data_plane_records_counts_terminal_outcomes_and_remote_reasons_exactly_once() {
+        use super::*;
+        let provider = aster_forge_metrics::MetricsProvider::builder()
+            .with_prometheus()
+            .unwrap()
+            .build()
+            .unwrap();
+        let metrics = create_metrics_recorder(provider.clone()).unwrap();
+        let labels = TransferLabels {
+            direction: TransferDirection::Ingress,
+            source: TransferSource::File,
+            mode: TransferMode::Chunked,
+        };
+        let mut transfer = TransferGuard::new(metrics.clone(), labels);
+        transfer.bytes(3);
+        transfer.bytes(7);
+        transfer.finish(TransferOutcome::Failure);
+        transfer.finish(TransferOutcome::Success);
+        drop(transfer);
+        metrics.admission_rejection(AdmissionReason::Quota);
+        metrics.upload_phase(
+            "chunked",
+            UploadPhase::Ingest,
+            TransferOutcome::Failure,
+            0.25,
+        );
+        metrics.blob_cleanup(CleanupOutcome::Deleted, 42);
+        metrics.remote_nodes("online", 2);
+        metrics.remote_connections(1);
+        metrics.remote_connections(-1);
+        metrics.remote_reconnect(RemoteReason::Disconnected);
+        metrics.remote_request(
+            RemoteTransport::Reverse,
+            RemoteOperation::Write,
+            TransferOutcome::Failure,
+            RemoteReason::Timeout,
+            0.5,
+        );
+        let body = provider
+            .export_prometheus(std::time::Duration::from_secs(1))
+            .await
+            .unwrap();
+        for expected in [
+            "file_transfer_bytes_total{direction=\"ingress\",mode=\"chunked\",source=\"file\"} 10",
+            "file_transfers_in_flight{direction=\"ingress\",mode=\"chunked\",source=\"file\"} 0",
+            "file_transfer_duration_seconds_count{direction=\"ingress\",mode=\"chunked\",outcome=\"failure\",source=\"file\"} 1",
+            "upload_admission_rejections_total{reason=\"quota\"} 1",
+            "upload_phase_duration_seconds_sum{mode=\"chunked\",phase=\"ingest\",status=\"failure\"} 0.25",
+            "blob_cleanup_retired_backing_bytes_total 42",
+            "remote_nodes{status=\"online\"} 2",
+            "remote_tunnel_connections 0",
+            "remote_tunnel_reconnects_total{reason=\"disconnected\"} 1",
+            "remote_requests_total{operation=\"write\",reason=\"timeout\",status=\"failure\",transport=\"reverse\"} 1",
+            "remote_request_duration_seconds_sum{operation=\"write\",status=\"failure\",transport=\"reverse\"} 0.5",
+        ] {
+            assert!(
+                body.lines().any(|line| line == expected),
+                "missing {expected} in {body}"
+            );
+        }
+        assert!(
+            !body.contains("outcome=\"success\""),
+            "terminal guard must not double count"
+        );
+    }
+
+    #[cfg(feature = "prometheus")]
+    #[tokio::test]
+    async fn invalid_snapshots_and_unknown_capacity_preserve_last_observation_with_validity_flags()
+    {
+        let provider = aster_forge_metrics::MetricsProvider::builder()
+            .with_prometheus()
+            .unwrap()
+            .build()
+            .unwrap();
+        let metrics = super::create_metrics_recorder(provider.clone()).unwrap();
+        metrics.upload_backlog("stream", "expired", 3, 120.0);
+        metrics.blob_cleanup_backlog(2, 240.0);
+        metrics.staging_snapshot("reserved", 42);
+        metrics.capacity_snapshot("staging", Some(80), Some(100), Some(20));
+        metrics.snapshot_status("database", true, 1234.0);
+        metrics.snapshot_status("database", false, 9999.0);
+        metrics.capacity_snapshot("staging", None, None, None);
+        let body = provider
+            .export_prometheus(std::time::Duration::from_secs(1))
+            .await
+            .unwrap();
+        for expected in [
+            "upload_sessions_active{mode=\"stream\",state=\"expired\"} 3",
+            "upload_session_oldest_age_seconds{mode=\"stream\",state=\"expired\"} 120",
+            "blob_cleanup_pending 2",
+            "blob_cleanup_oldest_age_seconds 240",
+            "observability_snapshot_valid{source=\"database\"} 0",
+            "observability_snapshot_last_success_timestamp_seconds{source=\"database\"} 1234",
+            "storage_capacity_bytes{kind=\"available\",scope=\"staging\"} 80",
+            "storage_capacity_bytes{kind=\"total\",scope=\"staging\"} 100",
+            "storage_capacity_bytes{kind=\"used\",scope=\"staging\"} 20",
+            "storage_capacity_known{kind=\"available\",scope=\"staging\"} 0",
+            "storage_capacity_known{kind=\"total\",scope=\"staging\"} 0",
+            "storage_capacity_known{kind=\"used\",scope=\"staging\"} 0",
+        ] {
+            assert!(
+                body.lines().any(|line| line == expected),
+                "missing {expected} in {body}"
+            );
+        }
+    }
+    #[cfg(feature = "prometheus")]
+    #[tokio::test]
+    async fn product_and_shared_recorders_use_the_same_provider_without_cross_instance_writes() {
+        let provider = aster_forge_metrics::MetricsProvider::builder()
+            .with_prometheus()
+            .unwrap()
+            .build()
+            .unwrap();
+        let isolated = aster_forge_metrics::MetricsProvider::builder()
+            .with_prometheus()
+            .unwrap()
+            .build()
+            .unwrap();
+        let metrics = super::create_metrics_recorder(provider.clone()).unwrap();
+        let _isolated_metrics = super::create_metrics_recorder(isolated.clone()).unwrap();
+        metrics.record_auth_event("login", "failure", "credentials");
+        metrics.record_config_reload("database", "applied", "success", 2, 0.125);
+        metrics.record_config_mutation("admin", "update", "success", 3);
+        metrics.record_background_task_transition("cleanup", "retry");
+        metrics.set_background_tasks_pending(4);
+        metrics.record_file_upload("stream", "success");
+        metrics.record_file_download("share", "success", true);
+        metrics.record_upload_session("chunked");
+        metrics.record_upload_session_event("chunked", "complete", "success");
+        metrics.record_storage_routing("default", "selected");
+        metrics.record_storage_routing_detail("profile", "rule", "policy", "default", "selected");
+        metrics.record_storage_driver_operation("local", "read", "success", "stream", 0.5);
+        metrics.record_share_download_rollback_event("retried", 2);
+        metrics.set_share_download_rollback_pending(1);
+        let body = metrics
+            .forge_recorder()
+            .provider()
+            .unwrap()
+            .export_prometheus(std::time::Duration::from_secs(1))
+            .await
+            .unwrap();
+        for expected in [
+            "auth_events_total{action=\"login\",reason=\"credentials\",status=\"failure\"} 1",
+            "config_reloads_total{decision=\"applied\",source=\"database\",status=\"success\"} 1",
+            "config_mutations_total{operation=\"update\",source=\"admin\",status=\"success\"} 1",
+            "background_tasks_total{kind=\"cleanup\",status=\"retry\"} 1",
+            "background_task_retries_total{kind=\"cleanup\"} 1",
+            "background_tasks_pending 4",
+            "file_uploads_total{mode=\"stream\",status=\"success\"} 1",
+            "file_downloads_total{outcome=\"success\",range=\"range\",source=\"share\"} 1",
+            "storage_driver_operations_total{driver=\"local\",kind=\"stream\",operation=\"read\",status=\"success\"} 1",
+            "share_download_rollback_events_total{event=\"retried\"} 2",
+            "share_download_rollback_pending 1",
+        ] {
+            assert!(
+                body.lines().any(|line| line == expected),
+                "missing {expected} in {body}"
+            );
+        }
+        assert_eq!(
+            body,
+            provider
+                .export_prometheus(std::time::Duration::from_secs(1))
+                .await
+                .unwrap()
+        );
+        let other = isolated
+            .export_prometheus(std::time::Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(!other.contains("action=\"login\""));
+        assert!(!other.contains("source=\"share\""));
+    }
 }

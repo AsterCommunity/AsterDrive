@@ -146,3 +146,86 @@ async fn backlog_aggregates_cleanup_interval_and_observation_migration_round_tri
     assert_eq!(restored.cleanup_pending_since, Some(restored.updated_at));
     assert_eq!(observability_repo::blob_backlog(db).await.unwrap().count, 1);
 }
+
+#[tokio::test]
+async fn postgres_failed_concurrent_indexes_are_rebuilt_without_touching_other_schemas() {
+    use sea_orm::{ConnectOptions, Database, DbBackend};
+    let mut options = ConnectOptions::new(common::postgres_empty_test_database_url().await);
+    options.max_connections(1);
+    let db = Database::connect(options).await.unwrap();
+    for sql in [
+        "CREATE TABLE file_blobs (id BIGINT PRIMARY KEY, ref_count INTEGER, backing TEXT, updated_at TIMESTAMPTZ)",
+        "INSERT INTO file_blobs VALUES (1, 0, 'stored', NOW()), (2, 0, 'stored', NOW())",
+        "CREATE TABLE upload_sessions (status TEXT, session_kind TEXT, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ, total_size BIGINT)",
+        "INSERT INTO upload_sessions VALUES ('uploading', 'stream', NOW(), NOW(), 1), ('uploading', 'stream', NOW(), NOW(), 2)",
+        "CREATE SCHEMA unrelated",
+        "CREATE TABLE unrelated.file_blobs (ref_count INTEGER)",
+        "INSERT INTO unrelated.file_blobs VALUES (0), (0)",
+    ] {
+        db.execute_unprepared(sql).await.unwrap();
+    }
+    // Produce genuine interrupted-build state through duplicate data, without
+    // modifying PostgreSQL catalogs or relying on timing a cancellation.
+    for sql in [
+        "CREATE UNIQUE INDEX CONCURRENTLY idx_upload_sessions_observation ON upload_sessions(status)",
+        "CREATE UNIQUE INDEX CONCURRENTLY idx_file_blobs_cleanup_observation ON file_blobs(ref_count)",
+        "CREATE UNIQUE INDEX CONCURRENTLY idx_file_blobs_cleanup_observation ON unrelated.file_blobs(ref_count)",
+    ] {
+        assert!(db.execute_unprepared(sql).await.is_err());
+    }
+    let index_state = || async {
+        db.query_all_raw(Statement::from_string(DbBackend::Postgres,
+            "SELECT n.nspname, c.relname, c.oid::bigint AS oid, i.indisvalid, pg_get_indexdef(c.oid) AS definition FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname IN ('idx_upload_sessions_observation', 'idx_file_blobs_cleanup_observation') ORDER BY n.nspname, c.relname"))
+            .await.unwrap()
+    };
+    let before = index_state().await;
+    assert_eq!(before.len(), 3);
+    assert!(
+        before
+            .iter()
+            .all(|row| !row.try_get::<bool>("", "indisvalid").unwrap())
+    );
+    let migration = Migrator::migrations().pop().unwrap();
+    let manager = aster_drive_migration::SchemaManager::new(&db);
+    migration.up(&manager).await.unwrap();
+    let rebuilt = index_state().await;
+    for row in &rebuilt {
+        let schema = row.try_get::<String>("", "nspname").unwrap();
+        assert_eq!(
+            row.try_get::<bool>("", "indisvalid").unwrap(),
+            schema == "public"
+        );
+        if schema == "public" {
+            let definition = row.try_get::<String>("", "definition").unwrap();
+            assert!(!definition.contains("UNIQUE"));
+            assert!(
+                definition.contains("cleanup_pending_since") || definition.contains("total_size")
+            );
+        }
+    }
+    migration.up(&manager).await.unwrap();
+    assert_eq!(
+        rebuilt
+            .iter()
+            .map(|row| row.try_get::<i64>("", "oid").unwrap())
+            .collect::<Vec<_>>(),
+        index_state()
+            .await
+            .iter()
+            .map(|row| row.try_get::<i64>("", "oid").unwrap())
+            .collect::<Vec<_>>(),
+        "retry must preserve valid indexes and unrelated invalid indexes"
+    );
+    db.execute_unprepared("DROP INDEX CONCURRENTLY idx_file_blobs_cleanup_observation")
+        .await
+        .unwrap();
+    migration.down(&manager).await.unwrap();
+    migration.down(&manager).await.unwrap();
+    migration.up(&manager).await.unwrap();
+    assert!(
+        manager
+            .has_column("file_blobs", "cleanup_pending_since")
+            .await
+            .unwrap()
+    );
+}

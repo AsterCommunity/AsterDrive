@@ -160,6 +160,32 @@ fn to_io_error(error: impl std::fmt::Display) -> io::Error {
 mod tests {
     use super::worker_count;
 
+    #[tokio::test]
+    async fn final_metrics_shutdown_preserves_runtime_error_and_closes_provider() {
+        use super::finish_metrics;
+        let provider = aster_forge_metrics::MetricsProvider::builder()
+            .build()
+            .unwrap();
+        let error = finish_metrics(
+            Err(std::io::Error::other("runtime failed")),
+            Some(provider.clone()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), "runtime failed");
+        assert_eq!(provider.shutdown_result(), Some(Ok(())));
+        assert!(!provider.enabled());
+        finish_metrics(Ok(()), Some(provider)).await.unwrap();
+        finish_metrics(Ok(()), None).await.unwrap();
+        assert_eq!(
+            finish_metrics(Err(std::io::Error::other("original")), None)
+                .await
+                .unwrap_err()
+                .to_string(),
+            "original"
+        );
+    }
+
     #[test]
     fn worker_count_uses_cpu_count_when_configured_zero() {
         assert_eq!(worker_count(0), num_cpus::get());
