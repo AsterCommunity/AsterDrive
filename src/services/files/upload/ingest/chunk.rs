@@ -681,10 +681,8 @@ async fn upload_chunk_payload_impl(
     chunk_number: i32,
     payload: actix_web::dev::Payload,
 ) -> Result<ChunkUploadResponse> {
-    let db = state.writer_db();
-    let upload_id = session.id.as_str();
     tracing::debug!(
-        upload_id,
+        upload_id = %session.id,
         chunk_number,
         status = ?session.status,
         total_chunks = session.total_chunks,
@@ -721,7 +719,28 @@ async fn upload_chunk_payload_impl(
         ));
     }
 
-    let mut payload = crate::storage::transfer_metrics::payload(
+    return upload_chunk_payload_after_validation(
+        state,
+        session,
+        chunk_number,
+        payload,
+        expected_size,
+        session_kind,
+    )
+    .await;
+}
+
+async fn upload_chunk_payload_after_validation(
+    state: &PrimaryAppState,
+    session: upload_session::Model,
+    chunk_number: i32,
+    payload: actix_web::dev::Payload,
+    expected_size: i64,
+    session_kind: aster_drive_model::types::UploadSessionKind,
+) -> Result<ChunkUploadResponse> {
+    let db = state.writer_db();
+    let upload_id = session.id.clone();
+    let (mut payload, transfer_completion) = crate::storage::transfer_metrics::payload_deferred(
         payload,
         state.metrics().clone(),
         aster_drive_metrics::TransferLabels {
@@ -739,6 +758,7 @@ async fn upload_chunk_payload_impl(
             },
         },
     );
+    let result = async {
 
     if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
         return crate::services::files::upload::ingest::provider_relay::upload_payload(
@@ -758,9 +778,9 @@ async fn upload_chunk_payload_impl(
         let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
         let object_part_number = chunk_number + 1;
 
-        if !upload_session_part_repo::try_claim_part(db, upload_id, object_part_number).await? {
+        if !upload_session_part_repo::try_claim_part(db, &upload_id, object_part_number).await? {
             drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
-            let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+            let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
             tracing::debug!(
                 upload_id,
                 chunk_number,
@@ -794,7 +814,7 @@ async fn upload_chunk_payload_impl(
             Err(err) => {
                 if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
                     db,
-                    upload_id,
+                    &upload_id,
                     object_part_number,
                 )
                 .await
@@ -813,13 +833,13 @@ async fn upload_chunk_payload_impl(
         let finalize_result = async {
             upload_session_part_repo::upsert_part(
                 &txn,
-                upload_id,
+                &upload_id,
                 object_part_number,
                 &etag,
                 expected_size,
             )
             .await?;
-            increment_session_received_count(&txn, upload_id).await?;
+            increment_session_received_count(&txn, &upload_id).await?;
             transaction::commit(txn).await?;
             Ok::<(), AsterError>(())
         }
@@ -828,7 +848,7 @@ async fn upload_chunk_payload_impl(
         if let Err(err) = finalize_result {
             if let Err(cleanup_err) = upload_session_part_repo::delete_by_upload_and_part(
                 db,
-                upload_id,
+                &upload_id,
                 object_part_number,
             )
             .await
@@ -842,7 +862,7 @@ async fn upload_chunk_payload_impl(
             return Err(err);
         }
 
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+        let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
         tracing::debug!(
             upload_id,
             chunk_number,
@@ -857,7 +877,7 @@ async fn upload_chunk_payload_impl(
         });
     }
 
-    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
+    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, &upload_id);
 
     if matches!(
         session_kind,
@@ -866,15 +886,15 @@ async fn upload_chunk_payload_impl(
     ) {
         staging::ensure_reservations_recovered(state).await?;
         #[cfg(debug_assertions)]
-        test_support::rendezvous_before_staging_write_lock(upload_id).await;
+        test_support::rendezvous_before_staging_write_lock(&upload_id).await;
         let _chunk_write_lock =
-            acquire_local_chunk_write_lock(&chunk_dir, upload_id, chunk_number).await?;
+            acquire_local_chunk_write_lock(&chunk_dir, &upload_id, chunk_number).await?;
         #[cfg(debug_assertions)]
         let _staging_write_test_guard =
-            test_support::enter_staging_write_critical_section(upload_id).await;
-        if has_staged_chunk_receipt(db, upload_id, chunk_number, expected_size).await? {
+            test_support::enter_staging_write_critical_section(&upload_id).await;
+        if has_staged_chunk_receipt(db, &upload_id, chunk_number, expected_size).await? {
             drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
-            let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+            let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
             if updated.status != UploadSessionStatus::Uploading {
                 return Err(upload_session_chunk_unavailable_error(&updated));
             }
@@ -899,9 +919,9 @@ async fn upload_chunk_payload_impl(
             expected_size,
         )
         .await?;
-        commit_staged_chunk_receipt(state, upload_id, chunk_number, expected_size).await?;
+        commit_staged_chunk_receipt(state, &upload_id, chunk_number, expected_size).await?;
 
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+        let updated = upload_session_repo::find_by_id(db, &upload_id).await?;
         tracing::debug!(
             upload_id,
             chunk_number,
@@ -922,6 +942,13 @@ async fn upload_chunk_payload_impl(
             session_kind.as_str()
         ),
     ))
+    }.await;
+    transfer_completion.finish(if result.is_ok() {
+        aster_drive_metrics::TransferOutcome::Success
+    } else {
+        aster_drive_metrics::TransferOutcome::Failure
+    });
+    result
 }
 
 /// 上传单个分片

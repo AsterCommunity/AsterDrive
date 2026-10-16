@@ -154,7 +154,7 @@ jobs:
       - name: Run tests with coverage
         env:
           NEXTEST_PROFILE: ci
-        run: cargo llvm-cov nextest --workspace --no-fail-fast --lcov --output-path coverage/rust/lcov.info
+        run: cargo llvm-cov nextest --workspace --no-fail-fast --features metrics,otlp-metrics --lcov --output-path coverage/rust/lcov.info
 
       - name: Generate HTML coverage report
         if: success()

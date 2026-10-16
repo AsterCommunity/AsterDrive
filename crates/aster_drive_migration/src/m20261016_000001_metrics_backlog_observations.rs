@@ -1,6 +1,6 @@
 //! Persist the cleanup interval independently of retry timestamps and index periodic backlog reads.
 use sea_orm_migration::prelude::*;
-use sea_orm_migration::sea_orm::ConnectionTrait;
+use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend};
 
 const BACKFILL_BATCH_SIZE: u64 = 1_000;
 
@@ -40,63 +40,76 @@ impl MigrationTrait for Migration {
             .has_index("upload_sessions", "idx_upload_sessions_observation")
             .await?
         {
-            manager
-                .create_index(
-                    Index::create()
-                        .name("idx_upload_sessions_observation")
-                        .table(UploadSessions::Table)
-                        .col(UploadSessions::Status)
-                        .col(UploadSessions::SessionKind)
-                        .col(UploadSessions::ExpiresAt)
-                        .col(UploadSessions::CreatedAt)
-                        .col(UploadSessions::TotalSize)
-                        .to_owned(),
-                )
-                .await?;
+            let mut index = Index::create()
+                .name("idx_upload_sessions_observation")
+                .table(UploadSessions::Table)
+                .col(UploadSessions::Status)
+                .col(UploadSessions::SessionKind)
+                .col(UploadSessions::ExpiresAt)
+                .col(UploadSessions::CreatedAt)
+                .col(UploadSessions::TotalSize)
+                .to_owned();
+            if manager.get_database_backend() == DbBackend::Postgres {
+                index.concurrently();
+            }
+            manager.create_index(index).await?;
         }
         if !manager
             .has_index("file_blobs", "idx_file_blobs_cleanup_observation")
             .await?
         {
+            let mut index = Index::create()
+                .name("idx_file_blobs_cleanup_observation")
+                .table(FileBlobs::Table)
+                .col(FileBlobs::RefCount)
+                .col(FileBlobs::Backing)
+                .col(FileBlobs::CleanupPendingSince)
+                .to_owned();
+            if manager.get_database_backend() == DbBackend::Postgres {
+                index.concurrently();
+            }
+            manager.create_index(index).await?;
+        }
+        Ok(())
+    }
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        for (table, name) in [
+            ("file_blobs", "idx_file_blobs_cleanup_observation"),
+            ("upload_sessions", "idx_upload_sessions_observation"),
+        ] {
+            if manager.has_index(table, name).await? {
+                if name.contains("file_blobs") {
+                    let mut drop = Index::drop().name(name).table(FileBlobs::Table).to_owned();
+                    if manager.get_database_backend() == DbBackend::Postgres {
+                        drop.concurrently();
+                    }
+                    manager.drop_index(drop).await?;
+                } else {
+                    let mut drop = Index::drop()
+                        .name(name)
+                        .table(UploadSessions::Table)
+                        .to_owned();
+                    if manager.get_database_backend() == DbBackend::Postgres {
+                        drop.concurrently();
+                    }
+                    manager.drop_index(drop).await?;
+                }
+            }
+        }
+        if manager
+            .has_column("file_blobs", "cleanup_pending_since")
+            .await?
+        {
             manager
-                .create_index(
-                    Index::create()
-                        .name("idx_file_blobs_cleanup_observation")
+                .alter_table(
+                    Table::alter()
                         .table(FileBlobs::Table)
-                        .col(FileBlobs::RefCount)
-                        .col(FileBlobs::Backing)
-                        .col(FileBlobs::CleanupPendingSince)
+                        .drop_column(FileBlobs::CleanupPendingSince)
                         .to_owned(),
                 )
                 .await?;
         }
         Ok(())
-    }
-    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .drop_index(
-                Index::drop()
-                    .name("idx_file_blobs_cleanup_observation")
-                    .table(FileBlobs::Table)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_index(
-                Index::drop()
-                    .name("idx_upload_sessions_observation")
-                    .table(UploadSessions::Table)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(FileBlobs::Table)
-                    .drop_column(FileBlobs::CleanupPendingSince)
-                    .to_owned(),
-            )
-            .await
     }
 }
 

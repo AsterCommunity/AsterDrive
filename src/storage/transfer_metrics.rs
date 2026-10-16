@@ -26,6 +26,59 @@ pub(crate) fn payload(
     })
         as Pin<Box<dyn Stream<Item = Result<Bytes, actix_web::error::PayloadError>>>>)
 }
+
+/// Wrap a request body while leaving its final outcome to the caller's validation.
+pub(crate) fn payload_deferred(
+    payload: actix_web::dev::Payload,
+    metrics: SharedMetricsRecorder,
+    labels: TransferLabels,
+) -> (actix_web::dev::Payload, TransferCompletion) {
+    let guard = std::sync::Arc::new(std::sync::Mutex::new(TransferGuard::new(metrics, labels)));
+    let completion = TransferCompletion(guard.clone());
+    let observed = DeferredPayload {
+        inner: payload,
+        guard,
+    };
+    (
+        actix_web::dev::Payload::from(Box::pin(observed)
+            as Pin<Box<dyn Stream<Item = Result<Bytes, actix_web::error::PayloadError>>>>),
+        completion,
+    )
+}
+
+pub(crate) struct TransferCompletion(std::sync::Arc<std::sync::Mutex<TransferGuard>>);
+impl TransferCompletion {
+    pub(crate) fn finish(&self, outcome: TransferOutcome) {
+        if let Ok(mut guard) = self.0.lock() {
+            guard.finish(outcome);
+        }
+    }
+}
+impl Drop for TransferCompletion {
+    fn drop(&mut self) {
+        self.finish(TransferOutcome::Cancelled);
+    }
+}
+
+struct DeferredPayload {
+    inner: actix_web::dev::Payload,
+    guard: std::sync::Arc<std::sync::Mutex<TransferGuard>>,
+}
+impl Stream for DeferredPayload {
+    type Item = Result<Bytes, actix_web::error::PayloadError>;
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        let result = Pin::new(&mut this.inner).poll_next(context);
+        if let Ok(mut guard) = this.guard.lock() {
+            match &result {
+                Poll::Ready(Some(Ok(bytes))) => guard.bytes(bytes.len() as u64),
+                Poll::Ready(Some(Err(_))) => guard.finish(TransferOutcome::Failure),
+                Poll::Ready(None) | Poll::Pending => {}
+            }
+        }
+        result
+    }
+}
 struct ObservedPayload {
     inner: actix_web::dev::Payload,
     // A rejected request that never polls the body is not a cancelled transfer.
