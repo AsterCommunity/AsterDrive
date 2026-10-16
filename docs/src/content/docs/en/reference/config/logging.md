@@ -8,6 +8,8 @@ First decide where logs should go: stdout, journald, or a file. The other option
 When troubleshooting, look at the API response `code` first. If runtime logs include a structured `error_code` field, keep it as well. See [error handling](/en/reference/errors/) for the error code reference.
 :::
 
+See the [monitoring capability matrix](/en/ops/monitoring/) for current signals, compiled capabilities and revision evidence.
+
 ```toml
 [logging]
 level = "info"

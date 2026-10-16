@@ -8,6 +8,8 @@ title: "日志"
 排障时优先看 API 响应里的 `code`；运行日志里如果有结构化 `error_code` 字段，也一起保留。错误码对照见 [错误码处理](/reference/errors/)。
 :::
 
+观测信号的当前支持状态、编译能力及版本证据统一见[监控能力矩阵](/ops/monitoring/)。
+
 ```toml
 [logging]
 level = "info"

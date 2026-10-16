@@ -73,6 +73,8 @@ jobs:
         working-directory: docs
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Observability evidence checks inspect pinned source commits.
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

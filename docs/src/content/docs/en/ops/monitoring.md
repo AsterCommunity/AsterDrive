@@ -16,6 +16,53 @@ GET /health/metrics
 
 under the health check path. The output is Prometheus text exposition and covers HTTP, database, uploads and downloads, background tasks, storage drivers, authentication events, share download rollback, and process resources.
 
+## Current capabilities and evidence
+
+This page owns Drive's consumer capability and configuration contract. The [Forge consumer index](https://github.com/AsterCommunity/AsterForge/blob/master/docs/en/guide/reference-projects.md) owns public mechanisms and revision evidence. Checked on **2026-10-17** against merged source; planned support does not imply availability in released artifacts.
+
+| Signal | Current support | Enablement and limits |
+| --- | --- | --- |
+| Local text / JSON logs | Integrated with Forge logging | `[logging]`; stdout or file; `RUST_LOG` takes priority; see [logging](/en/reference/config/logging/) |
+| Prometheus metrics | Integrated with instance-owned Forge provider | `metrics` feature + `observability.prometheus.enabled`; primary/follower; disabled by default |
+| OTLP metrics | Integrated; independent of or concurrent with Prometheus | `otlp-metrics` feature + `observability.otlp_metrics.enabled`; HTTP/protobuf; disabled by default |
+| OTLP traces / cross-node traces / trace-log correlation | Unsupported | Forge #45 / Drive #638; existing `tracing` spans and request_id do not provide OTel export |
+| OTLP logs | Unsupported | Local JSON logs are not an OTLP logs exporter |
+| Jemalloc heap profiling / allocator statistics | Separate optional capabilities | See [heap profiling](https://drive.docs.astercosm.com/developer/en/testing/jemalloc-profiling/) for platform/allocator limits; not continuous profiling export |
+| Continuous profiling platform export | Unsupported | No placeholder enablement switch |
+
+### Pinned revisions and integration points
+
+| Item | Evidence |
+| --- | --- |
+| Drive revision | [`4b857c0fc3a27941b36861657225f20786c3831b`](https://github.com/AsterCommunity/AsterDrive/commit/4b857c0fc3a27941b36861657225f20786c3831b) |
+| Forge resolved revision | [`869756f0605c898420a28d3d45006cc33a87d17c`](https://github.com/AsterCommunity/AsterForge/commit/869756f0605c898420a28d3d45006cc33a87d17c); pinned Git dependencies in [Cargo.lock](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/Cargo.lock) and [Cargo.toml](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/Cargo.toml), without local path/patch |
+| Compiled capabilities | [Product metrics crate](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/Cargo.toml): `metrics` enables allocator/runtime-health; `prometheus` / `otlp` forward exporter features; root features are in Cargo.toml above |
+| Configuration and validation | [ObservabilityConfig](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/config/metrics.rs), [example](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/config.example.toml); `ASTER__` overrides, restart required, unknown fields and uncompiled capabilities rejected |
+| Product adapter / sampling | [Typed metric set and recorder](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/src/lib.rs), [background tasks](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/runtime/tasks.rs); Drive owns business SQL, capacity sampling and label semantics |
+| HTTP / role injection | [Health routes](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/api/routes/health.rs), [authentication](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/api/middleware/metrics_auth.rs), [primary/follower components](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/runtime/components.rs) |
+| Lifecycle | [Runtime assembly](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/runtime/assembly.rs); metrics shutdown follows runtime producers and audit recovery, preserving the original runtime error; main retains the logging guard until exit |
+| Forge public contracts | [Metrics](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/docs/crates/aster_forge_metrics.md), [observability](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/docs/crates/aster_forge_observability.md), [logging](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/docs/crates/aster_forge_logging.md) |
+
+### Metric schema and compatibility
+
+The complete declarations belong to the [Forge shared schema](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/crates/aster_forge_metrics/src/lib.rs), its [infrastructure recorder](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/crates/aster_forge_metrics/src/shared.rs), and the [Drive product metric set](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/src/lib.rs). They cover HTTP/DB/auth/task/config/system/health and product transfers, upload phases/backlog, capacity, cleanup, remote transport and avatars. Descriptors define kind, HELP, unit, labels and buckets; there is no second manually maintained inventory.
+
+The [pre-instance product schema fixture](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/tests/fixtures/pre_instance_schema.json) is a historical compatibility subset, not the complete current schema. `migration_preserves_the_entire_pre_instance_product_schema` compares names, kinds, HELP, labels and buckets; [Grafana contract tests](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/tests/grafana_dashboard.rs) check the dashboard. Forge's metrics contract documents the API replacement map. The delivered migration has no planned metric rename; future name/unit/label/bucket changes require an explicit migration and tests.
+
+`process_cpu_milliseconds_total` retains milliseconds. Product transfer bytes, logical file sizes and internal driver/remote I/O must not be added together. `blob_cleanup_retired_backing_bytes_total` accounts for acknowledged backing deletions, not guaranteed filesystem space recovery. Capacity minima are independent dimensions, not additive or suitable for cross-dimension ratios; use validity/last-success data for unknown or stale snapshots.
+
+HTTP duration measures the handler/header stage, while file transfer duration follows the observed stream through EOF/error/drop. Presigned/redirect traffic outside AD's data plane is invisible. Sampled traces cannot replace unsampled throughput counters. A standalone worker role is not delivered; primary/follower evidence does not establish support for it.
+
+### Validation, distribution and maintenance
+
+- **Historical implementation evidence**: [PR #642](https://github.com/AsterCommunity/AsterDrive/pull/642), merged 2026-10-16, used Forge `2beaf986f1740629d3fd8913f865e4134d31e203`. Its local evidence includes four feature/config combinations, both roles' endpoint/authentication tests, schema/Grafana, upload and three-database migration checks. It explicitly did not wait for new CI; this is not an all-green CI claim.
+- **Current dependency evidence**: the pinned revision above is now `869756f0605c898420a28d3d45006cc33a87d17c`. Static inspection does not rerun #642's full matrix at this revision. Each PR records its actual commands/results; historical success does not carry forward automatically.
+- **Distribution evidence**: the [image workflow](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/.github/workflows/docker-image.yml) defines `-metrics` builds. OTLP currently uses source/custom-image builds described below. A workflow is not proof that a tag is downloadable; no particular release artifact, image digest or production rollout was verified here.
+- **Checks**: `bun docs/scripts/check-observability-docs.mjs` checks bilingual revision links, pinned Drive paths and the current Forge lock revision offline. `bash scripts/test-metrics-features.sh` validates four combinations and runs configuration/authentication tests. Static/link checks do not establish runtime behavior or collector delivery.
+- **Ownership**: PRs changing features, configuration, schema, protocols or lifecycle update both translations and the Forge index. Pin existing public commits and record tests, distribution and production separately. Documentation builds run the revision check without fetching consumers.
+
+Metrics and scrape authentication were delivered by #642, closing #636/#637. Remaining traces work is [Drive #638](https://github.com/AsterCommunity/AsterDrive/issues/638) / [Forge #45](https://github.com/AsterCommunity/AsterForge/issues/45). [Drive #639](https://github.com/AsterCommunity/AsterDrive/issues/639) / [Forge #46](https://github.com/AsterCommunity/AsterForge/issues/46) track this source/index. Forge #44 still has library/template acceptance work; Drive does not need another recorder migration.
+
 ## Enable the Metrics Feature
 
 When building from source, use:
@@ -269,6 +316,25 @@ OTLP resource identity includes service/version/environment/role and the automat
 | Both features | independent enablement | Present only with prometheus=true |
 
 Enabling an uncompiled capability fails startup. Compiled but disabled exporters use Noop and start no sampling/push workers. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
+
+
+For a local smoke test, point the metrics endpoint at `http://127.0.0.1:4318/v1/metrics` and run an OpenTelemetry Collector with the following configuration. This accepts metrics only and prints diagnostics; it does not enable traces or persistent storage. No Collector instance was run for this documentation update.
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+exporters:
+  debug:
+    verbosity: basic
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]
+```
 
 ## Production Security Boundary
 
