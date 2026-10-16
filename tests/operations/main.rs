@@ -10,4 +10,6 @@ mod audit_writer;
 mod cli;
 mod mail_services;
 mod maintenance;
+#[cfg(unix)]
+mod runtime_lifecycle;
 mod tasks;

@@ -479,6 +479,10 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
         });
 
+        // Runtime reload must leave accepted audit records and their owner intact.
+        let audit_writer = state.audit_writer().clone();
+        crate::runtime::startup::record_server_start(state.as_ref()).await;
+
         let notifier: aster_forge_config::SharedConfigChangeNotifier =
             Arc::new(aster_forge_config::InMemoryConfigNotifier::default());
         let receiver = aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
@@ -493,7 +497,7 @@ mod tests {
         );
         let shutdown = tokio_util::sync::CancellationToken::new();
         let worker = tokio::spawn(super::run_config_reload_subscription(
-            state,
+            state.clone(),
             receiver,
             shutdown.clone(),
         ));
@@ -569,5 +573,12 @@ mod tests {
             .await
             .expect("config reload worker should join")
             .expect("config reload worker should stop cleanly");
+        assert!(Arc::ptr_eq(&audit_writer, state.audit_writer()));
+        crate::runtime::startup::record_server_start(state.as_ref()).await;
+        crate::services::ops::audit::flush(state.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(audit_writer.snapshot().persisted, 2);
+        audit_writer.stop(tokio::time::Instant::now()).await;
     }
 }

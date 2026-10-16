@@ -1100,6 +1100,7 @@ mod tests {
     }
 
     async fn build_image_preview_route_state() -> (PrimaryAppState, user::Model, file::Model) {
+        crate::runtime::test_support::initialize_jwt_crypto_provider();
         let temp_root = std::env::temp_dir().join(format!(
             "asterdrive-image-preview-route-{}",
             uuid::Uuid::new_v4()

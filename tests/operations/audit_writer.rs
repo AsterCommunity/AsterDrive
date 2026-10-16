@@ -303,3 +303,70 @@ async fn query_and_export_deadlines_leave_records_owned_and_join_before_database
         0
     );
 }
+
+#[tokio::test]
+async fn best_effort_failures_log_safe_action_and_reason_without_request_details() {
+    use tracing::instrument::WithSubscriber;
+    let mut state = common::setup().await;
+    state.audit_writer.stop(Instant::now()).await;
+    state.audit_writer = Arc::new(AuditWriter::with_config(
+        state.writer_db().clone(),
+        AuditLogBufferConfig::new(1, 100, Duration::from_secs(3600)),
+        OverflowPolicy::Reject,
+        None,
+    ));
+    let directory = aster_forge_test::temp::TestTempDir::new("audit-failure-logs");
+    let path = directory.join("events.log");
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(std::sync::Mutex::new(std::fs::File::create(&path).unwrap()))
+        .finish();
+    let sensitive = "DO_NOT_LOG_AUDIT_REQUEST".repeat(32);
+    async {
+        record(&state).await; // NotRunning returns the unaccepted request to best effort.
+        state.audit_writer.start().await.unwrap();
+        record(&state).await;
+        record(&state).await; // Full also rejects without direct fallback.
+        audit::log_with_db_and_config(
+            state.writer_db(),
+            &state.runtime_config,
+            audit::AuditLogInput {
+                ctx: &audit::AuditContext::system(),
+                action: audit::AuditAction::FileUpload,
+                entity_type: audit::AuditEntityType::File,
+                entity_id: Some(1),
+                entity_name: Some(&sensitive),
+            },
+            || Some(serde_json::json!({"password": sensitive})),
+        )
+        .await;
+    }
+    .with_subscriber(subscriber)
+    .await;
+    let logs = std::fs::read_to_string(path).unwrap();
+    for expected in [
+        "writer not running",
+        "writer full",
+        "best-effort direct audit write failed",
+        "file_upload",
+    ] {
+        assert!(
+            logs.contains(expected),
+            "missing diagnostic {expected}: {logs}"
+        );
+    }
+    assert!(!logs.contains("DO_NOT_LOG_AUDIT_REQUEST"));
+    let report = state
+        .audit_writer
+        .stop(Instant::now() + Duration::from_secs(5))
+        .await;
+    assert_eq!(report.snapshot.persisted, 1);
+    assert_eq!(
+        audit_log::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1
+    );
+}

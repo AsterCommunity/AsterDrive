@@ -320,6 +320,14 @@ pub(crate) mod test_support {
     use sea_orm::DatabaseConnection;
     use std::sync::Arc;
 
+    pub(crate) fn initialize_jwt_crypto_provider() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            aster_forge_auth::initialize_jwt_crypto_provider()
+                .expect("test JWT crypto provider should initialize");
+        });
+    }
+
     pub(crate) async fn audit_writer(
         db: &DatabaseConnection,
     ) -> Arc<aster_forge_audit::AuditWriter> {

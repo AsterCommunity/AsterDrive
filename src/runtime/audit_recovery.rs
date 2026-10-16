@@ -65,7 +65,7 @@ async fn preserve_unconfirmed(
         })
         .collect();
     // Raw driver errors may contain SQL values. Persist only safe classification metadata.
-    let payload = serde_json::to_vec_pretty(&serde_json::json!({
+    let payload = serde_json::json!({
         "version": 1,
         "requires_database_reconciliation": true,
         "queued": snapshot.queued,
@@ -74,7 +74,7 @@ async fn preserve_unconfirmed(
         "batch_failure_class": snapshot.batch_failure.map(|failure| format!("{:?}", failure.class)),
         "direct_failure_class": snapshot.direct_failure.map(|failure| format!("{:?}", failure.class)),
         "records": records,
-    }))?;
+    }).to_string();
     let mut builder = tokio::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -86,7 +86,7 @@ async fn preserve_unconfirmed(
     #[cfg(unix)]
     options.mode(0o600);
     let mut file = options.open(&path).await?;
-    file.write_all(&payload).await?;
+    file.write_all(payload.as_bytes()).await?;
     file.sync_all().await?;
     Ok(path)
 }
