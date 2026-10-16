@@ -1,5 +1,5 @@
 //! Drive refresh adapter: Forge owns the state machine; Drive owns writer transactions, account
-//! policy, session persistence, security audit and post-commit cache invalidation.
+//! policy, session persistence, and transactional security audit.
 
 use aster_forge_auth::{
     ClientContext, RefreshDecision, RefreshError, RefreshJti, RefreshOutcome, RefreshPolicy,
@@ -15,9 +15,6 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::auth::local::session::{
-    invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection,
-};
 use crate::services::ops::audit::AuditEntityType;
 use aster_drive_model::entities::auth_session;
 use aster_drive_model::types::AuditAction;
@@ -25,9 +22,9 @@ use aster_drive_model::types::AuditAction;
 /// Refreshes a browser session using the current product TTL snapshot and strict signing namespace.
 /// The shared coordinator survives request-scoped signers, dynamic config reloads and cloned state.
 ///
-/// Reuse rejection is returned only after version/purge/audit commit and a cache eviction attempt.
-/// Failed eviction cannot restore writer-checked authorization. A database failure remains a
-/// product infrastructure error, never a fabricated authentication success.
+/// Reuse rejection is returned only after version/purge/audit commit.
+/// Authorization reads current writer state and does not depend on cache eviction. A database
+/// failure remains a product infrastructure error, never a fabricated authentication success.
 ///
 /// # Errors
 /// Returns Drive's mapped authentication rejection or the original store/commit error. No failed
@@ -149,7 +146,7 @@ impl DriveRefreshStore {
         if reason == RefreshRejection::ReuseDetected {
             let user_id = subject_id(&request.subject)?;
             user_repo::bump_session_version(db, user_id).await?;
-            purge_all_auth_sessions_in_connection(db, user_id).await?;
+            auth_session_repo::delete_all_for_user(db, user_id).await?;
             // Required security records bypass the optional buffered audit manager. No token or
             // refresh JTI enters details; actor and stable session identity are sufficient.
             let details = serde_json::json!({
@@ -176,18 +173,6 @@ impl DriveRefreshStore {
         }
         Ok(reason)
     }
-
-    /// Runs only after transaction commit. Forge never receives a reuse fact before this step.
-    async fn after_rejection(
-        &self,
-        request: &RefreshRotationRequest,
-        reason: RefreshRejection,
-    ) -> Result<()> {
-        if reason == RefreshRejection::ReuseDetected {
-            invalidate_auth_snapshot_cache(&self.state, subject_id(&request.subject)?).await;
-        }
-        Ok(())
-    }
 }
 
 #[async_trait::async_trait]
@@ -198,7 +183,7 @@ impl RefreshSessionStore for DriveRefreshStore {
         &self,
         request: &RefreshRotationRequest,
     ) -> Result<RefreshStoreOutcome> {
-        let outcome = aster_forge_db::transaction::with_transaction::<_, _, _, AsterError>(
+        aster_forge_db::transaction::with_transaction::<_, _, _, AsterError>(
             self.state.writer_db(),
             async |txn| match self.decide(txn, request).await? {
                 RefreshDecision::Reject(reason) => Ok(RefreshStoreOutcome::Rejected(
@@ -227,15 +212,11 @@ impl RefreshSessionStore for DriveRefreshStore {
                 }
             },
         )
-        .await?;
-        if let RefreshStoreOutcome::Rejected(reason) = outcome {
-            self.after_rejection(request, reason).await?;
-        }
-        Ok(outcome)
+        .await
     }
 
     async fn resolve_conflict(&self, request: &RefreshRotationRequest) -> Result<RefreshRejection> {
-        let reason = aster_forge_db::transaction::with_transaction::<_, _, _, AsterError>(
+        aster_forge_db::transaction::with_transaction::<_, _, _, AsterError>(
             self.state.writer_db(),
             async |txn| {
                 let reason = match self.decide(txn, request).await? {
@@ -251,9 +232,7 @@ impl RefreshSessionStore for DriveRefreshStore {
                 self.reject(txn, request, reason).await
             },
         )
-        .await?;
-        self.after_rejection(request, reason).await?;
-        Ok(reason)
+        .await
     }
 }
 

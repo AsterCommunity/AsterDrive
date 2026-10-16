@@ -640,7 +640,7 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 - `policy_group_id` 不传表示保持不变；当前实现明确拒绝 `null`
 - 当前实现禁止禁用初始管理员 `id = 1`
 - 当前实现也禁止把初始管理员 `id = 1` 降级为非管理员
-- `PATCH /admin/users/{id}` 支持 `must_change_password: true | false`。设为 `true` 会要求用户下次成功登录后先修改密码；设为 `false` 可在用户完成改密前清除这个要求。这个字段变化时会递增 `session_version`、删除该用户现有 refresh session、刷新认证快照缓存，并在 `admin_update_user` 审计 details 中记录新的 `must_change_password` 值。
+- `PATCH /admin/users/{id}` 支持 `must_change_password: true | false`。设为 `true` 会要求用户下次成功登录后先修改密码；设为 `false` 可在用户完成改密前清除这个要求。这个字段变化时会递增 `session_version`、删除该用户现有 refresh session，并在 `admin_update_user` 审计 details 中记录新的 `must_change_password` 值。
 - `must_change_password = true` 时，密码登录、MFA 完成、Passkey 登录完成和外部认证登录完成都会返回 `status = "password_change_required"`，并签发只能改密的受限 access token。这个 token 只能调用 `GET /auth/me`、`PUT /auth/password` 和 `POST /auth/logout`；普通认证接口会返回 `403` 和 `auth.password_change_required`。`POST /auth/refresh` 在强制改密状态或改密 token scope 下也会被拒绝。`PUT /auth/password` 仍然必须提供当前临时密码，成功后自动清除 `must_change_password`。
 - `PUT /admin/users/{id}/password` 使用 `{ "password": "new-secret" }`
 - `DELETE /admin/users/{id}/mfa` 会删除该用户全部 MFA factor、恢复码、待处理 MFA 登录 flow、邮箱验证码和 TOTP setup flow，并递增 `session_version`、删除该用户现有 refresh session；用户需要重新登录并重新配置 MFA

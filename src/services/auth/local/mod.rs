@@ -1,6 +1,5 @@
 //! 认证服务聚合入口。
 
-mod cache;
 mod contact_verification;
 mod password;
 mod registration;
@@ -34,14 +33,12 @@ pub use registration::{
     resend_register_activation, setup,
 };
 pub use session::{
-    cleanup_expired_auth_sessions, get_auth_snapshot, get_current_auth_snapshot,
-    invalidate_auth_snapshot_cache, list_auth_sessions, revoke_auth_session,
-    revoke_other_auth_sessions, revoke_user_sessions,
+    cleanup_expired_auth_sessions, get_current_auth_snapshot, list_auth_sessions,
+    revoke_auth_session, revoke_other_auth_sessions, revoke_user_sessions,
 };
 pub use tokens::{
-    authenticate_access_token, authenticate_refresh_token, issue_password_change_tokens_for_user,
-    issue_tokens_for_session, issue_tokens_for_user, issue_tokens_for_user_in_connection,
-    refresh_tokens, revoke_refresh_token, verify_token,
+    authenticate_access_token, issue_tokens_for_session, issue_tokens_for_user, refresh_tokens,
+    revoke_refresh_token, verify_token,
 };
 pub(crate) use validation::{validate_email, validate_password, validate_username};
 

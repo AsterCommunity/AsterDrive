@@ -52,7 +52,7 @@ Identity 只使用数据库主键或公开 flow UUID。Password primary 的 requ
 
 JWT 使用必需的 `sub/sid/session_version/token_type/restriction/iat/exp/iss/aud`，refresh 必需 JTI，access 不携带 JTI。旧格式不兼容，部署后用户需要重新登录；Cookie 名称、CSRF 和 API envelope 不变。单会话撤销立即阻止 refresh，已有 access 保留短期到期窗口；账号级 generation 和禁用检查读取 writer，不接受缓存中的旧授权。
 
-refresh 的 CAS、reuse 撤销及必要安全审计同事务提交，提交失败不返回新凭据。stale 只改变拒绝分类，绝不再次签发；UA/IP 不是设备身份。取得数据库锁后重新检查凭据截止时间，锁等待不延长有效期。缓存删除失败或旧缓存回填不能恢复 access 授权。HTTP 组件先关闭刷新协调器，再排空请求；已进入事务的请求允许完成。
+refresh 的 CAS、reuse 撤销及必要安全审计同事务提交，提交失败不返回新凭据。stale 只改变拒绝分类，绝不再次签发；UA/IP 不是设备身份。取得数据库锁后重新检查凭据截止时间，锁等待不延长有效期。JWT、WOPI、存储事件 SSE 和管理员检查均读取 writer 当前状态。旧授权快照缓存及其失效 API 已删除，遗留缓存键不能恢复授权。用户会话签发统一使用显式连接参数，包括在 MFA flow 事务内完成受限会话写入。HTTP 组件先关闭刷新协调器，再排空请求；已进入事务的请求允许完成。
 
 - 每次跨请求推进都重新读取 runtime auth policy。创建 flow 时的 UI snapshot 不是授权依据。
 - 密码 first factor 在 MFA 交换时重新检查 password login policy；external first factor 不受该开关影响。

@@ -14,7 +14,6 @@ use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
 use aster_drive_model::types::VerificationPurpose;
 use aster_forge_crypto as hash;
 
-use super::session::invalidate_auth_snapshot_cache;
 use super::shared::{
     ensure_email_available, ensure_resend_allowed, is_active_verification_request_error,
     issue_contact_verification_token, map_user_email_db_err, password_reset_request_allowed,
@@ -283,7 +282,6 @@ pub async fn confirm_password_reset(
     )
     .await?;
     transaction::commit(txn).await?;
-    invalidate_auth_snapshot_cache(state, updated.id).await;
     tracing::debug!(
         user_id = updated.id,
         session_version = updated.session_version,

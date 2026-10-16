@@ -553,7 +553,7 @@ User lists support keyword / role / status style filtering and offset pagination
 
 Invitation creation accepts `{ "email": "new-user@example.com" }` and returns `201`. Any existing pending invitation for the same email is revoked before the new pending record is created, and invitation mail is queued through the outbox. The create response may include the one-time `invitation_url`; list responses do not expose that token URL again. Lists use `limit` / `offset`, statuses are `pending`, `accepted`, `expired`, and `revoked`, and only pending invitations can be revoked.
 
-`PATCH /admin/users/{id}` accepts `must_change_password: true | false`. Setting it to `true` requires the user to change their password after the next successful login; setting it to `false` clears the requirement before the user completes that flow. Any change to this flag increments `session_version`, deletes existing refresh sessions, invalidates the auth snapshot cache, and records `admin_update_user` audit details including the new `must_change_password` value.
+`PATCH /admin/users/{id}` accepts `must_change_password: true | false`. Setting it to `true` requires the user to change their password after the next successful login; setting it to `false` clears the requirement before the user completes that flow. Any change to this flag increments `session_version`, deletes existing refresh sessions, and records `admin_update_user` audit details including the new `must_change_password` value.
 
 While the flag is set, successful password, MFA, passkey, and external-auth login completions return:
 

@@ -19,13 +19,13 @@ use sea_orm::{
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Delegates normal cache operations while deterministically dropping eviction of auth snapshots.
-struct FailedAuthEviction {
+/// Rejects reads/deletes of the obsolete auth cache namespace; new authorization must not touch it.
+struct UnavailableLegacyAuthCache {
     inner: Arc<dyn CacheBackend>,
-    failures: AtomicUsize,
+    accesses: AtomicUsize,
 }
 #[async_trait::async_trait]
-impl CacheBackend for FailedAuthEviction {
+impl CacheBackend for UnavailableLegacyAuthCache {
     fn backend_name(&self) -> &'static str {
         self.inner.backend_name()
     }
@@ -33,7 +33,12 @@ impl CacheBackend for FailedAuthEviction {
         self.inner.health_check().await
     }
     async fn get_bytes(&self, key: &str) -> Option<Vec<u8>> {
-        self.inner.get_bytes(key).await
+        if key.starts_with("auth_snapshot:") {
+            self.accesses.fetch_add(1, Ordering::SeqCst);
+            None
+        } else {
+            self.inner.get_bytes(key).await
+        }
     }
     async fn take_bytes(&self, key: &str) -> Option<Vec<u8>> {
         self.inner.take_bytes(key).await
@@ -46,7 +51,7 @@ impl CacheBackend for FailedAuthEviction {
     }
     async fn delete(&self, key: &str) {
         if key.starts_with("auth_snapshot:") {
-            self.failures.fetch_add(1, Ordering::SeqCst);
+            self.accesses.fetch_add(1, Ordering::SeqCst);
         } else {
             self.inner.delete(key).await;
         }
@@ -56,6 +61,7 @@ impl CacheBackend for FailedAuthEviction {
     }
 }
 
+/// Creates an isolated writer/cache/router fixture and one committed browser session.
 async fn fixture() -> (PrimaryAppState, String, String, i64) {
     let state = common::setup_with_memory_cache().await;
     let admin = local::setup(&state, "forge-user", "forge@example.com", "password123")
@@ -74,6 +80,7 @@ async fn fixture() -> (PrimaryAppState, String, String, i64) {
     common::seed_csrf_token(&refresh);
     (state, access, refresh, admin.id)
 }
+/// Inspects tokens with the real strict verifier, without relying on unchecked JWT JSON.
 fn claims(state: &PrimaryAppState, token: &str, kind: AuthTokenType) -> TokenClaims {
     JwtVerifier::with_system_clock(
         JwtKey::hmac(state.config.auth.jwt_secret.as_bytes()).unwrap(),
@@ -83,12 +90,14 @@ fn claims(state: &PrimaryAppState, token: &str, kind: AuthTokenType) -> TokenCla
     .unwrap()
     .into_claims()
 }
+/// Reuses the fixture's explicit browser fingerprint for deterministic stale classification.
 async fn refresh(
     state: &PrimaryAppState,
     token: &str,
 ) -> aster_drive::errors::Result<(String, String)> {
     local::refresh_tokens(state, token, Some("127.0.0.1"), Some("browser")).await
 }
+/// Counts the security facts persisted by the same transaction as reuse revocation.
 async fn audit_count(state: &PrimaryAppState, id: i64) -> u64 {
     audit_log::Entity::find()
         .filter(audit_log::Column::UserId.eq(id))
@@ -98,6 +107,8 @@ async fn audit_count(state: &PrimaryAppState, id: i64) -> u64 {
         .unwrap()
 }
 
+/// Verifies the actual refresh route returns only committed, session-bound credentials and
+/// preserves Drive's cookie paths and CSRF transport contract.
 #[actix_web::test]
 async fn refresh_router_keeps_runtime_ttls_session_binding_cookie_and_csrf_contract() {
     let (state, _, refresh_token, _) = fixture().await;
@@ -132,6 +143,7 @@ async fn refresh_router_keeps_runtime_ttls_session_binding_cookie_and_csrf_contr
     assert!(common::extract_cookie(&response, "aster_csrf").is_some());
 }
 
+/// A TTL reload changes newly issued expiry while keeping the instance admission/lock state.
 #[actix_web::test]
 async fn runtime_ttl_reload_changes_issuance_without_replacing_the_instance_coordinator() {
     let (state, _, token, _) = fixture().await;
@@ -172,6 +184,8 @@ async fn runtime_ttl_reload_changes_issuance_without_replacing_the_instance_coor
     assert_eq!(state.runtime_config.refresh_coordinator().tracked_ids(), 0);
 }
 
+/// A stale retry is always rejected without side effects; replay after another rotation is
+/// still distinguishable and must commit the required security revocation.
 #[actix_web::test]
 async fn stale_retry_has_no_mutation_or_audit_and_older_replay_remains_identifiable() {
     let (state, _, token, id) = fixture().await;
@@ -203,6 +217,7 @@ async fn stale_retry_has_no_mutation_or_audit_and_older_replay_remains_identifia
     );
 }
 
+/// Missing request metadata cannot erase persisted hints or manufacture matching-client proof.
 #[actix_web::test]
 async fn missing_client_metadata_is_preserved_but_never_substituted_as_replay_evidence() {
     for (ip, ua, expected_ip, expected_ua) in [
@@ -231,6 +246,8 @@ async fn missing_client_metadata_is_preserved_but_never_substituted_as_replay_ev
     }
 }
 
+/// Exercises each SQL predicate independently and guards timestamp precision against moving
+/// last_seen backwards when JWT timestamps have only whole-second precision.
 #[actix_web::test]
 async fn database_cas_checks_every_fence_and_keeps_subsecond_last_seen_monotonic() {
     for case in 0..6 {
@@ -295,6 +312,7 @@ async fn database_cas_checks_every_fence_and_keeps_subsecond_last_seen_monotonic
     }
 }
 
+/// Exhausted generations fail closed; reuse must not partially purge sessions or write audit.
 #[actix_web::test]
 async fn exhausted_account_generation_fails_without_partial_reuse_effects() {
     let (state, _, _, id) = fixture().await;
@@ -337,6 +355,7 @@ async fn exhausted_account_generation_fails_without_partial_reuse_effects() {
     );
 }
 
+/// Overflow refusal applies to password and explicit revoke paths, preserving their old state.
 #[actix_web::test]
 async fn exhausted_generation_rejects_account_revoke_and_password_changes_atomically() {
     let (state, _, _, id) = fixture().await;
@@ -369,6 +388,7 @@ async fn exhausted_generation_rejects_account_revoke_and_password_changes_atomic
     );
 }
 
+/// Competing revocations use an atomic SQL increment, so neither overwrites the other epoch.
 #[actix_web::test]
 async fn concurrent_account_revoke_and_refresh_reuse_never_lose_generation_updates() {
     let (state, access, token, id) = fixture().await;
@@ -400,10 +420,11 @@ async fn concurrent_account_revoke_and_refresh_reuse_never_lose_generation_updat
     );
 }
 
+/// A legacy cache write arriving after commit cannot restore JWT/WOPI authorization.
 #[actix_web::test]
 async fn committed_reuse_invalidates_access_even_if_an_old_cache_fill_arrives_late() {
     let (state, access, token, id) = fixture().await;
-    let stale = local::get_auth_snapshot(&state, id).await.unwrap();
+    let stale = local::get_current_auth_snapshot(&state, id).await.unwrap();
     refresh(&state, &token).await.unwrap();
     assert_eq!(
         local::refresh_tokens(&state, &token, Some("127.0.0.1"), Some("different-browser"))
@@ -444,15 +465,88 @@ async fn committed_reuse_invalidates_access_even_if_an_old_cache_fill_arrives_la
     assert!(!details.contains(&token));
 }
 
+/// Exercises an already-open router stream, including a deliberately late cache fill, so the
+/// regression cannot pass merely because the request's initial JWT guard reads the writer.
 #[actix_web::test]
-async fn failed_cache_eviction_cannot_undo_committed_reuse_or_restore_access() {
+async fn storage_event_stream_rejects_stale_cache_after_live_account_security_changes() {
+    use actix_web::body::MessageBody;
+    use aster_drive::services::events::storage_change::{self, StorageChangeEvent};
+    use std::{future::poll_fn, pin::Pin, time::Duration};
+
+    for change in ["revoke", "disable", "require_password_change"] {
+        let (state, access, _, id) = fixture().await;
+        let stale = local::get_current_auth_snapshot(&state, id).await.unwrap();
+        let app = create_test_app!(state.clone());
+        let request = test::TestRequest::get()
+            .uri("/api/v1/auth/events/storage")
+            .insert_header(("Cookie", common::access_cookie_header(&access)))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), 200);
+        let mut body = response.into_body();
+        // Start the stream and consume the interval's immediate first heartbeat. Subsequent
+        // revalidation is driven by the explicit broadcast below; there is no wall-clock sleep.
+        let first = tokio::time::timeout(
+            Duration::from_secs(2),
+            poll_fn(|cx| Pin::new(&mut body).poll_next(cx)),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+        assert_eq!(first.as_ref(), b": keep-alive\n\n");
+
+        if change == "revoke" {
+            local::revoke_user_sessions(&state, id).await.unwrap();
+        } else {
+            let mut user = user_repo::find_by_id(state.writer_db(), id)
+                .await
+                .unwrap()
+                .into_active_model();
+            if change == "disable" {
+                user.status = Set(UserStatus::Disabled);
+            } else {
+                user.must_change_password = Set(true);
+            }
+            user.update(state.writer_db()).await.unwrap();
+        }
+        state
+            .cache
+            .set(&format!("auth_snapshot:{id}"), &stale, Some(60))
+            .await;
+        assert_eq!(
+            state
+                .cache
+                .get::<local::AuthSnapshot>(&format!("auth_snapshot:{id}"))
+                .await
+                .unwrap(),
+            stale
+        );
+        storage_change::publish(&state, StorageChangeEvent::sync_required());
+        let next = tokio::time::timeout(
+            Duration::from_secs(2),
+            poll_fn(|cx| Pin::new(&mut body).poll_next(cx)),
+        )
+        .await
+        .expect("security change must close SSE before emitting the queued event");
+        assert!(
+            next.is_none(),
+            "stale cache must not authorize {change}: {next:?}"
+        );
+    }
+}
+
+/// Makes the retired cache namespace unavailable and proves refresh/revocation/authentication
+/// do not read or invalidate it, while stale data may remain harmlessly in the cache backend.
+#[actix_web::test]
+async fn refresh_and_authorization_never_touch_the_obsolete_auth_cache() {
     let (mut state, access, token, id) = fixture().await;
-    let old = local::get_auth_snapshot(&state, id).await.unwrap();
+    let old = local::get_current_auth_snapshot(&state, id).await.unwrap();
     let key = format!("auth_snapshot:{id}");
     state.cache.set(&key, &old, Some(60)).await;
-    let cache = Arc::new(FailedAuthEviction {
+    let cache = Arc::new(UnavailableLegacyAuthCache {
         inner: state.cache.clone(),
-        failures: AtomicUsize::new(0),
+        accesses: AtomicUsize::new(0),
     });
     state.cache = cache.clone();
     refresh(&state, &token).await.unwrap();
@@ -463,10 +557,10 @@ async fn failed_cache_eviction_cannot_undo_committed_reuse_or_restore_access() {
             .code(),
         "E062"
     );
-    assert_eq!(cache.failures.load(Ordering::SeqCst), 1);
+    assert_eq!(cache.accesses.load(Ordering::SeqCst), 0);
     assert_eq!(
-        state
-            .cache
+        cache
+            .inner
             .get::<local::AuthSnapshot>(&key)
             .await
             .unwrap()
@@ -486,6 +580,7 @@ async fn failed_cache_eviction_cannot_undo_committed_reuse_or_restore_access() {
         old.session_version + 1
     );
     assert_eq!(audit_count(&state, id).await, 1);
+    assert_eq!(cache.accesses.load(Ordering::SeqCst), 0);
     assert!(
         auth_session_repo::list_active_for_user(state.writer_db(), id)
             .await
@@ -494,6 +589,7 @@ async fn failed_cache_eviction_cannot_undo_committed_reuse_or_restore_access() {
     );
 }
 
+/// Disabled and restricted accounts are checked before replay side effects are considered.
 #[actix_web::test]
 async fn current_account_and_restriction_checks_also_apply_to_replayed_tokens() {
     for disabled in [false, true] {
@@ -525,6 +621,8 @@ async fn current_account_and_restriction_checks_also_apply_to_replayed_tokens() 
     }
 }
 
+/// Both initial issuance and refresh use the effective password-login policy, rather than
+/// interpreting the stored must-change flag as an unconditional restriction.
 #[actix_web::test]
 async fn password_login_toggle_keeps_the_current_password_change_policy() {
     let (state, access, token, id) = fixture().await;
@@ -543,6 +641,14 @@ async fn password_login_toggle_keeps_the_current_password_change_policy() {
     .unwrap();
     toggle.value = "false".to_string();
     state.runtime_config.apply(toggle.clone());
+    let account = user_repo::find_by_id(state.writer_db(), id).await.unwrap();
+    let (issued, _) = local::issue_tokens_for_user(state.writer_db(), &state, &account, None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        claims(&state, &issued, AuthTokenType::Access).restriction,
+        aster_forge_auth::Restriction::None
+    );
     assert!(
         local::authenticate_access_token(&state, &access)
             .await
@@ -567,6 +673,8 @@ async fn password_login_toggle_keeps_the_current_password_change_policy() {
     assert_eq!(audit_count(&state, id).await, 0);
 }
 
+/// Correctly signed credentials with foreign ownership or expired persistence cannot mutate
+/// the victim account or rotate an unrelated session.
 #[actix_web::test]
 async fn foreign_account_session_and_expired_persistence_do_not_rotate_or_revoke() {
     let (state, _, token, id) = fixture().await;
@@ -604,6 +712,8 @@ async fn foreign_account_session_and_expired_persistence_do_not_rotate_or_revoke
     assert_eq!(audit_count(&state, id).await, 0);
 }
 
+/// Documents Drive's chosen single-session boundary: refresh stops immediately, while already
+/// issued access credentials keep their expiry window unless the account epoch changes.
 #[actix_web::test]
 async fn revoked_session_retains_explicit_access_expiry_window_but_refresh_is_rejected() {
     let (state, access, token, id) = fixture().await;
@@ -626,6 +736,7 @@ async fn revoked_session_retains_explicit_access_expiry_window_but_refresh_is_re
     );
 }
 
+/// Independent in-memory coordinators still have one SQL winner; the loser gets no tokens.
 #[actix_web::test]
 async fn independent_instance_coordinators_have_one_real_database_cas_winner() {
     let (state, _, token, id) = fixture().await;
@@ -644,6 +755,7 @@ async fn independent_instance_coordinators_have_one_real_database_cas_winner() {
     );
 }
 
+/// Closing one runtime admission gate must not close another product instance's coordinator.
 #[actix_web::test]
 async fn shutdown_rejects_refresh_and_isolated_instances_keep_working() {
     let (state, _, token, _) = fixture().await;
@@ -655,6 +767,7 @@ async fn shutdown_rejects_refresh_and_isolated_instances_keep_working() {
 
 // SQLite failure injection exercises actual product rollback; Forge's portable tests inject
 // begin/CAS/revoke/audit/commit failures without backend-specific sleep or global hooks.
+/// A required security-audit insert failure rolls back generation and purge writes together.
 #[actix_web::test]
 async fn sqlite_audit_failure_rolls_back_reuse_version_and_session_purge() {
     let (state, access, token, id) = fixture().await;
@@ -688,6 +801,8 @@ async fn sqlite_audit_failure_rolls_back_reuse_version_and_session_purge() {
     );
 }
 
+/// A deferred constraint fails COMMIT after the writes, proving rejection cannot escape before
+/// the security transaction is durably complete.
 #[actix_web::test]
 async fn sqlite_commit_failure_rolls_back_completed_reuse_writes_and_preserves_access() {
     let (state, access, token, id) = fixture().await;
@@ -738,6 +853,7 @@ async fn sqlite_commit_failure_rolls_back_completed_reuse_writes_and_preserves_a
     );
 }
 
+/// A real SQL update failure keeps the old JTI usable and sends no uncommitted cookies.
 #[actix_web::test]
 async fn sqlite_cas_failure_preserves_old_credential_and_returns_no_replacement_cookies() {
     let (state, _, token, id) = fixture().await;

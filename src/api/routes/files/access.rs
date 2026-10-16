@@ -1263,7 +1263,7 @@ mod tests {
     }
 
     async fn access_token_for(state: &PrimaryAppState, user: &user::Model) -> String {
-        local::issue_tokens_for_user(state, user, None, None)
+        local::issue_tokens_for_user(state.writer_db(), state, user, None, None)
             .await
             .expect("image preview route access token should issue")
             .0

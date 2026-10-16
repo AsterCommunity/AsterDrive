@@ -244,7 +244,7 @@ Runtime state keeps both writer and reader handles through `DbHandles`:
 
 - `state.db` / `state.writer_db()` is the writer. All transactions, writes, read-after-write paths, quota authority checks, login session issuance, current account authorization, refresh token rotation, upload init/chunk/complete/cancel, and repository helpers that rely on SQLite single-connection lock emulation must continue to use the writer.
 - `state.reader_db()` is the pure read entry point. Under SQLite file databases it opens an independent reader pool after writer-side migration and bootstrap are complete, with WAL, `mode=ro`, and `PRAGMA query_only=ON`. Under PostgreSQL / MySQL or in-memory SQLite it points to the same pool as the writer.
-- Reader queries are allowed to lag briefly at WAL snapshot level. They should only be used for lists, details, search, upload progress, recoverable sessions, presign query stages, presentation-only auth snapshot cache misses, public runtime snapshots, and admin overview statistics that do not immediately feed into authoritative write decisions.
+- Reader queries are allowed to lag briefly at WAL snapshot level. They should only be used for lists, details, search, upload progress, recoverable sessions, presign query stages, public runtime snapshots, and admin overview statistics that do not immediately feed into authoritative write decisions.
 - Do not silently convert shared validation helpers to reader access unless every caller is confirmed to be read-only. Prefer choosing `reader_db()` or `writer_db()` explicitly at the service entry so the semantic choice is visible in code.
 
 ### Primary-specific startup

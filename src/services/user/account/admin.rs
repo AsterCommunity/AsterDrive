@@ -224,7 +224,6 @@ async fn update_with_audit_diff(
     };
     let email_verified_changed =
         email_verified.is_some_and(|value| value != existing_email_verified);
-    let role_changed = role.is_some_and(|value| value != existing.role);
     let status_changed = status.is_some_and(|value| value != existing.status);
     let must_change_password_changed =
         must_change_password.is_some_and(|value| value != existing.must_change_password);
@@ -307,9 +306,6 @@ async fn update_with_audit_diff(
             state, "update", updated.id,
         )
         .await;
-    }
-    if role_changed || status_changed || email_verified_changed || must_change_password_changed {
-        local::invalidate_auth_snapshot_cache(state, id).await;
     }
     if status_changed
         && let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_user(state, id).await

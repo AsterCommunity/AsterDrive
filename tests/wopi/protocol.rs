@@ -2632,9 +2632,10 @@ async fn test_revoked_user_sessions_invalidate_wopi_access_token() {
         .await
         .unwrap()
         .expect("registered user should exist");
-    let stale_snapshot = aster_drive::services::auth::local::get_auth_snapshot(&state, user.id)
-        .await
-        .unwrap();
+    let stale_snapshot =
+        aster_drive::services::auth::local::get_current_auth_snapshot(&state, user.id)
+            .await
+            .unwrap();
     let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
 
     let req = test::TestRequest::post()

@@ -29,6 +29,7 @@ struct IssuedTokens {
     refresh_expires_at: chrono::DateTime<Utc>,
 }
 
+/// Enforces the product caller's intended credential purpose after strict verification.
 fn ensure_token_type(claims: &Claims, expected: TokenType) -> Result<()> {
     if claims.token_type != expected {
         return Err(AsterError::auth_token_invalid(format!(
@@ -40,6 +41,7 @@ fn ensure_token_type(claims: &Claims, expected: TokenType) -> Result<()> {
     Ok(())
 }
 
+/// Compares the signed generation to the writer's current account generation.
 fn ensure_session_current(claims: &Claims, snapshot: AuthSnapshot) -> Result<()> {
     if claims.session_version != snapshot.session_version {
         return Err(AsterError::auth_token_invalid("session revoked"));
@@ -48,6 +50,7 @@ fn ensure_session_current(claims: &Claims, snapshot: AuthSnapshot) -> Result<()>
     Ok(())
 }
 
+/// Rejects both missing required restrictions and obsolete restricted-login credentials.
 fn ensure_password_change_scope(claims: &Claims, password_change_required: bool) -> Result<()> {
     if password_change_required && !claims.password_change {
         return Err(AsterError::auth_token_invalid("password change required"));
@@ -61,27 +64,31 @@ fn ensure_password_change_scope(claims: &Claims, password_change_required: bool)
     Ok(())
 }
 
-async fn authenticate_token(
+/// Verifies an access JWT and current writer-side account state, generation and login restriction.
+/// Drive retains the access-expiry window for individual session revocation.
+///
+/// # Errors
+/// Returns the product authentication rejection or original writer query failure.
+pub async fn authenticate_access_token(
     state: &impl SharedRuntimeState,
     token: &str,
-    expected_type: TokenType,
 ) -> Result<(Claims, AuthSnapshot)> {
+    let expected_type = TokenType::Access;
     tracing::debug!(
         expected_type = expected_type.as_str(),
         "authenticating token"
     );
-    let expected = forge_token_type(expected_type);
     let claims = auth_verifier(
         state.config().auth.jwt_secret.as_bytes(),
         auth_policy(state)?,
     )?
-    .verify(token, expected)
+    .verify(token, ForgeTokenType::Access)
     .map_err(map_forge_auth_error)?
     .into_claims();
     let claims = product_claims(claims)?;
 
-    // Authorization uses writer state, never an unfenced cache/replica snapshot. Cache eviction
-    // may fail or an old cache fill may arrive after revocation; neither can restore permission.
+    // Authorization uses writer state. The retired auth cache and any old replica projection
+    // are never consulted, so a late legacy cache fill cannot restore permission.
     let snapshot = match super::get_current_auth_snapshot(state, claims.user_id).await {
         Ok(snapshot) => snapshot,
         Err(AsterError::RecordNotFound(_)) => {
@@ -108,30 +115,7 @@ async fn authenticate_token(
     Ok((claims, snapshot))
 }
 
-/// Verifies an access JWT and current writer-side account state, generation and login restriction.
-/// Drive retains the access-expiry window for individual session revocation.
-///
-/// # Errors
-/// Returns the product authentication rejection or original writer query failure.
-pub async fn authenticate_access_token(
-    state: &impl SharedRuntimeState,
-    token: &str,
-) -> Result<(Claims, AuthSnapshot)> {
-    authenticate_token(state, token, TokenType::Access).await
-}
-
-/// Verifies refresh purpose and account state for identification. This does not consume the JTI;
-/// actual rotation and server-side session checks are performed by `refresh_tokens`.
-///
-/// # Errors
-/// Returns the product authentication rejection or original writer query failure.
-pub async fn authenticate_refresh_token(
-    state: &impl SharedRuntimeState,
-    token: &str,
-) -> Result<(Claims, AuthSnapshot)> {
-    authenticate_token(state, token, TokenType::Refresh).await
-}
-
+/// Builds Forge credentials from validated Drive identifiers; persistence must precede delivery.
 fn issue_tokens(
     user_id: i64,
     session_version: i64,
@@ -172,6 +156,7 @@ fn issue_tokens(
     })
 }
 
+/// Inserts the issued session/JTI into the supplied writer connection or active transaction.
 async fn persist_auth_session<C: ConnectionTrait>(
     db: &C,
     user_id: i64,
@@ -200,11 +185,13 @@ async fn persist_auth_session<C: ConnectionTrait>(
 }
 
 /// Issues and persists a session in the caller's writer transaction using current runtime TTLs.
-/// The caller owns account-policy validation and must commit before sending either credential.
+/// Restriction follows the effective password-login policy, so disabling password login does not
+/// accidentally issue a forced-password-change session. The caller supplies the writer or its
+/// active transaction, validates account policy, and commits before sending either credential.
 ///
 /// # Errors
 /// Returns signing/configuration or persistence errors; an enclosing transaction must roll back.
-pub async fn issue_tokens_for_user_in_connection<C: ConnectionTrait>(
+pub async fn issue_tokens_for_user<C: ConnectionTrait>(
     db: &C,
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -216,12 +203,13 @@ pub async fn issue_tokens_for_user_in_connection<C: ConnectionTrait>(
         user.id,
         user.session_version,
         None,
-        user.must_change_password,
+        super::password_change_required_for_login(state, user),
     )?;
     persist_auth_session(db, user.id, &tokens, ip_address, user_agent).await?;
     Ok((tokens.access_token, tokens.refresh_token))
 }
 
+/// Injects the current Drive TTL configuration and signing key into the shared issuer.
 fn issue_tokens_for_session_id(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -254,35 +242,6 @@ pub async fn issue_tokens_for_session(
 ) -> Result<(String, String)> {
     let tokens = issue_tokens_for_session_id(state, user_id, session_version, None, false)?;
     persist_auth_session(state.writer_db(), user_id, &tokens, ip_address, user_agent).await?;
-    Ok((tokens.access_token, tokens.refresh_token))
-}
-
-/// Persists a session for a validated account, projecting its password-change restriction.
-///
-/// # Errors
-/// Returns signing/configuration or writer persistence errors.
-pub async fn issue_tokens_for_user(
-    state: &impl SharedRuntimeState,
-    user: &user::Model,
-    ip_address: Option<&str>,
-    user_agent: Option<&str>,
-) -> Result<(String, String)> {
-    issue_tokens_for_user_in_connection(state.writer_db(), state, user, ip_address, user_agent)
-        .await
-}
-
-/// Persists a restricted login whose allowed actions remain a Drive route-policy responsibility.
-///
-/// # Errors
-/// Returns signing/configuration or writer persistence errors.
-pub async fn issue_password_change_tokens_for_user(
-    state: &impl SharedRuntimeState,
-    user: &user::Model,
-    ip_address: Option<&str>,
-    user_agent: Option<&str>,
-) -> Result<(String, String)> {
-    let tokens = issue_tokens_for_session_id(state, user.id, user.session_version, None, true)?;
-    persist_auth_session(state.writer_db(), user.id, &tokens, ip_address, user_agent).await?;
     Ok((tokens.access_token, tokens.refresh_token))
 }
 
@@ -327,23 +286,18 @@ fn signing_policy(policy: RuntimeAuthPolicy) -> Result<JwtPolicy> {
     .map_err(|_| AsterError::internal_error("invalid auth signing policy"))
 }
 
+/// Validates the signing configuration and maps Forge policy errors to internal product errors.
 fn auth_signer(secret: &[u8], policy: JwtPolicy) -> Result<JwtSigner> {
     let key =
         JwtKey::hmac(secret).map_err(|_| AsterError::internal_error("invalid auth signing key"))?;
     Ok(JwtSigner::with_system_clock(key, policy))
 }
 
+/// Builds the product verifier with the same strict signing domain as the issuer.
 fn auth_verifier(secret: &[u8], policy: JwtPolicy) -> Result<JwtVerifier> {
     let key =
         JwtKey::hmac(secret).map_err(|_| AsterError::internal_error("invalid auth signing key"))?;
     Ok(JwtVerifier::with_system_clock(key, policy))
-}
-
-fn forge_token_type(kind: TokenType) -> ForgeTokenType {
-    match kind {
-        TokenType::Access => ForgeTokenType::Access,
-        TokenType::Refresh => ForgeTokenType::Refresh,
-    }
 }
 
 /// Validates either local token purpose for logout/session-identification callers. Protected-route

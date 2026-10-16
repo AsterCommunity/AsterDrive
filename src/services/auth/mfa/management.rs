@@ -368,14 +368,13 @@ pub async fn reset_user_mfa(
         let username = user.username.clone();
         let mut active = user.into_active_model();
         active.updated_at = Set(now_utc());
-        let updated = active.update(&txn).await.map_err(AsterError::from)?;
-        Ok::<_, AsterError>((updated.id, username, factor_count, recovery_code_count))
+        active.update(&txn).await.map_err(AsterError::from)?;
+        Ok::<_, AsterError>((username, factor_count, recovery_code_count))
     }
     .await;
     match result {
-        Ok((updated_user_id, username, factor_count, recovery_code_count)) => {
+        Ok((username, factor_count, recovery_code_count)) => {
             transaction::commit(txn).await?;
-            local::invalidate_auth_snapshot_cache(state, updated_user_id).await;
             audit::log(
                 state,
                 audit_ctx,

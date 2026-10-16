@@ -4435,58 +4435,49 @@ async fn test_unauthorized_access() {
     assert_service_status!(app, req, 401);
 }
 
-/// 用户状态缓存：正常认证 → 连续请求不应查 DB（通过 MemoryCache 验证）
+/// A legacy snapshot cannot replace writer authorization, even when its state disagrees.
 #[actix_web::test]
-async fn test_user_status_cached_in_auth_middleware() {
-    // 明确使用 MemoryCache 验证认证缓存命中。
-    let cache_config = aster_forge_cache::CacheConfig {
-        backend: "memory".to_string(),
-        default_ttl: 60,
-        ..Default::default()
-    };
-    let cache = aster_forge_cache::create_cache(&cache_config).await;
+async fn test_auth_middleware_ignores_legacy_status_cache_and_rechecks_writer() {
+    use aster_forge_cache::CacheExt;
 
-    let base = common::setup().await;
-    let state = aster_drive::runtime::PrimaryAppState {
-        db_handles: base.db_handles,
-        driver_registry: base.driver_registry,
-        runtime_config: base.runtime_config,
-        policy_snapshot: base.policy_snapshot,
-        config: base.config,
-        cache,
-        config_sync: base.config_sync,
-        metrics: aster_drive_metrics::NoopMetrics::arc(),
-        mail_sender: base.mail_sender,
-        storage_change_bus: base.storage_change_bus,
-        share_download_rollback: base.share_download_rollback,
-        background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
-        remote_protocol: base.remote_protocol,
-    };
-    let app = create_test_app!(state);
+    let state = common::setup_with_memory_cache().await;
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
-
-    // 第一次请求（cache miss → 查 DB → 写缓存）
-    let req = test::TestRequest::get()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-
-    // 第二次请求（cache hit → 不查 DB）—— 功能正确即可
-    let req = test::TestRequest::get()
-        .uri("/api/v1/folders")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    let id = local::verify_token(&token, &state.config.auth.jwt_secret)
+        .unwrap()
+        .user_id;
+    let current = local::get_current_auth_snapshot(&state, id).await.unwrap();
+    let key = format!("auth_snapshot:{id}");
+    for poison_cache in [false, true] {
+        if poison_cache {
+            state
+                .cache
+                .set(
+                    &key,
+                    &local::AuthSnapshot {
+                        status: UserStatus::Disabled,
+                        session_version: current.session_version + 1,
+                        must_change_password: true,
+                        ..current
+                    },
+                    Some(60),
+                )
+                .await;
+        }
+        let request = test::TestRequest::get()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request();
+        assert_eq!(test::call_service(&app, request).await.status(), 200);
+        if !poison_cache {
+            assert!(state.cache.get::<local::AuthSnapshot>(&key).await.is_none());
+        }
+    }
 }
 
-/// admin 禁用用户后，缓存立即失效，后续请求被拒
+/// Admin disablement rejects existing credentials even when a memory cache is configured.
 #[actix_web::test]
-async fn test_disable_user_invalidates_status_cache() {
+async fn test_disable_user_rejects_old_tokens_with_memory_cache() {
     let cache_config = aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
         default_ttl: 60,
@@ -4534,7 +4525,7 @@ async fn test_disable_user_invalidates_status_cache() {
     let bob_token = common::extract_cookie(&resp, "aster_access").unwrap();
     let bob_refresh = common::extract_cookie(&resp, "aster_refresh").unwrap();
 
-    // bob 正常访问（写入缓存）
+    // bob 在 writer 上仍为 active，正常访问。
     let req = test::TestRequest::get()
         .uri("/api/v1/folders")
         .insert_header(("Cookie", common::access_cookie_header(&bob_token)))
