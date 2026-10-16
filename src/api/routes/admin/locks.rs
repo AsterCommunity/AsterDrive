@@ -1,7 +1,9 @@
 //! 管理员 API 路由：`locks`。
 
 use crate::api::dto::admin::AdminLockListQuery;
-use crate::api::response::{ApiResponse, RemovedCountResponse};
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use crate::api::response::ApiResponse;
+use crate::api::response::RemovedCountResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, files::lock, ops::audit};
@@ -35,7 +37,7 @@ pub async fn list_locks(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(locks)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(locks)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -59,7 +61,7 @@ pub async fn force_unlock(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     lock::force_unlock_with_audit(state.get_ref(), *path, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -80,5 +82,9 @@ pub async fn cleanup_expired_locks(
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let count = lock::cleanup_expired_with_audit(state.get_ref(), &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed: count })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(RemovedCountResponse {
+            removed: count,
+        })),
+    )
 }

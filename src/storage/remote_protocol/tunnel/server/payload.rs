@@ -4,8 +4,6 @@ use base64::{
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
-use crate::api::response::ApiResponse;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct RemoteTunnelRequest {
@@ -46,10 +44,11 @@ pub(crate) fn serialized_poll_response_len(
 ) -> Result<usize, serde_json::Error> {
     let mut metadata_only = request.clone();
     metadata_only.body = Bytes::new();
-    let metadata_len = serde_json::to_vec(&ApiResponse::ok(RemoteTunnelPollResponse {
-        request: Some(metadata_only),
-    }))?
-    .len();
+    let metadata_len =
+        serde_json::to_vec(&crate::api::response::success(RemoteTunnelPollResponse {
+            request: Some(metadata_only),
+        }))?
+        .len();
     let encoded_body_len = request
         .body
         .len()

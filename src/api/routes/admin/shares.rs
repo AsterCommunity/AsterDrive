@@ -1,6 +1,7 @@
 //! 管理员 API 路由：`shares`。
 
 use crate::api::dto::admin::AdminShareListQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -36,7 +37,7 @@ pub async fn list_all_shares(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(shares)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(shares)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -92,5 +93,5 @@ pub async fn admin_delete_share(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }

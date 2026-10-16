@@ -5,6 +5,7 @@ use crate::api::dto::admin::{
     RemoteStorageTargetConnectorCatalogQuery, TestRemoteNodeParamsReq,
 };
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -107,7 +108,7 @@ pub async fn list_remote_nodes(
         query.sort_order(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(nodes)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(nodes)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -142,7 +143,7 @@ pub async fn create_remote_node(
         || remote_node_audit_details(&node),
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(node)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(node)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -164,7 +165,7 @@ pub async fn get_remote_node(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let node = remote_node::get(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(node)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -202,7 +203,7 @@ pub async fn update_remote_node(
         || remote_node_audit_details(&node),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(node)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -238,7 +239,7 @@ pub async fn delete_remote_node(
         || remote_node_audit_details(&node),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -275,7 +276,7 @@ pub async fn test_remote_node(
         || remote_node_audit_details(&node),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(node)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -324,7 +325,7 @@ pub async fn test_remote_node_params(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(capabilities)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -363,7 +364,7 @@ pub async fn create_remote_node_enrollment_token(
         },
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(command)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(command)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -386,7 +387,7 @@ pub async fn list_remote_node_storage_targets(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let targets = storage_target::list_remote(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(targets)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -414,7 +415,7 @@ pub async fn list_remote_node_storage_target_connectors(
     let catalog =
         storage_target::list_remote_connector_catalog(state.get_ref(), *path, &query.locale)
             .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(catalog)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(catalog)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -452,7 +453,7 @@ pub async fn create_remote_node_storage_target(
         || remote_storage_target_audit_details(&target),
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(target)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(target)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -495,7 +496,7 @@ pub async fn update_remote_node_storage_target(
         || remote_storage_target_audit_details(&target),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(target)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(target)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -539,5 +540,5 @@ pub async fn delete_remote_node_storage_target(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }

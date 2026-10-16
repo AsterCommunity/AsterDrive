@@ -1,6 +1,7 @@
 //! 管理员 API 路由：`audit_logs`。
 
 use crate::api::dto::admin::AdminAuditLogSortQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -40,7 +41,7 @@ pub async fn list_audit_logs(
     )
     .await?;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 #[aster_forge_api_docs_macros::path(

@@ -6,6 +6,7 @@ use crate::api::dto::{
 };
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -607,7 +608,7 @@ async fn list_tags_response(
         query.q.as_deref(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 async fn create_tag_response(
@@ -638,7 +639,7 @@ async fn create_tag_response(
         )
         .await;
     }
-    Ok(HttpResponse::Created().json(ApiResponse::ok(tag)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(tag)))
 }
 
 async fn patch_tag_response(
@@ -682,7 +683,7 @@ async fn patch_tag_response(
         )
         .await;
     }
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(tag)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(tag)))
 }
 
 async fn delete_tag_response(
@@ -721,7 +722,7 @@ async fn delete_tag_response(
         )
         .await;
     }
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 async fn attach_tag_response(
@@ -887,7 +888,7 @@ async fn batch_attach_tag_response(
         )
         .await;
     }
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 async fn batch_detach_tag_response(
@@ -925,11 +926,11 @@ async fn batch_detach_tag_response(
         )
         .await;
     }
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 fn entity_tags_response(tags: EntityTags) -> HttpResponse {
-    HttpResponse::Ok().json(ApiResponse::ok(tags))
+    HttpResponse::Ok().json(crate::api::response::success(tags))
 }
 
 struct TagAssignmentAuditInput<'a> {

@@ -3,6 +3,7 @@
 use crate::api::dto::files::{
     ArchivePreviewQuery, DownloadQuery, FileResourceHandleRequest, OpenWopiRequest,
 };
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::errors::Result;
@@ -734,7 +735,7 @@ pub(crate) async fn get_file_response(
     file_id: i64,
 ) -> Result<HttpResponse> {
     let file = file::get_info_with_storage_used_in_scope(state, scope, file_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
 pub(crate) async fn resource_handle_response(
@@ -745,7 +746,7 @@ pub(crate) async fn resource_handle_response(
     request: &FileResourceHandleRequest,
 ) -> Result<HttpResponse> {
     let handle = file::resolve_file_resource_handle(state, scope, file_id, paths, request).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(handle)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(handle)))
 }
 
 pub(crate) async fn archive_preview_response(
@@ -774,7 +775,7 @@ pub(crate) async fn archive_preview_response(
 pub(crate) fn archive_preview_pending_response() -> HttpResponse {
     HttpResponse::Accepted()
         .insert_header((header::RETRY_AFTER, "2"))
-        .json(ApiResponse::<()>::ok_empty())
+        .json(crate::api::response::empty_success())
 }
 
 pub(crate) fn archive_preview_manifest_response(
@@ -800,7 +801,7 @@ pub(crate) fn archive_preview_manifest_response(
     Ok(HttpResponse::Ok()
         .insert_header((header::ETAG, etag))
         .insert_header((header::CACHE_CONTROL, cache_control))
-        .json(ApiResponse::ok(manifest)))
+        .json(crate::api::response::success(manifest)))
 }
 
 pub(crate) async fn direct_link_response(
@@ -828,7 +829,7 @@ pub(crate) async fn direct_link_response(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(token)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(token)))
 }
 
 pub(crate) async fn preview_link_response(
@@ -866,7 +867,7 @@ pub(crate) async fn preview_link_response(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(link)))
 }
 
 pub(crate) async fn open_wopi_response(
@@ -906,7 +907,7 @@ pub(crate) async fn open_wopi_response(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(session)))
 }
 
 pub(crate) async fn download_response(
@@ -956,7 +957,7 @@ pub(crate) async fn get_thumbnail_response(
         )),
         None => Ok(HttpResponse::Accepted()
             .insert_header(("Retry-After", "2"))
-            .json(ApiResponse::<()>::ok_empty())),
+            .json(crate::api::response::empty_success())),
     }
 }
 
@@ -979,7 +980,7 @@ pub(crate) async fn get_image_preview_response(
         )),
         None => Ok(HttpResponse::Accepted()
             .insert_header((header::RETRY_AFTER, "2"))
-            .json(ApiResponse::<()>::ok_empty())),
+            .json(crate::api::response::empty_success())),
     }
 }
 
@@ -990,11 +991,11 @@ pub(crate) async fn get_media_metadata_response(
 ) -> Result<HttpResponse> {
     match metadata::get_for_file_in_scope(state, scope, file_id).await? {
         metadata::MediaMetadataLookup::Ready(info) => {
-            Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
+            Ok(HttpResponse::Ok().json(crate::api::response::success(info)))
         }
         metadata::MediaMetadataLookup::Pending => Ok(HttpResponse::Accepted()
             .insert_header((header::RETRY_AFTER, "2"))
-            .json(ApiResponse::<()>::ok_empty())),
+            .json(crate::api::response::empty_success())),
     }
 }
 

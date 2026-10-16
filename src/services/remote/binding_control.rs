@@ -144,17 +144,17 @@ async fn pull_desired_state(
                 format!("failed to parse remote binding desired state: {error}"),
             )
         })?;
-    if envelope.code != ApiErrorCode::Success {
+    if *envelope.code() != ApiErrorCode::Success {
         return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
-            if envelope.msg.trim().is_empty() {
+            if envelope.message().trim().is_empty() {
                 format!("pull remote binding desired state failed with HTTP {status}")
             } else {
-                envelope.msg
+                envelope.message().to_string()
             },
         ));
     }
-    envelope.data.map(Some).ok_or_else(|| {
+    envelope.into_data().map(Some).ok_or_else(|| {
         crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             "remote binding desired state response missing data",

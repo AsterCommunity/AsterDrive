@@ -1,5 +1,6 @@
 //! 管理员 API 路由：`overview`。
 
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -30,5 +31,5 @@ pub async fn get_overview(
         query.event_limit_or_default(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(overview)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(overview)))
 }

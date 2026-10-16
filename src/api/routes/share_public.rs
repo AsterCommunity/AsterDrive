@@ -8,6 +8,7 @@ pub use crate::api::dto::share_public::VerifyPasswordReq;
 use crate::api::dto::validate_request;
 use crate::api::middleware::rate_limit;
 use crate::api::pagination::FolderListQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::files;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
@@ -45,11 +46,11 @@ fn thumbnail_pending_response() -> HttpResponse {
 fn media_metadata_response(lookup: metadata::MediaMetadataLookup) -> HttpResponse {
     match lookup {
         metadata::MediaMetadataLookup::Ready(info) => {
-            HttpResponse::Ok().json(ApiResponse::ok(info))
+            HttpResponse::Ok().json(crate::api::response::success(info))
         }
         metadata::MediaMetadataLookup::Pending => HttpResponse::Accepted()
             .insert_header((header::RETRY_AFTER, "2"))
-            .json(ApiResponse::<()>::ok_empty()),
+            .json(crate::api::response::empty_success()),
     }
 }
 
@@ -293,7 +294,7 @@ pub async fn get_share_info(
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
     let info = share::get_share_info(state.get_ref(), &path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(info)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -327,7 +328,7 @@ pub async fn verify_password(
 
     Ok(HttpResponse::Ok()
         .cookie(cookie)
-        .json(ApiResponse::<()>::ok_empty()))
+        .json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -360,7 +361,7 @@ pub async fn create_preview_link(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(link)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -437,7 +438,7 @@ pub async fn archive_download(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ticket)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(ticket)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -497,7 +498,7 @@ pub async fn create_stream_session(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(session)))
 }
 
 fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> {
@@ -728,7 +729,7 @@ pub async fn create_folder_file_preview_link(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(link)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -816,7 +817,7 @@ pub async fn create_folder_file_stream_session(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(session)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -839,7 +840,7 @@ pub async fn list_shared_content(
 ) -> Result<HttpResponse> {
     let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents = share::list_shared_folder(state.get_ref(), &path, &params).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -869,7 +870,7 @@ pub async fn list_shared_subfolder_content(
     let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents =
         share::list_shared_subfolder(state.get_ref(), &token, folder_id, &params).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(contents)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -896,7 +897,7 @@ pub async fn get_shared_subfolder_ancestors(
 
     let ancestors =
         share::get_shared_subfolder_ancestors(state.get_ref(), &token, folder_id).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(ancestors)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(ancestors)))
 }
 
 #[aster_forge_api_docs_macros::path(

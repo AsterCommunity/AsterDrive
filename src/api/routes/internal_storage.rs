@@ -2,7 +2,6 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
-use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
 use crate::services::{
@@ -330,7 +329,7 @@ async fn get_capabilities(
         .with_remote_storage_target_connector_ids(connector_ids);
     capabilities.target_runtime_capabilities =
         storage_target::runtime_capabilities(state.get_ref(), &binding).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(capabilities)))
 }
 
 async fn get_capacity(
@@ -343,7 +342,9 @@ async fn get_capacity(
         binding_id = ctx.binding.id,
         "follower internal storage capacity requested"
     );
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageCapacityResponse { capacity })))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
+        RemoteStorageCapacityResponse { capacity },
+    )))
 }
 
 async fn sync_binding(
@@ -386,7 +387,7 @@ async fn sync_binding(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 async fn list_objects(
@@ -444,7 +445,7 @@ async fn list_objects(
     );
 
     Ok(
-        HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageListResponse {
+        HttpResponse::Ok().json(crate::api::response::success(RemoteStorageListResponse {
             items,
             next_cursor,
         })),
@@ -565,7 +566,7 @@ async fn put_object(
     }
     Ok(HttpResponse::Ok()
         .insert_header((actix_web::http::header::ETAG, etag))
-        .json(ApiResponse::<()>::ok_empty()))
+        .json(crate::api::response::empty_success()))
 }
 
 async fn compose_objects(
@@ -648,11 +649,9 @@ async fn compose_objects(
         .await;
     }
 
-    Ok(
-        HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageComposeResponse {
-            bytes_written,
-        })),
-    )
+    Ok(HttpResponse::Ok().json(crate::api::response::success(
+        RemoteStorageComposeResponse { bytes_written },
+    )))
 }
 
 async fn get_object(
@@ -822,7 +821,7 @@ async fn get_object_metadata(
     );
 
     Ok(
-        HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageObjectMetadata {
+        HttpResponse::Ok().json(crate::api::response::success(RemoteStorageObjectMetadata {
             size: metadata.size,
             content_type: metadata.content_type,
         })),
@@ -865,7 +864,7 @@ async fn delete_object(
         )
         .await;
     }
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 async fn list_storage_targets(
@@ -879,7 +878,7 @@ async fn list_storage_targets(
         target_count = targets.len(),
         "follower remote storage targets listed"
     );
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(targets)))
 }
 
 async fn list_storage_target_connectors(
@@ -898,7 +897,7 @@ async fn list_storage_target_connectors(
         locale = query.locale.as_str(),
         "follower remote storage target connector catalog listed"
     );
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(catalog)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(catalog)))
 }
 
 async fn create_storage_target(
@@ -930,7 +929,7 @@ async fn create_storage_target(
         },
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(target)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(target)))
 }
 
 async fn update_storage_target(
@@ -965,7 +964,7 @@ async fn update_storage_target(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(target)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(target)))
 }
 
 async fn delete_storage_target(
@@ -997,7 +996,7 @@ async fn delete_storage_target(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[cfg(test)]

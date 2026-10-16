@@ -6,7 +6,6 @@ use actix_web::{HttpResponse, HttpResponseBuilder};
 use governor::middleware::NoOpMiddleware;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::response::ApiResponse;
 use crate::config::RateLimitTier;
 use aster_forge_middleware::actix::rate_limit::TrustedProxyIpKeyExtractor;
 
@@ -28,7 +27,7 @@ fn rate_limit_response(wait_time: u64, mut response: HttpResponseBuilder) -> Htt
     response
         .status(StatusCode::TOO_MANY_REQUESTS)
         .insert_header(("Retry-After", wait_time.to_string()))
-        .json(ApiResponse::<()>::error(
+        .json(crate::api::response::failure(
             ApiErrorCode::RateLimited,
             &message,
         ))

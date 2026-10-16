@@ -2,7 +2,6 @@ use bytes::Bytes;
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use serde::Serialize;
 
-use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use aster_drive_storage::StorageErrorKind;
 
@@ -104,9 +103,9 @@ fn response_headers_for_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<(St
 }
 
 pub fn envelope_response<T: Serialize>(data: T) -> actix_web::HttpResponse {
-    actix_web::HttpResponse::Ok().json(ApiResponse::ok(data))
+    actix_web::HttpResponse::Ok().json(crate::api::response::success(data))
 }
 
 pub fn empty_envelope_response() -> actix_web::HttpResponse {
-    actix_web::HttpResponse::Ok().json(ApiResponse::<()>::ok_empty())
+    actix_web::HttpResponse::Ok().json(crate::api::response::empty_success())
 }

@@ -4,6 +4,7 @@ use crate::api::dto::admin::{
     AdminFileBlobListQuery, AdminFileListQuery, CreateBlobMaintenanceTaskReq,
 };
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -38,7 +39,7 @@ pub async fn list_files(
         &query,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -60,7 +61,7 @@ pub async fn get_file(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let file = admin::get_file(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(file)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -88,7 +89,7 @@ pub async fn list_file_blobs(
         &query,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -110,7 +111,7 @@ pub async fn get_file_blob(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let blob = admin::get_blob(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(blob)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(blob)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -158,5 +159,5 @@ pub async fn create_blob_maintenance_task(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }

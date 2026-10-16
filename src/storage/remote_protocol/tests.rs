@@ -1020,11 +1020,21 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
 
 #[tokio::test]
 async fn remote_client_maps_envelope_errors_and_missing_data() {
-    async fn capabilities_missing_data() -> HttpResponse {
+    async fn capabilities_missing_data(req: HttpRequest) -> HttpResponse {
+        if req
+            .headers()
+            .get(INTERNAL_AUTH_ACCESS_KEY_HEADER)
+            .is_some_and(|value| value == "null-data")
+        {
+            return HttpResponse::Ok().json(serde_json::json!({
+                "code": "success",
+                "msg": "",
+                "data": null
+            }));
+        }
         HttpResponse::Ok().json(serde_json::json!({
             "code": "success",
             "msg": "",
-            "data": null
         }))
     }
 
@@ -1083,6 +1093,26 @@ async fn remote_client_maps_envelope_errors_and_missing_data() {
         capabilities_error
             .message()
             .contains("capabilities response missing data")
+    );
+
+    let null_client = RemoteStorageClient::new(
+        &format!("http://127.0.0.1:{}", addr.port()),
+        "null-data",
+        "secret-key",
+    )
+    .expect("null-data client should build");
+    let null_error = null_client
+        .probe_capabilities()
+        .await
+        .expect_err("null is not a capabilities DTO");
+    assert_eq!(
+        null_error.storage_error_kind(),
+        Some(StorageErrorKind::Misconfigured)
+    );
+    assert!(
+        null_error
+            .message()
+            .contains("decode remote storage capabilities response")
     );
 
     let list_error = client

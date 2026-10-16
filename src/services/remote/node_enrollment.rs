@@ -259,17 +259,17 @@ async fn parse_api_response<T: for<'de> Deserialize<'de>>(
         AsterError::config_error(format!("failed to parse {action} response: {error}"))
     })?;
 
-    if !status.is_success() || envelope.code != ApiErrorCode::Success {
-        let message = if envelope.msg.trim().is_empty() {
+    if !status.is_success() || *envelope.code() != ApiErrorCode::Success {
+        let message = if envelope.message().trim().is_empty() {
             format!("{action} failed with HTTP {status}")
         } else {
-            envelope.msg
+            envelope.message().to_string()
         };
         return Err(AsterError::validation_error(message));
     }
 
     envelope
-        .data
+        .into_data()
         .ok_or_else(|| AsterError::config_error(format!("{action} response is missing data")))
 }
 
@@ -283,11 +283,11 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
             AsterError::config_error(format!("failed to parse {action} response: {error}"))
         })?;
 
-    if !status.is_success() || envelope.code != ApiErrorCode::Success {
-        let message = if envelope.msg.trim().is_empty() {
+    if !status.is_success() || *envelope.code() != ApiErrorCode::Success {
+        let message = if envelope.message().trim().is_empty() {
             format!("{action} failed with HTTP {status}")
         } else {
-            envelope.msg
+            envelope.message().to_string()
         };
         return Err(AsterError::validation_error(message));
     }
@@ -536,7 +536,6 @@ mod tests {
             serde_json::json!({
                 "code": "auth.token_expired",
                 "msg": enrollment::ENROLLMENT_TOKEN_COMPLETED_MESSAGE,
-                "data": null
             }),
             ack_count.clone(),
         )

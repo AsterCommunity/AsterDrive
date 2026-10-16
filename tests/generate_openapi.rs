@@ -62,18 +62,23 @@ fn api_error_code_openapi_schema_has_unique_values() {
 }
 
 #[test]
-fn api_error_info_openapi_exposes_retryable_only() {
+fn api_error_info_openapi_exposes_retryability_and_typed_diagnostic() {
     let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
-    let info = &value["components"]["schemas"]["ApiErrorInfo"];
+    let info = &value["components"]["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
     let properties = info["properties"]
         .as_object()
-        .expect("ApiErrorInfo should have properties");
+        .expect("typed ApiErrorInfo should have properties");
 
     assert!(properties.contains_key("retryable"));
+    assert_eq!(
+        properties["diagnostic"]["$ref"],
+        "#/components/schemas/ApiErrorDiagnostic"
+    );
     assert!(!properties.contains_key("code"));
     assert!(!properties.contains_key("internal_code"));
     assert!(!properties.contains_key("subcode"));
     assert!(!properties.contains_key("api_code"));
+    assert!(value["components"]["schemas"].get("ApiErrorInfo").is_none());
 }
 
 #[test]
@@ -98,10 +103,62 @@ fn api_response_openapi_code_references_api_error_code_schema() {
             code.get("enum").is_none(),
             "{name} code should not inline enum values"
         );
+        assert_eq!(
+            schema["properties"]["error"]["$ref"],
+            "#/components/schemas/ApiErrorInfo_ApiErrorDiagnostic",
+            "{name} error should reference the typed shared metadata schema"
+        );
         checked += 1;
     }
 
     assert!(checked > 0, "at least one ApiResponse schema should exist");
+}
+
+#[test]
+fn api_response_schema_names_and_inline_routes_keep_product_bindings() {
+    let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    let schemas = value["components"]["schemas"].as_object().unwrap();
+    for name in [
+        "ApiResponse_RemoteEnrollmentBootstrap",
+        "ApiResponse_RemoteEnrollmentCommandInfo",
+        "ApiResponse_UploadProgressResponse",
+        "ApiResponse_Vec_ConfigSchemaItem",
+        "ApiResponse_Vec_TemplateVariableGroup",
+    ] {
+        assert!(schemas.contains_key(name), "missing product schema {name}");
+    }
+    for name in schemas
+        .keys()
+        .filter(|name| name.starts_with("ApiResponse_"))
+    {
+        assert!(
+            !name.contains("ApiErrorCode"),
+            "redundant product code in {name}"
+        );
+        assert!(
+            !name.contains("ApiErrorDiagnostic"),
+            "redundant diagnostic in {name}"
+        );
+    }
+
+    // Both non-inline components and inline DTO/list/page responses must reuse the metadata.
+    for path in [
+        "/api/v1/admin/config/{key}",
+        "/api/v1/admin/config",
+        "/api/v1/admin/external-auth/provider-kinds",
+    ] {
+        let response = &value["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]
+            ["schema"];
+        assert_eq!(
+            response["properties"]["code"]["$ref"], "#/components/schemas/ApiErrorCode",
+            "{path}"
+        );
+        assert_eq!(
+            response["properties"]["error"]["$ref"],
+            "#/components/schemas/ApiErrorInfo_ApiErrorDiagnostic",
+            "{path}"
+        );
+    }
 }
 
 #[test]

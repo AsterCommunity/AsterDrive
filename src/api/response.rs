@@ -1,18 +1,53 @@
 //! 统一 API 响应封装。
 
-use actix_web::HttpResponse;
+use aster_forge_api::response::{
+    ApiErrorInfo as ForgeApiErrorInfo, ApiResponse as ForgeApiResponse, ApiResponseCode,
+    ResponseEnvelopeError,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
 use super::api_error_code::ApiErrorCode;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct ApiErrorInfo {
-    pub retryable: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diagnostic: Option<ApiErrorDiagnostic>,
+impl ApiResponseCode for ApiErrorCode {
+    fn is_success(&self) -> bool {
+        *self == ApiErrorCode::Success
+    }
+}
+
+pub type ApiErrorInfo = ForgeApiErrorInfo<ApiErrorDiagnostic>;
+
+/// Drive's REST adapter binds product-owned code and diagnostic types to Forge's envelope.
+/// Serialization and OpenAPI composition are delegated to the shared Forge response.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct ApiResponse<T: Serialize>(ForgeApiResponse<T, ApiErrorCode, ApiErrorDiagnostic>);
+
+#[cfg(all(debug_assertions, feature = "openapi"))]
+impl<T: Serialize + ToSchema> ToSchema for ApiResponse<T> {
+    fn name() -> std::borrow::Cow<'static, str> {
+        // Utoipa appends this product adapter's generic arguments itself.
+        std::borrow::Cow::Borrowed("ApiResponse")
+    }
+
+    fn schemas(
+        schemas: &mut Vec<(
+            String,
+            utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+        )>,
+    ) {
+        <ForgeApiResponse<T, ApiErrorCode, ApiErrorDiagnostic> as ToSchema>::schemas(schemas);
+    }
+}
+
+#[cfg(all(debug_assertions, feature = "openapi"))]
+impl<T: Serialize + ToSchema> utoipa::__dev::ComposeSchema for ApiResponse<T> {
+    fn compose(
+        generics: Vec<utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>>,
+    ) -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        <ForgeApiResponse<T, ApiErrorCode, ApiErrorDiagnostic> as utoipa::__dev::ComposeSchema>::compose(generics)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,80 +65,43 @@ pub struct ApiErrorDiagnostic {
     pub scope: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct ApiEmptyData {}
-
-/// 统一 API 响应格式
-///
-/// 成功: `{ "code": "success", "msg": "", "data": {...} }`
-/// 失败: `{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }`
-#[derive(Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct ApiResponse<T: Serialize> {
-    pub code: ApiErrorCode,
-    pub msg: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ApiErrorInfo>,
+#[expect(
+    clippy::expect_used,
+    reason = "Drive supplies a fixed success code or an AsterError-mapped failure code; a classification mismatch is a product programming error"
+)]
+fn adapt_envelope<T: Serialize>(
+    response: Result<ForgeApiResponse<T, ApiErrorCode, ApiErrorDiagnostic>, ResponseEnvelopeError>,
+) -> ApiResponse<T> {
+    ApiResponse(response.expect("Drive response code must match the envelope state"))
 }
 
-impl<T: Serialize> ApiResponse<T> {
-    pub fn ok(data: T) -> Self {
-        Self {
-            code: ApiErrorCode::Success,
-            msg: String::new(),
-            data: Some(data),
-            error: None,
-        }
-    }
+/// Injects AsterDrive's success code while keeping the wire envelope owned by Forge.
+pub fn success<T: Serialize>(data: T) -> ApiResponse<T> {
+    adapt_envelope(ForgeApiResponse::ok(ApiErrorCode::Success, data))
+}
 
-    pub fn ok_empty() -> ApiResponse<()> {
-        ApiResponse {
-            code: ApiErrorCode::Success,
-            msg: String::new(),
-            data: None,
-            error: None,
-        }
-    }
+/// Builds the product's successful response whose `data` field is omitted.
+pub fn empty_success() -> ApiResponse<()> {
+    adapt_envelope(ForgeApiResponse::ok_empty(ApiErrorCode::Success))
+}
 
-    pub fn ok_empty_data() -> ApiResponse<ApiEmptyData> {
-        ApiResponse {
-            code: ApiErrorCode::Success,
-            msg: String::new(),
-            data: Some(ApiEmptyData::default()),
-            error: None,
-        }
-    }
+/// Builds the product's successful response with `data: {}`.
+pub fn empty_object_success() -> ApiResponse<aster_forge_api::response::ApiEmptyData> {
+    adapt_envelope(ForgeApiResponse::ok_empty_data(ApiErrorCode::Success))
+}
 
-    pub fn error(code: ApiErrorCode, msg: &str) -> ApiResponse<()> {
-        Self::error_with_details(
-            code,
-            msg,
-            Some(ApiErrorInfo {
-                retryable: false,
-                diagnostic: None,
-            }),
-        )
-    }
+/// Adapts a Drive error code and policy into Forge's validated REST envelope.
+pub fn failure(code: ApiErrorCode, message: impl Into<String>) -> ApiResponse<()> {
+    adapt_envelope(ForgeApiResponse::error(code, message))
+}
 
-    pub fn error_with_details(
-        code: ApiErrorCode,
-        msg: &str,
-        error: Option<ApiErrorInfo>,
-    ) -> ApiResponse<()> {
-        ApiResponse {
-            code,
-            msg: msg.to_string(),
-            data: None,
-            error,
-        }
-    }
-
-    pub fn into_response(self) -> HttpResponse {
-        HttpResponse::Ok().json(self)
-    }
+/// Adapts Drive-owned retryability and typed diagnostics into Forge's error metadata container.
+pub fn failure_with_details(
+    code: ApiErrorCode,
+    message: impl Into<String>,
+    error: Option<ApiErrorInfo>,
+) -> ApiResponse<()> {
+    adapt_envelope(ForgeApiResponse::error_with_details(code, message, error))
 }
 
 #[derive(Serialize)]
@@ -136,4 +134,103 @@ pub struct PurgedCountResponse {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemovedCountResponse {
     pub removed: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn forge_envelope_preserves_drive_wire_shapes() {
+        assert_eq!(
+            serde_json::to_value(success(json!({"id": 7}))).unwrap(),
+            json!({"code": "success", "msg": "", "data": {"id": 7}})
+        );
+        assert_eq!(
+            serde_json::to_value(empty_success()).unwrap(),
+            json!({"code": "success", "msg": ""})
+        );
+        assert_eq!(
+            serde_json::to_value(empty_object_success()).unwrap(),
+            json!({"code": "success", "msg": "", "data": {}})
+        );
+        assert_eq!(
+            serde_json::to_value(success(None::<u64>)).unwrap(),
+            json!({"code": "success", "msg": "", "data": null})
+        );
+        assert_eq!(
+            serde_json::to_value(success(Vec::<u64>::new())).unwrap(),
+            json!({"code": "success", "msg": "", "data": []})
+        );
+        assert_eq!(
+            serde_json::to_value(failure_with_details(
+                ApiErrorCode::CredentialsFailed,
+                "Invalid Credentials",
+                None,
+            ))
+            .unwrap(),
+            json!({
+                "code": "auth.credentials_failed",
+                "msg": "Invalid Credentials"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(failure(
+                ApiErrorCode::CredentialsFailed,
+                "Invalid Credentials",
+            ))
+            .unwrap(),
+            json!({
+                "code": "auth.credentials_failed",
+                "msg": "Invalid Credentials",
+                "error": {"retryable": false}
+            })
+        );
+    }
+
+    #[test]
+    fn typed_diagnostics_round_trip_and_invalid_states_are_rejected() {
+        let response = failure_with_details(
+            ApiErrorCode::StorageDriverError,
+            "storage unavailable",
+            Some(ApiErrorInfo {
+                retryable: true,
+                diagnostic: Some(ApiErrorDiagnostic {
+                    kind: "misconfigured".into(),
+                    message: "bucket is missing".into(),
+                    field: Some("bucket".into()),
+                    scope: Some("connector_config".into()),
+                }),
+            }),
+        );
+        let encoded = serde_json::to_vec(&response).unwrap();
+        let decoded: ForgeApiResponse<(), ApiErrorCode, ApiErrorDiagnostic> =
+            serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(serde_json::to_vec(&decoded).unwrap(), encoded);
+
+        let invalid_success = json!({
+            "code": "success",
+            "msg": "",
+            "error": {"retryable": false}
+        });
+        assert!(
+            serde_json::from_value::<ForgeApiResponse<(), ApiErrorCode, ApiErrorDiagnostic>>(
+                invalid_success
+            )
+            .is_err()
+        );
+
+        let invalid_failure = json!({
+            "code": "not_found",
+            "msg": "missing",
+            "data": null
+        });
+        assert!(
+            serde_json::from_value::<ForgeApiResponse<Option<()>, ApiErrorCode, ApiErrorDiagnostic>>(
+                invalid_failure
+            )
+            .is_err()
+        );
+    }
 }

@@ -4,6 +4,7 @@ use crate::api::dto::batch::{WorkspaceRef, WorkspaceTransferCopyReq, WorkspaceTr
 use crate::api::dto::validate_request;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
@@ -66,7 +67,7 @@ pub async fn copy_to_workspace(
     )
     .await?;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -106,7 +107,7 @@ pub async fn move_to_workspace(
     )
     .await?;
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }
 
 fn workspace_ref_to_scope(value: &WorkspaceRef, actor_user_id: i64) -> WorkspaceStorageScope {

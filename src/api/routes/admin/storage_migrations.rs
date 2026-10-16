@@ -2,6 +2,7 @@
 
 use crate::api::dto::admin::{CreateStoragePolicyMigrationReq, DryRunStoragePolicyMigrationReq};
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -40,7 +41,7 @@ pub async fn create_storage_policy_migration(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -74,7 +75,7 @@ pub async fn dry_run_storage_policy_migration(
         },
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(dry_run)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(dry_run)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -105,5 +106,5 @@ pub async fn resume_storage_policy_migration(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }

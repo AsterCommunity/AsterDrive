@@ -4,6 +4,7 @@ pub use crate::api::dto::shares::*;
 use crate::api::dto::validate_request;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -387,7 +388,7 @@ pub(crate) async fn create_share_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(share)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(share)))
 }
 
 pub(crate) async fn list_shares_response(
@@ -402,7 +403,7 @@ pub(crate) async fn list_shares_response(
         query.offset(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(shares)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(shares)))
 }
 
 pub(crate) async fn update_share_response(
@@ -425,7 +426,7 @@ pub(crate) async fn update_share_response(
         &ctx,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(share)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(share)))
 }
 
 pub(crate) async fn delete_share_response(
@@ -437,7 +438,7 @@ pub(crate) async fn delete_share_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     share::delete_share_in_scope_with_audit(state, scope, share_id, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 pub(crate) async fn batch_delete_shares_response(
@@ -451,5 +452,5 @@ pub(crate) async fn batch_delete_shares_response(
     let ctx = AuditContext::from_request(req, claims);
     let result =
         share::batch_delete_shares_in_scope_with_audit(state, scope, &body.share_ids, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(result)))
 }

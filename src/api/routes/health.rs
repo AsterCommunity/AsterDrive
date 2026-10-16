@@ -1,7 +1,9 @@
 //! API 路由：`health`。
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::response::{ApiResponse, HealthResponse, MemoryStatsResponse, SystemInfoResponse};
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use crate::api::response::ApiResponse;
+use crate::api::response::{HealthResponse, MemoryStatsResponse, SystemInfoResponse};
 use crate::runtime::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::health;
 use actix_web::{HttpResponse, web};
@@ -88,9 +90,9 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     }
 
     match health::check_primary_ready(state.get_ref()).await {
-        Ok(setup_state) => {
-            HttpResponse::Ok().json(ApiResponse::ok(status_response(setup_state.as_str())))
-        }
+        Ok(setup_state) => HttpResponse::Ok().json(crate::api::response::success(status_response(
+            setup_state.as_str(),
+        ))),
         Err(error) => ready_storage_error(error),
     }
 }
@@ -104,7 +106,7 @@ pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse 
     }
 
     match health::check_follower_ready(state.get_ref()).await {
-        Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
+        Ok(_) => HttpResponse::Ok().json(crate::api::response::success(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }
 }
@@ -137,7 +139,7 @@ async fn check_cache_ready<S: SharedRuntimeState>(state: &S) -> Result<(), Strin
 
 fn ready_database_error(error: impl std::fmt::Display) -> HttpResponse {
     tracing::error!(error = %error, "health readiness database ping failed");
-    HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error(
+    HttpResponse::ServiceUnavailable().json(crate::api::response::failure(
         ApiErrorCode::DatabaseError,
         READY_DB_UNAVAILABLE_MESSAGE,
     ))
@@ -145,7 +147,7 @@ fn ready_database_error(error: impl std::fmt::Display) -> HttpResponse {
 
 fn ready_cache_error(error: impl std::fmt::Display) -> HttpResponse {
     tracing::error!(error = %error, "health readiness cache check failed");
-    HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error(
+    HttpResponse::ServiceUnavailable().json(crate::api::response::failure(
         ApiErrorCode::ConfigError,
         READY_CACHE_UNAVAILABLE_MESSAGE,
     ))
@@ -153,7 +155,7 @@ fn ready_cache_error(error: impl std::fmt::Display) -> HttpResponse {
 
 fn ready_storage_error(error: crate::errors::AsterError) -> HttpResponse {
     tracing::error!(error = %error, "health readiness storage probe failed");
-    HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error_with_details(
+    HttpResponse::ServiceUnavailable().json(crate::api::response::failure_with_details(
         error.api_error_code(),
         READY_STORAGE_UNAVAILABLE_MESSAGE,
         None,
@@ -166,7 +168,7 @@ pub async fn ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
 
 pub async fn memory() -> HttpResponse {
     let (allocated, peak) = aster_forge_alloc::stats();
-    HttpResponse::Ok().json(ApiResponse::ok(MemoryStatsResponse {
+    HttpResponse::Ok().json(crate::api::response::success(MemoryStatsResponse {
         heap_allocated_mb: format!("{allocated:.2}"),
         heap_peak_mb: format!("{peak:.2}"),
     }))

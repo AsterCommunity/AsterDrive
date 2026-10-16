@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared REST envelopes** — REST handlers and remote-node consumers now use AsterForge's typed response envelope while preserving Drive's success, omitted-data, empty-object, error-code, retryability, diagnostic, HTTP status, and header contracts. OpenAPI and the generated TypeScript SDK retain shared error-metadata references and concise product response schema names.
+
 ### Fixed
 
 - **Large download delivery in browsers** — Browser-managed archive downloads now use the shared native download trigger instead of a timed hidden iframe. Browsers without the File System Access API no longer expose in-page proxy download modes; direct proxy calls fall back to the native download manager instead of buffering complete files or ZIP archives in page memory. Archive diagnostics also distinguish downstream client disconnects from upstream storage-read failures instead of masking both as client disconnects.

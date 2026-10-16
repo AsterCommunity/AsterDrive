@@ -2,6 +2,7 @@
 
 use crate::api::dto::admin::SetFolderPolicyReq;
 use crate::api::dto::validate_request;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -34,5 +35,5 @@ pub async fn set_folder_policy(
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let folder =
         folder::admin_set_policy_with_audit(state.get_ref(), *path, body.policy_id, &ctx).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(folder)))
 }

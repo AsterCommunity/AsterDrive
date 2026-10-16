@@ -4,6 +4,7 @@ use crate::api::dto::validate_request;
 use crate::api::dto::webdav::{CreateWebdavAccountReq, TestConnectionReq, WebdavSettingsInfo};
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -78,15 +79,17 @@ pub async fn get_settings(
     };
     let conn = req.connection_info();
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(WebdavSettingsInfo {
-        prefix: state.config().webdav.prefix.clone(),
-        endpoint: site_url::public_app_url_or_path_for_request(
-            state.get_ref().runtime_config(),
-            &endpoint_path,
-            conn.scheme(),
-            conn.host(),
-        ),
-    })))
+    Ok(
+        HttpResponse::Ok().json(crate::api::response::success(WebdavSettingsInfo {
+            prefix: state.config().webdav.prefix.clone(),
+            endpoint: site_url::public_app_url_or_path_for_request(
+                state.get_ref().runtime_config(),
+                &endpoint_path,
+                conn.scheme(),
+                conn.host(),
+            ),
+        })),
+    )
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -113,7 +116,7 @@ pub async fn list_accounts(
         query.offset(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(accounts)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(accounts)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -155,7 +158,7 @@ pub async fn create_account(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(result)))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -195,7 +198,7 @@ pub async fn list_team_accounts(
         query.offset(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(accounts)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(accounts)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -240,7 +243,7 @@ pub async fn create_team_account(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(result)))
+    Ok(HttpResponse::Created().json(crate::api::response::success(result)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -285,7 +288,7 @@ pub async fn delete_team_account(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -333,7 +336,7 @@ pub async fn toggle_team_account(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(account)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -369,7 +372,7 @@ pub async fn delete_account(
         || Some(details.clone()),
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -407,7 +410,7 @@ pub async fn toggle_account(
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(account)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(account)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -435,7 +438,7 @@ pub async fn test_connection(
         &body.password,
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
+    Ok(HttpResponse::Ok().json(crate::api::response::empty_success()))
 }
 
 fn webdav_created_audit_details(

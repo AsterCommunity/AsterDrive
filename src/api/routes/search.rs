@@ -2,6 +2,7 @@
 
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
+#[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -94,5 +95,5 @@ pub(crate) async fn search_response(
     query: &SearchParams,
 ) -> Result<HttpResponse> {
     let results = search::search_in_scope(state, scope, query).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(results)))
+    Ok(HttpResponse::Ok().json(crate::api::response::success(results)))
 }
