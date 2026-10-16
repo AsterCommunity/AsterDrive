@@ -157,6 +157,10 @@ impl AsterDavFs {
         }
     }
 
+    pub(crate) fn metrics(&self) -> &aster_drive_metrics::SharedMetricsRecorder {
+        &self.state.metrics
+    }
+
     fn app_state(&self) -> PrimaryAppState {
         self.state.clone()
     }

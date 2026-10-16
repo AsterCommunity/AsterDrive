@@ -30,13 +30,15 @@ cargo build --release --features metrics
 cargo build --release --features full
 ```
 
+先设置 `[observability.prometheus].enabled = true` 并重启；专用 Basic Auth 配置见下文。
+
 启动后先确认实例能返回指标：
 
 ```bash
 curl http://<asterdrive-host>:3000/health/metrics
 ```
 
-如果返回 404，通常是当前二进制没有启用 `metrics` feature。  
+如果返回 404，检查二进制的 `metrics` feature 和静态 `[observability.prometheus].enabled` 是否都已开启。
 如果返回 HTML 或代理错误，先查反向代理路径和后端端口。
 
 ## Prometheus scrape 配置
@@ -191,9 +193,88 @@ dashboard 的查询基于 AsterDrive 当前指标标签：
 
 其中 `job` 和 `instance` 来自 Prometheus scrape target，不是 AsterDrive 自己写入的业务标签。
 
+## 显式开启与抓取认证
+
+观测默认关闭。Cargo feature 提供能力，静态配置决定是否运行；修改配置后重启。旧版仅编译 `metrics` 就暴露端点的默认行为已改为显式启用。
+
+```toml
+[observability.prometheus]
+enabled = true
+
+[observability.prometheus.basic_auth]
+enabled = true
+username = "prometheus"
+password_hash = '$argon2id$v=19$...' # 替换为完整 verifier
+```
+
+用 CLI 从 stdin 生成 verifier，不经数据库、日志初始化或命令行密码参数：
+
+```bash
+# Bash；输入不会回显或进入命令历史
+read -r -s -p 'Metrics password: ' METRICS_PASSWORD
+printf '%s' "$METRICS_PASSWORD" | ./aster_drive hash-password
+unset METRICS_PASSWORD
+```
+
+支持 Argon2id v19，验证上限为 64 MiB、3 passes、4 lanes、32-byte output。username 不允许冒号或控制字符；空/畸形/超预算 hash 启动拒绝，不生成替代密码，也不回退匿名。环境覆盖示例：`ASTER__OBSERVABILITY__PROMETHEUS__BASIC_AUTH__PASSWORD_HASH`；PHC 值用 shell 单引号保护 `$`。
+
+Prometheus 使用原始密码文件，服务端配置只存 verifier：
+
+```yaml
+scrape_configs:
+  - job_name: asterdrive
+    scheme: https
+    metrics_path: /health/metrics
+    basic_auth:
+      username: prometheus
+      password_file: /etc/prometheus/asterdrive-metrics.pass
+    static_configs:
+      - targets: [drive.example.com]
+```
+
+通过 HTTPS 或受信任的 TLS 终止代理传输 Basic Auth。关闭认证后已开启的端点允许匿名抓取；普通 JWT/cookie 不能替代抓取凭据。错误、畸形、重复 Authorization 都是空 body 的 401 + `WWW-Authenticate: Basic realm="AsterDrive metrics"`。认证先于导出与初始化状态检查；正确凭据后仍遵循成功 200、导出不可用 503。指标与认证失败响应均 `Cache-Control: no-store`；health/readiness 不受保护。
+
+密码验证在独立、有界 blocking executor 中执行，最多两个任务；忙时立即返回统一 401，不排队，也不与用户登录共用额度。取消 HTTP 请求不提前释放仍在执行的密码工作额度。
+
+## 可选 OTLP metrics
+
+现有 `-metrics` 镜像提供 Prometheus pull。需要 OTLP 时从源码构建，或使用 `docker build --build-arg CARGO_FEATURES=server,cli,metrics,otlp-metrics -t asterdrive:observability .`；静态 exporter 配置仍默认关闭。
+
+```bash
+cargo build --release --features metrics,otlp-metrics
+```
+
+```toml
+[observability]
+environment = "production"
+
+[observability.prometheus]
+enabled = true # OTLP-only 时显式保持 false
+
+[observability.otlp_metrics]
+enabled = true
+endpoint = "https://collector.example.com/v1/metrics"
+interval_seconds = 60
+timeout_seconds = 5
+# headers = { Authorization = "Bearer <collector credential>" }
+```
+
+一个实例级指标内核、一次业务记录，分别供两个 reader 导出。只支持 OTLP HTTP/protobuf metrics；这不启用 traces、Tempo 或 OTLP logs。配置不被 `OTEL_*`、代理或 SDK credential 环境变量覆盖；HTTPS 使用系统信任，不跟随重定向。collector 不可达不阻止文件服务启动或 readiness；失败在本地记录，并在下一周期重试累计快照。
+
+OTLP resource 包含 service/version/environment/role，以及每次启动生成、同一次运行保持不变的 `service.instance.id`（复用 config-sync runtime_id）。不需要手填实例 ID。Prometheus 的 `job/instance` 来自 scrape target，业务标签不添加这些身份。
+
+| 构建能力 | 配置 | HTTP 指标端点 |
+| --- | --- | --- |
+| 默认 / 无 metrics | exporters 均关闭 | 不存在 |
+| `metrics` | prometheus=true | 存在，可选 Basic Auth |
+| `otlp-metrics` | otlp_metrics=true | 不存在 |
+| 两个 feature | 分别开启 | 只有 prometheus=true 才存在 |
+
+启用未编译的能力启动失败；编译了但未配置启用时为 Noop，不启动采样/推送。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
+
 ## 上线安全边界
 
-AsterDrive 当前不对 `/health/metrics` 做应用层鉴权。这个选择是为了让 Prometheus scrape 简单稳定，访问控制应该交给网络边界。
+按上面的静态配置启用专用 Basic Auth，并按部署需要配合网络访问限制。
 
 生产环境必须做到：
 

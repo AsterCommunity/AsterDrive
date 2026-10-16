@@ -130,7 +130,25 @@ pub(crate) async fn handle_get_head(
         }
     };
     if let Some(opened) = opened {
-        response.body = DavResponseBody::Stream(opened.stream);
+        let stream: aster_forge_webdav::DavContentStream = if dav_fs.metrics().enabled() {
+            Box::pin(crate::storage::transfer_metrics::stream(
+                opened.stream,
+                dav_fs.metrics().clone(),
+                aster_drive_metrics::TransferLabels {
+                    direction: aster_drive_metrics::TransferDirection::Egress,
+                    source: aster_drive_metrics::TransferSource::Webdav,
+                    mode: if served_ranges == 0 {
+                        aster_drive_metrics::TransferMode::Stream
+                    } else {
+                        aster_drive_metrics::TransferMode::Range
+                    },
+                },
+                Some(opened.expected_length),
+            ))
+        } else {
+            opened.stream
+        };
+        response.body = DavResponseBody::Stream(stream);
     }
     aster_forge_webdav::actix::into_response(response)
 }
@@ -279,10 +297,19 @@ pub(crate) async fn handle_put(
         }
     };
 
+    let mut transfer = aster_drive_metrics::TransferGuard::new(
+        dav_fs.metrics().clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source: aster_drive_metrics::TransferSource::Webdav,
+            mode: aster_drive_metrics::TransferMode::Stream,
+        },
+    );
     while let Some(chunk) = payload.next().await {
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(_) => {
+                transfer.finish(aster_drive_metrics::TransferOutcome::Failure);
                 if let Err(error) = writer.abort().await {
                     tracing::warn!(path = %relative, error = %error, "WebDAV PUT abort after body read failure failed");
                 }
@@ -290,7 +317,9 @@ pub(crate) async fn handle_put(
             }
         };
         crate::webdav::observation::add_bytes_received(chunk.len());
+        transfer.bytes(chunk.len() as u64);
         if let Err(error) = writer.write_bytes(chunk).await {
+            transfer.finish(aster_drive_metrics::TransferOutcome::Failure);
             tracing::warn!(path = %relative, error = %error, "WebDAV PUT write failed");
             if let Err(abort_error) = writer.abort().await {
                 tracing::warn!(path = %relative, error = %abort_error, "WebDAV PUT abort after write failure failed");
@@ -300,6 +329,8 @@ pub(crate) async fn handle_put(
             );
         }
     }
+
+    transfer.finish(aster_drive_metrics::TransferOutcome::Success);
 
     if let Err(error) = writer.finish().await {
         tracing::warn!(path = %relative, error = %error, "WebDAV PUT finish failed");

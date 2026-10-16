@@ -13,6 +13,7 @@ mod errors;
 mod health;
 mod middleware;
 mod migrations;
+mod observability;
 mod refactor_contracts;
 mod schema_drift;
 mod security_fixes;

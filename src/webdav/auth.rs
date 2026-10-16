@@ -183,7 +183,8 @@ async fn authenticate_basic(
         .runtime_config()
         .password_hash_runtime()
         .verify_password(password, &account.password_hash)
-        .await?;
+        .await
+        .map_err(AsterError::from)?;
     if !password_verification.is_valid {
         rate_limit::record_username_failure(state, protection.enabled(), username).await;
         return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());

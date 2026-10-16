@@ -155,6 +155,15 @@ pub fn spawn_primary_background_tasks(
 ) -> BackgroundTasks {
     let mut tasks = build_background_tasks_base(&state.metrics, shutdown_token);
     let shutdown_token = tasks.shutdown_token();
+    if state.metrics.enabled() {
+        tasks.push(metrics_sampling_loop(
+            state.clone(),
+            shutdown_token.clone(),
+            |state| async move {
+                crate::services::ops::metrics::sample_primary(state.get_ref()).await;
+            },
+        ));
+    }
 
     if state.config_sync().enabled() {
         tasks.push(spawn_config_reload_subscription(
@@ -615,6 +624,16 @@ pub fn spawn_follower_background_tasks(
     tracing::info!("follower mode enabled; skipping primary-only background tasks");
     let mut tasks = build_background_tasks_base(&state.metrics, shutdown_token);
     let shutdown_token = tasks.shutdown_token();
+    if state.metrics.enabled() {
+        tasks.push(metrics_sampling_loop(
+            state.clone(),
+            shutdown_token.clone(),
+            |state| async move {
+                crate::services::ops::metrics::sample_capacity(state.get_ref()).await;
+            },
+        ));
+    }
+
     if state.config_sync().enabled() {
         tasks.push(spawn_config_reload_subscription(
             shutdown_token.clone(),
@@ -691,6 +710,23 @@ fn system_health_check_interval_for_web_state(state: &web::Data<PrimaryAppState>
     Duration::from_secs(
         crate::config::operations::remote_node_health_test_interval_secs(&state.runtime_config),
     )
+}
+
+async fn metrics_sampling_loop<S, F, Fut>(
+    state: web::Data<S>,
+    shutdown: CancellationToken,
+    sample: F,
+) where
+    S: Send + Sync + 'static,
+    F: Fn(web::Data<S>) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    let mut interval = tokio::time::interval(Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! { biased; () = shutdown.cancelled() => break, _ = interval.tick() => {} }
+        tokio::select! { biased; () = shutdown.cancelled() => break, () = sample(state.clone()) => {} }
+    }
 }
 
 #[cfg(test)]

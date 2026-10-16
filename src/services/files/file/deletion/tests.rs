@@ -30,6 +30,159 @@ struct TrackingDeleteDriver {
     delete_calls: Arc<AtomicUsize>,
 }
 
+#[derive(Default)]
+struct CleanupMetrics(Mutex<Vec<(aster_drive_metrics::CleanupOutcome, u64)>>);
+impl aster_drive_metrics::MetricsRecorder for CleanupMetrics {
+    fn enabled(&self) -> bool {
+        true
+    }
+    fn blob_cleanup(&self, outcome: aster_drive_metrics::CleanupOutcome, bytes: u64) {
+        self.0.lock().unwrap().push((outcome, bytes));
+    }
+}
+
+#[tokio::test]
+async fn cleanup_metrics_distinguish_failed_retry_and_retire_backing_bytes_once() {
+    let (mut state, _user, policy, driver) = build_deletion_test_state().await;
+    let metrics = Arc::new(CleanupMetrics::default());
+    state.metrics = metrics.clone();
+    let blob = create_blob(
+        state.writer_db(),
+        policy.id,
+        "files/metrics-retry.bin",
+        9,
+        0,
+    )
+    .await;
+    let path = blob.storage_path.as_deref().unwrap();
+    driver.insert_object(path);
+    driver.fail_delete_for(path);
+    assert!(!cleanup_unreferenced_blob(&state, &blob).await);
+    assert_eq!(
+        crate::db::repository::observability_repo::blob_backlog(state.writer_db())
+            .await
+            .unwrap()
+            .count,
+        1
+    );
+    driver.fail_delete_paths.lock().unwrap().remove(path);
+    assert!(cleanup_unreferenced_blob(&state, &blob).await);
+    assert_eq!(
+        crate::db::repository::observability_repo::blob_backlog(state.writer_db())
+            .await
+            .unwrap()
+            .count,
+        0
+    );
+    let _ = cleanup_unreferenced_blob(&state, &blob).await;
+    assert_eq!(
+        *metrics.0.lock().unwrap(),
+        vec![
+            (aster_drive_metrics::CleanupOutcome::Failure, 0),
+            (aster_drive_metrics::CleanupOutcome::Deleted, 9),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn cleanup_pending_interval_survives_retries_and_resets_only_after_referencing() {
+    let (state, _user, policy, _driver) = build_deletion_test_state().await;
+    let db = state.writer_db();
+    let blob = create_blob(db, policy.id, "files/pending-interval.bin", 9, 2).await;
+    assert!(blob.cleanup_pending_since.is_none());
+    file_repo::decrement_blob_ref_count(db, blob.id)
+        .await
+        .unwrap();
+    assert!(
+        file_repo::find_blob_by_id(db, blob.id)
+            .await
+            .unwrap()
+            .cleanup_pending_since
+            .is_none()
+    );
+    file_repo::decrement_blob_ref_count(db, blob.id)
+        .await
+        .unwrap();
+    let pending = file_repo::find_blob_by_id(db, blob.id)
+        .await
+        .unwrap()
+        .cleanup_pending_since
+        .unwrap();
+    assert!(file_repo::claim_blob_cleanup(db, blob.id).await.unwrap());
+    assert!(
+        file_repo::restore_blob_cleanup_claim(db, blob.id)
+            .await
+            .unwrap()
+    );
+    file_repo::decrement_blob_ref_count(db, blob.id)
+        .await
+        .unwrap();
+    file_repo::reset_blob_ref_count_to_zero(db, blob.id)
+        .await
+        .unwrap();
+    file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap();
+    assert_eq!(
+        file_repo::find_blob_by_id(db, blob.id)
+            .await
+            .unwrap()
+            .cleanup_pending_since,
+        Some(pending)
+    );
+    file_repo::increment_blob_ref_count(db, blob.id)
+        .await
+        .unwrap();
+    assert!(
+        file_repo::find_blob_by_id(db, blob.id)
+            .await
+            .unwrap()
+            .cleanup_pending_since
+            .is_none()
+    );
+    file_repo::increment_blob_ref_count_by(db, blob.id, 2)
+        .await
+        .unwrap();
+    file_repo::increment_blob_ref_counts_by(db, &[(blob.id, 2)])
+        .await
+        .unwrap();
+    file_repo::decrement_blob_ref_count_by(db, blob.id, 4)
+        .await
+        .unwrap();
+    assert!(
+        file_repo::find_blob_by_id(db, blob.id)
+            .await
+            .unwrap()
+            .cleanup_pending_since
+            .is_none()
+    );
+    file_repo::decrement_blob_ref_counts_by(db, &[(blob.id, 1)])
+        .await
+        .unwrap();
+    let pending_again = file_repo::find_blob_by_id(db, blob.id)
+        .await
+        .unwrap()
+        .cleanup_pending_since
+        .unwrap();
+    assert!(pending_again >= pending);
+    file_repo::increment_blob_ref_counts_by(db, &[(blob.id, 1)])
+        .await
+        .unwrap();
+    assert!(
+        file_repo::find_blob_by_id(db, blob.id)
+            .await
+            .unwrap()
+            .cleanup_pending_since
+            .is_none()
+    );
+    file_repo::set_blob_ref_count(db, blob.id, 0).await.unwrap();
+    assert!(
+        file_repo::find_blob_by_id(db, blob.id)
+            .await
+            .unwrap()
+            .cleanup_pending_since
+            .is_some()
+    );
+}
+
 impl TrackingDeleteDriver {
     fn insert_object(&self, path: &str) {
         self.objects

@@ -122,6 +122,31 @@ async fn init_upload_for_scope(
     scope: WorkspaceStorageScope,
     params: InitUploadParams<'_>,
 ) -> Result<InitUploadResponse> {
+    let result = init_upload_for_scope_impl(state, scope, params).await;
+    if let Err(error) = &result {
+        use crate::api::api_error_code::ApiErrorCode;
+        use aster_drive_metrics::AdmissionReason;
+        let reason = match error.api_error_code() {
+            ApiErrorCode::StorageQuotaExceeded => Some(AdmissionReason::Quota),
+            ApiErrorCode::UploadTargetCapacityInsufficient => Some(AdmissionReason::TargetCapacity),
+            ApiErrorCode::UploadStagingCapacityInsufficient => {
+                Some(AdmissionReason::StagingCapacity)
+            }
+            ApiErrorCode::UploadCapacityUnavailable => Some(AdmissionReason::CapacityUnavailable),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            state.metrics().admission_rejection(reason);
+        }
+    }
+    result
+}
+
+async fn init_upload_for_scope_impl(
+    state: &PrimaryAppState,
+    scope: WorkspaceStorageScope,
+    params: InitUploadParams<'_>,
+) -> Result<InitUploadResponse> {
     tracing::debug!(
         scope = ?scope,
         folder_id = params.folder_id,

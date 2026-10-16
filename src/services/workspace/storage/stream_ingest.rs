@@ -1,4 +1,4 @@
-use actix_web::web;
+use actix_web::dev;
 use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
 
@@ -27,7 +27,7 @@ pub(crate) struct StreamIngestParams<'a> {
 
 pub(crate) async fn ingest_stream(
     state: &PrimaryAppState,
-    payload: web::Payload,
+    payload: dev::Payload,
     params: StreamIngestParams<'_>,
 ) -> Result<file::Model> {
     let StreamIngestParams {

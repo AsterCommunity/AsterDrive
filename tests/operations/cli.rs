@@ -2550,3 +2550,62 @@ async fn test_root_binary_database_migrate_human_output_supports_forced_color() 
     assert!(stdout.contains("\u{1b}["));
     assert!(stderr.contains("\u{1b}["));
 }
+
+#[cfg(feature = "cli")]
+#[test]
+fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_it() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-hash-cli-{}", uuid::Uuid::new_v4())),
+        "hash CLI test",
+    );
+    std::fs::create_dir_all(dir.path()).unwrap();
+    // An invalid server configuration proves this command never starts server
+    // resources or logging, and never generates or repairs configuration files.
+    std::fs::create_dir(dir.path().join("data")).unwrap();
+    let invalid_config = "not valid TOML";
+    std::fs::write(dir.path().join("data/config.toml"), invalid_config).unwrap();
+    let run = |input: &[u8]| {
+        let mut child = Command::new(aster_drive_bin())
+            .arg("hash-password")
+            .current_dir(dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(input).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    for password in ["scrape:secret".to_owned(), "x".repeat(4096)] {
+        let output = run(format!("{password}\r\n").as_bytes());
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(stdout.lines().count(), 1);
+        assert!(stdout.starts_with("$argon2id$"));
+        assert!(aster_forge_crypto::verify_password(&password, stdout.trim()).unwrap());
+        assert!(output.stderr.is_empty());
+    }
+    for password in [
+        Vec::new(),
+        b"\n".to_vec(),
+        b"credential-marker\nsecond-line".to_vec(),
+        vec![b'x'; 4097],
+        vec![0xff],
+    ] {
+        let output = run(&password);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("credential-marker"));
+    }
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("data/config.toml")).unwrap(),
+        invalid_config
+    );
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}

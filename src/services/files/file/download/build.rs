@@ -338,6 +338,8 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
     );
 
     Ok(DownloadOutcome::Stream(StreamedFile {
+        metrics: state.metrics().clone(),
+        transfer_source: aster_drive_metrics::TransferSource::File,
         content_type: file.mime_type.clone(),
         content_length,
         content_disposition: disposition.header_value(&file.name),

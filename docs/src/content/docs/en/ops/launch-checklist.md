@@ -186,7 +186,7 @@ Before launch, confirm:
 - scrape interval, retention period, and scrape targets are defined
 - HTTP, DB, upload, download, background task, storage driver, and process RSS / CPU / uptime metrics are visible
 
-AsterDrive currently does not apply application-layer authentication to `/health/metrics`. This keeps Prometheus scraping simple and stable, with access control handled by the reverse proxy or network boundary.
+Metrics requires both the `metrics` capability and explicit `[observability.prometheus].enabled = true`. Configure dedicated static Basic Auth and restart; use HTTPS or a trusted TLS proxy. See [Monitoring](/en/ops/monitoring/).
 
 Grafana dashboard and local Prometheus + Grafana examples are in [Monitoring and Grafana](/en/ops/monitoring/).
 

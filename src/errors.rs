@@ -1217,6 +1217,12 @@ impl<T, E: std::fmt::Display + 'static> MapAsterErr<T> for std::result::Result<T
     }
 }
 
+impl From<aster_forge_auth::PasswordWorkError> for AsterError {
+    fn from(error: aster_forge_auth::PasswordWorkError) -> Self {
+        Self::internal_error(error.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

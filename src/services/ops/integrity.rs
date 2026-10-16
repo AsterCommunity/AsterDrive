@@ -6,7 +6,6 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use chrono::Utc;
 use futures::{StreamExt as _, stream};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder,
@@ -1052,15 +1051,8 @@ pub async fn fix_blob_ref_count_drifts<C: ConnectionTrait>(
             ))
         })?;
 
-        let result = FileBlob::update_many()
-            .col_expr(file_blob::Column::RefCount, Expr::value(actual_ref_count))
-            .col_expr(file_blob::Column::UpdatedAt, Expr::value(Utc::now()))
-            .filter(file_blob::Column::Id.eq(drift.blob_id))
-            .exec(db)
-            .await
-            .map_aster_err(AsterError::database_operation)?;
-
-        if result.rows_affected == 0 {
+        let updated = file_repo::set_blob_ref_count(db, drift.blob_id, actual_ref_count).await?;
+        if !updated {
             return Err(AsterError::record_not_found(format!(
                 "file_blob #{}",
                 drift.blob_id
@@ -1108,14 +1100,8 @@ pub async fn fix_blob_ref_counts_all<C: ConnectionTrait>(
                     blob.id
                 ))
             })?;
-            let result = FileBlob::update_many()
-                .col_expr(file_blob::Column::RefCount, Expr::value(value))
-                .col_expr(file_blob::Column::UpdatedAt, Expr::value(Utc::now()))
-                .filter(file_blob::Column::Id.eq(blob.id))
-                .exec(db)
-                .await
-                .map_aster_err(AsterError::database_operation)?;
-            if result.rows_affected == 0 {
+            let updated = file_repo::set_blob_ref_count(db, blob.id, value).await?;
+            if !updated {
                 return Err(AsterError::record_not_found(format!(
                     "file_blob #{}",
                     blob.id

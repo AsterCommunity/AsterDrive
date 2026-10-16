@@ -2462,7 +2462,9 @@ async fn upload_capacity_admission_classifies_terminal_boundaries_without_side_e
             actix_web::http::StatusCode::SERVICE_UNAVAILABLE,
         ),
     ] {
-        let state = common::setup().await;
+        let mut state = common::setup().await;
+        let metrics = Arc::new(AdmissionMetrics::default());
+        state.metrics = metrics.clone();
         let user = common::create_test_account(
             &state,
             &format!("cap{}", &case[..case.len().min(10)]),
@@ -2505,6 +2507,16 @@ async fn upload_capacity_admission_classifies_terminal_boundaries_without_side_e
             Err(error) => error,
         };
         assert_eq!(error.api_error_code(), expected_code, "{case}");
+        assert_eq!(
+            *metrics.0.lock().unwrap(),
+            vec![
+                if expected_code == ApiErrorCode::UploadTargetCapacityInsufficient {
+                    aster_drive_metrics::AdmissionReason::TargetCapacity
+                } else {
+                    aster_drive_metrics::AdmissionReason::CapacityUnavailable
+                }
+            ]
+        );
         assert_eq!(error.http_status(), expected_status, "{case}");
         assert_eq!(
             error.api_error_info().retryable,
@@ -4991,10 +5003,12 @@ async fn staged_init_rejects_safety_floor_violation_without_session_or_folder_si
         std::path::Path::new(&config.server.upload_temp_dir).join("capacity-rejected-root");
     config.server.upload_temp_dir = rejected_staging_root.to_string_lossy().into_owned();
     config.server.upload_temp_min_free_bytes = u64::MAX;
-    let state = aster_drive::runtime::PrimaryAppState {
+    let mut state = aster_drive::runtime::PrimaryAppState {
         config: Arc::new(config),
         ..base_state
     };
+    let metrics = Arc::new(AdmissionMetrics::default());
+    state.metrics = metrics.clone();
     let user = common::create_test_account(
         &state,
         "stagingfull",
@@ -5022,6 +5036,10 @@ async fn staged_init_rejects_safety_floor_violation_without_session_or_folder_si
         Err(error) => error,
     };
 
+    assert_eq!(
+        *metrics.0.lock().unwrap(),
+        vec![aster_drive_metrics::AdmissionReason::StagingCapacity]
+    );
     assert_eq!(
         error.api_error_code(),
         ApiErrorCode::UploadStagingCapacityInsufficient
@@ -8672,5 +8690,147 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     assert!(
         !std::path::Path::new(&relay_temp_dir).exists(),
         "relay_stream multipart should never use local chunk temp dir"
+    );
+}
+
+#[derive(Default)]
+struct UploadPhaseMetrics(
+    Mutex<
+        Vec<(
+            aster_drive_metrics::UploadPhase,
+            aster_drive_metrics::TransferOutcome,
+        )>,
+    >,
+    Mutex<u64>,
+);
+impl aster_drive_metrics::MetricsRecorder for UploadPhaseMetrics {
+    fn enabled(&self) -> bool {
+        true
+    }
+    fn transfer_bytes(&self, _: aster_drive_metrics::TransferLabels, bytes: u64) {
+        *self.1.lock().unwrap() += bytes;
+    }
+    fn upload_phase(
+        &self,
+        _: &'static str,
+        phase: aster_drive_metrics::UploadPhase,
+        outcome: aster_drive_metrics::TransferOutcome,
+        _: f64,
+    ) {
+        self.0.lock().unwrap().push((phase, outcome));
+    }
+}
+
+#[actix_web::test]
+async fn test_metrics_completed_retry_does_not_recount_phases_or_bytes() {
+    use aster_drive::services::files::upload;
+    use aster_drive_metrics::{TransferOutcome, UploadPhase};
+    let mut state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "metricretry", "metricretry@test.com", "password123")
+            .await
+            .unwrap();
+    let metrics = Arc::new(UploadPhaseMetrics::default());
+    state.metrics = metrics.clone();
+    use actix_web::FromRequest;
+    let init = upload::init_upload(
+        &state,
+        user.id,
+        "metric-retry.bin",
+        (TEST_CHUNK_SIZE * 2) as i64,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let upload_id = init.upload_id.unwrap();
+    for chunk_number in 0..2 {
+        let (request, mut body) = test::TestRequest::default()
+            .set_payload(vec![b'm'; TEST_CHUNK_SIZE])
+            .to_http_parts();
+        let payload = actix_web::web::Payload::from_request(&request, &mut body)
+            .await
+            .unwrap();
+        upload::upload_chunk_payload(&state, &upload_id, chunk_number, user.id, payload)
+            .await
+            .unwrap();
+    }
+    let observed_bytes = *metrics.1.lock().unwrap();
+    assert_eq!(observed_bytes, (TEST_CHUNK_SIZE * 2) as u64);
+    let first = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .unwrap();
+    let phases = metrics.0.lock().unwrap().clone();
+    for phase in [
+        UploadPhase::Assemble,
+        UploadPhase::Finalize,
+        UploadPhase::Complete,
+    ] {
+        assert_eq!(
+            phases
+                .iter()
+                .filter(|event| **event == (phase, TransferOutcome::Success))
+                .count(),
+            1
+        );
+    }
+    let repeated = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .unwrap();
+    assert_eq!(repeated.id, first.id);
+    assert_eq!(*metrics.0.lock().unwrap(), phases);
+    assert_eq!(*metrics.1.lock().unwrap(), observed_bytes);
+}
+
+#[derive(Default)]
+struct AdmissionMetrics(Mutex<Vec<aster_drive_metrics::AdmissionReason>>);
+impl aster_drive_metrics::MetricsRecorder for AdmissionMetrics {
+    fn enabled(&self) -> bool {
+        true
+    }
+    fn admission_rejection(&self, reason: aster_drive_metrics::AdmissionReason) {
+        self.0.lock().unwrap().push(reason);
+    }
+}
+
+#[actix_web::test]
+async fn test_metrics_quota_rejection_is_reported_once_without_a_session() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+    let mut state = common::setup().await;
+    let user =
+        common::create_test_account(&state, "metricquota", "metricquota@test.com", "password123")
+            .await
+            .unwrap();
+    let mut active = aster_drive::db::repository::user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    active.storage_quota = Set(2);
+    active.update(state.writer_db()).await.unwrap();
+    let metrics = Arc::new(AdmissionMetrics::default());
+    state.metrics = metrics.clone();
+    let error = aster_drive::services::files::upload::init_upload(
+        &state,
+        user.id,
+        "quota.bin",
+        3,
+        None,
+        None,
+    )
+    .await
+    .err()
+    .expect("quota rejection");
+    assert_eq!(error.api_error_code(), ApiErrorCode::StorageQuotaExceeded);
+    use sea_orm::{EntityTrait, PaginatorTrait};
+    assert_eq!(
+        aster_drive_model::entities::upload_session::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        *metrics.0.lock().unwrap(),
+        vec![aster_drive_metrics::AdmissionReason::Quota]
     );
 }

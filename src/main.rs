@@ -96,6 +96,8 @@ struct RootCli {
 #[cfg(feature = "cli")]
 #[derive(Debug, Clone, Subcommand)]
 enum RootCommand {
+    /// Generate an Argon2id PHC verifier from a password read from stdin
+    HashPassword,
     /// Start the AsterDrive server
     Serve,
     /// Run offline health checks for database, config, and storage readiness
@@ -145,6 +147,29 @@ async fn main() -> std::io::Result<()> {
     {
         let cli = RootCli::parse();
         match cli.command {
+            Some(RootCommand::HashPassword) => {
+                use std::io::Read;
+                let mut password = String::new();
+                // Include CRLF and one overflow byte so a long input cannot be
+                // silently accepted after truncation at a line ending.
+                std::io::stdin().take(4099).read_to_string(&mut password)?;
+                let password = password.strip_suffix('\n').unwrap_or(&password);
+                let password = password.strip_suffix('\r').unwrap_or(password);
+                if password.is_empty()
+                    || password.len() > 4096
+                    || password.chars().any(char::is_control)
+                {
+                    return Err(io::Error::other(
+                        "password must contain 1..4096 bytes without control characters",
+                    ));
+                }
+                let hash = aster_forge_auth::PasswordHashRuntime::default()
+                    .hash_password(password)
+                    .await
+                    .map_err(io_other)?;
+                println!("{hash}");
+                return Ok(());
+            }
             Some(RootCommand::Doctor {
                 output_format,
                 args,
@@ -228,6 +253,7 @@ async fn main() -> std::io::Result<()> {
     }
     let cfg = aster_drive::config::get_config();
     aster_drive::config::deployment::validate_static(cfg.as_ref()).map_err(io_other)?;
+    cfg.observability.validate().map_err(io_other)?;
     let runtime_mode = aster_drive::config::node_mode::start_mode(cfg.as_ref());
     if let Some(config_path) = bootstrap_config_path.as_ref()
         && runtime_mode != aster_drive::config::node_mode::NodeRuntimeMode::Follower

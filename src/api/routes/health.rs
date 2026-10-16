@@ -11,31 +11,49 @@ const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
 const READY_CACHE_UNAVAILABLE_MESSAGE: &str = "Cache unavailable";
 const READY_STORAGE_UNAVAILABLE_MESSAGE: &str = "Storage unavailable";
 
-pub fn primary_routes() -> actix_web::Scope {
+pub fn primary_routes(config: &crate::config::metrics::ObservabilityConfig) -> actix_web::Scope {
     let scope = web::scope("/health")
         .route("", web::get().to(health))
         .route("", web::head().to(health))
         .route("/ready", web::get().to(primary_ready))
         .route("/ready", web::head().to(primary_ready));
 
-    attach_optional_routes(scope)
+    attach_optional_routes(scope, config)
 }
 
-pub fn follower_routes() -> actix_web::Scope {
+pub fn follower_routes(config: &crate::config::metrics::ObservabilityConfig) -> actix_web::Scope {
     let scope = web::scope("/health")
         .route("", web::get().to(health))
         .route("", web::head().to(health))
         .route("/ready", web::get().to(follower_ready))
         .route("/ready", web::head().to(follower_ready));
 
-    attach_optional_routes(scope)
+    attach_optional_routes(scope, config)
 }
 
-fn attach_optional_routes(scope: actix_web::Scope) -> actix_web::Scope {
+fn attach_optional_routes(
+    scope: actix_web::Scope,
+    config: &crate::config::metrics::ObservabilityConfig,
+) -> actix_web::Scope {
     #[cfg(all(debug_assertions, feature = "openapi"))]
     let scope = scope.route("/memory", web::get().to(memory));
 
-    aster_forge_observability::actix::configure_prometheus_route(scope)
+    #[cfg(feature = "metrics")]
+    {
+        if !config.prometheus.enabled {
+            return scope;
+        }
+        scope.service(
+            aster_forge_observability::actix::prometheus_resource("/metrics").wrap(
+                actix_web::middleware::from_fn(crate::api::middleware::metrics_auth::middleware),
+            ),
+        )
+    }
+    #[cfg(not(feature = "metrics"))]
+    {
+        let _ = config;
+        scope
+    }
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -190,6 +208,46 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
     use tokio::io::AsyncRead;
+
+    #[actix_web::test]
+    async fn metrics_endpoint_requires_both_compiled_capability_and_explicit_enable() {
+        use actix_web::{App, test};
+        for routes in [super::primary_routes, super::follower_routes] {
+            let config = crate::config::metrics::ObservabilityConfig::default();
+            let app = test::init_service(App::new().service(routes(&config))).await;
+            assert_eq!(
+                test::call_service(
+                    &app,
+                    test::TestRequest::get().uri("/health/metrics").to_request()
+                )
+                .await
+                .status(),
+                StatusCode::NOT_FOUND
+            );
+            assert_eq!(
+                test::call_service(&app, test::TestRequest::get().uri("/health").to_request())
+                    .await
+                    .status(),
+                StatusCode::OK
+            );
+            #[cfg(not(feature = "metrics"))]
+            {
+                let mut explicit = config;
+                explicit.prometheus.enabled = true;
+                assert!(explicit.validate().is_err());
+                let app = test::init_service(App::new().service(routes(&explicit))).await;
+                assert_eq!(
+                    test::call_service(
+                        &app,
+                        test::TestRequest::get().uri("/health/metrics").to_request()
+                    )
+                    .await
+                    .status(),
+                    StatusCode::NOT_FOUND
+                );
+            }
+        }
+    }
 
     #[derive(Clone, Default)]
     struct ProbeDriver {

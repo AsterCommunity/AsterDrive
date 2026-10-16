@@ -282,8 +282,8 @@ cargo check --tests -j 1
 
 Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中通过 `aster_drive_metrics` 创建产品 `MetricsRecorder`：
 
-- 启用 `metrics` feature 时初始化 Prometheus registry，并注入 Prometheus recorder
-- 未启用时注入 `NoopMetrics`
+- 先创建 config-sync runtime_id，再注入实例级 Forge MetricsProvider；静态配置分别显式开启已编译的 Prometheus/OTLP metrics reader，默认 Noop
+- `metrics` 只提供 pull 能力，`otlp-metrics` 只提供 push 能力；单份 typed schema 记录一次，两个 reader 独立导出；未启用时不采样、不推送、不注册端点
 - 业务层、存储驱动 wrapper 和后台任务直接依赖 `aster_drive_metrics::MetricsRecorder`；需要接入 Forge middleware / DB runtime 时通过 `forge_recorder()` 暴露 `aster_forge_metrics::MetricsRecorder`
 
 ### `prepare_common()`

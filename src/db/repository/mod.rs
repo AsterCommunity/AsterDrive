@@ -25,6 +25,7 @@ pub mod mfa_factor_repo;
 pub mod mfa_login_flow_repo;
 pub mod mfa_recovery_code_repo;
 pub mod mfa_totp_setup_flow_repo;
+pub mod observability_repo;
 pub mod passkey_repo;
 pub mod policy_group_repo;
 pub mod policy_placement_repo;

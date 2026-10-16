@@ -25,6 +25,7 @@ pub async fn run_primary(
     let audit_state = state.clone();
     let mail_state = state.clone();
     let state = web::Data::new(state);
+    let telemetry_provider = state.metrics.forge_recorder().provider();
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
 
@@ -63,7 +64,12 @@ pub async fn run_primary(
             &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
         ));
 
-    runtime.run().await.map_err(to_io_error)?
+    let result = runtime
+        .run()
+        .await
+        .map_err(to_io_error)
+        .and_then(std::convert::identity);
+    finish_metrics(result, telemetry_provider).await
 }
 
 /// Assembles and runs the follower Forge runtime.
@@ -79,6 +85,7 @@ pub async fn run_follower(
     let db_handles = state.db_handles.clone();
     let audit_state = state.clone();
     let state = web::Data::new(state);
+    let telemetry_provider = state.metrics.forge_recorder().provider();
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
 
@@ -110,7 +117,31 @@ pub async fn run_follower(
             &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
         ));
 
-    runtime.run().await.map_err(to_io_error)?
+    let result = runtime
+        .run()
+        .await
+        .map_err(to_io_error)
+        .and_then(std::convert::identity);
+    finish_metrics(result, telemetry_provider).await
+}
+
+async fn finish_metrics(
+    result: io::Result<()>,
+    provider: Option<aster_forge_metrics::MetricsProvider>,
+) -> io::Result<()> {
+    if let Some(provider) = provider {
+        let shutdown = provider
+            .shutdown(std::time::Duration::from_secs(10))
+            .await
+            .map_err(to_io_error);
+        if let Err(error) = &shutdown {
+            tracing::warn!(%error, "metrics shutdown failed");
+        }
+        if result.is_ok() {
+            shutdown?;
+        }
+    }
+    result
 }
 
 fn worker_count(configured_workers: usize) -> usize {

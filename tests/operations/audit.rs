@@ -1441,7 +1441,9 @@ async fn test_audit_log_recorded_on_team_archive_cleanup() {
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::clone(&state))
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db)),
+            .configure(move |cfg| {
+                aster_drive::api::configure_primary(cfg, &db, &Default::default())
+            }),
     )
     .await;
     let (token, _) = register_and_login!(app);

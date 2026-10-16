@@ -509,6 +509,19 @@ async fn put_object(
         "follower object write accepted"
     );
 
+    let payload = crate::storage::transfer_metrics::payload(
+        payload.into_inner(),
+        state.metrics.clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source: aster_drive_metrics::TransferSource::Remote,
+            mode: if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
+                aster_drive_metrics::TransferMode::Stream
+            } else {
+                aster_drive_metrics::TransferMode::Presigned
+            },
+        },
+    );
     let payload: FollowerUploadBody = Box::pin(payload.map(|chunk| {
         chunk.map_err(|error| AsterError::validation_error(format!("read upload payload: {error}")))
     }));
@@ -675,6 +688,26 @@ async fn get_object(
     let body = ReaderStream::with_capacity(
         stream,
         crate::storage::io_limits::DOWNLOAD_READER_BUFFER_BYTES,
+    );
+    let body = crate::storage::transfer_metrics::stream(
+        body,
+        state.metrics.clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Egress,
+            source: aster_drive_metrics::TransferSource::Remote,
+            mode: if partial_range.is_some() {
+                aster_drive_metrics::TransferMode::Range
+            } else if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
+                aster_drive_metrics::TransferMode::Stream
+            } else {
+                aster_drive_metrics::TransferMode::Presigned
+            },
+        },
+        Some(
+            partial_range
+                .as_ref()
+                .map_or(metadata.size, |range| range.length),
+        ),
     );
 
     let mut response = if partial_range.is_some() {

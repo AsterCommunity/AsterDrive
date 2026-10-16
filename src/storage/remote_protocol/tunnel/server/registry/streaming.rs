@@ -110,6 +110,7 @@ impl Drop for StreamingLaneLease {
 }
 
 pub(crate) struct RemoteTunnelStreamRegistrationGuard {
+    _metrics: aster_drive_metrics::RemoteConnectionGuard,
     registry: Arc<RemoteTunnelRegistry>,
     access_key: String,
     remote_node_id: i64,
@@ -166,6 +167,12 @@ impl RemoteTunnelRegistry {
         self.update_last_handshake(remote_node.id);
         self.connection_notify.notify_waiters();
         let guard = RemoteTunnelStreamRegistrationGuard {
+            _metrics: aster_drive_metrics::RemoteConnectionGuard::new(
+                self.metrics
+                    .read()
+                    .clone()
+                    .unwrap_or_else(aster_drive_metrics::NoopMetrics::arc),
+            ),
             registry: self.clone(),
             access_key: remote_node.access_key.clone(),
             remote_node_id: remote_node.id,

@@ -55,6 +55,8 @@ pub struct RemoteStorageClient {
     transport: Arc<dyn RemoteTransport>,
     storage_target_key: Option<String>,
     policy_max_file_size: i64,
+    metrics: aster_drive_metrics::SharedMetricsRecorder,
+    transport_kind: aster_drive_metrics::RemoteTransport,
 }
 
 impl RemoteStorageClient {
@@ -63,6 +65,8 @@ impl RemoteStorageClient {
             transport: Arc::new(DirectHttpTransport::new(base_url, access_key, secret_key)?),
             storage_target_key: None,
             policy_max_file_size: 0,
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
+            transport_kind: aster_drive_metrics::RemoteTransport::Direct,
         })
     }
 
@@ -74,12 +78,24 @@ impl RemoteStorageClient {
             transport: Arc::new(ReverseTunnelTransport::new(remote_node, broker)),
             storage_target_key: None,
             policy_max_file_size: 0,
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
+            transport_kind: aster_drive_metrics::RemoteTransport::Reverse,
         })
+    }
+
+    pub(crate) fn with_metrics(
+        mut self,
+        metrics: aster_drive_metrics::SharedMetricsRecorder,
+    ) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     pub fn with_policy_context(&self, target_key: &str, max_file_size: i64) -> Self {
         Self {
             transport: self.transport.clone(),
+            metrics: self.metrics.clone(),
+            transport_kind: self.transport_kind,
             // The base client is used for control-plane calls. Object-plane
             // requests must carry this explicit policy-owned target key.
             storage_target_key: Some(target_key.trim().to_string()),
@@ -594,14 +610,34 @@ impl RemoteStorageClient {
         content_type: Option<&'static str>,
         body: RemoteRequestBody,
     ) -> Result<RemoteTransportResponse> {
-        self.transport
+        use aster_drive_metrics::{RemoteReason, RemoteRequestGuard, TransferOutcome};
+        let operation = super::observation::operation(method.as_str(), &path_and_query);
+        let mut guard =
+            RemoteRequestGuard::new(self.metrics.clone(), self.transport_kind, operation);
+        let result = self
+            .transport
             .send(RemoteTransportRequest {
                 method,
                 path_and_query,
                 content_type,
                 body,
             })
-            .await
+            .await;
+        let (outcome, reason) = match &result {
+            Ok(response) if response.status().is_success() => {
+                (TransferOutcome::Success, RemoteReason::Ok)
+            }
+            Ok(response)
+                if response.status() == http::StatusCode::GATEWAY_TIMEOUT
+                    || response.status() == http::StatusCode::REQUEST_TIMEOUT =>
+            {
+                (TransferOutcome::Failure, RemoteReason::Timeout)
+            }
+            Ok(_) => (TransferOutcome::Failure, RemoteReason::Rejected),
+            Err(error) => (TransferOutcome::Failure, error.reason),
+        };
+        guard.finish(outcome, reason);
+        result.map_err(|error| error.error)
     }
 
     fn object_path(&self, key: &str) -> String {

@@ -183,6 +183,7 @@ mod tests {
 
     fn blob() -> file_blob::Model {
         file_blob::Model {
+            cleanup_pending_since: None,
             id: 1,
             hash: "abc".repeat(21) + "a",
             size: 10,
@@ -200,6 +201,7 @@ mod tests {
 
     fn virtual_empty_blob() -> file_blob::Model {
         file_blob::Model {
+            cleanup_pending_since: None,
             hash: file_blob::Model::EMPTY_SHA256.to_string(),
             size: 0,
             storage_path: None,

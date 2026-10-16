@@ -5,3 +5,6 @@ pub mod auth;
 pub mod cors;
 pub mod internal_storage_cors;
 pub mod rate_limit;
+
+#[cfg(feature = "metrics")]
+pub mod metrics_auth;

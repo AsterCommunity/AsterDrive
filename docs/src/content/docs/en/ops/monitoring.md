@@ -30,13 +30,15 @@ Or use the build that includes all optional capabilities:
 cargo build --release --features full
 ```
 
+Set `[observability.prometheus].enabled = true` and restart; configure dedicated Basic Auth as shown below.
+
 After startup, confirm the instance returns metrics:
 
 ```bash
 curl http://<asterdrive-host>:3000/health/metrics
 ```
 
-If it returns 404, the current binary usually was not built with the `metrics` feature.  
+If it returns 404, check that both the `metrics` Cargo feature and static `[observability.prometheus].enabled` are enabled.
 If it returns HTML or a proxy error, check the reverse proxy path and backend port first.
 
 ## Prometheus Scrape Configuration
@@ -191,9 +193,86 @@ Dashboard queries are based on AsterDrive's current metric labels:
 
 `job` and `instance` come from the Prometheus scrape target. They are not business labels written by AsterDrive itself.
 
+## Explicit enablement and scrape authentication
+
+Exporters are disabled by default. Cargo features compile capabilities; static configuration enables them. Restart after configuration changes. This replaces the previous compile-only automatic endpoint registration.
+
+```toml
+[observability.prometheus]
+enabled = true
+
+[observability.prometheus.basic_auth]
+enabled = true
+username = "prometheus"
+password_hash = '$argon2id$v=19$...' # replace with a complete verifier
+```
+
+Generate the verifier without putting a password in process arguments or initializing the database:
+
+```bash
+# Bash: input is not echoed or stored in shell history
+read -r -s -p 'Metrics password: ' METRICS_PASSWORD
+printf '%s' "$METRICS_PASSWORD" | ./aster_drive hash-password
+unset METRICS_PASSWORD
+```
+
+The server accepts Argon2id v19 within 64 MiB / 3 passes / 4 lanes / 32 output bytes. Invalid enabled credentials fail startup, without a generated password or anonymous fallback. Usernames cannot contain colons or control characters. Environment overrides use names such as `ASTER__OBSERVABILITY__PROMETHEUS__BASIC_AUTH__PASSWORD_HASH`; protect PHC `$` characters with shell single quotes.
+
+```yaml
+scrape_configs:
+  - job_name: asterdrive
+    scheme: https
+    metrics_path: /health/metrics
+    basic_auth:
+      username: prometheus
+      password_file: /etc/prometheus/asterdrive-metrics.pass
+    static_configs:
+      - targets: [drive.example.com]
+```
+
+Prometheus supplies the original password; the server stores only its verifier. Use HTTPS or a trusted TLS termination proxy. Disabled Basic Auth leaves an explicitly enabled endpoint anonymous. JWT/cookies are not substitutes. Missing, malformed, duplicate or incorrect Authorization receives an empty 401 with `WWW-Authenticate: Basic realm="AsterDrive metrics"`. Authentication runs before export and availability checks. Authorized requests retain 200 text exposition / 503 unavailable; export and denial responses use `Cache-Control: no-store`. Health/readiness are unaffected.
+
+Verification uses an independent blocking budget of two jobs, with immediate uniform 401 on saturation. Cancelling a request does not release a still-running job's permit.
+
+## Optional OTLP metrics
+
+Existing `-metrics` images provide Prometheus pull. For OTLP, build from source or use `docker build --build-arg CARGO_FEATURES=server,cli,metrics,otlp-metrics -t asterdrive:observability .`; static exporter settings still default to disabled.
+
+```bash
+cargo build --release --features metrics,otlp-metrics
+```
+
+```toml
+[observability]
+environment = "production"
+
+[observability.prometheus]
+enabled = true # keep false for OTLP-only deployments
+
+[observability.otlp_metrics]
+enabled = true
+endpoint = "https://collector.example.com/v1/metrics"
+interval_seconds = 60
+timeout_seconds = 5
+# headers = { Authorization = "Bearer <collector credential>" }
+```
+
+One instance-owned metrics kernel feeds both readers from one business observation. OTLP supports HTTP/protobuf metrics only, not traces, Tempo or OTLP logs. Explicit configuration is not overridden by `OTEL_*`, proxy or SDK credential environment variables. HTTPS uses system trust; redirects are disabled. Collector outages do not prevent startup/readiness; failures remain locally visible and the next cycle retries a cumulative snapshot.
+
+OTLP resource identity includes service/version/environment/role and the automatically generated config-sync runtime_id as `service.instance.id`, stable for one process lifetime and renewed on restart. No manual instance ID is needed. Prometheus `job/instance` comes from scrape targets, not business labels.
+
+| Compiled capability | Configuration | HTTP endpoint |
+| --- | --- | --- |
+| Default / no metrics | exporters disabled | Absent |
+| `metrics` | prometheus=true | Present, optional Basic Auth |
+| `otlp-metrics` | otlp_metrics=true | Absent |
+| Both features | independent enablement | Present only with prometheus=true |
+
+Enabling an uncompiled capability fails startup. Compiled but disabled exporters use Noop and start no sampling/push workers. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
+
 ## Production Security Boundary
 
-AsterDrive currently does not apply application-layer authentication to `/health/metrics`. This keeps Prometheus scraping simple and stable. Access control should be handled at the network boundary.
+Use the dedicated static Basic Auth above for application authentication, with network restrictions as appropriate.
 
 In production, you must ensure:
 

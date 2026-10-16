@@ -249,6 +249,7 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
         declared_size,
         if_match,
         crate::services::files::lock::LockMutationCredentials::HolderUser(scope.actor_user_id()),
+        aster_drive_metrics::TransferSource::File,
     )
     .await?;
     let details = audit_location_details_for_model(state, scope, &file).await;
@@ -512,7 +513,13 @@ where
     Fut: Future<Output = Result<DownloadOutcome>>,
 {
     match fut.await {
-        Ok(outcome) => {
+        Ok(mut outcome) => {
+            if let DownloadOutcome::Stream(stream) = &mut outcome {
+                stream.transfer_source = match source {
+                    "share" | "share_stream" => aster_drive_metrics::TransferSource::Share,
+                    _ => aster_drive_metrics::TransferSource::File,
+                };
+            }
             record_download_metric(state, source, &outcome);
             Ok(outcome)
         }

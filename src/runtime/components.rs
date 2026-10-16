@@ -61,10 +61,29 @@ pub fn primary_http_component(
         let configure_db = state.writer_db().clone();
         let shutdown_data = web::Data::new(shutdown_token.clone());
         let app_state = state.clone();
+        #[cfg(feature = "metrics")]
+        let metrics_auth = web::Data::new(crate::api::middleware::metrics_auth::MetricsAuth::new(
+            state.config.observability.prometheus.basic_auth.clone(),
+        ));
+        #[cfg(feature = "metrics")]
+        let metrics_provider = state
+            .metrics
+            .forge_recorder()
+            .provider()
+            .map(web::Data::new);
         let server = HttpServer::new(move || {
             let db = configure_db.clone();
-            App::new()
-                .wrap(actix_web::middleware::Compress::default())
+            let route_config = app_state.config.clone();
+            let app = App::new();
+            #[cfg(feature = "metrics")]
+            let app = {
+                let app = app.app_data(metrics_auth.clone());
+                match metrics_provider.clone() {
+                    Some(provider) => app.app_data(provider),
+                    None => app,
+                }
+            };
+            app.wrap(actix_web::middleware::Compress::default())
                 .wrap(aster_forge_middleware::actix::metrics::MetricsMiddleware)
                 .wrap(aster_forge_middleware::actix::request_id::RequestIdMiddleware)
                 .wrap(crate::api::middleware::cors::runtime_cors())
@@ -78,7 +97,9 @@ pub fn primary_http_component(
                 .app_data(app_state.clone())
                 .app_data(metrics.clone())
                 .app_data(shutdown_data.clone())
-                .configure(move |cfg| crate::api::configure_primary(cfg, &db))
+                .configure(move |cfg| {
+                    crate::api::configure_primary(cfg, &db, &route_config.observability)
+                })
         })
         .keep_alive(std::time::Duration::from_secs(30))
         .client_request_timeout(std::time::Duration::from_millis(5000))
@@ -110,9 +131,28 @@ pub fn follower_http_component(
     aster_forge_runtime::try_runtime_component_with_shutdown(move |shutdown_token| {
         let shutdown_data = web::Data::new(shutdown_token.clone());
         let app_state = state.clone();
+        #[cfg(feature = "metrics")]
+        let metrics_auth = web::Data::new(crate::api::middleware::metrics_auth::MetricsAuth::new(
+            state.config.observability.prometheus.basic_auth.clone(),
+        ));
+        #[cfg(feature = "metrics")]
+        let metrics_provider = state
+            .metrics
+            .forge_recorder()
+            .provider()
+            .map(web::Data::new);
         let server = HttpServer::new(move || {
-            App::new()
-                .wrap(actix_web::middleware::Compress::default())
+            let route_config = app_state.config.clone();
+            let app = App::new();
+            #[cfg(feature = "metrics")]
+            let app = {
+                let app = app.app_data(metrics_auth.clone());
+                match metrics_provider.clone() {
+                    Some(provider) => app.app_data(provider),
+                    None => app,
+                }
+            };
+            app.wrap(actix_web::middleware::Compress::default())
                 .wrap(aster_forge_middleware::actix::metrics::MetricsMiddleware)
                 .wrap(aster_forge_middleware::actix::request_id::RequestIdMiddleware)
                 .wrap(aster_forge_middleware::actix::security_headers::default_headers())
@@ -125,7 +165,9 @@ pub fn follower_http_component(
                 .app_data(app_state.clone())
                 .app_data(metrics.clone())
                 .app_data(shutdown_data.clone())
-                .configure(crate::api::configure_follower)
+                .configure(move |cfg| {
+                    crate::api::configure_follower(cfg, &route_config.observability)
+                })
         })
         .keep_alive(std::time::Duration::from_secs(30))
         .client_request_timeout(std::time::Duration::from_millis(5000))

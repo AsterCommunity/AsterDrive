@@ -18,6 +18,8 @@ pub struct Model {
     pub thumbnail_processor: Option<String>,
     pub thumbnail_version: Option<String>,
     pub ref_count: i32,
+    /// First time this blob entered its current unreferenced interval; retained across cleanup retries.
+    pub cleanup_pending_since: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

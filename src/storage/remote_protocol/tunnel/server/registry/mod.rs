@@ -106,6 +106,7 @@ struct ConnectionLifecycleState {
 
 #[derive(Default)]
 pub struct RemoteTunnelRegistry {
+    metrics: parking_lot::RwLock<Option<aster_drive_metrics::SharedMetricsRecorder>>,
     connections: DashMap<String, RemoteTunnelConnection>,
     stream_lanes: DashMap<String, Vec<Arc<StreamingTunnelLane>>>,
     pending: DashMap<String, PendingTunnelResponse>,
@@ -122,6 +123,10 @@ pub struct RemoteTunnelRegistry {
 impl RemoteTunnelRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_metrics(&self, metrics: aster_drive_metrics::SharedMetricsRecorder) {
+        *self.metrics.write() = Some(metrics);
     }
 
     pub fn set_persistence_db(&self, db: DatabaseConnection) {

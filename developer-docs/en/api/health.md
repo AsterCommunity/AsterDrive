@@ -68,7 +68,7 @@ It reports current heap allocation and peak usage as MB strings.
 
 ## `GET /health/metrics`
 
-Only compiled when the `metrics` feature is enabled. Output is Prometheus text exposition.
+Requires the `metrics` feature and explicit `[observability.prometheus].enabled = true`; disabled by default. Output is Prometheus text exposition.
 
 If you need metrics, build with:
 
@@ -82,7 +82,7 @@ or:
 cargo build --release --features full
 ```
 
-The application layer does not add authentication here. In production, access must be restricted by reverse proxy, firewall, security group, or internal-only binding.
+Dedicated static Basic Auth lives under `[observability.prometheus.basic_auth]`; see [Monitoring](https://drive.docs.astercosm.com/en/ops/monitoring/) for configuration, verifier generation, environment overrides and scraping. Primary/follower apply the same authentication before export/503, use no-store, and leave health/readiness unaffected. Missing, malformed, duplicate and incorrect credentials receive a uniform 401 + Basic challenge. Builds without pull capability and OTLP-only deployments do not register this endpoint.
 
 ### Current metrics
 
@@ -126,3 +126,13 @@ Process metrics:
 | `process_uptime_seconds` | none | Uptime since metrics initialization |
 
 `process_cpu_milliseconds_total` is already exposed in milliseconds. `process_uptime_seconds` is monotonic rather than epoch-based.
+
+### Product lifecycle metrics
+
+The current schema is defined once in `crates/aster_drive_metrics/src/lib.rs`. Its pre-instance compatibility fixture preserves all prior product names, types, HELP, labels and buckets. New metrics cover actual body bytes, stream EOF/error/drop duration and in-flight counts; upload phases and persisted session backlog; capacity/support snapshots and admission rejection reasons; stored-blob cleanup backlog and retired backing bytes; remote probe state, tunnel lanes/reconnects and wire requests.
+
+`source=remote` is follower-observed data-plane I/O and must not be added to primary user boundaries. Presigned/redirect flows bypassing AD have no fabricated bytes; AD followers carrying remote-presigned traffic do count their own observed bytes. Transfer bytes exclude TLS/HTTP framing. Completed upload replays do not recount phases. Cleanup retirement bytes are acknowledged backing accounting after row removal, not physical disk blocks; the independent pending timestamp survives retries and clears on referencing. Existing pending timestamps are backfilled from updated_at at upgrade.
+
+Primary aggregates run every 60 seconds with a five-second DB budget; follower does not query primary backlog. Scrape does no business I/O. Filter snapshots by `observability_snapshot_valid` and a last-success age below 120 seconds. Capacity values require `storage_capacity_known == 1`; unsupported/unknown is not zero. `observed_target_minimum` contains independent minima over recent existing probe-cache observations, not summed or comparable numerator/denominator values. Staging filesystem usage includes the entire volume, while `upload_staging_bytes` explicitly reports declared/staged reservations and safety floor.
+
+See the [Chinese metric contract](../../zh-CN/api/health.md) for the full type/unit/label table and runnable PromQL for throughput, failures, phase p95, backlog age, capacity and tunnel errors. P1 workspace quota aggregates and dedicated protocol-operation metrics remain follow-up work; tracing/Tempo is outside this metrics batch.

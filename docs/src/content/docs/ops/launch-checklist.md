@@ -186,7 +186,7 @@ cargo build --release --features metrics
 - scrape interval、保留周期和采集目标已经明确
 - 至少能看到 HTTP、DB、上传、下载、后台任务、存储驱动和进程 RSS / CPU / uptime 指标
 
-AsterDrive 当前不对 `/health/metrics` 做应用层鉴权。这个选择是为了让 Prometheus scrape 保持简单稳定，访问控制交给反向代理或网络边界处理。
+指标端点需要 `metrics` 能力和显式 `[observability.prometheus].enabled = true`。配置专用静态 Basic Auth 后重启，使用 HTTPS 或受信任的 TLS 代理，见[监控配置](/ops/monitoring/)。
 
 Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/ops/monitoring/)。
 

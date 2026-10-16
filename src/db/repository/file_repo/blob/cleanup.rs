@@ -1,8 +1,10 @@
 use chrono::Utc;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter};
 
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
+
+use super::ref_count::cleanup_pending_since_expr;
 
 pub const BLOB_CLEANUP_CLAIMED_REF_COUNT: i32 = -1;
 
@@ -38,6 +40,11 @@ pub async fn delete_blob<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
 
 pub async fn claim_blob_cleanup<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
     let result = FileBlob::update_many()
+        .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            sea_orm::sea_query::Expr::col(file_blob::Column::CleanupPendingSince)
+                .if_null(sea_orm::sea_query::Expr::value(Utc::now())),
+        )
         .col_expr(
             file_blob::Column::RefCount,
             sea_orm::sea_query::Expr::value(BLOB_CLEANUP_CLAIMED_REF_COUNT),
@@ -86,6 +93,10 @@ pub async fn delete_blob_if_cleanup_claimed<C: ConnectionTrait>(db: &C, id: i64)
 pub async fn reset_blob_ref_count_to_zero<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     FileBlob::update_many()
         .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            cleanup_pending_since_expr(sea_orm::sea_query::Expr::value(0i32)),
+        )
+        .col_expr(
             file_blob::Column::RefCount,
             sea_orm::sea_query::Expr::value(0i32),
         )
@@ -101,8 +112,16 @@ pub async fn reset_blob_ref_count_to_zero<C: ConnectionTrait>(db: &C, id: i64) -
 }
 
 /// 将 blob 的 ref_count 设置为指定值（用于 reconcile 修正偏差）
-pub async fn set_blob_ref_count<C: ConnectionTrait>(db: &C, id: i64, ref_count: i32) -> Result<()> {
-    FileBlob::update_many()
+pub async fn set_blob_ref_count<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    ref_count: i32,
+) -> Result<bool> {
+    let result = FileBlob::update_many()
+        .col_expr(
+            file_blob::Column::CleanupPendingSince,
+            cleanup_pending_since_expr(sea_orm::sea_query::Expr::value(ref_count)),
+        )
         .col_expr(
             file_blob::Column::RefCount,
             sea_orm::sea_query::Expr::value(ref_count),
@@ -115,5 +134,5 @@ pub async fn set_blob_ref_count<C: ConnectionTrait>(db: &C, id: i64, ref_count: 
         .exec(db)
         .await
         .map_err(AsterError::from)?;
-    Ok(())
+    Ok(result.rows_affected > 0)
 }

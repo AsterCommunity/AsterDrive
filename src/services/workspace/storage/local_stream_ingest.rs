@@ -1,4 +1,4 @@
-use actix_web::web;
+use actix_web::dev;
 use futures::StreamExt;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -25,7 +25,7 @@ pub(crate) struct LocalStreamIngestParams<'a> {
 
 pub(crate) async fn ingest_local_stream(
     state: &PrimaryAppState,
-    mut payload: web::Payload,
+    mut payload: dev::Payload,
     params: LocalStreamIngestParams<'_>,
 ) -> Result<file::Model> {
     let local = crate::storage::connectors::resolve_local_filesystem_projection(

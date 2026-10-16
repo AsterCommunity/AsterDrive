@@ -169,6 +169,37 @@ impl CapacityProbeCoordinator {
         }
     }
 
+    /// Independent minima over recently observed targets. Never sums disks or
+    /// buckets that may be shared by several policies. No provider I/O.
+    pub(crate) fn observed_minima(&self) -> [Option<u64>; 3] {
+        let mut minima = [None; 3];
+        for entry in &self.states {
+            let cache = entry.cache();
+            let Some(observation) = cache.latest else {
+                continue;
+            };
+            if observation.age() > Duration::from_secs(60) {
+                continue;
+            }
+            let Ok(capacity) = observation.result else {
+                continue;
+            };
+            if capacity.status != StorageCapacityStatus::Supported {
+                continue;
+            }
+            for (minimum, value) in minima.iter_mut().zip([
+                capacity.available_bytes,
+                capacity.total_bytes,
+                capacity.used_bytes,
+            ]) {
+                if let Some(value) = value.and_then(|value| u64::try_from(value).ok()) {
+                    *minimum = Some(minimum.map_or(value, |old: u64| old.min(value)));
+                }
+            }
+        }
+        minima
+    }
+
     pub(crate) fn invalidate(&self, policy_id: i64) {
         self.states.remove(&policy_id);
     }
@@ -986,5 +1017,41 @@ mod tests {
             StorageCapacityAssessment::Insufficient { .. }
         ));
         assert_eq!(driver.calls.load(Ordering::SeqCst), 2);
+    }
+    #[test]
+    fn metric_projection_ignores_unsupported_failed_and_expired_observations() {
+        let coordinator = coordinator(4);
+        let first = coordinator.state_for(&policy(1));
+        first.publish(Ok(StorageCapacityInfo {
+            status: StorageCapacityStatus::Supported,
+            available_bytes: Some(30),
+            total_bytes: Some(100),
+            used_bytes: Some(70),
+            source: "test".into(),
+            observed_at: chrono::Utc::now(),
+        }));
+        let second = coordinator.state_for(&policy(2));
+        second.publish(Ok(StorageCapacityInfo {
+            status: StorageCapacityStatus::Supported,
+            available_bytes: Some(20),
+            total_bytes: Some(200),
+            used_bytes: None,
+            source: "test".into(),
+            observed_at: chrono::Utc::now(),
+        }));
+        assert_eq!(
+            coordinator.observed_minima(),
+            [Some(20), Some(100), Some(70)]
+        );
+        second.publish(Ok(StorageCapacityInfo::unsupported("test")));
+        assert_eq!(
+            coordinator.observed_minima(),
+            [Some(30), Some(100), Some(70)]
+        );
+        first.cache.write().latest.as_mut().unwrap().cached_at =
+            Instant::now() - Duration::from_secs(61);
+        assert_eq!(coordinator.observed_minima(), [None, None, None]);
+        first.publish(Err(AsterError::internal_error("probe failed")));
+        assert_eq!(coordinator.observed_minima(), [None, None, None]);
     }
 }

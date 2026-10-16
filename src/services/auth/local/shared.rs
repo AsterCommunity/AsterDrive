@@ -192,6 +192,7 @@ pub(crate) async fn hash_new_password(
         .password_hash_runtime()
         .hash_password(password)
         .await
+        .map_err(AsterError::from)
 }
 
 pub(crate) async fn create_user_with_role<C: ConnectionTrait>(

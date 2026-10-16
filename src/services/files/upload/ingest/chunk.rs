@@ -285,7 +285,7 @@ fn ensure_chunk_body_exact_size(
 }
 
 async fn drain_chunk_payload_exact_size(
-    payload: &mut actix_web::web::Payload,
+    payload: &mut actix_web::dev::Payload,
     expected_size: i64,
     chunk_number: i32,
 ) -> Result<()> {
@@ -302,7 +302,7 @@ async fn write_chunk_payload_to_staging_file(
     state: &PrimaryAppState,
     session: &upload_session::Model,
     chunk_number: i32,
-    payload: &mut actix_web::web::Payload,
+    payload: &mut actix_web::dev::Payload,
     expected_size: i64,
 ) -> Result<()> {
     use tokio::io::BufWriter;
@@ -338,7 +338,7 @@ async fn write_chunk_payload_to_staging_file(
 }
 
 async fn pipe_payload_to_writer(
-    mut payload: actix_web::web::Payload,
+    mut payload: actix_web::dev::Payload,
     mut writer: tokio::io::DuplexStream,
     expected_size: i64,
     chunk_number: i32,
@@ -376,7 +376,7 @@ async fn upload_multipart_part_payload(
     temp_key: &str,
     multipart_id: &str,
     object_part_number: i32,
-    payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
     expected_size: i64,
     chunk_number: i32,
 ) -> Result<String> {
@@ -679,8 +679,27 @@ async fn upload_chunk_payload_impl(
     state: &PrimaryAppState,
     session: upload_session::Model,
     chunk_number: i32,
-    mut payload: actix_web::web::Payload,
+    payload: actix_web::dev::Payload,
 ) -> Result<ChunkUploadResponse> {
+    let mut payload = crate::storage::transfer_metrics::payload(
+        payload,
+        state.metrics().clone(),
+        aster_drive_metrics::TransferLabels {
+            direction: aster_drive_metrics::TransferDirection::Ingress,
+            source: aster_drive_metrics::TransferSource::File,
+            mode: match session.session_kind {
+                aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+                | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart => {
+                    aster_drive_metrics::TransferMode::Multipart
+                }
+                aster_drive_model::types::UploadSessionKind::ProviderRelayResumable => {
+                    aster_drive_metrics::TransferMode::Resumable
+                }
+                _ => aster_drive_metrics::TransferMode::Chunked,
+            },
+        },
+    );
+
     let db = state.writer_db();
     let upload_id = session.id.as_str();
     tracing::debug!(
@@ -955,7 +974,7 @@ pub async fn upload_chunk_payload(
     run_upload_stage_operation(
         state,
         &session,
-        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload),
+        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload.into_inner()),
     )
     .await
 }
@@ -1011,7 +1030,7 @@ pub async fn upload_chunk_payload_for_team(
     run_upload_stage_operation(
         state,
         &session,
-        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload),
+        upload_chunk_payload_impl(state, session.clone(), chunk_number, payload.into_inner()),
     )
     .await
 }
@@ -1325,7 +1344,15 @@ mod tests {
 
         let result = tokio::time::timeout(
             Duration::from_millis(100),
-            upload_multipart_part_payload(&multipart, "tmp", "multipart-id", 1, payload, 4, 0),
+            upload_multipart_part_payload(
+                &multipart,
+                "tmp",
+                "multipart-id",
+                1,
+                payload.into_inner(),
+                4,
+                0,
+            ),
         )
         .await
         .expect("payload validation error should not wait for the upload future");

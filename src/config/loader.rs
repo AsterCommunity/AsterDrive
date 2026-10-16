@@ -50,6 +50,17 @@ impl ConfigLoadReport {
     }
 }
 
+fn map_static_config_error(error: config::ConfigError) -> AsterError {
+    let message = error.to_string();
+    if matches!(error, config::ConfigError::FileParse { .. }) {
+        AsterError::config_error("invalid static configuration TOML (values redacted)")
+    } else if message.contains("observability") {
+        AsterError::config_error("invalid observability configuration (values redacted)")
+    } else {
+        AsterError::config_error(message)
+    }
+}
+
 pub fn load() -> Result<LoadedConfig> {
     let base_dir = std::env::current_dir()
         .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
@@ -99,16 +110,17 @@ fn load_from_dir(
     } else if let Some(database_url) = env_database_url {
         builder = builder
             .set_override("database.url", database_url)
-            .map_aster_err(AsterError::config_error)?;
+            .map_err(map_static_config_error)?;
     }
 
     let mut cfg = builder
         .build()
-        .map_aster_err(AsterError::config_error)?
+        .map_err(map_static_config_error)?
         .try_deserialize::<Config>()
-        .map_aster_err(AsterError::config_error)?;
+        .map_err(map_static_config_error)?;
 
     resolve_loaded_paths(base_dir, &config_path, &mut cfg)?;
+    cfg.observability.validate()?;
 
     Ok(LoadedConfig {
         config: cfg,
@@ -134,10 +146,11 @@ fn load_read_only_from_dir(base_dir: &Path, include_env: bool) -> Result<Config>
 
     let mut config = builder
         .build()
-        .map_aster_err(AsterError::config_error)?
+        .map_err(map_static_config_error)?
         .try_deserialize::<Config>()
-        .map_aster_err(AsterError::config_error)?;
+        .map_err(map_static_config_error)?;
     resolve_loaded_paths(base_dir, &config_path, &mut config)?;
+    config.observability.validate()?;
     Ok(config)
 }
 
@@ -151,7 +164,8 @@ fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<
 }
 
 fn create_default_config(config_path: &Path, default: &Config) -> Result<()> {
-    let toml_str = toml::to_string_pretty(default).map_aster_err(AsterError::config_error)?;
+    let toml_str = toml::to_string_pretty(default)
+        .map_err(|_| AsterError::config_error("failed to serialize static configuration"))?;
 
     let content = format!(
         "# AsterDrive configuration file\n\
@@ -187,9 +201,9 @@ fn ensure_stable_default_config_keys(
         })?,
     };
 
-    let mut doc = content.parse::<DocumentMut>().map_err(|error| {
+    let mut doc = content.parse::<DocumentMut>().map_err(|_| {
         AsterError::config_error(format!(
-            "failed to parse {}: {error}",
+            "failed to parse {}: invalid TOML (values redacted)",
             config_path.display()
         ))
     })?;
@@ -907,5 +921,74 @@ burst_size = 0
         assert!(err.to_string().contains("invalid value: integer `0`"));
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn metrics_credentials_survive_default_backfill_and_reload() {
+        let dir = aster_forge_utils::raii::TempDirGuard::new(
+            make_temp_dir("observability"),
+            "loader observability test",
+        );
+        let hash = aster_forge_crypto::hash_password("scrape:secret").unwrap();
+        let content = format!(
+            "[observability.prometheus]\nenabled = true\n[observability.prometheus.basic_auth]\nenabled = true\nusername = 'scraper'\npassword_hash = '{hash}'\n"
+        );
+        write(&dir.path().join(DEFAULT_CONFIG_PATH), content.as_bytes());
+        let first = load_from_dir(dir.path(), None, false).unwrap();
+        assert!(first.report.stable_defaults_added);
+        assert_eq!(
+            first
+                .config
+                .observability
+                .prometheus
+                .basic_auth
+                .password_hash,
+            hash
+        );
+        let persisted = std::fs::read_to_string(dir.path().join(DEFAULT_CONFIG_PATH)).unwrap();
+        assert!(persisted.contains(&hash));
+        let second = load_from_dir(dir.path(), None, false).unwrap();
+        assert!(!second.report.stable_defaults_added);
+        assert_eq!(
+            second.config.observability.prometheus.basic_auth.username,
+            "scraper"
+        );
+        assert_eq!(
+            second
+                .config
+                .observability
+                .prometheus
+                .basic_auth
+                .password_hash,
+            hash
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(DEFAULT_CONFIG_PATH)).unwrap(),
+            persisted
+        );
+    }
+
+    #[test]
+    fn malformed_observability_values_are_redacted_in_both_load_paths() {
+        for content in [
+            "[observability.prometheus.basic_auth]\nenabled = 'credential-marker'\n",
+            "[observability.otlp_metrics]\nheaders = 'credential-marker'\n",
+            "[observability.prometheus.basic_auth]\npassword_hash = \"credential-marker\n",
+            "[observability.prometheus.basic_auth]\npassword_has = 'credential-marker'\n",
+        ] {
+            let dir = aster_forge_utils::raii::TempDirGuard::new(
+                make_temp_dir("observability"),
+                "loader observability test",
+            );
+            write(&dir.path().join(DEFAULT_CONFIG_PATH), content.as_bytes());
+            let error = load_from_dir(dir.path(), None, false)
+                .unwrap_err()
+                .to_string();
+            assert!(!error.contains("credential-marker"), "{error}");
+            let error = load_read_only_from_dir(dir.path(), false)
+                .unwrap_err()
+                .to_string();
+            assert!(!error.contains("credential-marker"), "{error}");
+        }
     }
 }
