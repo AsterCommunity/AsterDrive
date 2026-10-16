@@ -11,6 +11,22 @@ use crate::runtime::SharedRuntimeState;
 
 use super::{AuthSessionInfo, AuthSnapshot, UserAuditInfo, cache, user_audit_info};
 
+/// Loads current account authorization from the writer. Use this for security decisions,
+/// including JWT generations, WOPI session validity and administrator permissions. Unlike the
+/// cached presentation snapshot, this read cannot authorize from an old cache fill or replica.
+///
+/// # Errors
+/// Returns the product missing-account or database error without substituting cached state.
+pub async fn get_current_auth_snapshot(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+) -> Result<AuthSnapshot> {
+    let user = user_repo::find_by_id(state.writer_db(), user_id).await?;
+    Ok(AuthSnapshot::from_user(&user))
+}
+
+/// Loads a cached account projection for presentation after authorization. Never use it to
+/// decide account status, token validity or permissions; use `get_current_auth_snapshot` instead.
 pub async fn get_auth_snapshot(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -140,6 +156,12 @@ pub async fn cleanup_expired_auth_sessions(state: &impl SharedRuntimeState) -> R
     auth_session_repo::delete_expired(state.writer_db()).await
 }
 
+/// Atomically advances the account generation and purges all refresh sessions, then evicts cached
+/// presentation state. Access authorization checks the writer generation and cannot be restored by
+/// a delayed cache fill.
+///
+/// # Errors
+/// Returns writer/commit errors or generation exhaustion; failed transactions leave sessions intact.
 pub async fn revoke_user_sessions(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -148,9 +170,9 @@ pub async fn revoke_user_sessions(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
-        let next_session_version = user.session_version.saturating_add(1);
+        // Atomic advancement shares the refresh/password/MFA invalidation boundary.
+        user_repo::bump_session_version(&txn, user_id).await?;
         let mut active = user.into_active_model();
-        active.session_version = Set(next_session_version);
         active.updated_at = Set(Utc::now());
         let updated = active
             .update(&txn)

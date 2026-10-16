@@ -1,28 +1,27 @@
 //! 认证服务子模块：`tokens`。
 
-use chrono::{Duration as ChronoDuration, Utc};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use aster_forge_auth::{
+    AuthError as ForgeAuthError, AuthTokenType as ForgeTokenType, JwtKey, JwtPolicy, JwtSigner,
+    JwtVerifier, Restriction as ForgeRestriction, SessionId as ForgeSessionId,
+    SessionVersion as ForgeSessionVersion, Subject as ForgeSubject, TokenClaims,
+};
+use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait};
 
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::db::repository::auth_session_repo;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::{auth_session, user};
 use aster_drive_model::types::TokenType;
-use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64, u64_to_usize};
 
-use super::session::get_auth_snapshot;
 use super::{AuthSnapshot, Claims};
 
 mod refresh;
 
 pub use refresh::refresh_tokens;
-#[cfg(debug_assertions)]
-pub use refresh::test_support;
 
-#[derive(Debug)]
-pub struct IssuedTokens {
+struct IssuedTokens {
     access_token: String,
     refresh_token: String,
     session_id: String,
@@ -49,12 +48,7 @@ fn ensure_session_current(claims: &Claims, snapshot: AuthSnapshot) -> Result<()>
     Ok(())
 }
 
-fn ensure_password_change_scope(
-    state: &impl SharedRuntimeState,
-    claims: &Claims,
-    snapshot: AuthSnapshot,
-) -> Result<()> {
-    let password_change_required = super::password_change_required_for_snapshot(state, snapshot);
+fn ensure_password_change_scope(claims: &Claims, password_change_required: bool) -> Result<()> {
     if password_change_required && !claims.password_change {
         return Err(AsterError::auth_token_invalid("password change required"));
     }
@@ -76,15 +70,33 @@ async fn authenticate_token(
         expected_type = expected_type.as_str(),
         "authenticating token"
     );
-    let claims = verify_token(token, &state.config().auth.jwt_secret)?;
-    ensure_token_type(&claims, expected_type)?;
+    let expected = forge_token_type(expected_type);
+    let claims = auth_verifier(
+        state.config().auth.jwt_secret.as_bytes(),
+        auth_policy(state)?,
+    )?
+    .verify(token, expected)
+    .map_err(map_forge_auth_error)?
+    .into_claims();
+    let claims = product_claims(claims)?;
 
-    let snapshot = get_auth_snapshot(state, claims.user_id).await?;
+    // Authorization uses writer state, never an unfenced cache/replica snapshot. Cache eviction
+    // may fail or an old cache fill may arrive after revocation; neither can restore permission.
+    let snapshot = match super::get_current_auth_snapshot(state, claims.user_id).await {
+        Ok(snapshot) => snapshot,
+        Err(AsterError::RecordNotFound(_)) => {
+            return Err(AsterError::auth_token_invalid("account unavailable"));
+        }
+        Err(error) => return Err(error),
+    };
     if !snapshot.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
     ensure_session_current(&claims, snapshot)?;
-    ensure_password_change_scope(state, &claims, snapshot)?;
+    ensure_password_change_scope(
+        &claims,
+        super::password_change_required_for_snapshot(state, snapshot),
+    )?;
 
     tracing::debug!(
         user_id = claims.user_id,
@@ -96,6 +108,11 @@ async fn authenticate_token(
     Ok((claims, snapshot))
 }
 
+/// Verifies an access JWT and current writer-side account state, generation and login restriction.
+/// Drive retains the access-expiry window for individual session revocation.
+///
+/// # Errors
+/// Returns the product authentication rejection or original writer query failure.
 pub async fn authenticate_access_token(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -103,6 +120,11 @@ pub async fn authenticate_access_token(
     authenticate_token(state, token, TokenType::Access).await
 }
 
+/// Verifies refresh purpose and account state for identification. This does not consume the JTI;
+/// actual rotation and server-side session checks are performed by `refresh_tokens`.
+///
+/// # Errors
+/// Returns the product authentication rejection or original writer query failure.
 pub async fn authenticate_refresh_token(
     state: &impl SharedRuntimeState,
     token: &str,
@@ -118,34 +140,35 @@ fn issue_tokens(
     session_id: Option<&str>,
     password_change: bool,
 ) -> Result<IssuedTokens> {
-    let access = create_token(
-        user_id,
-        session_version,
-        TokenType::Access,
-        auth_policy.access_token_ttl_secs,
-        jwt_secret,
-        None,
-        password_change,
-    )?;
     let session_id = session_id
         .map(str::to_string)
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let refresh_jti = uuid::Uuid::new_v4().to_string();
-    let refresh = create_token(
-        user_id,
-        session_version,
-        TokenType::Refresh,
-        auth_policy.refresh_token_ttl_secs,
-        jwt_secret,
-        Some(refresh_jti.clone()),
-        password_change,
-    )?;
+    let policy = signing_policy(auth_policy)?;
+    let signer = auth_signer(jwt_secret.as_bytes(), policy)?;
+    let pair = signer
+        .issue(
+            ForgeSubject::new(user_id.to_string())
+                .map_err(|_| AsterError::internal_error("invalid user subject"))?,
+            ForgeSessionId::new(session_id.clone())
+                .map_err(|_| AsterError::internal_error("invalid session id"))?,
+            ForgeSessionVersion::new(
+                u64::try_from(session_version)
+                    .map_err(|_| AsterError::internal_error("invalid session version"))?,
+            ),
+            if password_change {
+                ForgeRestriction::MustChangePassword
+            } else {
+                ForgeRestriction::None
+            },
+        )
+        .map_err(|_| AsterError::internal_error("failed to issue auth token pair"))?;
     Ok(IssuedTokens {
-        access_token: access.token,
-        refresh_token: refresh.token,
+        access_token: pair.access_token,
+        refresh_token: pair.refresh_token,
         session_id,
-        refresh_jti,
-        refresh_expires_at: refresh.expires_at,
+        refresh_jti: pair.refresh_jti.as_str().to_string(),
+        refresh_expires_at: chrono::DateTime::<Utc>::from_timestamp(pair.refresh_expires_at, 0)
+            .ok_or_else(|| AsterError::internal_error("invalid refresh expiry"))?,
     })
 }
 
@@ -176,6 +199,11 @@ async fn persist_auth_session<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Issues and persists a session in the caller's writer transaction using current runtime TTLs.
+/// The caller owns account-policy validation and must commit before sending either credential.
+///
+/// # Errors
+/// Returns signing/configuration or persistence errors; an enclosing transaction must roll back.
 pub async fn issue_tokens_for_user_in_connection<C: ConnectionTrait>(
     db: &C,
     state: &impl SharedRuntimeState,
@@ -212,6 +240,11 @@ fn issue_tokens_for_session_id(
     )
 }
 
+/// Creates an unrestricted session through the writer connection. The caller supplies the current
+/// validated account generation; credentials are returned only after session persistence succeeds.
+///
+/// # Errors
+/// Returns signing/configuration or persistence errors without releasing replacement credentials.
 pub async fn issue_tokens_for_session(
     state: &impl SharedRuntimeState,
     user_id: i64,
@@ -224,6 +257,10 @@ pub async fn issue_tokens_for_session(
     Ok((tokens.access_token, tokens.refresh_token))
 }
 
+/// Persists a session for a validated account, projecting its password-change restriction.
+///
+/// # Errors
+/// Returns signing/configuration or writer persistence errors.
 pub async fn issue_tokens_for_user(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -234,6 +271,10 @@ pub async fn issue_tokens_for_user(
         .await
 }
 
+/// Persists a restricted login whose allowed actions remain a Drive route-policy responsibility.
+///
+/// # Errors
+/// Returns signing/configuration or writer persistence errors.
 pub async fn issue_password_change_tokens_for_user(
     state: &impl SharedRuntimeState,
     user: &user::Model,
@@ -245,6 +286,11 @@ pub async fn issue_password_change_tokens_for_user(
     Ok((tokens.access_token, tokens.refresh_token))
 }
 
+/// Revokes the current persisted refresh identity. Invalid/expired or already rotated credentials
+/// return `false`; this operation does not change the account generation or revoke access early.
+///
+/// # Errors
+/// Returns product signing-policy or writer persistence errors.
 pub async fn revoke_refresh_token(state: &impl SharedRuntimeState, token: &str) -> Result<bool> {
     let claims = match verify_token(token, &state.config().auth.jwt_secret) {
         Ok(claims) => claims,
@@ -263,169 +309,199 @@ pub async fn revoke_refresh_token(state: &impl SharedRuntimeState, token: &str) 
     auth_session_repo::revoke_by_refresh_jti(state.writer_db(), &jti, Utc::now()).await
 }
 
-struct CreatedToken {
-    token: String,
-    expires_at: chrono::DateTime<Utc>,
+/// Uses the product's current runtime TTLs for both login and refresh issuance.
+fn auth_policy(state: &impl SharedRuntimeState) -> Result<JwtPolicy> {
+    signing_policy(RuntimeAuthPolicy::from_runtime_config(
+        state.runtime_config(),
+    ))
 }
 
-fn create_token(
-    user_id: i64,
-    session_version: i64,
-    token_type: TokenType,
-    ttl_secs: u64,
-    secret: &str,
-    jti: Option<String>,
-    password_change: bool,
-) -> Result<CreatedToken> {
-    let now = Utc::now();
-    let now_secs = i64_to_u64(now.timestamp(), "jwt issued_at unix timestamp")?;
-    let exp_secs = now_secs.checked_add(ttl_secs).ok_or_else(|| {
-        AsterError::internal_error(format!("jwt exp overflow: {now_secs} + {ttl_secs}"))
-    })?;
-    let exp = u64_to_usize(exp_secs, "jwt exp")?;
-    let expires_at = now
-        .checked_add_signed(ChronoDuration::seconds(u64_to_i64(
-            ttl_secs,
-            "jwt ttl secs",
-        )?))
-        .ok_or_else(|| AsterError::internal_error("jwt expires_at overflow"))?;
-    let claims = Claims {
-        sub: user_id.to_string(),
-        user_id,
-        session_version,
-        password_change,
-        jti,
-        token_type,
-        exp,
-    };
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
+/// One strict signing domain shared by all local-web-session entry points.
+fn signing_policy(policy: RuntimeAuthPolicy) -> Result<JwtPolicy> {
+    JwtPolicy::new(
+        "aster-drive",
+        "aster-drive-web",
+        policy.access_token_ttl_secs,
+        policy.refresh_token_ttl_secs,
     )
-    .map_aster_err(AsterError::internal_error)?;
-    Ok(CreatedToken { token, expires_at })
+    .map_err(|_| AsterError::internal_error("invalid auth signing policy"))
 }
 
+fn auth_signer(secret: &[u8], policy: JwtPolicy) -> Result<JwtSigner> {
+    let key =
+        JwtKey::hmac(secret).map_err(|_| AsterError::internal_error("invalid auth signing key"))?;
+    Ok(JwtSigner::with_system_clock(key, policy))
+}
+
+fn auth_verifier(secret: &[u8], policy: JwtPolicy) -> Result<JwtVerifier> {
+    let key =
+        JwtKey::hmac(secret).map_err(|_| AsterError::internal_error("invalid auth signing key"))?;
+    Ok(JwtVerifier::with_system_clock(key, policy))
+}
+
+fn forge_token_type(kind: TokenType) -> ForgeTokenType {
+    match kind {
+        TokenType::Access => ForgeTokenType::Access,
+        TokenType::Refresh => ForgeTokenType::Refresh,
+    }
+}
+
+/// Validates either local token purpose for logout/session-identification callers. Protected-route
+/// authentication instead passes its exact expected purpose directly to the Forge verifier.
+///
+/// # Errors
+/// Rejects old formats, invalid signatures, namespace, identifiers, or time boundaries. No account
+/// or permission check is performed here; those remain the caller's product responsibility.
 pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
-    let data = match decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
-    ) {
-        Ok(data) => data,
-        Err(error) => {
-            return Err(match error.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                    AsterError::auth_token_expired("token expired")
-                }
-                _ => AsterError::auth_token_invalid("invalid token"),
-            });
+    let policy = JwtPolicy::new("aster-drive", "aster-drive-web", 1, 1)
+        .map_err(|_| AsterError::internal_error("invalid auth verification policy"))?;
+    let verifier = auth_verifier(secret.as_bytes(), policy)?;
+    let verified = match verifier.verify(token, ForgeTokenType::Access) {
+        Err(ForgeAuthError::WrongTokenType) => verifier.verify(token, ForgeTokenType::Refresh),
+        other => other,
+    }
+    .map_err(map_forge_auth_error)?;
+    product_claims(verified.into_claims())
+}
+
+/// Converts generic verified claims into Drive's typed account projection. There is only one
+/// subject source and one restriction source, so duplicate legacy fields cannot disagree.
+fn product_claims(claims: TokenClaims) -> Result<Claims> {
+    let user_id = claims
+        .sub
+        .as_str()
+        .parse::<i64>()
+        .map_err(|_| AsterError::auth_token_invalid("invalid token subject"))?;
+    Ok(Claims {
+        sid: claims.sid.as_str().to_string(),
+        sub: claims.sub.as_str().to_string(),
+        user_id,
+        session_version: i64::try_from(claims.session_version.value())
+            .map_err(|_| AsterError::auth_token_invalid("invalid session version"))?,
+        password_change: claims.restriction == ForgeRestriction::MustChangePassword,
+        jti: claims.jti.map(|id| id.as_str().to_string()),
+        token_type: match claims.token_type {
+            ForgeTokenType::Access => TokenType::Access,
+            ForgeTokenType::Refresh => TokenType::Refresh,
+        },
+        exp: usize::try_from(claims.exp)
+            .map_err(|_| AsterError::auth_token_invalid("invalid token expiry"))?,
+    })
+}
+
+/// Stable Drive presentation boundary; mechanism diagnostics never become public error text.
+fn map_forge_auth_error(error: ForgeAuthError) -> AsterError {
+    match error {
+        ForgeAuthError::Expired => AsterError::auth_token_expired("token expired"),
+        ForgeAuthError::InvalidPolicy | ForgeAuthError::Encoding => {
+            AsterError::internal_error("authentication policy failure")
         }
-    };
-    Ok(data.claims)
+        ForgeAuthError::ResourceLimit => {
+            AsterError::rate_limited("refresh request budget exhausted")
+        }
+        ForgeAuthError::Cancelled => {
+            AsterError::internal_error("authentication runtime is closing")
+        }
+        _ => AsterError::auth_token_invalid("invalid token"),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aster_drive_model::types::TokenType;
 
     const SECRET: &str = "test_secret_32bytes_xxxxxxxxxxxxxxxxx";
+    fn pair(password_change: bool) -> IssuedTokens {
+        issue_tokens(
+            1,
+            7,
+            SECRET,
+            RuntimeAuthPolicy {
+                cookie_secure: true,
+                allow_user_registration: true,
+                passkey_login_enabled: true,
+                password_login_enabled: true,
+                register_activation_enabled: false,
+                access_token_ttl_secs: 900,
+                refresh_token_ttl_secs: 604800,
+            },
+            Some("session-1"),
+            password_change,
+        )
+        .unwrap()
+    }
 
-    fn make_token(
-        token_type: TokenType,
-        ttl_secs: u64,
-        secret: &str,
-        jti: Option<String>,
-    ) -> String {
-        create_token(1, 1, token_type, ttl_secs, secret, jti, false)
+    #[test]
+    fn issued_pair_uses_runtime_lifetimes_and_one_session_identity() {
+        let tokens = pair(false);
+        let verifier = auth_verifier(
+            SECRET.as_bytes(),
+            JwtPolicy::new("aster-drive", "aster-drive-web", 900, 604800).unwrap(),
+        )
+        .unwrap();
+        let access = verifier
+            .verify(&tokens.access_token, ForgeTokenType::Access)
             .unwrap()
-            .token
-    }
-
-    #[test]
-    fn verify_access_token_roundtrip() {
-        let token = make_token(TokenType::Access, 3600, SECRET, None);
-        let claims = verify_token(&token, SECRET).unwrap();
-        assert_eq!(claims.user_id, 1);
-        assert_eq!(claims.session_version, 1);
-        assert_eq!(claims.token_type, TokenType::Access);
-        assert!(claims.jti.is_none());
-    }
-
-    #[test]
-    fn verify_refresh_token_roundtrip() {
-        let token = make_token(
-            TokenType::Refresh,
-            86400,
-            SECRET,
-            Some("refresh-jti".to_string()),
+            .into_claims();
+        let refresh = verifier
+            .verify(&tokens.refresh_token, ForgeTokenType::Refresh)
+            .unwrap()
+            .into_claims();
+        assert_eq!(access.exp - access.iat, 900);
+        assert_eq!(refresh.exp - refresh.iat, 604800);
+        assert_eq!(access.sid, refresh.sid);
+        assert_eq!(access.sid.as_str(), "session-1");
+        assert_eq!(refresh.jti.unwrap().as_str(), tokens.refresh_jti);
+        assert_eq!(
+            verify_token(&tokens.access_token, SECRET).unwrap().user_id,
+            1
         );
-        let claims = verify_token(&token, SECRET).unwrap();
-        assert_eq!(claims.token_type, TokenType::Refresh);
-        assert_eq!(claims.jti.as_deref(), Some("refresh-jti"));
     }
 
     #[test]
-    fn verify_token_rejects_wrong_secret() {
-        let token = make_token(TokenType::Access, 3600, SECRET, None);
-        let err = verify_token(&token, "wrong_secret").unwrap_err();
-        // jsonwebtoken 的 InvalidSignature 归类到 "invalid token"
-        assert_eq!(err.code(), "E012"); // AuthTokenInvalid
-    }
-
-    #[test]
-    fn ensure_token_type_access_rejects_refresh() {
-        let token = make_token(
-            TokenType::Refresh,
-            3600,
-            SECRET,
-            Some("refresh-jti".to_string()),
-        );
-        let claims = verify_token(&token, SECRET).unwrap();
-        let err = ensure_token_type(&claims, TokenType::Access).unwrap_err();
-        assert_eq!(err.code(), "E012");
-    }
-
-    #[test]
-    fn ensure_session_current_rejects_stale_version() {
-        let claims = Claims {
-            sub: "1".to_string(),
-            user_id: 1,
-            session_version: 1,
-            password_change: false,
-            jti: None,
-            token_type: TokenType::Access,
-            exp: usize::MAX, // 永不过期，只测 version
-        };
-        let snapshot = crate::services::auth::local::AuthSnapshot {
-            session_version: 2,
+    fn restriction_maps_from_one_verified_source_and_purpose_cannot_cross() {
+        let tokens = pair(true);
+        let claims = verify_token(&tokens.access_token, SECRET).unwrap();
+        assert!(claims.password_change);
+        assert!(ensure_token_type(&claims, TokenType::Refresh).is_err());
+        let snapshot = AuthSnapshot {
             status: aster_drive_model::types::UserStatus::Active,
             role: aster_drive_model::types::UserRole::User,
-            must_change_password: false,
-        };
-        let err = ensure_session_current(&claims, snapshot).unwrap_err();
-        assert_eq!(err.code(), "E012");
-    }
-
-    #[test]
-    fn ensure_session_current_accepts_matching_version() {
-        let claims = Claims {
-            sub: "1".to_string(),
-            user_id: 1,
-            session_version: 1,
-            password_change: false,
-            jti: None,
-            token_type: TokenType::Access,
-            exp: usize::MAX,
-        };
-        let snapshot = crate::services::auth::local::AuthSnapshot {
-            session_version: 1,
-            status: aster_drive_model::types::UserStatus::Active,
-            role: aster_drive_model::types::UserRole::User,
-            must_change_password: false,
+            session_version: 7,
+            must_change_password: true,
         };
         assert!(ensure_session_current(&claims, snapshot).is_ok());
+        assert!(
+            ensure_session_current(
+                &claims,
+                AuthSnapshot {
+                    session_version: 8,
+                    ..snapshot
+                }
+            )
+            .is_err()
+        );
+        assert!(ensure_password_change_scope(&claims, true).is_ok());
+        assert!(ensure_password_change_scope(&claims, false).is_err());
+    }
+
+    #[test]
+    fn legacy_format_and_wrong_signature_are_rejected() {
+        let old = serde_json::json!({"sub":"1","user_id":1,"session_version":7,
+            "password_change":false,"token_type":"access","exp":4102444800_u64});
+        let old = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &old,
+            &jsonwebtoken::EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .unwrap();
+        assert!(verify_token(&old, SECRET).is_err());
+        assert!(
+            verify_token(
+                &pair(false).access_token,
+                "a_different_secret_32bytes_xxxxxxxxxxx"
+            )
+            .is_err()
+        );
     }
 }

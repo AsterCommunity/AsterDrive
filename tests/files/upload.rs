@@ -6884,7 +6884,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
 }
 
 #[actix_web::test]
-async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
+async fn test_sqlite_reader_queries_stay_independent_but_auth_waits_for_writer_revocation() {
     use aster_forge_utils::raii::TempDirGuard;
     use sea_orm::{ConnectionTrait, TransactionTrait};
 
@@ -6927,34 +6927,57 @@ async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
         .await
         .unwrap();
 
-    let folder_req = test::TestRequest::get()
-        .uri("/api/v1/folders")
-        .insert_header(("Authorization", format!("Bearer {access_token}")))
-        .to_request();
-    let folder_resp = tokio::time::timeout(
-        std::time::Duration::from_millis(500),
-        test::call_service(&app, folder_req),
+    // Poll the real auth adapter while the sole writer connection is held. An old cache
+    // projection must not authorize protected routes while the generation decision is pending.
+    let authentication = local::authenticate_access_token(&state, &access_token);
+    tokio::pin!(authentication);
+    assert!(futures::poll!(&mut authentication).is_pending());
+
+    // Read-only product work remains on the reader after a caller has authenticated. This
+    // checks the data routing boundary separately from the stronger authorization requirement.
+    let query: aster_drive::api::pagination::FolderListQuery =
+        serde_json::from_value(serde_json::json!({})).unwrap();
+    let params = aster_drive::services::files::folder::FolderListParams::from(&query);
+    timeout(
+        Duration::from_secs(5),
+        aster_drive::services::files::folder::list(&state, user.id, None, &params),
     )
     .await
-    .expect("folder listing should not wait for the busy writer pool");
-    assert_eq!(folder_resp.status(), 200);
-
-    let progress_req = test::TestRequest::get()
-        .uri(&format!("/api/v1/files/upload/{upload_id}"))
-        .insert_header(("Authorization", format!("Bearer {access_token}")))
-        .to_request();
-    let progress_resp = tokio::time::timeout(
-        std::time::Duration::from_millis(500),
-        test::call_service(&app, progress_req),
+    .expect("folder data query should not wait for the writer pool")
+    .expect("folder data query should succeed");
+    let progress = timeout(
+        Duration::from_secs(5),
+        aster_drive::services::files::upload::get_progress(&state, &upload_id, user.id),
     )
     .await
-    .expect("upload progress should not wait for the busy writer pool");
-    assert_eq!(progress_resp.status(), 200);
-    let progress_body: Value = test::read_body_json(progress_resp).await;
-    assert_eq!(progress_body["data"]["upload_id"], upload_id);
-    assert_eq!(progress_body["data"]["received_count"], 2);
+    .expect("upload progress data query should not wait for the writer pool")
+    .expect("upload progress data query should succeed");
+    assert_eq!(progress.upload_id, upload_id);
+    assert_eq!(progress.received_count, 2);
 
-    txn.rollback().await.unwrap();
+    aster_drive::db::repository::user_repo::bump_session_version(&txn, user.id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    let error = timeout(Duration::from_secs(5), authentication)
+        .await
+        .expect("authentication must finish after writer release")
+        .expect_err("committed revocation must reject the queued old access token");
+    assert!(matches!(
+        error,
+        aster_drive::errors::AsterError::AuthTokenInvalid(_)
+    ));
+
+    for uri in [
+        "/api/v1/folders".to_string(),
+        format!("/api/v1/files/upload/{upload_id}"),
+    ] {
+        let request = test::TestRequest::get()
+            .uri(&uri)
+            .insert_header(("Authorization", format!("Bearer {access_token}")))
+            .to_request();
+        assert_eq!(test::call_service(&app, request).await.status(), 401);
+    }
 }
 
 #[actix_web::test]

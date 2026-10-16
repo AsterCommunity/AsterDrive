@@ -230,7 +230,6 @@ async fn update_with_audit_diff(
         must_change_password.is_some_and(|value| value != existing.must_change_password);
     let policy_group_changed =
         policy_group_id.is_some_and(|group_id| existing_policy_group_id != Some(group_id));
-    let current_session_version = existing.session_version;
     let mut active: user::ActiveModel = existing.into();
     if let Some(is_verified) = email_verified
         && is_verified != existing_email_verified
@@ -270,12 +269,12 @@ async fn update_with_audit_diff(
         }
         active.policy_group_id = Set(Some(group_id));
     }
-    if status_changed || email_verified_changed || must_change_password_changed {
-        active.session_version = Set(current_session_version.saturating_add(1));
-    }
     active.updated_at = Set(Utc::now());
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
+        if status_changed || email_verified_changed || must_change_password_changed {
+            user_repo::bump_session_version(&txn, id).await?;
+        }
         let updated = active
             .update(&txn)
             .await

@@ -162,13 +162,19 @@ pub(crate) fn add_backend_call() {
 }
 
 fn add_observation(value: &AtomicU64, count: u64) {
-    let _ = value.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        Some(if current == UNCOLLECTED {
+    // Keep saturation and the uncollected sentinel on the MSRV and current stable compilers.
+    let mut current = value.load(Ordering::Relaxed);
+    loop {
+        let next = if current == UNCOLLECTED {
             count
         } else {
             current.saturating_add(count)
-        })
-    });
+        };
+        match value.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 fn collected(value: &AtomicU64) -> Option<u64> {

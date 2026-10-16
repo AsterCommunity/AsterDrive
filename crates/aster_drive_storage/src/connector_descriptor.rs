@@ -618,7 +618,7 @@ impl StorageConnectorActionOutputFieldDescriptor {
                     ("true_key", self.true_key.as_deref()),
                     ("false_key", self.false_key.as_deref()),
                 ] {
-                    if !message_id.is_some_and(|message_id| !message_id.trim().is_empty()) {
+                    if message_id.is_none_or(|message_id| message_id.trim().is_empty()) {
                         return Err(StorageConnectorActionDescriptorError(format!(
                             "boolean action output field '{}' requires non-empty {name}",
                             self.name

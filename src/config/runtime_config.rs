@@ -12,6 +12,8 @@ use crate::errors::Result;
 use aster_forge_db::system_config;
 
 pub struct RuntimeConfig {
+    // Instance-owned resource shared by requests and preserved across configuration reloads.
+    refresh_coordinator: aster_forge_auth::RefreshCoordinator,
     snapshot: SyncRuntimeConfig<system_config::Model>,
     audit_log_settings: RwLock<AuditLogRuntimeSettings>,
     password_hash_runtime: PasswordHashRuntime,
@@ -21,6 +23,7 @@ pub struct RuntimeConfig {
 impl RuntimeConfig {
     pub fn new() -> Self {
         Self {
+            refresh_coordinator: aster_forge_auth::RefreshCoordinator::default(),
             snapshot: SyncRuntimeConfig::new(),
             audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
             password_hash_runtime: PasswordHashRuntime::default(),
@@ -40,11 +43,17 @@ impl RuntimeConfig {
         policy: aster_forge_crypto::PasswordHashPolicy,
     ) -> Result<Self> {
         Ok(Self {
+            refresh_coordinator: aster_forge_auth::RefreshCoordinator::default(),
             snapshot: SyncRuntimeConfig::new(),
             audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
             password_hash_runtime: PasswordHashRuntime::with_policy(max_concurrency, policy)?,
             avatar_render_runtime: AvatarRenderRuntime::default(),
         })
+    }
+
+    /// Returns the bounded instance resource; reload preserves locks and shutdown state.
+    pub fn refresh_coordinator(&self) -> &aster_forge_auth::RefreshCoordinator {
+        &self.refresh_coordinator
     }
 
     pub async fn reload<C: ConnectionTrait>(&self, db: &C) -> Result<()> {
@@ -196,6 +205,18 @@ mod tests {
 
         runtime_config.remove("webdav_enabled");
         assert_eq!(runtime_config.get("webdav_enabled"), None);
+    }
+
+    #[tokio::test]
+    async fn reload_preserves_shared_refresh_coordination_and_shutdown_state() {
+        let db = setup_db().await;
+        let runtime_config = RuntimeConfig::new();
+        let coordinator = runtime_config.refresh_coordinator().clone();
+        coordinator.close();
+        runtime_config.reload(&db).await.unwrap();
+        assert!(runtime_config.refresh_coordinator().is_closed());
+        assert_eq!(coordinator.active_requests(), 0);
+        assert_eq!(coordinator.tracked_ids(), 0);
     }
 
     #[tokio::test]

@@ -487,7 +487,7 @@ fn ensure_archive_entry_matches_preflight<R: Read>(
     if is_dir != manifest_entry.kind.is_dir() {
         return Err(AsterError::validation_error(format!(
             "archive entry '{}' type changed after preflight",
-            entry.name()
+            manifest_entry.path
         )));
     }
     if !is_dir {
@@ -496,7 +496,7 @@ fn ensure_archive_entry_matches_preflight<R: Read>(
         if declared_size != manifest_entry.size {
             return Err(AsterError::validation_error(format!(
                 "archive entry '{}' declared size changed after preflight",
-                entry.name()
+                manifest_entry.path
             )));
         }
     }

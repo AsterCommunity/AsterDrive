@@ -418,12 +418,10 @@ fn resolve_extract_output_folder_name(
 }
 
 fn default_extract_output_folder_name(source_file_name: &str) -> String {
-    for archive_format in [ArchiveFormat::Zip] {
-        if let Some(stripped) = archive_format.strip_extension(source_file_name)
-            && !stripped.is_empty()
-        {
-            return stripped.to_string();
-        }
+    if let Some(stripped) = ArchiveFormat::Zip.strip_extension(source_file_name)
+        && !stripped.is_empty()
+    {
+        return stripped.to_string();
     }
     format!("extracted-{}", Utc::now().format("%Y%m%d-%H%M%S"))
 }

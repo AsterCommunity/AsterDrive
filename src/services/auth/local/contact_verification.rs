@@ -255,7 +255,7 @@ pub async fn confirm_password_reset(
         .await?;
 
     let txn = transaction::begin(state.writer_db()).await?;
-    let existing_user = user_repo::find_by_id(&txn, record.user_id).await?;
+    let existing_user = user_repo::lock_by_id(&txn, record.user_id).await?;
     if !existing_user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }

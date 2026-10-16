@@ -421,6 +421,12 @@ pub async fn set_storage_used<C: ConnectionTrait>(db: &C, id: i64, value: i64) -
     Ok(())
 }
 
+/// Atomically advances the account generation without wrapping, saturating, or overwriting a
+/// concurrent revocation. Call inside the transaction containing the security change and purge.
+///
+/// # Errors
+/// Returns the database error, missing-account error, or an internal error for an exhausted or
+/// corrupt generation. The caller must roll back the encompassing security change on failure.
 pub async fn bump_session_version<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let result = User::update_many()
         .col_expr(
@@ -428,12 +434,17 @@ pub async fn bump_session_version<C: ConnectionTrait>(db: &C, id: i64) -> Result
             Expr::col(user::Column::SessionVersion).add(1i64),
         )
         .filter(user::Column::Id.eq(id))
+        .filter(user::Column::SessionVersion.gte(0i64))
+        .filter(user::Column::SessionVersion.lt(i64::MAX))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
 
     if result.rows_affected == 0 {
-        return Err(AsterError::record_not_found(format!("user #{id}")));
+        find_by_id(db, id).await?;
+        return Err(AsterError::internal_error(
+            "session version exhausted or invalid",
+        ));
     }
 
     Ok(())

@@ -46,6 +46,14 @@ Identities use only database primary keys or public flow UUIDs. The request-loca
 
 ## Policy and side effects
 
+Protected requests query the writer for current account authorization; they can wait when the writer pool is saturated. Read-only file/folder queries still use the reader after authorization. A cached snapshot never bypasses a pending writer-side revocation decision.
+
+`aster_forge_auth` owns JWT issuance and strict verification, refresh classification, and bounded process coordination. Drive implements its store in `local/tokens/refresh.rs`, retaining writer transactions, account policy, SQL, security audit, and error mapping. Account generations advance atomically within the transaction; exhaustion fails and rolls back.
+
+JWTs require `sub/sid/session_version/token_type/restriction/iat/exp/iss/aud`; only refresh credentials carry a required JTI. Existing JWT formats are rejected, so deployment requires users to sign in again. Cookie names, CSRF, and API envelopes stay unchanged. Individual session revocation immediately blocks refresh while access retains its short expiry window. Account generation and disabled-state checks read the writer, bypassing cached authorization.
+
+Rotation CAS, reuse revocation, and required audit commit together; failed commits release no replacement credentials. Stale classification never grants another refresh, and UA/IP matching is not device authentication. The store rechecks the credential deadline after acquiring database locks. Failed cache eviction or late cache fills cannot restore access. HTTP shutdown closes refresh coordination before draining requests and lets started transactions finish.
+
 - Every cross-request advance rereads runtime auth policy. A UI snapshot captured at flow creation is not authorization evidence.
 - Password-first MFA rechecks password-login policy during exchange; external-first MFA is unaffected by that switch.
 - The session row is persisted in a transaction before the route emits cookies. Transaction failure emits no session cookie.

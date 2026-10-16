@@ -149,7 +149,8 @@ fn zip_entry_names(bytes: &[u8]) -> Vec<String> {
                 .by_index(index)
                 .expect("zip entry should exist")
                 .name()
-                .to_string(),
+                .expect("zip entry name should decode")
+                .into_owned(),
         );
     }
     names.sort();

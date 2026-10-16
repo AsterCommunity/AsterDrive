@@ -7,6 +7,7 @@ mod common;
 mod external_auth;
 
 mod auth;
+mod forge;
 mod gravatar_config;
 mod mfa;
 mod oauth2;

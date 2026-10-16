@@ -221,7 +221,7 @@ pub async fn set_password(
         .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let user = user_repo::find_by_id(&txn, user_id).await?;
+        let user = user_repo::lock_by_id(&txn, user_id).await?;
         let was_forced = user.must_change_password;
         let updated = update_password_in_connection(&txn, user, new_password_hash).await?;
         purge_all_auth_sessions_in_connection(&txn, updated.id).await?;

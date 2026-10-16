@@ -917,13 +917,22 @@ mod tests {
             _message: aster_forge_config::ConfigReloadMessage,
         ) -> aster_forge_config::Result<()> {
             self.attempts.fetch_add(1, Ordering::SeqCst);
-            if self
-                .failures_remaining
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
-                    value.checked_sub(1)
-                })
-                .is_ok()
-            {
+            let mut remaining = self.failures_remaining.load(Ordering::SeqCst);
+            let failed = loop {
+                let Some(next) = remaining.checked_sub(1) else {
+                    break false;
+                };
+                match self.failures_remaining.compare_exchange_weak(
+                    remaining,
+                    next,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    Ok(_) => break true,
+                    Err(current) => remaining = current,
+                }
+            };
+            if failed {
                 Err(aster_forge_config::ConfigCoreError::notification(
                     "injected notification failure",
                 ))

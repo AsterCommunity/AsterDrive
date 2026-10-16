@@ -121,7 +121,7 @@ pub async fn upsert_with_options<C: ConnectionTrait>(
 ) -> Result<system_config::Model> {
     map_store_result(
         STORE
-            .upsert(
+            .upsert_prevalidated(
                 db,
                 SystemConfigUpsert {
                     key,

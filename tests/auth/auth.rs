@@ -29,24 +29,6 @@ const TEST_PUBLIC_SITE_ORIGIN: &str = "https://pan.esaps.net";
 const TEST_HTTP_SETUP_ORIGIN: &str = "http://192.0.2.10:3000";
 const ONE_SECOND_WINDOW_ELAPSED: Duration = Duration::from_millis(1100);
 
-struct RefreshHookGuard {
-    _hook: local::test_support::RefreshRotationTestHook,
-}
-
-impl RefreshHookGuard {
-    fn new(hook: local::test_support::RefreshRotationTestHook) -> Self {
-        Self { _hook: hook }
-    }
-}
-
-impl Drop for RefreshHookGuard {
-    fn drop(&mut self) {
-        tokio::spawn(async {
-            local::test_support::clear_refresh_rotation_test_hook().await;
-        });
-    }
-}
-
 macro_rules! login_user_with_credentials {
     ($app:expr, $identifier:expr, $password:expr) => {{
         let req = test::TestRequest::post()
@@ -1665,17 +1647,12 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     let app = create_test_app!(state.clone());
 
     let (_, refresh) = register_and_login!(app);
-    let hook = local::test_support::install_refresh_rotation_test_hook(
-        &refresh,
-        &state.config.auth.jwt_secret,
-    )
-    .await
-    .unwrap();
-    let _hook_guard = RefreshHookGuard::new(hook.clone());
-
+    let start = std::sync::Arc::new(tokio::sync::Barrier::new(3));
     let first_state = state.clone();
     let first_refresh = refresh.clone();
+    let first_start = start.clone();
     let first_task = tokio::spawn(async move {
+        first_start.wait().await;
         local::refresh_tokens(
             &first_state,
             &first_refresh,
@@ -1684,14 +1661,11 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
         )
         .await
     });
-
-    tokio::time::timeout(Duration::from_secs(2), hook.wait_until_lock_acquired())
-        .await
-        .expect("first refresh should acquire rotation lock");
-
     let second_state = state.clone();
     let second_refresh = refresh.clone();
+    let second_start = start.clone();
     let second_task = tokio::spawn(async move {
+        second_start.wait().await;
         local::refresh_tokens(
             &second_state,
             &second_refresh,
@@ -1700,11 +1674,9 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
         )
         .await
     });
-
-    tokio::time::timeout(Duration::from_secs(2), hook.wait_until_lock_contended())
-        .await
-        .expect("second refresh should wait on the same rotation lock");
-    hook.release_lock();
+    // Forge's gated-store tests prove actual lock contention. This router fixture checks the real
+    // SQLite adapter's one-winner result without installing a product global test hook.
+    start.wait().await;
 
     let (first, second) = tokio::join!(first_task, second_task);
     let first = first.expect("first refresh task should not panic");
