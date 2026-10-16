@@ -347,7 +347,10 @@ fn product_claims(claims: TokenClaims) -> Result<Claims> {
 fn map_forge_auth_error(error: ForgeAuthError) -> AsterError {
     match error {
         ForgeAuthError::Expired => AsterError::auth_token_expired("token expired"),
-        ForgeAuthError::InvalidPolicy | ForgeAuthError::Encoding => {
+        ForgeAuthError::InvalidPolicy
+        | ForgeAuthError::Encoding
+        | ForgeAuthError::CryptoProviderNotInitialized
+        | ForgeAuthError::CryptoProviderAlreadyInstalled => {
             AsterError::internal_error("authentication policy failure")
         }
         ForgeAuthError::ResourceLimit => {
@@ -363,9 +366,16 @@ fn map_forge_auth_error(error: ForgeAuthError) -> AsterError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
 
     const SECRET: &str = "test_secret_32bytes_xxxxxxxxxxxxxxxxx";
+    fn init_provider() {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| aster_forge_auth::initialize_jwt_crypto_provider().unwrap());
+    }
+
     fn pair(password_change: bool) -> IssuedTokens {
+        init_provider();
         issue_tokens(
             1,
             7,
@@ -441,6 +451,7 @@ mod tests {
 
     #[test]
     fn legacy_format_and_wrong_signature_are_rejected() {
+        init_provider();
         let old = serde_json::json!({"sub":"1","user_id":1,"session_version":7,
             "password_change":false,"token_type":"access","exp":4102444800_u64});
         let old = jsonwebtoken::encode(

@@ -451,7 +451,7 @@ pub fn remote_policy_config(
 
 fn init_test_process_state() {
     static INIT: OnceLock<()> = OnceLock::new();
-    INIT.get_or_init(|| {});
+    INIT.get_or_init(|| aster_forge_auth::initialize_jwt_crypto_provider().unwrap());
 }
 
 pub async fn set_foreign_key_checks(
