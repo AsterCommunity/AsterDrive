@@ -7,13 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.6.3] - 2026-10-22
+
+### Release Highlights
+
+**Security-driven early release.** Upgrade from `v0.6.2` to receive the TLS certificate-trust fixes for **CVE-2026-111943**, additional Rust TLS/ZIP dependency fixes, and frontend dependency security updates. This release also includes the completed session, observability, audit-lifecycle, and browser-download changes below.
+
+### Security
+
+- **TLS certificate trust** — Update `rustls-webpki` to `0.103.16` and `webpki-roots` / `webpki-root-certs` to `1.0.10`, rejecting the distrusted emSign intermediate keys and removing the affected bundled root for CVE-2026-111943 (RUSTSEC-2026-0381/0382/0383).
+- **TLS and archive dependencies** — Update `rustls` to `0.23.46` for RUSTSEC-2026-0346 through RUSTSEC-2026-0349, and consolidate ZIP dependencies on `zip 9.0.5` for RUSTSEC-2026-0367/0368/0369. Swagger UI uses the upstream `10.0.2` release instead of a Forge patch. Drive continues to reject archive symlinks and unsafe paths before extraction; these dependency advisories do not establish that Drive's extraction path was exploitable.
+- **Frontend dependencies** — Update `follow-redirects` to `1.16.1` for cross-origin credential stripping and sensitive-header handling (GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c), `serialize-javascript` to `7.1.2`, and `postcss-selector-parser` to `7.1.6`. The selector parser override also covers Typography's pinned build dependency.
+
+### Breaking
+
+- **Session upgrade** — Existing local JWT sessions are incompatible with the strict session-token format; users and clients must sign in again after upgrading. Upgrade all primary instances together to avoid mixing token formats. Custom `auth.jwt_secret` values must contain at least 32 bytes.
+- **Metrics enablement** — A build with the `metrics` feature now requires `observability.prometheus.enabled = true` to expose `/health/metrics`; exporters default to disabled. Enabling an exporter that was not compiled into the binary is a configuration error.
+- **Static configuration validation** — Unknown static configuration fields are rejected. Remove obsolete or misspelled keys before restarting; configuration diagnostics redact secret values.
+
+### Added
+
+- **Explicit metrics exporters and scrape authentication** — Prometheus and OTLP HTTP/protobuf metrics can run independently or together with instance-owned providers on primary and follower roles. Prometheus supports dedicated Basic Auth with an Argon2id password verifier; `aster_drive hash-password` reads the password from stdin. OTLP collector credentials are configured separately. The `full` feature includes both exporters; OTLP currently requires a source or custom-image build. OTLP traces and logs are not included.
+- **Transfer and backlog observability** — Add data-plane bytes, active transfers and terminal stream outcomes, upload phases and backlog age, staging/capacity validity, Blob cleanup backlog, and remote connection/request metrics. Update the Grafana dashboard with environment, role and runtime-instance filters. Presigned or redirected traffic outside Drive's data plane is not measured, and an invalid snapshot preserves its last value with explicit validity/last-success signals.
+
 ### Changed
 
-- **Shared REST envelopes** — REST handlers and remote-node consumers now use AsterForge's typed response envelope while preserving Drive's success, omitted-data, empty-object, error-code, retryability, diagnostic, HTTP status, and header contracts. OpenAPI and the generated TypeScript SDK retain shared error-metadata references and concise product response schema names.
+- **Session and authorization lifecycle** — Local authentication uses Forge's strict JWT/session and refresh-rotation mechanisms. Authorization checks current writer-side account state; confirmed refresh reuse atomically commits account revocation, session removal and mandatory audit. Database failures do not release replacement credentials. Revoking a single session immediately blocks refresh while already issued access tokens retain their documented expiry window.
+- **Audit persistence and shutdown** — Each instance owns its audit writer. Audit queries, exports and cleanup first require confirmed buffer persistence and report incomplete persistence instead of returning apparently complete results. Normal shutdown, startup failures and panic cleanup drain producers and audit before closing the database and telemetry. Unconfirmed shutdown records are saved under `data/audit-recovery/` and require database reconciliation before any manual replay.
+- **Shared REST envelopes** — REST handlers and remote-node consumers use AsterForge's typed response envelope while preserving Drive's wire format, error codes, retryability, diagnostics, HTTP statuses and headers. OpenAPI and the generated TypeScript SDK retain shared error-metadata references and concise product response schema names.
+- **Dependency baseline** — Pin Forge to a compatible revision and update `parking_lot` to `0.13.0`; Rust `1.95.0` remains the minimum supported version. Upstream parking-lot scheduling now provides fair handoff through explicit fair-unlock APIs rather than automatic eventual fairness.
 
 ### Fixed
 
-- **Large download delivery in browsers** — Browser-managed archive downloads now use the shared native download trigger instead of a timed hidden iframe. Browsers without the File System Access API no longer expose in-page proxy download modes; direct proxy calls fall back to the native download manager instead of buffering complete files or ZIP archives in page memory. Archive diagnostics also distinguish downstream client disconnects from upstream storage-read failures instead of masking both as client disconnects.
+- **Large download delivery in browsers** — Browser-managed archive downloads use the shared native download trigger instead of a timed hidden iframe. Browsers without the File System Access API no longer expose in-page proxy download modes; direct proxy calls fall back to the native download manager instead of buffering complete files or ZIP archives in page memory. Archive diagnostics distinguish downstream client disconnects from upstream storage-read failures.
+- **Authentication failure recovery** — Persist restricted MFA sessions within the challenge transaction, advance account security generations atomically, and preserve rollback and retry boundaries when refresh, reuse auditing or session updates fail.
+
+### Database Migrations
+
+- One migration adds `file_blobs.cleanup_pending_since` and upload-session / Blob-cleanup observation indexes. Historical cleanup timestamps are backfilled in batches of 1,000; PostgreSQL builds the indexes concurrently. Normal migration execution is required, and interrupted work can resume without deleting Blob contents.
+
+### Notes
+
+- Existing RustSec exceptions for `rsa` (RUSTSEC-2023-0071), the compile-time `paste` macro (RUSTSEC-2024-0436), and Actix's `h2 0.3` dependency (RUSTSEC-2026-0258) remain documented in `.cargo/audit.toml`. This release does not claim to remediate those upstream advisories or scan every runtime image package.
 
 ## [v0.6.2] - 2026-09-19
 
@@ -6270,7 +6305,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...HEAD
+[v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0

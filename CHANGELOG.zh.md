@@ -7,9 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.6.3] - 2026-10-22
+
+### Release Highlights
+
+**因依赖安全漏洞提前发布的安全更新。** 建议从 `v0.6.2` 升级，以获取 **CVE-2026-111943** 的 TLS 证书信任修复、其他 Rust TLS/ZIP 依赖修复及前端依赖安全更新。本版本也包含下述已完成的会话、可观测性、审计生命周期和浏览器下载改动。
+
+### Security
+
+- **TLS 证书信任** — 将 `rustls-webpki` 更新至 `0.103.16`，`webpki-roots` / `webpki-root-certs` 更新至 `1.0.10`，拒绝不受信任的 emSign 中间证书密钥并移除受影响的内置根证书，修复 CVE-2026-111943（RUSTSEC-2026-0381/0382/0383）。
+- **TLS 与归档依赖** — 将 `rustls` 更新至 `0.23.46`，覆盖 RUSTSEC-2026-0346 至 RUSTSEC-2026-0349；ZIP 依赖统一到 `zip 9.0.5`，覆盖 RUSTSEC-2026-0367/0368/0369。Swagger UI 改用上游 `10.0.2`，移除 Forge 补丁依赖。Drive 仍在解压前拒绝归档符号链接与不安全路径；这些依赖 advisory 不代表 Drive 的解压路径已被证实可利用。
+- **前端依赖** — 将 `follow-redirects` 更新至 `1.16.1`，修复跨源凭据剥离和敏感请求头处理问题（GHSA-q3jh-wrc6-jgq8、GHSA-8r9p-f939-6h3c）；将 `serialize-javascript` 更新至 `7.1.2`，`postcss-selector-parser` 更新至 `7.1.6`。Selector parser override 同时覆盖 Typography 固定的构建依赖。
+
+### Breaking
+
+- **会话升级** — 旧本地 JWT 会话与新的严格会话 token 格式不兼容，用户与客户端升级后需要重新登录。多 Primary 应统一升级，避免混用 token 格式。自定义 `auth.jwt_secret` 必须至少 32 字节。
+- **指标启用** — 使用 `metrics` feature 的构建现在还需设置 `observability.prometheus.enabled = true` 才会暴露 `/health/metrics`；导出器默认关闭。配置启用未编译进二进制的导出器时会报配置错误。
+- **静态配置校验** — 拒绝未知静态配置字段。重启前需清理废弃或拼写错误的配置项；配置诊断会脱敏 secret 值。
+
+### Added
+
+- **显式指标导出与抓取认证** — Primary 和 follower 均使用实例独立的 provider，支持单独或同时启用 Prometheus 与 OTLP HTTP/protobuf metrics。Prometheus 支持独立 Basic Auth，配置保存 Argon2id 密码 verifier；`aster_drive hash-password` 从 stdin 读取密码。OTLP collector 凭据独立配置。`full` feature 包含两个导出器的构建能力；OTLP 当前需源码或自建镜像启用。本版本不包含 OTLP traces 或 logs。
+- **传输与积压观测** — 新增数据面字节数、活动传输及流终态、上传阶段与积压年龄、暂存/容量有效性、Blob 清理积压和远端连接/请求指标。Grafana dashboard 增加环境、角色和 runtime instance 筛选。Drive 数据面之外的 presigned 或重定向流量不可见；采样无效时保留上次值，并明确提供 validity/last-success 信号。
+
+### Changed
+
+- **会话与授权生命周期** — 本地认证接入 Forge 严格 JWT/session 与 refresh 轮换机制。授权检查 writer 上的当前账号状态；确认 refresh 重用时，账号撤销、会话清理和必要安全审计原子提交。数据库失败不会签发替代凭据。撤销单个会话会立即阻断 refresh，已签发 access token 仍保留文档约定的有效期窗口。
+- **审计持久化与退出** — 每个实例独立持有审计 writer。审计查询、导出与清理先确认缓冲持久化，持久化不完整时明确报错。正常退出、启动失败与 panic 清理先排空 producer 和审计，再关闭数据库与 telemetry。退出时未确认的记录保存到 `data/audit-recovery/`，任何手动重放前均需先核对数据库。
+- **共享 REST envelope** — REST handler 与远端节点消费者使用 AsterForge 类型化响应 envelope，保留 Drive 的 wire format、错误码、retryability、diagnostic、HTTP 状态码和 header 契约。OpenAPI 与生成的 TypeScript SDK 保留共享错误元数据引用和简洁的产品响应 schema 名称。
+- **依赖基线** — 将 Forge 固定到兼容 revision，`parking_lot` 更新至 `0.13.0`；最低 Rust 版本保持 `1.95.0`。上游 parking-lot 改由显式 fair-unlock API 提供公平交接，不再自动提供 eventual fairness。
+
 ### Fixed
 
-- **浏览器大体积下载交付** — 浏览器托管的打包下载改用统一的原生下载触发器，不再依赖定时移除的隐藏 iframe。不支持 File System Access API 的浏览器不再显示页内代理下载模式；即使直接调用代理入口，也会回退到浏览器原生下载管理器，而不是在页面内存中缓冲完整文件或 ZIP。归档诊断还会区分下游客户端断连与上游存储读取失败，不再把两者都掩盖成客户端断连。
+- **浏览器大体积下载交付** — 浏览器托管的打包下载改用统一原生下载触发器，不再依赖定时移除的隐藏 iframe。不支持 File System Access API 的浏览器不再显示页内代理下载模式；直接调用代理入口也会回退到浏览器原生下载管理器，不再在页面内存中缓冲完整文件或 ZIP。归档诊断区分下游客户端断连与上游存储读取失败。
+- **认证失败恢复** — MFA 受限登录会话在 challenge 事务内持久化；账号安全版本原子递增，refresh、重用审计或会话更新失败时保留回滚与重试边界。
+
+### Database Migrations
+
+- 新增一个 migration，增加 `file_blobs.cleanup_pending_since` 及上传 session / Blob 清理观测索引。历史清理时间按每批 1,000 行回填，PostgreSQL 并发建索引。升级需正常执行 migration；中断后可重入，不删除 Blob 内容。
+
+### Notes
+
+- `.cargo/audit.toml` 仍记录 `rsa`（RUSTSEC-2023-0071）、编译期宏 `paste`（RUSTSEC-2024-0436）和 Actix 的 `h2 0.3` 依赖（RUSTSEC-2026-0258）审计例外。本次发布不宣称已修复这些上游 advisory，也不代表已扫描全部运行时镜像软件包。
 
 ## [v0.6.2] - 2026-09-19
 
@@ -6264,7 +6303,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...HEAD
+[v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1
 [v0.6.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.5.1...v0.6.0
