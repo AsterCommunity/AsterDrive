@@ -18,7 +18,7 @@ GET /health/metrics
 
 ## 当前能力与证据
 
-本页是 Drive 观测能力与启用方式的消费者事实源；[Forge 消费者索引](https://github.com/AsterCommunity/AsterForge/blob/master/docs/guide/reference-projects.md)只记录公共机制和版本证据。以下核对日期为 **2026-10-17**，基于已合并代码；后续计划不代表当前发行包已经提供。
+本页是 Drive 观测能力与启用方式的消费者事实源；[Forge 消费者索引](https://github.com/AsterCommunity/AsterForge/blob/master/docs/guide/reference-projects.md)只记录公共机制和版本证据。以下核对日期为 **2026-10-22**，基于已合并代码；后续计划不代表当前发行包已经提供。
 
 | 信号 | 当前支持 | 启用与限制 |
 | --- | --- | --- |
@@ -34,20 +34,20 @@ GET /health/metrics
 
 | 项目 | 可核查证据 |
 | --- | --- |
-| Drive revision | [`4b857c0fc3a27941b36861657225f20786c3831b`](https://github.com/AsterCommunity/AsterDrive/commit/4b857c0fc3a27941b36861657225f20786c3831b) |
-| Forge resolved revision | [`869756f0605c898420a28d3d45006cc33a87d17c`](https://github.com/AsterCommunity/AsterForge/commit/869756f0605c898420a28d3d45006cc33a87d17c)；[Cargo.lock](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/Cargo.lock) 与 [Cargo.toml](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/Cargo.toml) 固定 Git 依赖，无本地 path/patch |
-| 编译能力 | [产品 metrics crate](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/Cargo.toml)：`metrics` 接入 allocator/runtime-health，`prometheus` / `otlp` 分别转发 exporter；根 feature 见上面的 Cargo.toml |
-| 配置与校验 | [ObservabilityConfig](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/config/metrics.rs)、[配置示例](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/config.example.toml)；`ASTER__` 覆盖、重启生效、未知字段与未编译能力拒绝 |
-| 产品 adapter / 采样 | [typed metric set 与 recorder](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/src/lib.rs)、[后台任务](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/runtime/tasks.rs)；业务 SQL、容量采样、标签含义属于 Drive |
-| HTTP / 角色注入 | [health routes](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/api/routes/health.rs)、[认证 middleware](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/api/middleware/metrics_auth.rs)、[primary/follower components](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/runtime/components.rs) |
-| 生命周期 | [runtime assembly](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/src/runtime/assembly.rs)；runtime producers 与 audit recovery 完成后 shutdown metrics，保留原始 runtime 错误；日志 guard 在 main 最后释放 |
-| Forge 公共合同 | [metrics](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/docs/crates/aster_forge_metrics.md)、[observability](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/docs/crates/aster_forge_observability.md)、[logging](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/docs/crates/aster_forge_logging.md) |
+| Drive revision | [`aa1f4257bc805762726c4debe6f2ca7d235ffecf`](https://github.com/AsterCommunity/AsterDrive/commit/aa1f4257bc805762726c4debe6f2ca7d235ffecf) |
+| Forge resolved revision | [`59e62915d652503ff2a20efd504774665af59c6f`](https://github.com/AsterCommunity/AsterForge/commit/59e62915d652503ff2a20efd504774665af59c6f)；[Cargo.lock](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/Cargo.lock) 与 [Cargo.toml](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/Cargo.toml) 固定 Git 依赖，无本地 path/patch |
+| 编译能力 | [产品 metrics crate](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/crates/aster_drive_metrics/Cargo.toml)：`metrics` 接入 allocator/runtime-health，`prometheus` / `otlp` 分别转发 exporter；根 feature 见上面的 Cargo.toml |
+| 配置与校验 | [ObservabilityConfig](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/src/config/metrics.rs)、[配置示例](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/config.example.toml)；`ASTER__` 覆盖、重启生效、未知字段与未编译能力拒绝 |
+| 产品 adapter / 采样 | [typed metric set 与 recorder](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/crates/aster_drive_metrics/src/lib.rs)、[后台任务](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/src/runtime/tasks.rs)；业务 SQL、容量采样、标签含义属于 Drive |
+| HTTP / 角色注入 | [health routes](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/src/api/routes/health.rs)、[认证 middleware](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/src/api/middleware/metrics_auth.rs)、[primary/follower components](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/src/runtime/components.rs) |
+| 生命周期 | [runtime assembly](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/src/runtime/assembly.rs)；runtime producers 与 audit recovery 完成后 shutdown metrics，保留原始 runtime 错误；日志 guard 在 main 最后释放 |
+| Forge 公共合同 | [metrics](https://github.com/AsterCommunity/AsterForge/blob/59e62915d652503ff2a20efd504774665af59c6f/docs/crates/aster_forge_metrics.md)、[observability](https://github.com/AsterCommunity/AsterForge/blob/59e62915d652503ff2a20efd504774665af59c6f/docs/crates/aster_forge_observability.md)、[logging](https://github.com/AsterCommunity/AsterForge/blob/59e62915d652503ff2a20efd504774665af59c6f/docs/crates/aster_forge_logging.md) |
 
 ### 指标 schema 与兼容边界
 
-完整声明分别由 [Forge 通用 schema](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/crates/aster_forge_metrics/src/lib.rs)及其 [infrastructure recorder](https://github.com/AsterCommunity/AsterForge/blob/869756f0605c898420a28d3d45006cc33a87d17c/crates/aster_forge_metrics/src/shared.rs)、[Drive 产品 metric set](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/src/lib.rs)拥有，涵盖通用 HTTP/DB/auth/task/config/system/health 和产品传输、上传阶段/积压、容量、清理、远端链路、avatar 等。描述包含 kind、HELP、unit、labels、buckets；不维护另一份手工指标清单。
+完整声明分别由 [Forge 通用 schema](https://github.com/AsterCommunity/AsterForge/blob/59e62915d652503ff2a20efd504774665af59c6f/crates/aster_forge_metrics/src/lib.rs)及其 [infrastructure recorder](https://github.com/AsterCommunity/AsterForge/blob/59e62915d652503ff2a20efd504774665af59c6f/crates/aster_forge_metrics/src/shared.rs)、[Drive 产品 metric set](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/crates/aster_drive_metrics/src/lib.rs)拥有，涵盖通用 HTTP/DB/auth/task/config/system/health 和产品传输、上传阶段/积压、容量、清理、远端链路、avatar 等。描述包含 kind、HELP、unit、labels、buckets；不维护另一份手工指标清单。
 
-[旧产品 schema fixture](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/tests/fixtures/pre_instance_schema.json)只是迁移前兼容子集，不是当前全量 schema。`migration_preserves_the_entire_pre_instance_product_schema` 比较旧名称、类型、HELP、标签和 buckets；[Grafana 合同测试](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/crates/aster_drive_metrics/tests/grafana_dashboard.rs)检查 dashboard。旧 API 到 provider/instruments 的替换见 Forge metrics 合同的“API 迁移”。已交付迁移没有计划内重命名；任何新增改名、单位、标签或 bucket 变化都必须单独列迁移说明及测试，不能借更换 exporter 静默改变。
+[旧产品 schema fixture](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/crates/aster_drive_metrics/tests/fixtures/pre_instance_schema.json)只是迁移前兼容子集，不是当前全量 schema。`migration_preserves_the_entire_pre_instance_product_schema` 比较旧名称、类型、HELP、标签和 buckets；[Grafana 合同测试](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/crates/aster_drive_metrics/tests/grafana_dashboard.rs)检查 dashboard。旧 API 到 provider/instruments 的替换见 Forge metrics 合同的“API 迁移”。已交付迁移没有计划内重命名；任何新增改名、单位、标签或 bucket 变化都必须单独列迁移说明及测试，不能借更换 exporter 静默改变。
 
 `process_cpu_milliseconds_total` 保留现有毫秒口径，不能按 seconds 直接解释。产品字节指标与逻辑文件大小、内部 driver/remote I/O 不混加；`blob_cleanup_retired_backing_bytes_total` 是确认删除 backing 的记账字节，不保证磁盘实际释放量。容量 minima 各维度独立，不相加、不互相比率；无支持或采样失败时结合 validity/last-success 判断，不能把未知当零。
 
@@ -56,8 +56,8 @@ HTTP histogram 衡量 handler/header 阶段，文件 transfer histogram 覆盖�
 ### 验证、发行与维护
 
 - **历史实现证据**：[PR #642](https://github.com/AsterCommunity/AsterDrive/pull/642) 于 2026-10-16 合并，使用 Forge `2beaf986f1740629d3fd8913f865e4134d31e203`。其本地测试记录含四种 feature/config 组合、两种角色的端点和认证、schema/Grafana、上传及三库 migration；该 PR 明确未等待新 CI，不把它写成 CI 全绿。
-- **当前依赖证据**：上表记录的 Forge revision 已更新到 `869756f0605c898420a28d3d45006cc33a87d17c`。静态核对不是对这个 revision 重跑 #642 全部测试；每次变更的实际命令与结果记录在对应 PR，旧结果不顺延为新版本通过。
-- **分发证据**：[镜像 workflow](https://github.com/AsterCommunity/AsterDrive/blob/4b857c0fc3a27941b36861657225f20786c3831b/.github/workflows/docker-image.yml) 定义 `-metrics` 构建；OTLP 目前按本页源码/自建镜像方式启用。workflow 定义不证明某个 tag 已可下载；本次未核验具体发行包、镜像 digest 或生产 rollout。
+- **当前依赖证据**：上表记录的 Forge revision 已更新到 `59e62915d652503ff2a20efd504774665af59c6f`。本次发布准备通过了 `full` 下 965 项 Drive 定向测试、16 项指标/schema/Grafana 测试、PostgreSQL 与 MySQL 观测 migration 往返、PostgreSQL 中断索引恢复，以及 `full` 下 workspace/全 target Clippy。这不代表重跑了 #642 的全部 feature 组合，也不证明 collector 交付或生产 rollout。
+- **分发证据**：[镜像 workflow](https://github.com/AsterCommunity/AsterDrive/blob/aa1f4257bc805762726c4debe6f2ca7d235ffecf/.github/workflows/docker-image.yml) 定义 `-metrics` 构建；OTLP 目前按本页源码/自建镜像方式启用。workflow 定义不证明某个 tag 已可下载；本次未核验具体发行包、镜像 digest 或生产 rollout。
 - **检查入口**：`bun docs/scripts/check-observability-docs.mjs` 离线检查中英版本链接、固定 Drive 路径与当前 Forge lock revision；`bash scripts/test-metrics-features.sh` 验证当前四组合，配置与认证测试由脚本调用。链接/静态检查不证明运行行为或 collector 送达。
 - **更新责任**：改 feature、配置、schema、导出协议或生命周期的 PR 同步本页中英文和 Forge 索引；固定 revision 必须指向已有公开提交，测试、发行和生产状态分别更新。文档构建执行版本检查；不会联网拉取消费者。
 
