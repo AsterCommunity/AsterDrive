@@ -21,6 +21,16 @@ title: "升级与版本迁移"
 
 如果你管理的是生产环境，建议先在测试环境完整跑一遍升级流程，再正式升级。
 
+## v0.6.3 安全升级注意事项
+
+`v0.6.3` 因 **CVE-2026-111943**（TLS 证书链信任修复）提前发布，升级前先备份配置、数据库和本地存储。启动时会自动执行一个 migration，为 Blob 清理观测增加时间字段并建立索引；PostgreSQL 使用并发建索引，历史待清理记录按批回填。
+
+升级后请安排用户和 API 客户端重新登录：本地会话 JWT 使用新的严格 token 格式，旧 token 不兼容。多 Primary 部署应在同一个维护窗口统一升级，避免新旧实例混用 token 格式。自定义 `auth.jwt_secret` 至少需要 32 字节。
+
+如果构建启用了 `metrics` feature，而部署需要 `/health/metrics`，请确认 `config.toml` 中 `[observability.prometheus]` 的 `enabled = true`；Prometheus 与 OTLP exporter 默认关闭。启用配置中实际未编译进二进制的 exporter 会导致启动失败。
+
+升级后按本文的验证清单检查服务，并重点确认登录、Prometheus 抓取和应用日志中的 migration 完成状态。
+
 ## Docker 升级
 
 最常见也最简单的场景。

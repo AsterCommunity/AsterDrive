@@ -21,6 +21,16 @@ No matter which deployment method you use, do these first:
 
 If you manage production, run the full upgrade flow in a test environment before upgrading production.
 
+## v0.6.3 Security Upgrade Notes
+
+`v0.6.3` is an early security release for **CVE-2026-111943**, which fixes TLS certificate-chain trust. Before upgrading, back up configuration, database, and local storage. Startup runs one migration adding a Blob cleanup observation timestamp and indexes; PostgreSQL builds the indexes concurrently and backfills historical pending records in batches.
+
+Plan for users and API clients to sign in again after upgrading: local session JWTs now use a strict token format, and previously issued tokens are incompatible. Upgrade all Primary instances in one maintenance window to avoid mixing old and new token formats. A custom `auth.jwt_secret` must contain at least 32 bytes.
+
+If the binary includes the `metrics` feature and the deployment needs `/health/metrics`, confirm `[observability.prometheus]` has `enabled = true` in `config.toml`; Prometheus and OTLP exporters are disabled by default. Enabling an exporter that was not compiled into the binary causes startup to fail.
+
+After upgrading, follow the validation checklist in this guide and specifically confirm sign-in, Prometheus scraping, and migration completion in the application logs.
+
 ## Docker Upgrade
 
 The most common and simplest scenario.
