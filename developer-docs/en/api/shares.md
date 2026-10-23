@@ -33,7 +33,7 @@ Notes:
 - `target.type` can only be `file` or `folder`
 - the old top-level `file_id` / `folder_id` request shape is no longer accepted
 - only one active share is allowed for the same resource at the same time
-- `max_downloads = 0` means unlimited
+- `max_downloads = 0` means unlimited; the limit applies to downloads and archive exports (video streaming counts once per first playback session), online previews are not counted
 - an empty password is treated as no password
 - `GET /shares` is paginated with `limit` and `offset`
 

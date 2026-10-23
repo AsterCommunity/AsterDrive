@@ -228,6 +228,8 @@ The public-access counters are also deliberately split:
 - `download_count` means actual download count only
 - `max_downloads = 0` means unlimited, not “downloads forbidden”
 
+`max_downloads` governs the exits that hand over a file copy: download and archive-export endpoints count per download, and video streaming counts once per first playback session. Online previews (converted images, text previews, and preview links that render the original inline in the browser) do not consume download counts — this is intentional product semantics: the limit targets bulk copy retrieval, not online viewing.
+
 Incrementing and rolling back the download counter uses dedicated atomic repository operations, because high-concurrency public access needs a small over-limit window.
 
 ### Why the sharing service does not own the original resource lifecycle
