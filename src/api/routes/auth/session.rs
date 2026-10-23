@@ -282,10 +282,7 @@ pub async fn login(
             &site_url::public_site_urls(state.get_ref().runtime_config()),
             RequestSourceMode::OptionalWhenPresent,
         )?;
-        let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-            &req,
-            &state.get_ref().config().network_trust.trusted_proxies,
-        );
+        let audit_info = AuditRequestInfo::from_request(&req);
         let result = local::login_with_audit(
             state.get_ref(),
             &body.identifier,
@@ -317,10 +314,7 @@ pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Res
         RequestSourceMode::OptionalWhenPresent,
     )?;
     csrf::ensure_double_submit_token(&req)?;
-    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = AuditRequestInfo::from_request(&req);
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());
     let refresh_tok = req
         .cookie(REFRESH_COOKIE)
@@ -371,10 +365,7 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
         }
     }
 
-    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = AuditRequestInfo::from_request(&req);
     if let Some(refresh_token) = req
         .cookie(REFRESH_COOKIE)
         .map(|cookie| cookie.value().to_string())
@@ -488,11 +479,7 @@ pub async fn delete_other_sessions(
     let removed =
         local::revoke_other_auth_sessions(state.get_ref(), claims.user_id, &current_refresh_jti)
             .await?;
-    let ctx = AuditContext::from_request_with_trusted_proxies(
-        &req,
-        &claims,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let ctx = AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
         &ctx,
@@ -543,11 +530,7 @@ pub async fn delete_session(
         current_refresh_jti.as_deref(),
     )
     .await?;
-    let ctx = AuditContext::from_request_with_trusted_proxies(
-        &req,
-        &claims,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let ctx = AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),
         &ctx,
@@ -596,11 +579,7 @@ pub async fn put_password(
     claims: web::ReqData<Claims>,
     body: web::Json<ChangePasswordReq>,
 ) -> Result<HttpResponse> {
-    let ctx = AuditContext::from_request_with_trusted_proxies(
-        &req,
-        &claims,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let ctx = AuditContext::from_request(&req, &claims);
     let user = local::change_password_with_audit(
         state.get_ref(),
         claims.user_id,

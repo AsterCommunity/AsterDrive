@@ -32,10 +32,7 @@ pub async fn verify_challenge(
         &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::OptionalWhenPresent,
     )?;
-    let audit_info = audit::AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let result = mfa::verify_challenge(
         state.get_ref(),
         &body.flow_token,
@@ -74,10 +71,7 @@ pub async fn send_email_code(
         &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::OptionalWhenPresent,
     )?;
-    let audit_info = audit::AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     Ok(HttpResponse::Ok().json(crate::api::response::success(
         mfa::send_email_code(state.get_ref(), &body.flow_token, &audit_info).await?,
     )))

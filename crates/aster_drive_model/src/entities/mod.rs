@@ -26,6 +26,7 @@ pub mod mfa_factor;
 pub mod mfa_login_flow;
 pub mod mfa_recovery_code;
 pub mod mfa_totp_setup_flow;
+pub mod mfa_totp_used_step;
 pub mod passkey;
 pub mod remote_storage_target;
 pub mod remote_storage_target_credential;

@@ -27,7 +27,7 @@ pub struct TestConnectionReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateWebdavAccountReq {
-    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
+    #[validate(custom(function = "crate::api::dto::validation::validate_webdav_username"))]
     pub username: String,
     pub password: Option<String>,
     #[validate(range(min = 1, message = "root_folder_id must be greater than 0"))]

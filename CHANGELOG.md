@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Internal protocol request-body coverage** — HMAC signatures on the primary↔follower control plane and object protocol now include a canonical request-body SHA-256 line. JSON control-plane requests are verified against the full body; bounded small uploads are buffered for verification while large streaming uploads remain explicitly uncovered via a placeholder line accepted only where the body is not verified. Verification still accepts legacy five-line signatures during a rolling upgrade, and mixed-version deployments can upgrade followers before primaries. Outbound remote requests now disable redirects so signed headers cannot leak to other origins.
+- **Share password cookie expiry and password binding** — Public share password cookies are HMAC-bound to the verified password hash and an issuance timestamp, expire after one hour with bounded clock skew, and stop verifying after the share password changes or the cookie is tampered with. Cookies issued by older versions no longer verify.
+- **Disabled master binding write protection** — Followers reject storage-target create/update/delete for disabled master bindings (HTTP 412) while keeping binding sync and target listing available so the primary can re-enable the node.
+- **WebDAV account hygiene** — WebDAV usernames are trimmed and validated (visible ASCII, no colon, bounded byte length), new WebDAV passwords require at least 8 characters, and disabled or invalid WebDAV accounts return a uniform 401 without revealing account state.
+- **TOTP replay protection** — Each TOTP code can now be consumed once across login challenges and sensitive-action confirmations (factor deletion, recovery-code regeneration): successful verification atomically records the matched 30-second time step, and replays within the acceptance window are rejected as invalid codes. A new `mfa_totp_used_steps` table backs the guard and prunes expired steps automatically; factor deletion and admin MFA resets clean up the records.
+- **Trusted client IP resolution for audit trails** — Every audited endpoint now derives the client IP from `network_trust.trusted_proxies` (resolved once at startup and injected as shared app data) instead of trusting client-supplied `Forwarded`/`X-Forwarded-For`/`X-Real-IP` headers. Requests from untrusted peers record the TCP peer address; a spoofed forwarded header can no longer plant arbitrary IPs into audit rows. With no proxies configured the peer address is recorded, so self-hosted direct deployments keep working unchanged. The legacy extraction entry points were removed; `AuditContext::from_request`/`AuditRequestInfo::from_request` keep their signatures.
+- **Assorted hardening** — Constant-time signature comparisons for internal and presigned verification, single-use nonce entries kept alive beyond the timestamp acceptance window, rate limiting on follower enrollment, audit CSV export neutralization with strict client IP validation, and a dummy password verification for unknown accounts to damp user-enumeration timing signals.
+
 ## [v0.6.3] - 2026-10-22
 
 ### Release Highlights

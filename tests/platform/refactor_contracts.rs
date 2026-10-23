@@ -84,7 +84,7 @@ async fn test_login_wrong_password_returns_401_without_user_id() {
 
 // ── P1: Cookie 签名差异性 ──────────────────────────────────────────
 
-/// 不同 token 的签名互不相同，同一 token 签名确定
+/// 不同 token 的签名互不相同，同一 token 的两次签发都能通过验证
 #[actix_web::test]
 async fn test_share_cookie_signatures_are_token_specific_and_deterministic() {
     let secret = "test-secret-key-for-integration-tests";
@@ -93,22 +93,39 @@ async fn test_share_cookie_signatures_are_token_specific_and_deterministic() {
         Some("203.0.113.42"),
     );
 
-    let sig1 = aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
-    let sig2 = aster_drive::services::share::sign_share_cookie("token-beta", &binding, secret);
+    let sig1 =
+        aster_drive::services::share::sign_share_cookie("token-alpha", &binding, None, secret);
+    let sig2 =
+        aster_drive::services::share::sign_share_cookie("token-beta", &binding, None, secret);
     let sig1_replay =
-        aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
+        aster_drive::services::share::sign_share_cookie("token-alpha", &binding, None, secret);
 
     assert_ne!(
         sig1, sig2,
         "different tokens should produce different signatures"
     );
-    assert_eq!(
-        sig1, sig1_replay,
-        "same token should produce same signature (deterministic)"
+    let now = chrono::Utc::now().timestamp();
+    assert!(
+        aster_drive::services::share::verify_share_cookie(
+            "token-alpha",
+            &sig1,
+            &binding,
+            None,
+            now,
+            secret
+        ) && aster_drive::services::share::verify_share_cookie(
+            "token-alpha",
+            &sig1_replay,
+            &binding,
+            None,
+            now,
+            secret
+        ),
+        "same token should produce verifiable signatures within the validity window"
     );
 }
 
-/// 签名格式为 64 字符十六进制字符串（SHA256 输出）
+/// 签名格式为 `<unix 时间戳>.<64 字符十六进制 HMAC>`
 #[actix_web::test]
 async fn test_share_cookie_signature_format_is_sha256_hex() {
     let secret = "test-secret-key-for-integration-tests";
@@ -116,11 +133,20 @@ async fn test_share_cookie_signature_format_is_sha256_hex() {
         Some("AsterDrive Test/1.0"),
         Some("203.0.113.42"),
     );
-    let sig = aster_drive::services::share::sign_share_cookie("any-token", &binding, secret);
+    let sig = aster_drive::services::share::sign_share_cookie("any-token", &binding, None, secret);
 
-    assert_eq!(sig.len(), 64, "SHA256 hex digest should be 64 characters");
+    let (issued_at, digest) = sig.split_once('.').expect("value must be ts.hex");
     assert!(
-        sig.chars().all(|c| c.is_ascii_hexdigit()),
+        issued_at.parse::<i64>().is_ok(),
+        "issued_at should be unix seconds, got '{issued_at}'"
+    );
+    assert_eq!(
+        digest.len(),
+        64,
+        "SHA256 hex digest should be 64 characters"
+    );
+    assert!(
+        digest.chars().all(|c| c.is_ascii_hexdigit()),
         "signature should be all hex characters"
     );
 }
@@ -134,12 +160,14 @@ async fn test_share_cookie_forged_signature_rejected() {
         Some("203.0.113.42"),
     );
     let sig_wrong =
-        aster_drive::services::share::sign_share_cookie("wrong-token", &binding, secret);
+        aster_drive::services::share::sign_share_cookie("wrong-token", &binding, None, secret);
 
     let valid = aster_drive::services::share::verify_share_cookie(
         "correct-token",
         &sig_wrong,
         &binding,
+        None,
+        chrono::Utc::now().timestamp(),
         secret,
     );
     assert!(

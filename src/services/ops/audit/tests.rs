@@ -1,12 +1,8 @@
-use actix_web::test as actix_test;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::AuditAction;
-use super::context::{
-    AuditContext, AuditRequestInfo, MAX_AUDIT_IP_ADDRESS_LEN, MAX_AUDIT_USER_AGENT_LEN,
-    bounded_audit_value,
-};
+use super::context::{AuditContext, bounded_audit_value};
 use aster_drive_model::entities::audit_log;
 
 #[test]
@@ -42,70 +38,6 @@ async fn in_memory_db() -> sea_orm::DatabaseConnection {
 fn bounded_audit_value_truncates_without_splitting_utf8() {
     assert_eq!(bounded_audit_value("abcdef", 3), "abc");
     assert_eq!(bounded_audit_value("猫猫猫", 4), "猫");
-}
-
-#[test]
-fn request_audit_info_truncates_user_controlled_headers() {
-    let long_ip = "1".repeat(MAX_AUDIT_IP_ADDRESS_LEN + 32);
-    let long_user_agent = "a".repeat(MAX_AUDIT_USER_AGENT_LEN + 32);
-    let req = actix_test::TestRequest::default()
-        .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .insert_header(("X-Forwarded-For", long_ip.as_str()))
-        .insert_header(("User-Agent", long_user_agent.as_str()))
-        .to_http_request();
-
-    let info = AuditRequestInfo::from_request(&req);
-
-    assert_eq!(
-        info.ip_address.as_deref(),
-        Some(&long_ip[..MAX_AUDIT_IP_ADDRESS_LEN])
-    );
-    assert_eq!(
-        info.user_agent.as_deref(),
-        Some(&long_user_agent[..MAX_AUDIT_USER_AGENT_LEN])
-    );
-}
-
-#[test]
-fn trusted_proxy_audit_info_uses_x_forwarded_for_only_from_trusted_peer() {
-    let req = actix_test::TestRequest::default()
-        .peer_addr("10.0.0.10:12345".parse().unwrap())
-        .insert_header((
-            "X-Forwarded-For",
-            "203.0.113.7:54321, [2001:db8::1]:443, 10.0.0.10",
-        ))
-        .to_http_request();
-
-    let info =
-        AuditRequestInfo::from_request_with_trusted_proxies(&req, &["10.0.0.0/8".to_string()]);
-
-    assert_eq!(info.ip_address.as_deref(), Some("203.0.113.7"));
-}
-
-#[test]
-fn trusted_proxy_audit_info_accepts_bracketed_ipv6_with_port() {
-    let req = actix_test::TestRequest::default()
-        .peer_addr("10.0.0.10:12345".parse().unwrap())
-        .insert_header(("X-Forwarded-For", "[2001:db8::1]:443, 10.0.0.10"))
-        .to_http_request();
-
-    let info =
-        AuditRequestInfo::from_request_with_trusted_proxies(&req, &["10.0.0.0/8".to_string()]);
-
-    assert_eq!(info.ip_address.as_deref(), Some("2001:db8::1"));
-}
-
-#[test]
-fn trusted_proxy_audit_info_ignores_spoofed_x_forwarded_for_from_untrusted_peer() {
-    let req = actix_test::TestRequest::default()
-        .peer_addr("198.51.100.4:12345".parse().unwrap())
-        .insert_header(("X-Forwarded-For", "[2001:db8::1]:443, 203.0.113.7:54321"))
-        .to_http_request();
-
-    let info =
-        AuditRequestInfo::from_request_with_trusted_proxies(&req, &["10.0.0.0/8".to_string()]);
-
-    assert_eq!(info.ip_address.as_deref(), Some("198.51.100.4"));
 }
 
 #[test]

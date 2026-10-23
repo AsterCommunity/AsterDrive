@@ -11,15 +11,22 @@ pub(super) fn request_headers(
     method: &Method,
     path_and_query: &str,
     content_length: Option<u64>,
+    body_sha256: &str,
 ) -> impl Iterator<Item = (String, String)> {
-    signed_headers(remote_node, method, path_and_query, content_length)
-        .into_iter()
-        .chain(content_length.map(|content_length| {
-            (
-                http::header::CONTENT_LENGTH.to_string(),
-                content_length.to_string(),
-            )
-        }))
+    signed_headers(
+        remote_node,
+        method,
+        path_and_query,
+        content_length,
+        body_sha256,
+    )
+    .into_iter()
+    .chain(content_length.map(|content_length| {
+        (
+            http::header::CONTENT_LENGTH.to_string(),
+            content_length.to_string(),
+        )
+    }))
 }
 
 fn signed_headers(
@@ -27,6 +34,7 @@ fn signed_headers(
     method: &Method,
     path_and_query: &str,
     content_length: Option<u64>,
+    body_sha256: &str,
 ) -> Vec<(String, String)> {
     let timestamp = chrono::Utc::now().timestamp();
     let nonce = aster_forge_utils::id::new_uuid();
@@ -37,6 +45,7 @@ fn signed_headers(
         timestamp,
         &nonce,
         content_length,
+        body_sha256,
     );
     vec![
         (

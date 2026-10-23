@@ -35,6 +35,10 @@ static REMOTE_HTTP_CLIENT: LazyLock<std::result::Result<reqwest::Client, String>
             .read_timeout(Duration::from_secs(DEFAULT_REMOTE_READ_TIMEOUT_SECS))
             .timeout(Duration::from_secs(DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS))
             .user_agent(OUTBOUND_HTTP_USER_AGENT)
+            // 内部协议签名绑定 method/path/timestamp，重定向会让签名头原样
+            // 发往第三方地址（凭据泄露），且跨路径跳转必然验签失败；
+            // 禁止跟随重定向，把 3xx 作为错误暴露给调用方。
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| format!("build remote HTTP client: {e}"))
     });
@@ -59,6 +63,17 @@ impl RemoteRequestBody {
                 )
             }),
             Self::Reader { size, .. } => Ok(Some(*size)),
+        }
+    }
+
+    /// 签名覆盖的 body SHA-256：
+    /// - Empty/Bytes：完整入签；
+    /// - Reader：流式发送方在签名时无法预知 digest，用空串显式声明不覆盖。
+    pub fn body_sha256(&self) -> String {
+        match self {
+            Self::Empty => super::empty_body_sha256().to_string(),
+            Self::Bytes(body) => super::body_sha256_hex(body),
+            Self::Reader { .. } => String::new(),
         }
     }
 
@@ -248,6 +263,7 @@ impl RemoteTransport for DirectHttpTransport {
         request: RemoteTransportRequest,
     ) -> std::result::Result<RemoteTransportResponse, RemoteTransportError> {
         let content_length = request.body.content_length()?;
+        let body_sha256 = request.body.body_sha256();
         let url = self.url_for_request(&request.path_and_query)?;
         let mut builder = signed_request(
             &self.client,
@@ -256,6 +272,7 @@ impl RemoteTransport for DirectHttpTransport {
             request.method,
             url,
             content_length,
+            &body_sha256,
         );
         if let Some(content_type) = request.content_type {
             builder = builder.header(reqwest::header::CONTENT_TYPE, content_type);
@@ -639,6 +656,7 @@ pub fn signed_headers(
     method: &Method,
     url: &reqwest::Url,
     content_length: Option<u64>,
+    body_sha256: &str,
 ) -> Vec<(String, String)> {
     let timestamp = chrono::Utc::now().timestamp();
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -650,6 +668,7 @@ pub fn signed_headers(
         timestamp,
         &nonce,
         content_length,
+        body_sha256,
     );
     vec![
         (
@@ -672,9 +691,17 @@ fn signed_request(
     method: Method,
     url: reqwest::Url,
     content_length: Option<u64>,
+    body_sha256: &str,
 ) -> reqwest::RequestBuilder {
     let mut builder = client.request(method.clone(), url.clone());
-    for (name, value) in signed_headers(access_key, secret_key, &method, &url, content_length) {
+    for (name, value) in signed_headers(
+        access_key,
+        secret_key,
+        &method,
+        &url,
+        content_length,
+        body_sha256,
+    ) {
         builder = builder.header(name, value);
     }
     if let Some(content_length) = content_length {

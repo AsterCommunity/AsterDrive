@@ -1239,5 +1239,83 @@ async fn test_webdav_account_rejects_blank_username() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["msg"], "value cannot be empty");
+    assert_eq!(body["msg"], "WebDAV username cannot be empty");
+}
+
+#[actix_web::test]
+async fn test_webdav_account_rejects_invalid_username_characters_and_oversize() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    // ':' 是 Basic auth user-id/password 分隔符，必须拒绝
+    for username in ["colon:user", "用户", "bad\nnewline", &"a".repeat(65)] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/webdav-accounts")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "username": username,
+                "password": webdav_test_password("INVALID_USERNAME")
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400, "username {username:?} must be rejected");
+    }
+
+    // trim 后等于边界长度的用户名允许创建
+    let padded = format!(" {} ", "a".repeat(64));
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": padded,
+            "password": webdav_test_password("PADDED_USERNAME")
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["username"], "a".repeat(64));
+}
+
+#[actix_web::test]
+async fn test_webdav_account_enforces_minimum_client_provided_password_length() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    // 客户端自带密码短于 8 位必须拒绝
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": "short-pass-user",
+            "password": "short12"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap()
+            .contains("at least 8 characters")
+    );
+
+    // 恰好 8 位是允许的边界
+    let req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": "boundary-pass-user",
+            "password": "12345678"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "8-character password must be accepted");
 }

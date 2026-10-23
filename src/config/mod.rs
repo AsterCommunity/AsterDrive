@@ -30,7 +30,7 @@ pub use loader::ConfigLoadReport;
 pub use runtime_config::RuntimeConfig;
 pub use schema::{
     AuthConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig, RateLimitTier,
-    ServerConfig, ServerFollowerConfig, WebDavConfig,
+    ServerConfig, ServerFollowerConfig, TrustedClientNetworks, WebDavConfig,
 };
 
 use std::sync::Arc;

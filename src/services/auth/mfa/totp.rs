@@ -45,6 +45,15 @@ pub fn otpauth_uri(secret_base32: &str, issuer: &str, account: &str) -> String {
 }
 
 pub fn verify_code(secret: &[u8], code: &str, now: chrono::DateTime<chrono::Utc>) -> Result<bool> {
+    Ok(verify_code_matching_step(secret, code, now)?.is_some())
+}
+
+/// 验证并返回匹配的时间步；登录挑战与敏感确认用它做一次性消费记录。
+pub fn verify_code_matching_step(
+    secret: &[u8],
+    code: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<u64>> {
     let normalized = normalize_code(code)?;
     let timestamp = i64_to_u64(now.timestamp(), "totp timestamp")?;
     let current_step = timestamp / TOTP_STEP_SECS;
@@ -55,10 +64,16 @@ pub fn verify_code(secret: &[u8], code: &str, now: chrono::DateTime<chrono::Utc>
             current_step.saturating_add(offset.unsigned_abs())
         };
         if totp_code(secret, step)? == normalized {
-            return Ok(true);
+            return Ok(Some(step));
         }
     }
-    Ok(false)
+    Ok(None)
+}
+
+/// 重放记录的保留下界：早于该步的记录不会再被任何可接受窗口匹配，
+/// 可以安全清理。边界额外留 2 步缓冲，吸收验证与清理之间的时钟推进。
+pub fn replay_guard_min_step(now: chrono::DateTime<chrono::Utc>) -> i64 {
+    now.timestamp() / (TOTP_STEP_SECS as i64) - TOTP_WINDOW_STEPS - 2
 }
 
 pub fn looks_like_code(code: &str) -> bool {
@@ -109,5 +124,32 @@ mod tests {
         let timestamp = DateTime::<Utc>::from_timestamp(59, 0).unwrap();
         assert!(verify_code(secret, "287082", timestamp).unwrap());
         assert!(!verify_code(secret, "000000", timestamp).unwrap());
+    }
+
+    #[test]
+    fn matching_step_reveals_consumed_window_for_replay_guard() {
+        let secret = b"12345678901234567890";
+        let timestamp = DateTime::<Utc>::from_timestamp(59, 0).unwrap();
+
+        // 当前步与相邻窗口的码都能报告匹配的时间步
+        assert_eq!(
+            verify_code_matching_step(secret, "287082", timestamp).unwrap(),
+            Some(1)
+        );
+        let previous_step_code =
+            code_for_time(secret, DateTime::<Utc>::from_timestamp(29, 0).unwrap()).unwrap();
+        assert_eq!(
+            verify_code_matching_step(secret, &previous_step_code, timestamp).unwrap(),
+            Some(0)
+        );
+
+        // 错误码没有匹配步
+        assert_eq!(
+            verify_code_matching_step(secret, "000000", timestamp).unwrap(),
+            None
+        );
+
+        // 清理边界严格早于任何可接受窗口
+        assert!(replay_guard_min_step(timestamp) <= 0);
     }
 }

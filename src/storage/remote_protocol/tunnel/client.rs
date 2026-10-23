@@ -19,7 +19,8 @@ use crate::storage::remote_protocol::transport::read_reqwest_response_body_limit
 use crate::storage::remote_protocol::{
     ApiEnvelope, INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_TIMESTAMP_HEADER,
-    REMOTE_CONTROL_PLANE_BODY_LIMIT, send_signed_master_request, sign_internal_request,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, empty_body_sha256, send_signed_master_request,
+    sign_internal_request,
 };
 use aster_drive_model::entities::master_binding;
 use aster_drive_model::types::ResolvedRemoteTransport;
@@ -545,15 +546,8 @@ async fn poll_once(
     let poll_url = format!("{}{}", binding.master_url, REMOTE_TUNNEL_POLL_PATH);
     let body = serde_json::to_vec(&serde_json::json!({ "access_key": binding.access_key }))
         .map_err(|error| AsterError::internal_error(format!("encode tunnel poll: {error}")))?;
-    let response = send_signed_master_request(
-        client,
-        binding,
-        Method::POST,
-        &poll_url,
-        REMOTE_TUNNEL_POLL_PATH,
-        Some(body),
-    )
-    .await?;
+    let response =
+        send_signed_master_request(client, binding, Method::POST, &poll_url, Some(body)).await?;
     let poll =
         parse_api_response::<RemoteTunnelPollResponse>(response, "reverse tunnel poll").await?;
     let Some(request) = poll.request else {
@@ -1350,15 +1344,9 @@ async fn complete_request(
     let body = serde_json::to_vec(&response).map_err(|error| {
         AsterError::internal_error(format!("encode tunnel completion: {error}"))
     })?;
-    let response = send_signed_master_request(
-        client,
-        binding,
-        Method::POST,
-        &complete_url,
-        REMOTE_TUNNEL_COMPLETE_PATH,
-        Some(body),
-    )
-    .await?;
+    let response =
+        send_signed_master_request(client, binding, Method::POST, &complete_url, Some(body))
+            .await?;
     parse_empty_api_response(response, "reverse tunnel completion").await
 }
 
@@ -1390,6 +1378,7 @@ fn signed_master_ws_request(
         timestamp,
         &nonce,
         None,
+        empty_body_sha256(),
     );
 
     let mut request = url.into_client_request().map_err(|error| {
@@ -1561,7 +1550,7 @@ mod tests {
     use crate::storage::remote_protocol::{
         INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER,
         INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH,
-        sign_internal_request,
+        empty_body_sha256, sign_internal_request,
     };
     use actix_web::{App, HttpResponse, HttpServer, web};
     use aster_drive_model::entities::master_binding;
@@ -1732,6 +1721,7 @@ mod tests {
                 .expect("timestamp header should parse as i64"),
             nonce,
             None,
+            empty_body_sha256(),
         );
         assert_eq!(
             headers

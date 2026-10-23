@@ -31,8 +31,28 @@ use aster_drive::storage::remote_protocol::{
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL,
     REMOTE_NODE_BINDING_STATE_PATH, RemoteBindingSyncRequest, RemoteStorageCapabilities,
     RemoteStorageClient, RemoteStorageComposeRequest, RemoteUpdateStorageTargetRequest,
-    sign_internal_request, sign_presigned_request,
+    body_sha256_hex, empty_body_sha256, sign_presigned_request,
 };
+
+/// 测试辅助：签一个无 body 的内部协议请求（控制面 GET 为主）。
+fn sign_internal_request(
+    secret_key: &str,
+    method: &str,
+    path_and_query: &str,
+    timestamp: i64,
+    nonce: &str,
+    content_length: Option<u64>,
+) -> String {
+    aster_drive::storage::remote_protocol::sign_internal_request(
+        secret_key,
+        method,
+        path_and_query,
+        timestamp,
+        nonce,
+        content_length,
+        empty_body_sha256(),
+    )
+}
 use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
 use aster_drive_model::types::{
     RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy, ResolvedRemoteTransport,
@@ -2812,6 +2832,138 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
 }
 
 #[actix_web::test]
+async fn test_disabled_master_binding_rejects_storage_target_writes_but_keeps_sync_and_list() {
+    let provider_state = common::setup().await;
+    let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+
+    let (binding, _) = master_binding::upsert_from_enrollment(
+        provider_state.writer_db(),
+        master_binding::UpsertMasterBindingInput {
+            name: "disabled-write-binding".to_string(),
+            master_url: "http://primary.example.com".to_string(),
+            access_key: "disabled-write-ak".to_string(),
+            secret_key: "disabled-write-sk".to_string(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("provider binding should be created");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+
+    let client = RemoteStorageClient::new(
+        &provider_server.base_url,
+        &binding.access_key,
+        &binding.secret_key,
+    )
+    .expect("remote storage client should build");
+    let target = client
+        .create_storage_target(&remote_local_target(
+            "Enabled Local".to_string(),
+            "disabled-write-profile".to_string(),
+        ))
+        .await
+        .expect("enabled binding should create storage targets");
+
+    // 模拟 master 禁用节点后 binding sync 推送 is_enabled=false
+    client
+        .sync_binding(&RemoteBindingSyncRequest {
+            name: "disabled-write-binding".to_string(),
+            is_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 2,
+        })
+        .await
+        .expect("binding sync must stay available while disabled");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload after disable");
+
+    // 写操作必须被拒绝；读列表与 sync 保持放行
+    for (action, write) in [
+        (
+            "create",
+            WriteAction::Create(remote_local_target(
+                "While Disabled".to_string(),
+                "disabled-write-2".to_string(),
+            )),
+        ),
+        (
+            "update",
+            WriteAction::Update(RemoteUpdateStorageTargetRequest {
+                name: Some("Renamed While Disabled".to_string()),
+                connection: None,
+            }),
+        ),
+        ("delete", WriteAction::Delete),
+    ] {
+        let error = match &write {
+            WriteAction::Create(input) => client
+                .create_storage_target(input)
+                .await
+                .expect_err("disabled binding must not create storage targets"),
+            WriteAction::Update(input) => client
+                .update_storage_target(&target.target_key, input)
+                .await
+                .expect_err("disabled binding must not update storage targets"),
+            WriteAction::Delete => client
+                .delete_storage_target(&target.target_key)
+                .await
+                .expect_err("disabled binding must not delete storage targets"),
+        };
+        assert!(
+            error.message().contains("disabled"),
+            "{action} while disabled must be rejected, got: {}",
+            error.message()
+        );
+    }
+
+    client
+        .list_storage_targets()
+        .await
+        .expect("list must remain available while disabled");
+
+    // 重新启用（sync 放行）后写操作恢复
+    client
+        .sync_binding(&RemoteBindingSyncRequest {
+            name: "disabled-write-binding".to_string(),
+            is_enabled: true,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 3,
+        })
+        .await
+        .expect("binding sync should re-enable the binding");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload after re-enable");
+    client
+        .update_storage_target(
+            &target.target_key,
+            &RemoteUpdateStorageTargetRequest {
+                name: Some("Renamed After Re-enable".to_string()),
+                connection: None,
+            },
+        )
+        .await
+        .expect("re-enabled binding should update storage targets again");
+
+    provider_server.stop().await;
+}
+
+enum WriteAction {
+    Create(aster_drive::storage::remote_protocol::RemoteCreateStorageTargetRequest),
+    Update(RemoteUpdateStorageTargetRequest),
+    Delete,
+}
+
+#[actix_web::test]
 async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_limit() {
     let provider_state = common::setup().await;
     let provider_default_policy = provider_state
@@ -2963,6 +3115,64 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
     assert_eq!(metadata.len(), 4);
 
     provider_server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_internal_storage_rejects_tampered_json_body() {
+    let provider_state = common::setup().await;
+    let (access_key, secret_key) =
+        create_internal_hmac_binding(&provider_state, "tampered-json").await;
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    // 两个请求体等长：content_length 一致，唯一差异是 body 字节本身，
+    // 因此拒绝只能来自签名对 body digest 的覆盖。
+    let signed_body = serde_json::to_vec(&remote_local_target("honest-target", "./ingress-honest"))
+        .expect("create target body should serialize");
+    let tampered_body =
+        serde_json::to_vec(&remote_local_target("honest-target", "/attacker-pwned-"))
+            .expect("tampered target body should serialize");
+    assert_eq!(signed_body.len(), tampered_body.len());
+
+    let path = "/api/v1/internal/storage/targets";
+    let timestamp = Utc::now().timestamp();
+    let nonce = "tampered-json-nonce";
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &secret_key,
+        "POST",
+        path,
+        timestamp,
+        nonce,
+        Some(u64::try_from(signed_body.len()).expect("signed body length should fit u64")),
+        &body_sha256_hex(&signed_body),
+    );
+    let request = test::TestRequest::post()
+        .uri(path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header((actix_web::http::header::CONTENT_TYPE, "application/json"))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            tampered_body.len().to_string(),
+        ))
+        .set_payload(tampered_body)
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert_eq!(response.status().as_u16(), 401);
 }
 
 #[actix_web::test]
@@ -3389,13 +3599,15 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
     );
     let timestamp = Utc::now().timestamp();
     let nonce = "compose-limit-test";
-    let signature = sign_internal_request(
+    // compose 的 body 整体入签，覆盖真实 digest。
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
         secret_key,
         "POST",
         &path,
         timestamp,
         nonce,
         Some(u64::try_from(body.len()).expect("compose body length should fit u64")),
+        &body_sha256_hex(&body),
     );
     let req = test::TestRequest::post()
         .uri(&path)

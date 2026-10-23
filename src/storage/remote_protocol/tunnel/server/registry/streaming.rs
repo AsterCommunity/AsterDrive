@@ -234,9 +234,17 @@ impl RemoteTunnelRegistry {
             },
         );
 
-        let headers = request_headers(remote_node, &method, &path_and_query, content_length)
-            .chain(extra_headers)
-            .collect();
+        // streaming body 边际流式转发，签名时无法预知 digest，用空串占位
+        // 显式声明“不覆盖 body”（与直接传输侧的流式语义一致）。
+        let headers = request_headers(
+            remote_node,
+            &method,
+            &path_and_query,
+            content_length,
+            crate::storage::remote_protocol::empty_body_sha256(),
+        )
+        .chain(extra_headers)
+        .collect();
         let request_start = RemoteTunnelStreamFrame {
             kind: RemoteTunnelStreamFrameKind::RequestStart,
             request_id: request_id.clone(),

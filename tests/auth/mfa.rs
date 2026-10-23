@@ -1423,3 +1423,91 @@ async fn test_admin_reset_mfa_clears_factors_and_revokes_sessions() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["status"], "authenticated");
 }
+
+#[tokio::test]
+async fn test_totp_sensitive_confirmation_rejects_code_replay() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    register_user(&app, "totpreplay", "totpreplay@example.com", "password123").await;
+    let (access, _) = login_user!(app, "totpreplay", "password123");
+    let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
+
+    let code = totp_code(&secret);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/mfa/recovery-codes/regenerate")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "code": code }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, StatusCode::OK, "{body:#?}");
+
+    // 同一个验证码在时间窗口内仍然能通过算法校验，但已被消费：
+    // 第二次敏感确认必须按无效码拒绝。
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/mfa/recovery-codes/regenerate")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "code": code }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body:#?}");
+    assert_eq!(body["code"], "auth.mfa_code_invalid");
+
+    // 新窗口的码仍然可用（清理与记录不影响合法使用者）。
+    let fresh = totp::code_for_time(
+        &totp::decode_secret(&secret).unwrap(),
+        Utc::now() + Duration::seconds(31),
+    )
+    .unwrap();
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/mfa/recovery-codes/regenerate")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({ "code": fresh }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, StatusCode::OK, "{body:#?}");
+}
+
+#[tokio::test]
+async fn test_totp_login_challenge_rejects_cross_flow_code_replay() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    register_user(
+        &app,
+        "totpflowreplay",
+        "totpflowreplay@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "totpflowreplay", "password123");
+    let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
+
+    let code = totp_code(&secret);
+
+    // 第一个登录 flow 用当前码完成认证。
+    let resp = login_raw(&app, "totpflowreplay", "password123").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "mfa_required");
+    let first_flow = body["data"]["flow_token"].as_str().unwrap().to_string();
+    let resp = verify_mfa(&app, &first_flow, "totp", &code).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // 第二个并发 flow 重放同一码：算法校验通过但码已消费，必须失败。
+    let resp = login_raw(&app, "totpflowreplay", "password123").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["status"], "mfa_required");
+    let second_flow = body["data"]["flow_token"].as_str().unwrap().to_string();
+    let resp = verify_mfa(&app, &second_flow, "totp", &code).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}

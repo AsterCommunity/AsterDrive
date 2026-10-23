@@ -132,9 +132,16 @@ impl RemoteTunnelRegistry {
         let request = RemoteTunnelRequest {
             request_id: request_id.clone(),
             method: method.as_str().to_string(),
-            headers: request_headers(remote_node, &method, &path_and_query, content_length)
-                .chain(extra_headers)
-                .collect(),
+            // 控制面 body 已完整缓冲，digest 全量入签。
+            headers: request_headers(
+                remote_node,
+                &method,
+                &path_and_query,
+                content_length,
+                &crate::storage::remote_protocol::body_sha256_hex(&body),
+            )
+            .chain(extra_headers)
+            .collect(),
             path_and_query,
             body,
         };

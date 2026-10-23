@@ -13,8 +13,11 @@ mod tests;
 mod transport;
 pub mod tunnel;
 
-pub(crate) use auth::internal_request_mac;
-pub use auth::{normalize_remote_base_url, sign_internal_request, sign_presigned_request};
+pub(crate) use auth::verify_internal_request_signature;
+pub use auth::{
+    body_sha256_hex, empty_body_sha256, normalize_remote_base_url, sign_internal_request,
+    sign_presigned_request, verify_presigned_request_signature,
+};
 pub use client::RemoteStorageClient;
 pub(crate) use follower_auth::send_signed_master_request;
 pub(crate) use models::ApiEnvelope;
@@ -33,7 +36,7 @@ pub use models::{
 };
 pub(crate) use primary_auth::authorize_remote_node_request;
 pub use runtime::RemoteProtocolRuntime;
-pub(crate) use transport::read_reqwest_response_body_limited;
+pub(crate) use transport::{path_and_query_for_url, read_reqwest_response_body_limited};
 
 pub const INTERNAL_STORAGE_BASE_PATH: &str = "/api/v1/internal/storage";
 pub const REMOTE_NODE_BINDING_STATE_PATH: &str =
@@ -43,7 +46,9 @@ pub const INTERNAL_AUTH_TIMESTAMP_HEADER: &str = "x-aster-timestamp";
 pub const INTERNAL_AUTH_NONCE_HEADER: &str = "x-aster-nonce";
 pub const INTERNAL_AUTH_SIGNATURE_HEADER: &str = "x-aster-signature";
 pub const INTERNAL_AUTH_SKEW_SECS: i64 = 300;
-pub const INTERNAL_AUTH_NONCE_TTL_SECS: u64 = 300;
+/// Nonce entries must outlive the timestamp acceptance window so a replay near
+/// the window edge cannot race the nonce expiry. Keep this at least 2x the skew.
+pub const INTERNAL_AUTH_NONCE_TTL_SECS: u64 = 2 * INTERNAL_AUTH_SKEW_SECS.unsigned_abs();
 pub const PRESIGNED_AUTH_ACCESS_KEY_QUERY: &str = "aster_access_key";
 pub const PRESIGNED_AUTH_EXPIRES_QUERY: &str = "aster_expires";
 pub const PRESIGNED_AUTH_SIGNATURE_QUERY: &str = "aster_signature";

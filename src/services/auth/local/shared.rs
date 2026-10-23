@@ -18,6 +18,11 @@ use aster_forge_crypto as hash;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::validation::{normalize_email, normalize_username, validate_password};
+
+/// Real-looking Argon2id hash verified against failed logins for unknown
+/// identifiers, keeping the response cost of "user not found" and "wrong
+/// password" indistinguishable. Must never match a real credential.
+pub(crate) const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=65536,t=3,p=4$n0vXvx9kNno+7WMn3NjzQQ$HbceuAm7HxAF4IsSxoy8kD0+IYUK3T6broR+SRLVjrc";
 use super::{ACTIVE_VERIFICATION_REQUEST_MESSAGE, INITIAL_SESSION_VERSION};
 
 fn is_unique_conflict_db_err(err: &DbErr) -> bool {

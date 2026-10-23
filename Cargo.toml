@@ -43,6 +43,7 @@ emojis = "0.9"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 futures = "0.3"
 hex = "0.4"
+ipnet = "2.12"
 language-tags = { version = "0.3.2", features = ["serde"] }
 rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 reqwest = "0.13"
@@ -201,6 +202,7 @@ aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge",
 aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", rev = "59e62915d652503ff2a20efd504774665af59c6f", package = "aster_forge_webdav", features = ["actix"] }
 aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", rev = "59e62915d652503ff2a20efd504774665af59c6f", package = "aster_forge_xml" }
 aster_forge_http = { workspace = true }
+ipnet = { workspace = true }
 aster_drive_metrics = { workspace = true }
 aster_drive_migration = { workspace = true }
 aster_drive_model = { workspace = true }

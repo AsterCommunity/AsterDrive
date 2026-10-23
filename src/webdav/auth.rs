@@ -8,9 +8,8 @@ mod rate_limit;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{user_repo, webdav_account_repo};
-use crate::errors::{AsterError, MapAsterErr, auth_forbidden_with_code};
+use crate::errors::{AsterError, MapAsterErr};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 
@@ -172,11 +171,13 @@ async fn authenticate_basic(
 
     if !account.is_active {
         rate_limit::record_username_failure(state, protection.enabled(), username).await;
-        return Err(auth_forbidden_with_code(
-            ApiErrorCode::AuthAccountDisabled,
-            "WebDAV account is disabled",
-        )
-        .into());
+        tracing::info!(
+            webdav_account_id = account.id,
+            "webdav login rejected: webdav account is disabled"
+        );
+        // 与“账号不存在/密码错误”返回同一响应，避免向已知用户名的攻击者
+        // 泄露账号状态；禁用细节只进日志。
+        return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());
     }
 
     let password_verification = state
@@ -194,11 +195,11 @@ async fn authenticate_basic(
     let user = user_repo::find_by_id(state.writer_db(), account.user_id).await?;
     if !user.status.is_active() {
         rate_limit::record_username_failure(state, protection.enabled(), username).await;
-        return Err(auth_forbidden_with_code(
-            ApiErrorCode::AuthAccountDisabled,
-            "user account is disabled",
-        )
-        .into());
+        tracing::info!(
+            user_id = user.id,
+            "webdav login rejected: linked user account is disabled"
+        );
+        return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());
     }
 
     let scope = match account.team_id {

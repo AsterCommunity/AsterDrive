@@ -190,10 +190,7 @@ async fn finish_login_inner(
     legacy_path: Option<(String, String)>,
     browser_binding_secret: Option<&str>,
 ) -> Result<HttpResponse> {
-    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = AuditRequestInfo::from_request(&req);
     let callback_route = match legacy_path {
         Some((kind, provider_key)) => {
             let provider_kind = match parse_provider_kind(&kind) {
@@ -289,10 +286,7 @@ pub async fn link_with_password(
         &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
-    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = AuditRequestInfo::from_request(&req);
     let result = external::link_with_password(
         state.get_ref(),
         body.into_inner(),
@@ -330,10 +324,7 @@ pub async fn confirm_email_verification(
         ));
     };
 
-    let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        &req,
-        &state.get_ref().config().network_trust.trusted_proxies,
-    );
+    let audit_info = AuditRequestInfo::from_request(&req);
     let result = match external::confirm_email_verification(
         state.get_ref(),
         token,

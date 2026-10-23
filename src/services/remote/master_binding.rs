@@ -10,15 +10,13 @@ use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_EXPIRES_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     REMOTE_POLICY_MAX_FILE_SIZE_QUERY, REMOTE_STORAGE_TARGET_KEY_QUERY, normalize_remote_base_url,
-    sign_presigned_request,
+    verify_internal_request_signature, verify_presigned_request_signature,
 };
 use aster_drive_model::entities::master_binding;
 use aster_drive_model::types::ResolvedRemoteTransport;
 use aster_drive_storage::StorageDriver;
 use chrono::Utc;
-use hmac::{Hmac, KeyInit, Mac};
 use sea_orm::{ConnectionTrait, Set};
-use sha2::Sha256;
 use std::sync::Arc;
 
 const STORAGE_NAMESPACE_ALLOCATION_ATTEMPTS: usize = 8;
@@ -122,19 +120,24 @@ async fn update_existing_from_enrollment<C: ConnectionTrait>(
     Ok((updated, "updated"))
 }
 
+/// `body`：handler 已读取完整 body（JSON 控制面请求）时传 `Some`，签名必须
+/// 覆盖其 digest；流式上传或无 body 请求传 `None`，验证只接受空串占位与
+/// 旧版格式（滚动升级兼容）。
 pub async fn authorize_internal_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
+    body: Option<&[u8]>,
 ) -> Result<AuthorizedMasterBinding> {
-    let binding = authorize_binding_request(state, req, false).await?;
+    let binding = authorize_binding_request(state, req, false, body).await?;
     resolve_authorized_ingress(state, binding, required_remote_storage_target_key(req)?, 0).await
 }
 
 pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
+    body: Option<&[u8]>,
 ) -> Result<AuthorizedMasterBinding> {
-    let binding = authorize_binding_request(state, req, false).await?;
+    let binding = authorize_binding_request(state, req, false, body).await?;
     resolve_authorized_ingress(
         state,
         binding,
@@ -147,15 +150,17 @@ pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
 pub async fn authorize_internal_binding_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
+    body: Option<&[u8]>,
 ) -> Result<master_binding::Model> {
-    authorize_binding_request(state, req, false).await
+    authorize_binding_request(state, req, false, body).await
 }
 
 pub async fn authorize_binding_sync_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
+    body: Option<&[u8]>,
 ) -> Result<master_binding::Model> {
-    authorize_binding_request(state, req, true).await
+    authorize_binding_request(state, req, true, body).await
 }
 
 pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
@@ -224,6 +229,7 @@ async fn authorize_binding_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
     allow_disabled: bool,
+    body: Option<&[u8]>,
 ) -> Result<master_binding::Model> {
     let access_key = header_value(req, INTERNAL_AUTH_ACCESS_KEY_HEADER)?;
     let timestamp = header_value(req, INTERNAL_AUTH_TIMESTAMP_HEADER)?
@@ -262,13 +268,14 @@ async fn authorize_binding_request<S: FollowerRuntimeState>(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok());
 
-    if !verify_signature(
+    if !verify_internal_request_signature(
         &binding.secret_key,
         req.method().as_str(),
         path_and_query,
         timestamp,
         &nonce,
         content_length,
+        body,
         &signature,
     ) {
         return Err(AsterError::auth_invalid_credentials(
@@ -320,7 +327,7 @@ fn authorize_presigned_binding_request<S: FollowerRuntimeState>(
         ));
     }
 
-    if !verify_presigned_signature(
+    if !verify_presigned_request_signature(
         &binding.secret_key,
         req.method().as_str(),
         &presigned_request_target(req),
@@ -410,58 +417,6 @@ fn normalize_sync_input(input: SyncMasterBindingInput) -> Result<SyncMasterBindi
         resolved_transport: input.resolved_transport,
         desired_revision: input.desired_revision,
     })
-}
-
-fn verify_signature(
-    secret_key: &str,
-    method: &str,
-    path_and_query: &str,
-    timestamp: i64,
-    nonce: &str,
-    content_length: Option<u64>,
-    provided_signature: &str,
-) -> bool {
-    let mut decoded = [0u8; 32];
-    if hex::decode_to_slice(provided_signature, &mut decoded).is_err() {
-        return false;
-    }
-
-    let canonical = format!(
-        "{}\n{}\n{}\n{}\n{}",
-        method,
-        path_and_query,
-        timestamp,
-        nonce,
-        content_length
-            .map(|value| value.to_string())
-            .unwrap_or_default()
-    );
-    let Ok(mut mac) = <Hmac<Sha256> as KeyInit>::new_from_slice(secret_key.as_bytes()) else {
-        return false;
-    };
-    mac.update(canonical.as_bytes());
-    mac.verify_slice(&decoded).is_ok()
-}
-
-fn verify_presigned_signature(
-    secret_key: &str,
-    method: &str,
-    request_target: &str,
-    access_key: &str,
-    expires_at: i64,
-    provided_signature: &str,
-) -> bool {
-    let mut decoded = [0u8; 32];
-    if hex::decode_to_slice(provided_signature, &mut decoded).is_err() {
-        return false;
-    }
-
-    let expected =
-        sign_presigned_request(secret_key, method, request_target, access_key, expires_at);
-    let Ok(expected) = hex::decode(expected) else {
-        return false;
-    };
-    expected == decoded
 }
 
 fn presigned_request_target(req: &actix_web::HttpRequest) -> String {
