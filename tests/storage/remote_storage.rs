@@ -3170,7 +3170,7 @@ async fn test_internal_storage_rejects_tampered_json_body() {
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
-        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
+        .insert_header(("x-aster-content-sha256", body_sha256_hex(&signed_body)))
         .insert_header((actix_web::http::header::CONTENT_TYPE, "application/json"))
         .insert_header((
             actix_web::http::header::CONTENT_LENGTH,

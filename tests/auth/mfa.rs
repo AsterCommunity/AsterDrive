@@ -4,6 +4,7 @@ use actix_web::{body::MessageBody, http::StatusCode, test};
 use aster_drive::config::{auth_runtime, mail};
 use aster_drive::services::auth::mfa::totp;
 use aster_drive_model::entities::audit_log;
+use aster_drive_model::entities::{mfa_factor, mfa_totp_used_step};
 use aster_drive_model::types::AuditAction;
 use chrono::{Duration, Utc};
 use sea_orm::{
@@ -1462,7 +1463,7 @@ async fn test_totp_sensitive_confirmation_rejects_code_replay() {
     // 新窗口的码仍然可用（清理与记录不影响合法使用者）。
     let fresh = totp::code_for_time(
         &totp::decode_secret(&secret).unwrap(),
-        Utc::now() + Duration::seconds(31),
+        Utc::now() + Duration::seconds(30),
     )
     .unwrap();
     let req = test::TestRequest::post()
@@ -1510,4 +1511,101 @@ async fn test_totp_login_challenge_rejects_cross_flow_code_replay() {
     let second_flow = body["data"]["flow_token"].as_str().unwrap().to_string();
     let resp = verify_mfa(&app, &second_flow, "totp", &code).await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_totp_login_challenge_allows_only_one_concurrent_code_consumer() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    register_user(
+        &app,
+        "totpconcurrent",
+        "totpconcurrent@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "totpconcurrent", "password123");
+    let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
+    let code = totp_code(&secret);
+
+    let first = login_raw(&app, "totpconcurrent", "password123").await;
+    let first_body: Value = test::read_body_json(first).await;
+    let first_flow = first_body["data"]["flow_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second = login_raw(&app, "totpconcurrent", "password123").await;
+    let second_body: Value = test::read_body_json(second).await;
+    let second_flow = second_body["data"]["flow_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (first, second) = futures::join!(
+        verify_mfa(&app, &first_flow, "totp", &code),
+        verify_mfa(&app, &second_flow, "totp", &code),
+    );
+    let statuses = [first.status(), second.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1,
+        "the unique (factor_id, time_step) insert must have one winner"
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::UNAUTHORIZED)
+            .count(),
+        1,
+        "the concurrent replay must be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_totp_used_steps_cascade_when_factor_is_deleted() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "totpcascade",
+        "totpcascade@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "totpcascade", "password123");
+    let (factor_id, _secret, _recovery_codes) = enable_totp(&app, &access).await;
+
+    mfa_totp_used_step::Entity::insert(mfa_totp_used_step::ActiveModel {
+        factor_id: Set(factor_id),
+        time_step: Set(Utc::now().timestamp() / 30),
+        used_at: Set(Utc::now()),
+        ..Default::default()
+    })
+    .exec(state.writer_db())
+    .await
+    .expect("used step should be inserted for the factor");
+    assert_eq!(
+        mfa_totp_used_step::Entity::find()
+            .filter(mfa_totp_used_step::Column::FactorId.eq(factor_id))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1
+    );
+
+    mfa_factor::Entity::delete_by_id(factor_id)
+        .exec(state.writer_db())
+        .await
+        .expect("factor deletion should cascade to used steps");
+    assert_eq!(
+        mfa_totp_used_step::Entity::find()
+            .filter(mfa_totp_used_step::Column::FactorId.eq(factor_id))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
 }

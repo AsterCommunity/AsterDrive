@@ -81,6 +81,7 @@ pub(crate) async fn write_follower_object(
     object_key: &str,
     storage_path: &str,
     content_length: i64,
+    expected_sha256: Option<&str>,
     mut payload: FollowerUploadBody,
 ) -> Result<String> {
     let stream_driver = driver.extensions().stream_upload.ok_or_else(|| {
@@ -89,7 +90,14 @@ pub(crate) async fn write_follower_object(
             "ingress target does not support stream upload",
         )
     })?;
-    let attempt = StreamUploadAttempt::new(storage_path, content_length)?;
+    // Default provider staging may write its `storage_path` immediately. Give
+    // every attempt a unique unpublished key so a bad digest can never replace
+    // the existing object; only copy it to the final key after verification.
+    let attempt_path = format!(
+        "{storage_path}.aster-attempt-{}",
+        aster_forge_utils::id::new_uuid()
+    );
+    let attempt = StreamUploadAttempt::new(&attempt_path, content_length)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, content_length);
     let (writer, reader) = tokio::io::duplex(RELAY_BUFFER_SIZE);
     let relay = async move {
@@ -127,17 +135,58 @@ pub(crate) async fn write_follower_object(
         Err(error) => {
             cleanup_stream_upload_attempt(stream_driver, &attempt, metrics, binding_id, object_key)
                 .await;
+            cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key)
+                .await;
             return Err(error);
         }
     };
 
+    let actual_sha256 = etag.trim_matches('"');
+    if expected_sha256.is_some_and(|expected| expected != actual_sha256) {
+        tracing::warn!(
+            binding_id,
+            object_key,
+            expected = ?expected_sha256,
+            actual = actual_sha256,
+            "follower object digest mismatch; rejecting upload before publication"
+        );
+        cleanup_stream_upload_attempt(stream_driver, &attempt, metrics, binding_id, object_key)
+            .await;
+        cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
+        return Err(AsterError::validation_error("object body digest mismatch"));
+    }
+
     if let Err(error) = stream_driver.commit_attempt(&attempt).await {
         cleanup_stream_upload_attempt(stream_driver, &attempt, metrics, binding_id, object_key)
             .await;
+        cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
         return Err(error.into());
     }
+    if let Err(error) = driver.copy_object(&attempt_path, storage_path).await {
+        cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
+        return Err(error.into());
+    }
+    cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
     metrics.record_stream_upload_attempt("commit", "success");
     Ok(etag)
+}
+
+async fn cleanup_unpublished_attempt(
+    driver: &dyn StorageDriver,
+    attempt_path: &str,
+    binding_id: i64,
+    object_key: &str,
+) {
+    if let Err(error) = driver.delete(attempt_path).await
+        && error.kind() != StorageErrorKind::NotFound
+    {
+        tracing::warn!(
+            binding_id,
+            object_key,
+            attempt_path,
+            "failed to cleanup unpublished follower upload attempt: {error}"
+        );
+    }
 }
 
 pub(crate) async fn compose_follower_objects(
@@ -157,7 +206,11 @@ pub(crate) async fn compose_follower_objects(
     })?;
     let expected_size_u64 =
         aster_forge_utils::numbers::i64_to_u64(expected_size, "compose expected_size")?;
-    let attempt = StreamUploadAttempt::new(target_storage_path, expected_size)?;
+    let attempt_path = format!(
+        "{target_storage_path}.aster-attempt-{}",
+        aster_forge_utils::id::new_uuid()
+    );
+    let attempt = StreamUploadAttempt::new(&attempt_path, expected_size)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, expected_size);
     let read_driver = Arc::clone(&driver);
     let cleanup_part_storage_paths = part_storage_paths.clone();
@@ -204,12 +257,16 @@ pub(crate) async fn compose_follower_objects(
         Ok(bytes_written) => {
             cleanup_stream_upload_attempt(stream_driver, &attempt, metrics, binding_id, target_key)
                 .await;
+            cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key)
+                .await;
             return Err(AsterError::storage_driver_error(format!(
                 "compose size mismatch: expected {expected_size_u64} bytes, got {bytes_written}"
             )));
         }
         Err(error) => {
             cleanup_stream_upload_attempt(stream_driver, &attempt, metrics, binding_id, target_key)
+                .await;
+            cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key)
                 .await;
             return Err(error);
         }
@@ -218,8 +275,14 @@ pub(crate) async fn compose_follower_objects(
     if let Err(error) = stream_driver.commit_attempt(&attempt).await {
         cleanup_stream_upload_attempt(stream_driver, &attempt, metrics, binding_id, target_key)
             .await;
+        cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
         return Err(error.into());
     }
+    if let Err(error) = driver.copy_object(&attempt_path, target_storage_path).await {
+        cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
+        return Err(error.into());
+    }
+    cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
     metrics.record_stream_upload_attempt("commit", "success");
 
     for storage_path in cleanup_part_storage_paths {
@@ -246,6 +309,7 @@ mod tests {
     use aster_drive_metrics::NoopMetrics;
     use aster_drive_storage::{StorageDriver, StreamUploadDriver};
     use bytes::Bytes;
+    use sha2::Digest;
     use std::path::Path;
     use std::sync::Arc;
     use std::time::Duration;
@@ -288,6 +352,7 @@ mod tests {
             "object.bin",
             "object.bin",
             64,
+            None,
             payload,
         )
         .await
@@ -317,6 +382,7 @@ mod tests {
             "object.bin",
             "object.bin",
             5,
+            None,
             payload,
         )
         .await
@@ -329,6 +395,41 @@ mod tests {
                 .is_dir()
         );
         assert_no_attempt_files(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn digest_mismatch_preserves_existing_object_and_cleans_attempt() {
+        let root = test_root("digest-mismatch");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        tokio::fs::write(root.join("object.bin"), b"original")
+            .await
+            .unwrap();
+        let driver = Arc::new(LocalDriver::new(root.to_str().unwrap()).unwrap());
+        let payload: FollowerUploadBody = Box::pin(futures::stream::once(async {
+            Ok(Bytes::from_static(b"tampered"))
+        }));
+
+        write_follower_object(
+            driver.clone(),
+            &NoopMetrics::new(),
+            7,
+            "object.bin",
+            "object.bin",
+            8,
+            Some(&hex::encode(sha2::Sha256::digest(b"expected"))),
+            payload,
+        )
+        .await
+        .expect_err("mismatching bytes must not publish");
+
+        assert_eq!(
+            tokio::fs::read(root.join("object.bin")).await.unwrap(),
+            b"original"
+        );
+        assert_no_attempt_files(&root);
+        let entries = std::fs::read_dir(&root).unwrap().count();
+        assert_eq!(entries, 1, "unpublished attempt object must be removed");
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
 

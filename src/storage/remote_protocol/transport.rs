@@ -324,6 +324,7 @@ impl RemoteTransport for DirectHttpTransport {
                 Some(verify_response_body_sha256(
                     response.headers(),
                     &self.secret_key,
+                    &request_nonce,
                     "direct transport object upload",
                 )?)
             } else {
@@ -389,6 +390,7 @@ impl RemoteTransport for ReverseTunnelTransport {
                 )
             })?;
         let path_and_query = request.path_and_query;
+        let request_nonce = uuid::Uuid::new_v4().to_string();
         // 声明头跨隧道链透传：重签者（proxy/registry）用它重建 canonical，
         // follower 收完对账。
         let mut extra_headers = request
@@ -396,6 +398,10 @@ impl RemoteTransport for ReverseTunnelTransport {
             .map(|value| (reqwest::header::CONTENT_TYPE.to_string(), value.to_string()))
             .into_iter()
             .collect::<Vec<_>>();
+        extra_headers.push((
+            super::INTERNAL_EXPECTED_RESPONSE_NONCE_HEADER.to_string(),
+            request_nonce.clone(),
+        ));
         extra_headers.push((
             super::INTERNAL_CONTENT_SHA256_HEADER.to_string(),
             request.body.body_sha256(),
@@ -434,8 +440,19 @@ impl RemoteTransport for ReverseTunnelTransport {
                 .await
             {
                 Ok(response) => {
+                    let object_body_sha256 =
+                        if request.expect_response_body_sha256 && response.status.is_success() {
+                            Some(verify_response_body_sha256(
+                                &response.headers,
+                                &self.remote_node.secret_key,
+                                &request_nonce,
+                                "reverse tunnel streaming object upload",
+                            )?)
+                        } else {
+                            None
+                        };
                     return Ok(RemoteTransportResponse {
-                        object_body_sha256: None,
+                        object_body_sha256,
                         kind: RemoteTransportResponseKind::TunnelStream(response),
                     });
                 }
@@ -479,6 +496,7 @@ impl RemoteTransport for ReverseTunnelTransport {
                 Some(verify_response_body_sha256(
                     &response.headers,
                     &self.remote_node.secret_key,
+                    &request_nonce,
                     "reverse tunnel polling object upload",
                 )?)
             } else {
@@ -496,6 +514,7 @@ impl RemoteTransport for ReverseTunnelTransport {
 fn verify_response_body_sha256(
     headers: &reqwest::header::HeaderMap,
     secret_key: &str,
+    expected_nonce: &str,
     context: &str,
 ) -> Result<String> {
     use super::{
@@ -517,7 +536,9 @@ fn verify_response_body_sha256(
     let digest = header_str(INTERNAL_RESPONSE_OBJECT_SHA256_HEADER)?;
     let signature = header_str(INTERNAL_RESPONSE_SIGNATURE_HEADER)?;
     let nonce = header_str(INTERNAL_RESPONSE_NONCE_HEADER)?;
-    if !super::verify_internal_response_signature(secret_key, &nonce, &digest, &signature) {
+    if nonce != expected_nonce
+        || !super::verify_internal_response_signature(secret_key, &nonce, &digest, &signature)
+    {
         return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Precondition,
             format!("{context}: response body digest signature mismatch"),
@@ -1037,13 +1058,40 @@ mod tests {
                 .request_body
                 .lock()
                 .expect("request body lock should not be poisoned") = body.to_vec();
+            let nonce = extra_headers
+                .iter()
+                .find(|(name, _)| {
+                    name == crate::storage::remote_protocol::INTERNAL_EXPECTED_RESPONSE_NONCE_HEADER
+                })
+                .map(|(_, value)| value.as_str())
+                .unwrap_or_default();
+            let digest = crate::storage::remote_protocol::body_sha256_hex(b"poll-response");
+            let mut headers = http::HeaderMap::new();
+            headers.insert(
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+                digest.parse().expect("digest is a valid header value"),
+            );
+            headers.insert(
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_SIGNATURE_HEADER,
+                crate::storage::remote_protocol::sign_internal_response_signature(
+                    "secret-key",
+                    nonce,
+                    &digest,
+                )
+                .parse()
+                .expect("signature is a valid header value"),
+            );
+            headers.insert(
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_NONCE_HEADER,
+                nonce.parse().expect("nonce is a valid header value"),
+            );
             *self
                 .request_headers
                 .lock()
                 .expect("request header lock should not be poisoned") = extra_headers;
             Ok(RemoteTunnelHttpResponse {
                 status: StatusCode::OK,
-                headers: http::HeaderMap::new(),
+                headers,
                 body: Bytes::from_static(b"poll-response"),
             })
         }
@@ -1089,9 +1137,39 @@ mod tests {
                 .stream_headers
                 .lock()
                 .expect("stream header lock should not be poisoned") = extra_headers;
+            let digest = crate::storage::remote_protocol::body_sha256_hex(b"stream-response");
+            let nonce = self
+                .stream_headers
+                .lock()
+                .expect("stream header lock should not be poisoned")
+                .iter()
+                .find(|(name, _)| {
+                    name == crate::storage::remote_protocol::INTERNAL_EXPECTED_RESPONSE_NONCE_HEADER
+                })
+                .map(|(_, value)| value.clone())
+                .unwrap_or_default();
+            let mut headers = http::HeaderMap::new();
+            headers.insert(
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+                digest.parse().expect("digest is a valid header value"),
+            );
+            headers.insert(
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_SIGNATURE_HEADER,
+                crate::storage::remote_protocol::sign_internal_response_signature(
+                    "secret-key",
+                    &nonce,
+                    &digest,
+                )
+                .parse()
+                .expect("signature is a valid header value"),
+            );
+            headers.insert(
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_NONCE_HEADER,
+                nonce.parse().expect("nonce is a valid header value"),
+            );
             Ok(RemoteTunnelStreamHttpResponse {
                 status: StatusCode::OK,
-                headers: http::HeaderMap::new(),
+                headers,
                 body: Box::new(std::io::Cursor::new(Bytes::from_static(b"stream-response"))),
             })
         }
@@ -1175,11 +1253,15 @@ mod tests {
                     size: 9,
                     body_sha256: None,
                 },
-                expect_response_body_sha256: false,
+                expect_response_body_sha256: true,
             })
             .await
             .expect("poll fallback request should succeed");
 
+        assert_eq!(
+            response.object_body_sha256.as_deref(),
+            Some(crate::storage::remote_protocol::body_sha256_hex(b"poll-response").as_str())
+        );
         match response.kind {
             RemoteTransportResponseKind::Tunnel(response) => {
                 assert_eq!(response.status, StatusCode::OK);
@@ -1217,11 +1299,15 @@ mod tests {
                 path_and_query: "/api/v1/internal/storage/objects/stream.bin".to_string(),
                 content_type: Some("application/octet-stream"),
                 body: RemoteRequestBody::Bytes(Bytes::from_static(b"stream-body")),
-                expect_response_body_sha256: false,
+                expect_response_body_sha256: true,
             })
             .await
             .expect("stream lane request should succeed");
 
+        assert_eq!(
+            response.object_body_sha256.as_deref(),
+            Some(crate::storage::remote_protocol::body_sha256_hex(b"stream-response").as_str())
+        );
         match response.kind {
             RemoteTransportResponseKind::TunnelStream(mut response) => {
                 let mut body = Vec::new();
@@ -1252,6 +1338,57 @@ mod tests {
                 .iter()
                 .any(|(name, value)| name == "content-type" && value == "application/octet-stream")
         );
+    }
+
+    #[test]
+    fn response_digest_verification_rejects_missing_and_tampered_headers() {
+        let digest = crate::storage::remote_protocol::body_sha256_hex(b"body");
+        let nonce = "response-nonce";
+        let signature = crate::storage::remote_protocol::sign_internal_response_signature(
+            "secret-key",
+            nonce,
+            &digest,
+        );
+
+        assert!(
+            verify_response_body_sha256(
+                &http::HeaderMap::new(),
+                "secret-key",
+                nonce,
+                "test response",
+            )
+            .is_err()
+        );
+
+        let mut valid = http::HeaderMap::new();
+        valid.insert(
+            crate::storage::remote_protocol::INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+            digest.parse().unwrap(),
+        );
+        valid.insert(
+            crate::storage::remote_protocol::INTERNAL_RESPONSE_SIGNATURE_HEADER,
+            signature.parse().unwrap(),
+        );
+        valid.insert(
+            crate::storage::remote_protocol::INTERNAL_RESPONSE_NONCE_HEADER,
+            nonce.parse().unwrap(),
+        );
+        assert_eq!(
+            verify_response_body_sha256(&valid, "secret-key", nonce, "test response").unwrap(),
+            digest
+        );
+        assert!(
+            verify_response_body_sha256(&valid, "secret-key", "other-nonce", "test response")
+                .is_err()
+        );
+
+        valid.insert(
+            crate::storage::remote_protocol::INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+            crate::storage::remote_protocol::body_sha256_hex(b"tampered")
+                .parse()
+                .unwrap(),
+        );
+        assert!(verify_response_body_sha256(&valid, "secret-key", nonce, "test response").is_err());
     }
 
     #[tokio::test]

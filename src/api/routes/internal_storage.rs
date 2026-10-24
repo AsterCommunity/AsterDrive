@@ -81,9 +81,15 @@ fn internal_storage_validation_error(
 /// 反序列化控制面 JSON body，并对其与签名声明 digest 做对账：验签只证明
 /// primary 签过声明值，body 字节本身必须与此一致才算完整覆盖。
 fn json_request_body<T: serde::de::DeserializeOwned>(req: &HttpRequest, body: &[u8]) -> Result<T> {
+    if body.len() > crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT {
+        return Err(AsterError::payload_too_large(format!(
+            "internal JSON body exceeds {} bytes",
+            crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT
+        )));
+    }
     let declared = crate::storage::remote_protocol::declared_content_sha256(req.headers());
     let computed = crate::storage::remote_protocol::body_sha256_hex(body);
-    if !declared.is_empty() && declared != computed {
+    if declared.is_empty() || declared != computed {
         return Err(AsterError::auth_invalid_credentials(
             "request body does not match the signed digest",
         ));
@@ -522,7 +528,6 @@ async fn put_object(
     };
     let object_key = path.into_inner();
     let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
-    let ingress_driver = std::sync::Arc::clone(&ctx.ingress_driver);
     validate_ingress_object_size(content_length, ctx.ingress_max_file_size, "object")?;
     // v7 声明头：非空 = primary 先承诺的 body digest（收完对账）；空 = relay
     // 直推的占位签（内容完整性由响应签名对账补齐）。
@@ -569,29 +574,14 @@ async fn put_object(
         &object_key,
         &storage_path,
         content_length,
+        signed
+            .then_some(declared_sha256.as_str())
+            .filter(|value| !value.is_empty()),
         payload,
     )
     .await?;
     // relay hasher 算出的内容 digest（etag 即 sha256 hex）。
     let computed_sha256 = etag.trim_matches('"').to_owned();
-    if signed && !declared_sha256.is_empty() && computed_sha256 != declared_sha256 {
-        // 先承诺对账失败：源内容或传输链路被篡改，清理并拒绝。
-        tracing::warn!(
-            binding_id = ctx.binding.id,
-            object_key = %object_key,
-            declared = %declared_sha256,
-            computed = %computed_sha256,
-            "follower object digest mismatch; rejecting upload"
-        );
-        if let Err(error) = ingress_driver.delete(&storage_path).await {
-            tracing::warn!(
-                binding_id = ctx.binding.id,
-                storage_path = %storage_path,
-                "failed to cleanup rejected object after digest mismatch: {error}"
-            );
-        }
-        return Err(AsterError::validation_error("object body digest mismatch"));
-    }
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -1176,6 +1166,39 @@ mod tests {
             content_length_header(&headers).expect("valid content-length should parse"),
             42
         );
+    }
+
+    #[test]
+    fn json_request_body_requires_a_non_empty_matching_digest() {
+        let body = br#"{}"#;
+        let digest = crate::storage::remote_protocol::body_sha256_hex(body);
+        let request = actix_web::test::TestRequest::post()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+                digest.as_str(),
+            ))
+            .to_http_request();
+        assert!(json_request_body::<serde_json::Value>(&request, body).is_ok());
+
+        let empty_request = actix_web::test::TestRequest::post()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+                "",
+            ))
+            .to_http_request();
+        assert!(json_request_body::<serde_json::Value>(&empty_request, body).is_err());
+
+        let wrong_request = actix_web::test::TestRequest::post()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+                "00",
+            ))
+            .to_http_request();
+        assert!(json_request_body::<serde_json::Value>(&wrong_request, body).is_err());
+
+        let oversized =
+            vec![b' '; crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT + 1];
+        assert!(json_request_body::<serde_json::Value>(&request, &oversized).is_err());
     }
 
     #[actix_web::test]

@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::io::StreamReader;
 
 use super::broker::RemoteTunnelStreamHttpResponse;
-use super::headers::request_headers;
+use super::headers::{request_headers, take_expected_response_nonce};
 use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT,
     REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY, RemoteTunnelRegistry, TunnelDisconnectReason,
@@ -203,7 +203,7 @@ impl RemoteTunnelRegistry {
         method: Method,
         path_and_query: String,
         content_length: Option<u64>,
-        extra_headers: Vec<(String, String)>,
+        mut extra_headers: Vec<(String, String)>,
         mut body: Box<dyn AsyncRead + Unpin + Send>,
     ) -> Result<RemoteTunnelStreamHttpResponse> {
         let lane = match self.stream_lane(remote_node).await {
@@ -219,6 +219,7 @@ impl RemoteTunnelRegistry {
         };
 
         let request_id = aster_forge_utils::id::new_uuid();
+        let response_nonce = take_expected_response_nonce(&mut extra_headers)?;
         let (start_tx, start_rx) = oneshot::channel();
         let (body_tx, body_rx) = mpsc::channel(REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY);
         let response_complete = Arc::new(AtomicBool::new(false));
@@ -249,6 +250,7 @@ impl RemoteTunnelRegistry {
             &path_and_query,
             content_length,
             &declared_sha256,
+            &response_nonce,
         )
         .chain(extra_headers)
         .collect();

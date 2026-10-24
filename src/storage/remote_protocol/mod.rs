@@ -49,6 +49,8 @@ pub const INTERNAL_AUTH_SIGNATURE_HEADER: &str = "x-aster-signature";
 /// 签名声明的 body digest：与 canonical 第 6 行同值，follower 在收 body 前
 /// 即可用它重建 canonical 验签，收完 tee 对账。
 pub const INTERNAL_CONTENT_SHA256_HEADER: &str = "x-aster-content-sha256";
+/// Primary-to-broker metadata consumed before a reverse-tunnel request reaches a follower.
+pub const INTERNAL_EXPECTED_RESPONSE_NONCE_HEADER: &str = "x-aster-expected-response-nonce";
 
 /// 读取请求声明的 body digest（缺失按空串：只可能来自非 v7 客户端，验签
 /// 会以空串 canonical 自然失败）。

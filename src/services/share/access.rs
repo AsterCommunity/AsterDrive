@@ -232,7 +232,9 @@ pub fn verify_share_cookie(
     let Ok(issued_at) = issued_at_raw.parse::<i64>() else {
         return false;
     };
-    let age = now - issued_at;
+    let Some(age) = now.checked_sub(issued_at) else {
+        return false;
+    };
     if !(-SHARE_COOKIE_CLOCK_SKEW_SECS..SHARE_COOKIE_MAX_AGE_SECS).contains(&age) {
         return false;
     }
@@ -337,7 +339,9 @@ async fn verify_share_password_effective_hash(
     }
 
     if verification.needs_rehash {
-        upgrade_share_password_hash(state, share, pw_hash, password).await;
+        if let Some(new_hash) = upgrade_share_password_hash(state, share, pw_hash, password).await {
+            return Ok(new_hash);
+        }
     }
 
     Ok(pw_hash.to_string())
@@ -362,7 +366,7 @@ async fn upgrade_share_password_hash(
     share: &share::Model,
     current_hash: &str,
     password: &str,
-) {
+) -> Option<String> {
     let new_hash = match state
         .runtime_config()
         .password_hash_runtime()
@@ -375,7 +379,7 @@ async fn upgrade_share_password_hash(
                 share_id = share.id,
                 "failed to generate upgraded share password hash: {error}"
             );
-            return;
+            return None;
         }
     };
 
@@ -390,15 +394,22 @@ async fn upgrade_share_password_hash(
         Ok(true) => {
             invalidate_share_token_record_cache_for_share(state, share).await;
             tracing::info!(share_id = share.id, "upgraded share password hash policy");
+            Some(new_hash)
         }
-        Ok(false) => tracing::debug!(
-            share_id = share.id,
-            "skipped share password hash upgrade after concurrent credential change"
-        ),
-        Err(error) => tracing::warn!(
-            share_id = share.id,
-            "failed to persist upgraded share password hash: {error}"
-        ),
+        Ok(false) => {
+            tracing::debug!(
+                share_id = share.id,
+                "skipped share password hash upgrade after concurrent credential change"
+            );
+            None
+        }
+        Err(error) => {
+            tracing::warn!(
+                share_id = share.id,
+                "failed to persist upgraded share password hash: {error}"
+            );
+            None
+        }
     }
 }
 
@@ -549,6 +560,17 @@ mod tests {
             issued_at + SHARE_COOKIE_MAX_AGE_SECS
         ));
         assert!(!verify(token, &cookie, &binding, issued_at + 86_400));
+    }
+
+    #[test]
+    fn verify_share_cookie_rejects_extreme_timestamps_without_overflow() {
+        let token = "token";
+        let binding = binding();
+        let now = Utc::now().timestamp();
+        for timestamp in [i64::MIN, i64::MAX] {
+            let malformed = format!("{timestamp}.{}", "0".repeat(64));
+            assert!(!verify(token, &malformed, &binding, now));
+        }
     }
 
     #[test]

@@ -519,9 +519,7 @@ async fn verify_prepared_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
                 let now = now_utc();
                 match totp::verify_code_matching_step(&secret, code, now)? {
                     Some(step) => {
-                        let step = i64::try_from(step).map_err(|_| {
-                            AsterError::internal_error("totp time step exceeds i64")
-                        })?;
+                        let step = aster_forge_utils::numbers::u64_to_i64(step, "totp time step")?;
                         // 同一验证码只能消费一个敏感操作；重放按无效码拒绝。
                         if !mfa_totp_used_step_repo::record_used_step(db, factor.id, step, now)
                             .await?

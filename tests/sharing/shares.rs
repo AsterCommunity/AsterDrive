@@ -701,6 +701,22 @@ async fn test_legacy_share_password_rehashes_and_preserves_concurrent_updates() 
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let share_cookie = resp
+        .response()
+        .cookies()
+        .find(|cookie| cookie.name() == format!("aster_share_{share_token}"))
+        .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+        .expect("rehash verification must issue a share cookie");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/download"))
+        .insert_header(("Cookie", share_cookie))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, req).await.status(),
+        200,
+        "cookie signed with the persisted rehash must authenticate the next request"
+    );
     let upgraded = share_repo::find_by_id(state.writer_db(), share_id)
         .await
         .unwrap();

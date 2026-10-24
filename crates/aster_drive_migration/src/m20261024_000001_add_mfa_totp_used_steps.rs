@@ -14,6 +14,12 @@ enum MfaTotpUsedSteps {
     UsedAt,
 }
 
+#[derive(DeriveIden)]
+enum MfaFactors {
+    Table,
+    Id,
+}
+
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -29,6 +35,12 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(MfaTotpUsedSteps::FactorId)
                             .big_integer()
                             .not_null(),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(MfaTotpUsedSteps::Table, MfaTotpUsedSteps::FactorId)
+                            .to(MfaFactors::Table, MfaFactors::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
                     )
                     .col(
                         ColumnDef::new(MfaTotpUsedSteps::TimeStep)

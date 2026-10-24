@@ -448,6 +448,49 @@ mod trusted_networks_tests {
     }
 
     #[test]
+    fn spoofed_chain_behind_an_untrusted_proxy_never_wins() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8"]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.0.0.5:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "6.6.6.6, 198.51.100.2"))
+            .to_http_request();
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([198, 51, 100, 2])),
+            "right-to-left walk must stop at the first untrusted hop, not the forged leftmost"
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_chain_walks_from_the_peer_and_stops_at_first_untrusted_hop() {
+        let trusted =
+            TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8", "172.16.0.0/12"]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.0.0.5:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "6.6.6.6, 198.51.100.2, 172.16.0.4"))
+            .to_http_request();
+
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([198, 51, 100, 2]))
+        );
+    }
+
+    #[test]
+    fn malformed_forwarded_chain_fails_closed_to_the_tcp_peer() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8"]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.0.0.5:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "203.0.113.7, invalid, 10.0.0.9"))
+            .to_http_request();
+
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([10, 0, 0, 5]))
+        );
+    }
+
+    #[test]
     fn empty_config_pins_real_ip_to_the_tcp_peer() {
         let trusted = TrustedClientNetworks::from_config(&config_for(&[]));
         let req = actix_test::TestRequest::default()
