@@ -113,14 +113,11 @@ async fn pull_desired_state(
     client: &reqwest::Client,
     binding: &master_binding::Model,
 ) -> Result<Option<RemoteBindingDesiredState>> {
-    let path_and_query = format!(
-        "{REMOTE_NODE_BINDING_STATE_PATH}?applied_revision={}",
-        binding.applied_revision
+    let url = format!(
+        "{}{REMOTE_NODE_BINDING_STATE_PATH}?applied_revision={}",
+        binding.master_url, binding.applied_revision
     );
-    let url = format!("{}{path_and_query}", binding.master_url);
-    let response =
-        send_signed_master_request(client, binding, Method::GET, &url, &path_and_query, None)
-            .await?;
+    let response = send_signed_master_request(client, binding, Method::GET, &url, None).await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }

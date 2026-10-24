@@ -20,9 +20,9 @@ use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub use access::{
-    PasswordVerified, ShareCookieBinding, check_share_password_cookie, get_share_avatar_bytes,
-    get_share_info, sign_share_cookie, verify_password, verify_password_and_sign,
-    verify_share_cookie,
+    PasswordVerified, SHARE_COOKIE_MAX_AGE_SECS, ShareCookieBinding, check_share_password_cookie,
+    get_share_avatar_bytes, get_share_info, sign_share_cookie, verify_password,
+    verify_password_and_sign, verify_share_cookie,
 };
 pub use content::{
     ShareDownloadRollbackQueue, ShareDownloadRollbackWorker, build_share_download_rollback_queue,

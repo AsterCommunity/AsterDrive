@@ -12,6 +12,10 @@ pub fn configure_primary(
         .unwrap_or_default();
     let rl = &route_config.rate_limit;
     let network_trust = &route_config.network_trust;
+    // 审计等模块从 app data 解析真实客户端 IP；解析一次，随 App 复用。
+    cfg.app_data(web::Data::new(
+        crate::config::TrustedClientNetworks::from_config(network_trust),
+    ));
 
     cfg.service(
         web::scope("/api/v1")
@@ -31,7 +35,7 @@ pub fn configure_primary(
             .service(routes::tags::routes(rl, network_trust))
             .service(routes::tasks::routes(rl, network_trust))
             .service(routes::teams::routes(rl, network_trust))
-            .service(routes::public::routes())
+            .service(routes::public::routes(rl, network_trust))
             .service(routes::remote_node_control::routes())
             .service(routes::remote_tunnel::routes())
             .service(routes::wopi::routes())

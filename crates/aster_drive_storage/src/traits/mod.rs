@@ -11,13 +11,13 @@ pub use driver::{
 pub use extensions::{
     DirectDownloadStorageDriver, ExactSizeReader, ListStorageDriver, LocalPathStorageDriver,
     NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
-    NativeThumbnailRequest, NativeThumbnailStorageDriver, PresignedUploadStorageDriver,
-    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
-    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageCapacityAssessment, StorageCapacityInfo,
-    StorageCapacityProbePolicy, StorageCapacityStatus, StorageDriverExtensions,
-    StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver, checked_upload_size,
-    exact_size_error_kind,
+    NativePublishStorageDriver, NativeThumbnailRequest, NativeThumbnailStorageDriver,
+    PresignedUploadStorageDriver, ProviderResumableUploadCapabilities,
+    ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
+    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityAssessment,
+    StorageCapacityInfo, StorageCapacityProbePolicy, StorageCapacityStatus,
+    StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
+    checked_upload_size, exact_size_error_kind,
 };
 pub use multipart::{
     MultipartStorageCapabilities, MultipartStorageDriver, MultipartUploadMode,

@@ -1499,3 +1499,39 @@ async fn test_audit_log_recorded_on_team_archive_cleanup() {
     assert_eq!(details["retention_days"], 7);
     assert!(details["archived_at"].is_string());
 }
+
+#[actix_web::test]
+async fn test_audit_ip_ignores_client_forwarded_headers_without_trusted_proxies() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    // 测试配置没有 trusted_proxies：真实客户端就是 TCP peer，
+    // 客户端可伪造的 X-Forwarded-For 绝不能进审计行。
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .peer_addr("127.0.0.1:51000".parse().unwrap())
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("X-Forwarded-For", "203.0.113.77"))
+        .set_json(serde_json::json!({ "name": "Spoofed audit folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
+
+    let stored = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FolderCreate))
+        .order_by_desc(audit_log::Column::Id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .expect("folder create should be audited");
+    assert_eq!(
+        stored.ip_address.as_deref(),
+        Some("127.0.0.1"),
+        "spoofed forwarded header must be dropped; unconfigured trusted proxies pin to the peer"
+    );
+}

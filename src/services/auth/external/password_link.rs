@@ -17,8 +17,6 @@ use super::{
     ExternalAuthPasswordLinkRequest, ExternalAuthPasswordLinkResult, ExternalAuthPrimaryLogin,
 };
 
-const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=65536,t=3,p=4$n0vXvx9kNno+7WMn3NjzQQ$HbceuAm7HxAF4IsSxoy8kD0+IYUK3T6broR+SRLVjrc";
-
 pub async fn link_with_password(
     state: &impl SharedRuntimeState,
     input: ExternalAuthPasswordLinkRequest,
@@ -63,7 +61,7 @@ pub async fn link_with_password(
         let _ = state
             .runtime_config()
             .password_hash_runtime()
-            .verify_password(&input.password, DUMMY_PASSWORD_HASH)
+            .verify_password(&input.password, local::shared::DUMMY_PASSWORD_HASH)
             .await?;
         return Err(AsterError::auth_invalid_credentials("invalid credentials"));
     };
@@ -118,7 +116,7 @@ pub async fn link_with_password(
 mod tests {
     use aster_forge_auth::PasswordHashRuntime;
 
-    use super::DUMMY_PASSWORD_HASH;
+    use crate::services::auth::local::shared::DUMMY_PASSWORD_HASH;
 
     #[tokio::test]
     async fn dummy_hash_tracks_and_verifies_with_the_production_argon2_profile() {

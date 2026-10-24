@@ -77,7 +77,10 @@ fn build_share_cookie(
         .http_only(true)
         .same_site(actix_web::cookie::SameSite::Lax)
         .secure(secure)
-        .max_age(actix_web::cookie::time::Duration::hours(1))
+        // 服务端 verify_share_cookie 按同一时长校验时效，两处必须一致
+        .max_age(actix_web::cookie::time::Duration::seconds(
+            share::SHARE_COOKIE_MAX_AGE_SECS,
+        ))
         .finish()
 }
 
@@ -86,14 +89,8 @@ fn share_cookie_value(req: &actix_web::HttpRequest, token: &str) -> Option<Strin
         .map(|cookie| cookie.value().to_string())
 }
 
-fn share_cookie_binding(
-    req: &actix_web::HttpRequest,
-    state: &PrimaryAppState,
-) -> share::ShareCookieBinding {
-    let request_info = AuditRequestInfo::from_request_with_trusted_proxies(
-        req,
-        &state.config().network_trust.trusted_proxies,
-    );
+fn share_cookie_binding(req: &actix_web::HttpRequest) -> share::ShareCookieBinding {
+    let request_info = AuditRequestInfo::from_request(req);
     share::ShareCookieBinding::from_request_parts(
         request_info.user_agent.as_deref(),
         request_info.ip_address.as_deref(),
@@ -128,9 +125,7 @@ impl<const IGNORE_DOWNLOAD_LIMIT: bool, const REQUIRE_ARCHIVE_DOWNLOAD_ENABLED: 
         let cookie_value = token
             .as_deref()
             .and_then(|token| share_cookie_value(req, token));
-        let binding = state
-            .as_ref()
-            .map(|state| share_cookie_binding(req, state.get_ref()));
+        let binding = state.as_ref().map(|_| share_cookie_binding(req));
 
         Box::pin(async move {
             let state =
@@ -316,7 +311,7 @@ pub async fn verify_password(
     body: web::Json<VerifyPasswordReq>,
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
-    let binding = share_cookie_binding(&req, state.get_ref());
+    let binding = share_cookie_binding(&req);
     let result =
         share::verify_password_and_sign(state.get_ref(), &path, &body.password, &binding).await?;
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());

@@ -33,7 +33,7 @@
 - `target.type` 只能是 `file` 或 `folder`，`target.id` 是对应资源 ID
 - 当前请求体已经不再接受旧的顶层 `file_id` / `folder_id`
 - 同一资源同一时间只允许一个活跃分享
-- `max_downloads = 0` 表示不限次数
+- `max_downloads = 0` 表示不限次数；下载次数约束下载与打包导出（视频流式按首个播放会话计一次），在线预览不消耗次数
 - 空密码等价于不设密码
 - `GET /shares` 现在是分页接口，支持 `limit` 和 `offset`
 

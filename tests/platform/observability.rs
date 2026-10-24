@@ -127,7 +127,15 @@ async fn backlog_aggregates_cleanup_interval_and_observation_migration_round_tri
             .cleanup_pending_since
             .is_some()
     );
-    let migration = Migrator::migrations().pop().unwrap();
+    let migration = Migrator::migrations()
+        .into_iter()
+        .find(|migration| {
+            migration
+                .name()
+                .to_string()
+                .ends_with("metrics_backlog_observations")
+        })
+        .unwrap();
     let manager = aster_drive_migration::SchemaManager::new(db);
     migration.down(&manager).await.unwrap();
     let count = db
@@ -185,7 +193,15 @@ async fn postgres_failed_concurrent_indexes_are_rebuilt_without_touching_other_s
             .iter()
             .all(|row| !row.try_get::<bool>("", "indisvalid").unwrap())
     );
-    let migration = Migrator::migrations().pop().unwrap();
+    let migration = Migrator::migrations()
+        .into_iter()
+        .find(|migration| {
+            migration
+                .name()
+                .to_string()
+                .ends_with("metrics_backlog_observations")
+        })
+        .unwrap();
     let manager = aster_drive_migration::SchemaManager::new(&db);
     migration.up(&manager).await.unwrap();
     let rebuilt = index_state().await;

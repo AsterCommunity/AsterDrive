@@ -78,6 +78,7 @@ mod m20260912_000001_folder_tree_keyset_indexes;
 mod m20260913_000001_external_auth_callback_mode;
 mod m20260917_000001_folder_icons;
 mod m20261016_000001_metrics_backlog_observations;
+mod m20261024_000001_add_mfa_totp_used_steps;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -231,6 +232,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260913_000001_external_auth_callback_mode::Migration),
             Box::new(m20260917_000001_folder_icons::Migration),
             Box::new(m20261016_000001_metrics_backlog_observations::Migration),
+            Box::new(m20261024_000001_add_mfa_totp_used_steps::Migration),
         ]
     }
 }

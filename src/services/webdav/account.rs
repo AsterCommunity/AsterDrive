@@ -21,6 +21,35 @@ use crate::services::{
 use aster_drive_model::entities::webdav_account;
 use aster_forge_api::OffsetPage;
 
+/// WebDAV Basic auth 把 user-id 与 password 用冒号分隔（RFC 7617），
+/// 用户名因此不能包含 ':'；同时限制为可见 ASCII，避免控制字符与同形字符
+/// 进入认证路径。长度上限与主站用户名同量级。
+const WEBDAV_USERNAME_MAX_BYTES: usize = 64;
+
+/// 客户端自带密码的最小长度；不提供时由服务端生成 16 位随机密码。
+const WEBDAV_PASSWORD_MIN_LENGTH: usize = 8;
+
+pub(crate) fn validate_username(username: &str) -> Result<()> {
+    let trimmed = username.trim();
+    if trimmed.is_empty() {
+        return Err(AsterError::validation_error(
+            "WebDAV username cannot be empty",
+        ));
+    }
+    if trimmed.len() > WEBDAV_USERNAME_MAX_BYTES {
+        return Err(AsterError::validation_error("WebDAV username is too long"));
+    }
+    if !trimmed
+        .bytes()
+        .all(|byte| (0x21..=0x7e).contains(&byte) && byte != b':')
+    {
+        return Err(AsterError::validation_error(
+            "WebDAV username must only contain printable ASCII characters other than ':'",
+        ));
+    }
+    Ok(())
+}
+
 fn webdav_username_exists_error() -> AsterError {
     validation_error_with_code(
         ApiErrorCode::WebdavUsernameExists,
@@ -147,6 +176,9 @@ async fn create_in_scope(
     root_folder_id: Option<i64>,
 ) -> Result<WebdavAccountCreated> {
     crate::services::workspace::storage::require_scope_access(state, scope).await?;
+    // trim 后重绑定，保证校验值与入库值一致
+    let username = username.trim();
+    validate_username(username)?;
 
     // 检查用户名是否已存在
     if webdav_account_repo::find_by_username(state.writer_db(), username)
@@ -158,7 +190,14 @@ async fn create_in_scope(
 
     // 生成或使用指定密码
     let plain_password = match password {
-        Some(p) if !p.is_empty() => p.to_string(),
+        Some(p) if !p.is_empty() => {
+            if p.chars().count() < WEBDAV_PASSWORD_MIN_LENGTH {
+                return Err(AsterError::validation_error(format!(
+                    "WebDAV password must contain at least {WEBDAV_PASSWORD_MIN_LENGTH} characters"
+                )));
+            }
+            p.to_string()
+        }
         _ => generate_random_password(16),
     };
 
@@ -536,4 +575,35 @@ fn generate_random_password(len: usize) -> String {
             CHARSET[idx] as char
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WEBDAV_PASSWORD_MIN_LENGTH, WEBDAV_USERNAME_MAX_BYTES, validate_username};
+
+    #[test]
+    fn username_validation_accepts_printable_ascii_without_colon() {
+        assert!(validate_username("reader").is_ok());
+        assert!(validate_username("user-01_backup@example").is_ok());
+        assert!(validate_username("  padded-name  ").is_ok());
+        assert!(validate_username(&"a".repeat(WEBDAV_USERNAME_MAX_BYTES)).is_ok());
+    }
+
+    #[test]
+    fn username_validation_rejects_colon_non_ascii_and_oversize() {
+        // ':' 是 Basic auth user-id 与 password 的分隔符
+        assert!(validate_username("user:pass").is_err());
+        assert!(validate_username("").is_err());
+        assert!(validate_username("   ").is_err());
+        // 非 ASCII（中文）与控制字符都不允许
+        assert!(validate_username("用户").is_err());
+        assert!(validate_username("bad\nnewline").is_err());
+        assert!(validate_username(&"a".repeat(WEBDAV_USERNAME_MAX_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn password_min_length_constant_covers_generated_passwords() {
+        // 服务端自动生成的 16 位密码必须始终高于最小长度约束
+        const { assert!(WEBDAV_PASSWORD_MIN_LENGTH <= 16) };
+    }
 }

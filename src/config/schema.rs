@@ -271,6 +271,35 @@ pub struct NetworkTrustConfig {
     pub trusted_proxies: Vec<String>,
 }
 
+/// `NetworkTrustConfig` 的解析产物：App 构建时转换一次，经 `app_data` 注入，
+/// 请求侧按可信代理网络解析真实客户端 IP；来自不可信 peer 的
+/// `X-Forwarded-For` 一律忽略，只记 TCP peer 地址。
+#[derive(Clone)]
+pub struct TrustedClientNetworks {
+    proxies: std::sync::Arc<[ipnet::IpNet]>,
+}
+
+impl TrustedClientNetworks {
+    /// 坏条目解析失败时由 Forge helper 记 warn 并跳过，不阻断启动。
+    pub fn from_config(config: &NetworkTrustConfig) -> Self {
+        Self {
+            proxies: aster_forge_utils::net::parse_trusted_proxies(&config.trusted_proxies).into(),
+        }
+    }
+
+    /// 空列表 = 无反代或未配置：真实客户端就是 TCP peer。
+    pub fn real_ip(&self, req: &actix_web::HttpRequest) -> Option<std::net::IpAddr> {
+        let peer = req.peer_addr()?.ip();
+        Some(
+            aster_forge_middleware::actix::client_ip::real_ip_from_trusted_headers(
+                req.headers(),
+                peer,
+                &self.proxies,
+            ),
+        )
+    }
+}
+
 /// Rate limiting 配置
 ///
 /// 四个层级，不同接口类别不同阈值：
@@ -385,5 +414,102 @@ mod tests {
             toml::from_str::<Config>("[server]\nupload_temp_min_free_bytes = -1\n").is_err(),
             "negative safety floors must be rejected by the static config schema"
         );
+    }
+}
+
+#[cfg(test)]
+mod trusted_networks_tests {
+    use actix_web::test as actix_test;
+
+    use super::{NetworkTrustConfig, TrustedClientNetworks};
+
+    fn config_for(entries: &[&str]) -> NetworkTrustConfig {
+        NetworkTrustConfig {
+            trusted_proxies: entries.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn from_config_skips_invalid_entries_and_accepts_plain_ips() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&[
+            "10.0.0.0/8",
+            "not-a-network",
+            "172.16.5.9",
+        ]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.1.2.3:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "203.0.113.7"))
+            .to_http_request();
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([203, 0, 113, 7])),
+            "plain IP entries and CIDR entries both count as trusted proxies"
+        );
+    }
+
+    #[test]
+    fn spoofed_chain_behind_an_untrusted_proxy_never_wins() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8"]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.0.0.5:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "6.6.6.6, 198.51.100.2"))
+            .to_http_request();
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([198, 51, 100, 2])),
+            "right-to-left walk must stop at the first untrusted hop, not the forged leftmost"
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_chain_walks_from_the_peer_and_stops_at_first_untrusted_hop() {
+        let trusted =
+            TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8", "172.16.0.0/12"]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.0.0.5:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "6.6.6.6, 198.51.100.2, 172.16.0.4"))
+            .to_http_request();
+
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([198, 51, 100, 2]))
+        );
+    }
+
+    #[test]
+    fn malformed_forwarded_chain_fails_closed_to_the_tcp_peer() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8"]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("10.0.0.5:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "203.0.113.7, invalid, 10.0.0.9"))
+            .to_http_request();
+
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([10, 0, 0, 5]))
+        );
+    }
+
+    #[test]
+    fn empty_config_pins_real_ip_to_the_tcp_peer() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&[]));
+        let req = actix_test::TestRequest::default()
+            .peer_addr("198.51.100.4:40000".parse().unwrap())
+            .insert_header(("X-Forwarded-For", "203.0.113.7"))
+            .to_http_request();
+        assert_eq!(
+            trusted.real_ip(&req),
+            Some(std::net::IpAddr::from([198, 51, 100, 4])),
+            "without trusted proxies the forwarded header must never win"
+        );
+    }
+
+    #[test]
+    fn missing_peer_address_yields_no_ip() {
+        let trusted = TrustedClientNetworks::from_config(&config_for(&["10.0.0.0/8"]));
+        let req = actix_test::TestRequest::default()
+            .insert_header(("X-Forwarded-For", "203.0.113.7"))
+            .to_http_request();
+        assert_eq!(trusted.real_ip(&req), None);
     }
 }

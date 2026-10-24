@@ -1,12 +1,16 @@
 //! API 路由：`public`。
 
 use crate::api::dto::validate_request;
+use crate::api::middleware::rate_limit;
 use crate::api::request_auth::{access_cookie_token, bearer_token};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::api::response::ApiResponse;
+use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local, ops::audit, ops::config, remote::enrollment};
+use actix_governor::Governor;
+use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -27,20 +31,35 @@ pub struct AckRemoteEnrollmentReq {
     pub ack_token: String,
 }
 
-pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
+pub fn routes(
+    rl: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
+) -> impl actix_web::dev::HttpServiceFactory + use<> {
+    // Enrollment exchange returns long-lived node credentials, so unlike the
+    // read-only config endpoints it shares the public rate-limit tier even
+    // though the enrollment token itself is single-use and high-entropy.
+    let enrollment_limiter = rate_limit::build_governor(&rl.public, &network_trust.trusted_proxies);
+
     web::scope("/public")
         .route("/frontend-config", web::get().to(get_frontend_config))
         .route("/preview-apps", web::get().to(get_preview_apps))
         .route("/custom-config", web::get().to(get_custom_config))
         .route("/thumbnail-support", web::get().to(get_thumbnail_support))
         .route("/media-data-support", web::get().to(get_media_data_support))
-        .route(
-            "/remote-enrollment/redeem",
-            web::post().to(redeem_remote_enrollment),
-        )
-        .route(
-            "/remote-enrollment/ack",
-            web::post().to(ack_remote_enrollment),
+        .service(
+            web::scope("")
+                .wrap(Condition::new(
+                    rl.enabled,
+                    Governor::new(&enrollment_limiter),
+                ))
+                .route(
+                    "/remote-enrollment/redeem",
+                    web::post().to(redeem_remote_enrollment),
+                )
+                .route(
+                    "/remote-enrollment/ack",
+                    web::post().to(ack_remote_enrollment),
+                ),
         )
 }
 

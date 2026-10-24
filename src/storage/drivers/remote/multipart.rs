@@ -16,9 +16,9 @@ use aster_drive_storage::traits::multipart::{
 
 use super::RemoteDriver;
 
-struct HashingReader {
-    inner: Box<dyn AsyncRead + Unpin + Send + Sync>,
-    hasher: Arc<Mutex<Sha256>>,
+pub(super) struct HashingReader {
+    pub(super) inner: Box<dyn AsyncRead + Unpin + Send + Sync>,
+    pub(super) hasher: Arc<Mutex<Sha256>>,
 }
 
 impl AsyncRead for HashingReader {
@@ -154,20 +154,43 @@ impl MultipartStorageDriver for RemoteDriver {
                 "remote multipart part size cannot be negative",
             )
         })?;
+        // 占位签（digest 发送时未知）：本地 tee 与 follower 签名回传的 body
+        // digest 比对，闭环链路内容完整性。
         let hasher = Arc::new(Mutex::new(Sha256::new()));
         let hashing_reader = HashingReader {
             inner: reader,
             hasher: hasher.clone(),
         };
-        self.client
-            .put_reader(&self.object_key(&part_key), Box::new(hashing_reader), size)
-            .await?;
+        let follower_digest = self
+            .client
+            .put_reader(
+                &self.object_key(&part_key),
+                Box::new(hashing_reader),
+                size,
+                None,
+            )
+            .await?
+            .ok_or_else(|| {
+                storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    "remote part upload response missing signed body digest",
+                )
+            })?;
 
-        let digest = {
+        let local_digest = {
             let hasher = hasher.lock().unwrap_or_else(|error| error.into_inner());
-            hasher.clone().finalize()
+            hex::encode(hasher.clone().finalize())
         };
-        Ok(format!("\"{}\"", hex::encode(digest)))
+        let follower_hex = follower_digest.trim_matches('"').to_owned();
+        if follower_hex != local_digest {
+            return Err(storage_driver_error(
+                StorageErrorKind::Precondition,
+                format!(
+                    "remote part upload digest mismatch: local {local_digest}, follower {follower_hex}"
+                ),
+            ));
+        }
+        Ok(format!("\"{local_digest}\""))
     }
 
     async fn abort_multipart_upload(

@@ -9,7 +9,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::config::branding;
 use crate::db::repository::{
     mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
-    mfa_totp_setup_flow_repo, user_repo,
+    mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
 };
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, auth_mfa_failed_with_code};
 use crate::runtime::SharedRuntimeState;
@@ -264,6 +264,7 @@ pub async fn delete_factor(
         mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_login_flow_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_totp_setup_flow_repo::delete_all_for_user(&txn, user_id).await?;
+        mfa_totp_used_step_repo::delete_all_for_factor(&txn, factor_id).await?;
         let deleted = mfa_factor_repo::delete_for_user(&txn, factor_id, user_id).await?;
         Ok::<_, AsterError>((deleted, factor_info(factor)))
     }
@@ -355,10 +356,16 @@ pub async fn reset_user_mfa(
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
         user_repo::bump_session_version(&txn, user_id).await?;
-        let factor_count = mfa_factor_repo::list_for_user(&txn, user_id).await?.len();
+        let factors = mfa_factor_repo::list_for_user(&txn, user_id).await?;
+        let factor_count = factors.len();
         let recovery_code_count = mfa_recovery_code_repo::list_unused_for_user(&txn, user_id)
             .await?
             .len();
+        mfa_totp_used_step_repo::delete_all_for_factors(
+            &txn,
+            factors.iter().map(|factor| factor.id).collect(),
+        )
+        .await?;
         mfa_factor_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_recovery_code_repo::delete_all_for_user(&txn, user_id).await?;
         mfa_email_code_repo::delete_all_for_user(&txn, user_id).await?;
@@ -509,7 +516,27 @@ async fn verify_prepared_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
                     aad.as_bytes(),
                     &factor.secret_ciphertext,
                 )?;
-                totp::verify_code(&secret, code, now_utc())?
+                let now = now_utc();
+                match totp::verify_code_matching_step(&secret, code, now)? {
+                    Some(step) => {
+                        let step = aster_forge_utils::numbers::u64_to_i64(step, "totp time step")?;
+                        // 同一验证码只能消费一个敏感操作；重放按无效码拒绝。
+                        if !mfa_totp_used_step_repo::record_used_step(db, factor.id, step, now)
+                            .await?
+                        {
+                            false
+                        } else {
+                            mfa_totp_used_step_repo::delete_steps_before(
+                                db,
+                                factor.id,
+                                totp::replay_guard_min_step(now),
+                            )
+                            .await?;
+                            true
+                        }
+                    }
+                    None => false,
+                }
             } else {
                 false
             }

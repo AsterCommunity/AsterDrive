@@ -4,7 +4,15 @@ use tokio::sync::oneshot;
 
 use super::super::payload::serialized_poll_response_len;
 use super::broker::RemoteTunnelHttpResponse;
-use super::headers::request_headers;
+
+fn declared_body_sha256(extra_headers: &[(String, String)]) -> String {
+    extra_headers
+        .iter()
+        .find(|(name, _)| name == crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default()
+}
+use super::headers::{request_headers, take_expected_response_nonce};
 use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT, RemoteTunnelRegistry,
     reverse_tunnel_offline_error,
@@ -113,7 +121,7 @@ impl RemoteTunnelRegistry {
         method: Method,
         path_and_query: String,
         content_length: Option<u64>,
-        extra_headers: Vec<(String, String)>,
+        mut extra_headers: Vec<(String, String)>,
         body: Bytes,
     ) -> Result<RemoteTunnelHttpResponse> {
         if body.len() > REMOTE_TUNNEL_POLL_BODY_LIMIT {
@@ -129,12 +137,22 @@ impl RemoteTunnelRegistry {
         }
 
         let request_id = aster_forge_utils::id::new_uuid();
+        let response_nonce = take_expected_response_nonce(&mut extra_headers)?;
         let request = RemoteTunnelRequest {
             request_id: request_id.clone(),
             method: method.as_str().to_string(),
-            headers: request_headers(remote_node, &method, &path_and_query, content_length)
-                .chain(extra_headers)
-                .collect(),
+            // 重签跟随 primary 的声明头（重签者不是 digest 权威）；body 已
+            // 完整缓冲，其真实 digest 由 follower 收完对账与响应对账闭环。
+            headers: request_headers(
+                remote_node,
+                &method,
+                &path_and_query,
+                content_length,
+                &declared_body_sha256(&extra_headers),
+                &response_nonce,
+            )
+            .chain(extra_headers)
+            .collect(),
             path_and_query,
             body,
         };

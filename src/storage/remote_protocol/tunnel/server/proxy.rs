@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use bytes::Bytes;
 use futures::{StreamExt, TryStreamExt};
-use hmac::Mac as _;
 use http::{HeaderMap, Method};
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
@@ -23,7 +22,7 @@ use crate::storage::remote_protocol::tunnel::is_allowed_tunnel_target;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
-    REMOTE_CONTROL_PLANE_BODY_LIMIT, internal_request_mac, sign_internal_request,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, sign_internal_request, verify_internal_request_signature,
 };
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::StorageErrorKind;
@@ -33,7 +32,6 @@ const REMOTE_TUNNEL_PROXY_BODY_BRIDGE_CAPACITY: usize = 128 * 1024;
 const REMOTE_TUNNEL_PROXY_HEADERS_LIMIT: usize = 16 * 1024;
 const REMOTE_TUNNEL_PROXY_HEADER_COUNT_LIMIT: usize = 32;
 const REMOTE_TUNNEL_PROXY_RESPONSE_HEADER: &str = "x-aster-remote-tunnel-proxied";
-const HMAC_SHA256_SIGNATURE_LEN: usize = 32;
 
 #[derive(Debug, Deserialize)]
 pub struct RemoteTunnelProxyQuery {
@@ -107,6 +105,7 @@ impl ClusterRemoteTunnelBroker {
         };
         let timestamp = chrono::Utc::now().timestamp();
         let nonce = aster_forge_utils::id::new_uuid();
+        // proxy body 是流式转发，无法预计算 digest，签空串占位
         let signature = sign_internal_request(
             self.directory.proxy_secret(),
             reqwest::Method::POST.as_str(),
@@ -114,6 +113,7 @@ impl ClusterRemoteTunnelBroker {
             timestamp,
             &nonce,
             content_length,
+            "",
         );
         let body_stream = ReaderStream::new(body);
         let mut request = self
@@ -449,23 +449,17 @@ async fn authorize_proxy_request<S: SharedRuntimeState>(
         .path_and_query()
         .map(|value| value.as_str())
         .unwrap_or_else(|| req.path());
-    let signature = hex::decode(signature)
-        .map_err(|_| AsterError::auth_invalid_credentials("tunnel proxy signature mismatch"))?;
-    if signature.len() != HMAC_SHA256_SIGNATURE_LEN {
-        return Err(AsterError::auth_invalid_credentials(
-            "tunnel proxy signature mismatch",
-        ));
-    }
-    let valid_signature = internal_request_mac(
+    // proxy body 是流式转发，验证时无完整 body，只接受空串占位或旧版格式
+    let valid_signature = verify_internal_request_signature(
         directory.proxy_secret(),
         req.method().as_str(),
         request_target,
         timestamp,
         &nonce,
         content_length,
-    )
-    .verify_slice(&signature)
-    .is_ok();
+        None,
+        &signature,
+    );
     if !valid_signature {
         return Err(AsterError::auth_invalid_credentials(
             "tunnel proxy signature mismatch",
@@ -850,7 +844,15 @@ mod tests {
         }
         url.query_pairs_mut().append_pair("headers", "W10");
         let uri = format!("{}?{}", url.path(), url.query().unwrap());
-        let signature = sign_internal_request(secret, "POST", &uri, timestamp, nonce, None);
+        let signature = sign_internal_request(
+            secret,
+            "POST",
+            &uri,
+            timestamp,
+            nonce,
+            None,
+            crate::storage::remote_protocol::empty_body_sha256(),
+        );
         actix_web::test::TestRequest::post()
             .uri(&uri)
             .insert_header((INTERNAL_AUTH_ACCESS_KEY_HEADER, header_runtime_id))

@@ -156,7 +156,16 @@ mod tests {
         .unwrap();
         db.execute_unprepared("INSERT INTO file_blobs (id, ref_count, updated_at) VALUES (10, 0, '2000-01-01 00:00:00+00:00'), (11, -1, '2000-01-01 00:00:00+00:00'), (12, 1, '2000-01-01 00:00:00+00:00')").await.unwrap();
         use aster_drive_migration::MigratorTrait;
-        let migration = aster_drive_migration::Migrator::migrations().pop().unwrap();
+        // 按名字定位：append 新 migration 不能再破坏本 fixture 的假设。
+        let migration = aster_drive_migration::Migrator::migrations()
+            .into_iter()
+            .find(|migration| {
+                migration
+                    .name()
+                    .to_string()
+                    .ends_with("metrics_backlog_observations")
+            })
+            .unwrap();
         let manager = aster_drive_migration::SchemaManager::new(&db);
         migration.up(&manager).await.unwrap();
         let backfilled = db.query_one_raw(Statement::from_string(DbBackend::Sqlite,

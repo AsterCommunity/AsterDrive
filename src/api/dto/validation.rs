@@ -39,6 +39,10 @@ pub(crate) fn validate_auth_username(value: &str) -> std::result::Result<(), Val
     crate::services::auth::local::validate_username(value).map_err(aster_to_validation_error)
 }
 
+pub(crate) fn validate_webdav_username(value: &str) -> std::result::Result<(), ValidationError> {
+    crate::services::webdav::account::validate_username(value).map_err(aster_to_validation_error)
+}
+
 pub(crate) fn validate_auth_email(value: &str) -> std::result::Result<(), ValidationError> {
     crate::services::auth::local::validate_email(value).map_err(aster_to_validation_error)
 }

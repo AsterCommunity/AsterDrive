@@ -6,7 +6,8 @@ use aster_drive_storage::StorageErrorKind;
 
 use super::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER, sign_internal_request,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, body_sha256_hex, empty_body_sha256, path_and_query_for_url,
+    sign_internal_request,
 };
 
 pub async fn send_signed_master_request(
@@ -14,7 +15,6 @@ pub async fn send_signed_master_request(
     binding: &master_binding::Model,
     method: Method,
     url: &str,
-    path_and_query: &str,
     body: Option<Vec<u8>>,
 ) -> Result<reqwest::Response> {
     let content_length = body
@@ -28,15 +28,30 @@ pub async fn send_signed_master_request(
             })
         })
         .transpose()?;
+    // 控制面 body 是有界 JSON，整体入签；None 视为空 body。
+    let body_sha256 = body
+        .as_deref()
+        .map(body_sha256_hex)
+        .unwrap_or_else(|| empty_body_sha256().to_string());
+    // 签名输入从 URL 归一化得出，与 master 侧 `req.uri().path_and_query()`
+    // 的验签输入必然一致；调用方手拼路径的写法在未来加 query 参数时会静默
+    // 脱离签名，这里收口为单一事实源。
+    let parsed_url = reqwest::Url::parse(url).map_err(|error| {
+        crate::errors::storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("parse remote master request url: {error}"),
+        )
+    })?;
     let timestamp = chrono::Utc::now().timestamp();
     let nonce = aster_forge_utils::id::new_uuid();
     let signature = sign_internal_request(
         &binding.secret_key,
         method.as_str(),
-        path_and_query,
+        &path_and_query_for_url(&parsed_url),
         timestamp,
         &nonce,
         content_length,
+        &body_sha256,
     );
 
     let mut builder = client
@@ -45,6 +60,10 @@ pub async fn send_signed_master_request(
         .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
         .header(INTERNAL_AUTH_NONCE_HEADER, nonce)
         .header(INTERNAL_AUTH_SIGNATURE_HEADER, signature)
+        .header(
+            crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+            &body_sha256,
+        )
         .header(reqwest::header::CONTENT_TYPE, "application/json");
     if let Some(content_length) = content_length {
         builder = builder.header(reqwest::header::CONTENT_LENGTH, content_length);
@@ -163,7 +182,6 @@ mod tests {
             &binding,
             Method::GET,
             &format!("{}{get_path}", binding.master_url),
-            get_path,
             None,
         )
         .await
@@ -175,7 +193,6 @@ mod tests {
             &binding,
             Method::POST,
             &format!("{}{post_path}", binding.master_url),
-            post_path,
             Some(post_body.clone()),
         )
         .await
@@ -190,6 +207,11 @@ mod tests {
             for request in requests.iter() {
                 assert_eq!(request.access_key, binding.access_key);
                 assert!(!request.nonce.is_empty());
+                let body_sha256 = if request.body.is_empty() && request.content_length.is_none() {
+                    empty_body_sha256().to_string()
+                } else {
+                    body_sha256_hex(&request.body)
+                };
                 assert_eq!(
                     request.signature,
                     super::sign_internal_request(
@@ -199,6 +221,7 @@ mod tests {
                         request.timestamp,
                         &request.nonce,
                         request.content_length,
+                        &body_sha256,
                     )
                 );
             }

@@ -13,7 +13,7 @@ use crate::config::{
 };
 use crate::db::repository::{
     mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
-    mfa_totp_setup_flow_repo, user_repo,
+    mfa_totp_setup_flow_repo, mfa_totp_used_step_repo, user_repo,
 };
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
@@ -637,7 +637,24 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
         aad.as_bytes(),
         &factor.secret_ciphertext,
     )?;
-    let verified = totp::verify_code(&secret, code, now)?;
+    let verified = match totp::verify_code_matching_step(&secret, code, now)? {
+        Some(step) => {
+            let step = aster_forge_utils::numbers::u64_to_i64(step, "totp time step")?;
+            // 同一验证码只能完成一次登录挑战；跨 flow 重放在此拒绝。
+            if !mfa_totp_used_step_repo::record_used_step(db, factor.id, step, now).await? {
+                false
+            } else {
+                mfa_totp_used_step_repo::delete_steps_before(
+                    db,
+                    factor.id,
+                    totp::replay_guard_min_step(now),
+                )
+                .await?;
+                true
+            }
+        }
+        None => false,
+    };
     if verified {
         mfa_factor_repo::touch_last_used(db, factor.id, now).await?;
     }

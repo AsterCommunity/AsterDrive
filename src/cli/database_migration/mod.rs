@@ -53,6 +53,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "auth_sessions",
     "passkeys",
     "mfa_factors",
+    "mfa_totp_used_steps",
     "mfa_recovery_codes",
     "mfa_login_flows",
     "mfa_email_codes",

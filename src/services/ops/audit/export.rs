@@ -305,7 +305,7 @@ fn rows_for_batch(
                     .as_ref()
                     .map(serde_json::Value::to_string)
                     .map(neutralize_csv_formula),
-                ip_address: model.ip_address.clone(),
+                ip_address: model.ip_address.clone().map(neutralize_csv_formula),
                 user_agent: model.user_agent.clone().map(neutralize_csv_formula),
                 member_user_id,
                 member_username: member_user_id
@@ -542,5 +542,30 @@ mod tests {
             "'=HYPERLINK(\"x\")"
         );
         assert_eq!(neutralize_csv_formula("ordinary".to_string()), "ordinary");
+    }
+
+    #[test]
+    fn rows_for_batch_neutralizes_formula_payloads_in_ip_address() {
+        let model = audit_log::Model {
+            id: 1,
+            user_id: 7,
+            action: aster_drive_model::types::AuditAction::AdminCreateUser,
+            entity_type: "user".to_string(),
+            entity_id: None,
+            entity_name: None,
+            details: None,
+            ip_address: Some("=cmd|'/C calc'!A0".to_string()),
+            user_agent: Some("@SUM(1)".to_string()),
+            created_at: chrono::Utc::now(),
+        };
+
+        let rows = rows_for_batch(&[model], &[None], &HashMap::new());
+
+        assert_eq!(
+            rows[0].ip_address.as_deref(),
+            Some("'=cmd|'/C calc'!A0"),
+            "spoofed audit IPs must not export as live spreadsheet formulas"
+        );
+        assert_eq!(rows[0].user_agent.as_deref(), Some("'@SUM(1)"));
     }
 }

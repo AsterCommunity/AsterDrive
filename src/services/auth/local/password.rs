@@ -7,7 +7,7 @@ use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use aster_forge_db::transaction;
 
-use super::shared::{find_user_by_identifier, update_password_in_connection};
+use super::shared::{DUMMY_PASSWORD_HASH, find_user_by_identifier, update_password_in_connection};
 use super::validate_password;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 
@@ -48,6 +48,13 @@ pub async fn login(
     let outcome = async {
         ensure_password_login_enabled(state)?;
         let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
+            // Burn one Argon2 verification so unknown identifiers cost the same
+            // as a wrong password and stay unenumerable by response timing.
+            let _ = state
+                .runtime_config()
+                .password_hash_runtime()
+                .verify_password(password, DUMMY_PASSWORD_HASH)
+                .await?;
             tracing::debug!(identifier_kind, "login rejected: user not found");
             failure_reason = Some(LoginFailureReason::InvalidCredentials);
             return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));

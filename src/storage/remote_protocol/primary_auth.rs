@@ -2,13 +2,22 @@ use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use aster_drive_model::entities::managed_follower;
-use hmac::Mac;
 
 use super::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
-    internal_request_mac,
 };
+
+/// `body`：接收方已读完整 body 时传 `Some(bytes)`（签名覆盖其 digest）；
+/// 流式 body 传 `None`（只接受空串占位与旧版格式）。
+/// 签名声明的 body digest（见 master_binding::declared_body_sha256）。
+fn declared_body_sha256(headers: &actix_web::http::header::HeaderMap) -> Result<String> {
+    Ok(headers
+        .get(crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned())
+}
 
 pub async fn authorize_remote_node_request<S: SharedRuntimeState>(
     state: &S,
@@ -34,17 +43,16 @@ pub async fn authorize_remote_node_request<S: SharedRuntimeState>(
     let remote_node = managed_follower_repo::find_by_access_key(state.writer_db(), &access_key)
         .await?
         .ok_or_else(|| AsterError::auth_invalid_credentials("unknown remote node access_key"))?;
-    let expected = internal_request_mac(
+    if !super::verify_internal_request_signature(
         &remote_node.secret_key,
         method.as_str(),
         path_and_query,
         timestamp,
         &nonce,
         content_length,
-    );
-    let signature = hex::decode(&signature)
-        .map_err(|_| AsterError::auth_invalid_credentials("remote node auth signature mismatch"))?;
-    if expected.verify_slice(&signature).is_err() {
+        Some(&declared_body_sha256(headers)?),
+        &signature,
+    ) {
         return Err(AsterError::auth_invalid_credentials(
             "remote node auth signature mismatch",
         ));

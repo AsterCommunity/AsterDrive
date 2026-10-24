@@ -68,7 +68,7 @@ pub(crate) use blob_upload::{
     upload_temp_file_to_prepared_blob, upload_temp_file_to_prepared_blob_cancellable,
 };
 pub(crate) use follower_stream::{
-    FollowerUploadBody, compose_follower_objects, write_follower_object,
+    FollowerObjectWriteRequest, FollowerUploadBody, compose_follower_objects, write_follower_object,
 };
 pub(crate) struct IngestStreamRequest<'a> {
     pub scope: WorkspaceStorageScope,

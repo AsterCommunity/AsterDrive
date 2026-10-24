@@ -40,8 +40,28 @@ use aster_drive::storage::remote_protocol::tunnel::server::{
 use aster_drive::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH, RemoteStorageCapabilities,
-    sign_internal_request,
+    empty_body_sha256,
 };
+
+/// 测试辅助：签一个无 body 的内部协议请求（tunnel connect / proxy 探测）。
+fn sign_internal_request(
+    secret_key: &str,
+    method: &str,
+    path_and_query: &str,
+    timestamp: i64,
+    nonce: &str,
+    content_length: Option<u64>,
+) -> String {
+    aster_drive::storage::remote_protocol::sign_internal_request(
+        secret_key,
+        method,
+        path_and_query,
+        timestamp,
+        nonce,
+        content_length,
+        empty_body_sha256(),
+    )
+}
 
 const RUNTIME_LEASE_ID: &str = "aster_drive.background_tasks";
 const ADMIN_PASSWORD: &str = "AsterDrive-E2E-Password-399!";

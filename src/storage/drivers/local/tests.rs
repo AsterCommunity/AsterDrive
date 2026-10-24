@@ -469,6 +469,43 @@ async fn copy_metadata_stream_and_delete_roundtrip() {
 }
 
 #[tokio::test]
+async fn copy_publish_failure_preserves_existing_target_and_cleans_temporary_file() {
+    let base = unique_temp_dir("local-copy-publish-failure");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let base_path = test_base_path(&base);
+    let driver = super::LocalDriver::new(&base_path).unwrap();
+    driver.put("source.bin", b"verified source").await.unwrap();
+    tokio::fs::create_dir_all(base.join("target.bin"))
+        .await
+        .unwrap();
+    tokio::fs::write(base.join("target.bin/keep.txt"), b"existing target")
+        .await
+        .unwrap();
+
+    driver
+        .copy_object("source.bin", "target.bin")
+        .await
+        .expect_err("publishing a file over a directory must fail");
+
+    assert_eq!(
+        tokio::fs::read(base.join("target.bin/keep.txt"))
+            .await
+            .unwrap(),
+        b"existing target"
+    );
+    assert!(
+        std::fs::read_dir(&base)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| !entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".aster-copy-"))
+    );
+    tokio::fs::remove_dir_all(base).await.unwrap();
+}
+
+#[tokio::test]
 async fn stream_attempt_rejects_truncation_without_replacing_visible_object() {
     let base = unique_temp_dir("local-stream-attempt-test");
     tokio::fs::create_dir_all(&base).await.unwrap();

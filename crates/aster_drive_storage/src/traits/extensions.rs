@@ -173,6 +173,7 @@ pub struct StorageDriverExtensions<'a> {
     pub native_thumbnail: Option<&'a dyn NativeThumbnailStorageDriver>,
     pub native_media_metadata: Option<&'a dyn NativeMediaMetadataStorageDriver>,
     pub multipart: Option<&'a dyn crate::traits::multipart::MultipartStorageDriver>,
+    pub native_publish: Option<&'a dyn NativePublishStorageDriver>,
 }
 
 /// One product-owned streaming write.
@@ -580,6 +581,36 @@ pub trait StreamUploadDriver: Send + Sync {
     ///
     /// 从本地文件路径写入存储，供需要显式控制临时文件生命周期的调用方使用。
     async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String>;
+
+    /// 内容 digest 已知的流式上传。
+    ///
+    /// 只有内部协议（remote driver）消费该 digest 做先承诺签名；其它 provider
+    /// 默认忽略 digest 走 [`StreamUploadDriver::put_reader`]。
+    async fn put_reader_with_sha256(
+        &self,
+        storage_path: &str,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+        content_sha256: &str,
+    ) -> Result<String> {
+        let _ = content_sha256;
+        self.put_reader(storage_path, reader, size).await
+    }
+}
+
+/// Optional publication of a staged object into its final storage key.
+///
+/// This capability is used after integrity verification. Filesystem-like
+/// drivers can publish with an atomic rename; providers without a native
+/// operation keep the generic `StorageDriver::copy_object` fallback. Drive
+/// runs that fallback after staging, outside `STREAM_ATTEMPT_TIMEOUT`.
+/// A successful publication consumes the staged key and atomically replaces
+/// the destination. On failure the existing destination must remain intact;
+/// callers retain ownership of cleaning up the staged key. A native error is
+/// propagated, rather than retried through copy.
+#[async_trait]
+pub trait NativePublishStorageDriver: Send + Sync {
+    async fn publish_staged(&self, staging_path: &str, storage_path: &str) -> Result<String>;
 }
 
 /// 本地路径暴露（仅用于把底层文件路径安全交给受控的外部命令）。

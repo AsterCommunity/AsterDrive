@@ -21,8 +21,8 @@ use aster_drive_storage::error::{
     storage_driver_error_with_context,
 };
 use aster_drive_storage::{
-    BlobMetadata, ExactSizeReader, StorageDriver, StreamUploadAttempt, StreamUploadCleanup,
-    StreamUploadDriver,
+    BlobMetadata, ExactSizeReader, NativePublishStorageDriver, StorageDriver, StreamUploadAttempt,
+    StreamUploadCleanup, StreamUploadDriver,
 };
 
 const DEFAULT_SFTP_PORT: u16 = 22;
@@ -568,6 +568,7 @@ impl StorageDriver for SftpDriver {
     ) -> aster_drive_storage::Result<String> {
         let src_remote_path = self.full_path(src_path)?;
         let dest_remote_path = self.full_path(dest_path)?;
+        let temporary_path = format!("{dest_remote_path}.aster-copy-{}.tmp", uuid::Uuid::now_v7());
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &dest_remote_path).await?;
         let mut src = connection
@@ -577,18 +578,33 @@ impl StorageDriver for SftpDriver {
             .map_err(|error| connection.map_sftp_error("SFTP source open failed", error))?;
         let mut dest = connection
             .sftp()?
-            .create(dest_remote_path)
+            .create(temporary_path.clone())
             .await
             .map_err(|error| connection.map_sftp_error("SFTP destination create failed", error))?;
-        tokio::io::copy(&mut src, &mut dest)
+        let result = async {
+            tokio::io::copy(&mut src, &mut dest)
+                .await
+                .map_err(|error| map_io_error("SFTP copy failed", error))?;
+            dest.flush()
+                .await
+                .map_err(|error| map_io_error("SFTP copy flush failed", error))?;
+            dest.shutdown()
+                .await
+                .map_err(|error| map_io_error("SFTP copy close failed", error))?;
+            replace_sftp_object(
+                &mut connection,
+                &temporary_path,
+                &dest_remote_path,
+                dest_path,
+            )
             .await
-            .map_err(|error| map_io_error("SFTP copy failed", error))?;
-        dest.flush()
-            .await
-            .map_err(|error| map_io_error("SFTP copy flush failed", error))?;
-        dest.shutdown()
-            .await
-            .map_err(|error| map_io_error("SFTP copy close failed", error))?;
+        }
+        .await;
+        if let Err(error) = result {
+            cleanup_sftp_temporary_file(&mut connection, &temporary_path, "copy publish error")
+                .await;
+            return Err(error);
+        }
         connection.mark_reusable();
         Ok(dest_path.to_string())
     }
@@ -596,8 +612,25 @@ impl StorageDriver for SftpDriver {
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
+            native_publish: Some(self),
             ..Default::default()
         }
+    }
+}
+
+#[async_trait]
+impl NativePublishStorageDriver for SftpDriver {
+    async fn publish_staged(
+        &self,
+        staging_path: &str,
+        storage_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        let staging = self.full_path(staging_path)?;
+        let destination = self.full_path(storage_path)?;
+        let mut connection = self.acquire_connection().await?;
+        replace_sftp_object(&mut connection, &staging, &destination, storage_path).await?;
+        connection.mark_reusable();
+        Ok(storage_path.to_string())
     }
 }
 

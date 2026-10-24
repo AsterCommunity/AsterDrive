@@ -7,13 +7,18 @@ use crate::runtime::FollowerAppState;
 use crate::services::{
     ops::audit,
     remote::{master_binding, storage_target},
-    workspace::storage::{FollowerUploadBody, compose_follower_objects, write_follower_object},
+    workspace::storage::{
+        FollowerObjectWriteRequest, FollowerUploadBody, compose_follower_objects,
+        write_follower_object,
+    },
 };
 use crate::storage::remote_protocol::{
-    INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
-    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
-    RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
-    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
+    INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_RESPONSE_NONCE_HEADER,
+    INTERNAL_RESPONSE_OBJECT_SHA256_HEADER, INTERNAL_RESPONSE_SIGNATURE_HEADER,
+    PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE, RemoteBindingSyncRequest,
+    RemoteCreateStorageTargetRequest, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
+    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
+    RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
 };
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
@@ -74,6 +79,27 @@ fn internal_storage_validation_error(
     message: impl Into<String>,
 ) -> AsterError {
     validation_error_with_code(api_code, message)
+}
+
+/// 反序列化控制面 JSON body，并对其与签名声明 digest 做对账：验签只证明
+/// primary 签过声明值，body 字节本身必须与此一致才算完整覆盖。
+fn json_request_body<T: serde::de::DeserializeOwned>(req: &HttpRequest, body: &[u8]) -> Result<T> {
+    if body.len() > crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT {
+        return Err(AsterError::payload_too_large(format!(
+            "internal JSON body exceeds {} bytes",
+            crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT
+        )));
+    }
+    let declared = crate::storage::remote_protocol::declared_content_sha256(req.headers());
+    let computed = crate::storage::remote_protocol::body_sha256_hex(body);
+    if declared.is_empty() || declared != computed {
+        return Err(AsterError::auth_invalid_credentials(
+            "request body does not match the signed digest",
+        ));
+    }
+    serde_json::from_slice(body).map_err(|error| {
+        AsterError::validation_error(format!("invalid JSON request body: {error}"))
+    })
 }
 
 fn content_length_header(headers: &HeaderMap) -> Result<i64> {
@@ -350,9 +376,11 @@ async fn get_capacity(
 async fn sync_binding(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
-    body: web::Json<RemoteBindingSyncRequest>,
+    body: web::Bytes,
 ) -> Result<HttpResponse> {
+    // binding sync 的 body 是有界 JSON，整体入签后再反序列化。
     let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let body: RemoteBindingSyncRequest = json_request_body(&req, &body)?;
     let synced = master_binding::sync_from_primary(
         state.get_ref(),
         &binding.access_key,
@@ -488,13 +516,6 @@ async fn put_object(
     path: web::Path<String>,
     payload: web::Payload,
 ) -> Result<HttpResponse> {
-    let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
-        master_binding::authorize_internal_write_request(state.get_ref(), &req).await?
-    } else {
-        master_binding::authorize_presigned_put_request(state.get_ref(), &req).await?
-    };
-    let object_key = path.into_inner();
-    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let content_length = content_length_header(req.headers())?;
     if content_length < 0 {
         return Err(internal_storage_validation_error(
@@ -502,7 +523,26 @@ async fn put_object(
             "content-length must be non-negative",
         ));
     }
+    let signed = req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER);
+    let ctx = if signed {
+        master_binding::authorize_internal_write_request(state.get_ref(), &req).await?
+    } else {
+        master_binding::authorize_presigned_put_request(state.get_ref(), &req).await?
+    };
+    let object_key = path.into_inner();
+    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     validate_ingress_object_size(content_length, ctx.ingress_max_file_size, "object")?;
+    // v7 声明头：非空 = primary 先承诺的 body digest（收完对账）；空 = relay
+    // 直推的占位签（内容完整性由响应签名对账补齐）。
+    let declared_sha256 = if signed {
+        req.headers()
+            .get(crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    } else {
+        String::new()
+    };
     tracing::debug!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -510,32 +550,43 @@ async fn put_object(
         "follower object write accepted"
     );
 
-    let payload = crate::storage::transfer_metrics::payload(
-        payload.into_inner(),
-        state.metrics.clone(),
-        aster_drive_metrics::TransferLabels {
-            direction: aster_drive_metrics::TransferDirection::Ingress,
-            source: aster_drive_metrics::TransferSource::Remote,
-            mode: if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
-                aster_drive_metrics::TransferMode::Stream
-            } else {
-                aster_drive_metrics::TransferMode::Presigned
+    let payload: FollowerUploadBody = {
+        let payload = crate::storage::transfer_metrics::payload(
+            payload.into_inner(),
+            state.metrics.clone(),
+            aster_drive_metrics::TransferLabels {
+                direction: aster_drive_metrics::TransferDirection::Ingress,
+                source: aster_drive_metrics::TransferSource::Remote,
+                mode: if signed {
+                    aster_drive_metrics::TransferMode::Stream
+                } else {
+                    aster_drive_metrics::TransferMode::Presigned
+                },
             },
-        },
-    );
-    let payload: FollowerUploadBody = Box::pin(payload.map(|chunk| {
-        chunk.map_err(|error| AsterError::validation_error(format!("read upload payload: {error}")))
-    }));
+        );
+        Box::pin(payload.map(|chunk| {
+            chunk.map_err(|error| {
+                AsterError::validation_error(format!("read upload payload: {error}"))
+            })
+        }))
+    };
     let etag = write_follower_object(
         ctx.ingress_driver,
         state.metrics.as_ref(),
-        ctx.binding.id,
-        &object_key,
-        &storage_path,
-        content_length,
+        FollowerObjectWriteRequest {
+            binding_id: ctx.binding.id,
+            object_key: &object_key,
+            storage_path: &storage_path,
+            content_length,
+            expected_sha256: signed
+                .then_some(declared_sha256.as_str())
+                .filter(|value| !value.is_empty()),
+        },
         payload,
     )
     .await?;
+    // relay hasher 算出的内容 digest（etag 即 sha256 hex）。
+    let computed_sha256 = etag.trim_matches('"').to_owned();
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -564,17 +615,41 @@ async fn put_object(
         )
         .await;
     }
-    Ok(HttpResponse::Ok()
-        .insert_header((actix_web::http::header::ETAG, etag))
-        .json(crate::api::response::empty_success()))
+    let nonce = if signed {
+        req.headers()
+            .get(INTERNAL_AUTH_NONCE_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    } else {
+        String::new()
+    };
+    let signature = if signed {
+        crate::storage::remote_protocol::sign_internal_response_signature(
+            &ctx.binding.secret_key,
+            &nonce,
+            &computed_sha256,
+        )
+    } else {
+        String::new()
+    };
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header((actix_web::http::header::ETAG, etag));
+    if signed {
+        builder.insert_header((INTERNAL_RESPONSE_OBJECT_SHA256_HEADER, computed_sha256));
+        builder.insert_header((INTERNAL_RESPONSE_SIGNATURE_HEADER, signature));
+        builder.insert_header((INTERNAL_RESPONSE_NONCE_HEADER, nonce));
+    }
+    Ok(builder.json(crate::api::response::empty_success()))
 }
 
 async fn compose_objects(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
-    body: web::Json<RemoteStorageComposeRequest>,
+    body: web::Bytes,
 ) -> Result<HttpResponse> {
     let ctx = master_binding::authorize_internal_write_request(state.get_ref(), &req).await?;
+    let body: RemoteStorageComposeRequest = json_request_body(&req, &body)?;
     if body.part_keys.is_empty() {
         return Err(internal_storage_validation_error(
             ApiErrorCode::InternalStorageComposePartsRequired,
@@ -903,10 +978,14 @@ async fn list_storage_target_connectors(
 async fn create_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
-    body: web::Json<RemoteCreateStorageTargetRequest>,
+    body: web::Bytes,
 ) -> Result<HttpResponse> {
-    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
-    let target = storage_target::create(state.get_ref(), &binding, body.into_inner()).await?;
+    // 写操作要求 binding 处于启用态：节点被 master 禁用后，持旧凭据的
+    // 一方不得继续修改本节点存储配置；binding sync 端点保持放行以便
+    // 重新启用时能同步 is_enabled=true。body 是有界 JSON，整体入签。
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
+    let body: RemoteCreateStorageTargetRequest = json_request_body(&req, &body)?;
+    let target = storage_target::create(state.get_ref(), &binding, body).await?;
     tracing::info!(
         binding_id = binding.id,
         target_key = %target.target_key,
@@ -936,12 +1015,13 @@ async fn update_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
     path: web::Path<String>,
-    body: web::Json<RemoteUpdateStorageTargetRequest>,
+    body: web::Bytes,
 ) -> Result<HttpResponse> {
-    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    // 与 create_storage_target 相同：写操作要求 binding 启用；body 整体入签。
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
-    let target =
-        storage_target::update(state.get_ref(), &binding, &target_key, body.into_inner()).await?;
+    let body: RemoteUpdateStorageTargetRequest = json_request_body(&req, &body)?;
+    let target = storage_target::update(state.get_ref(), &binding, &target_key, body).await?;
     tracing::info!(
         binding_id = binding.id,
         target_key = %target.target_key,
@@ -972,7 +1052,8 @@ async fn delete_storage_target(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    // 与 create_storage_target 相同：写操作要求 binding 启用。
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
     let deleted_target = storage_target::delete(state.get_ref(), &binding, &target_key).await?;
     tracing::info!(
@@ -1090,6 +1171,39 @@ mod tests {
             content_length_header(&headers).expect("valid content-length should parse"),
             42
         );
+    }
+
+    #[test]
+    fn json_request_body_requires_a_non_empty_matching_digest() {
+        let body = br#"{}"#;
+        let digest = crate::storage::remote_protocol::body_sha256_hex(body);
+        let request = actix_web::test::TestRequest::post()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+                digest.as_str(),
+            ))
+            .to_http_request();
+        assert!(json_request_body::<serde_json::Value>(&request, body).is_ok());
+
+        let empty_request = actix_web::test::TestRequest::post()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+                "",
+            ))
+            .to_http_request();
+        assert!(json_request_body::<serde_json::Value>(&empty_request, body).is_err());
+
+        let wrong_request = actix_web::test::TestRequest::post()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+                "00",
+            ))
+            .to_http_request();
+        assert!(json_request_body::<serde_json::Value>(&wrong_request, body).is_err());
+
+        let oversized =
+            vec![b' '; crate::storage::remote_protocol::REMOTE_CONTROL_PLANE_BODY_LIMIT + 1];
+        assert!(json_request_body::<serde_json::Value>(&request, &oversized).is_err());
     }
 
     #[actix_web::test]

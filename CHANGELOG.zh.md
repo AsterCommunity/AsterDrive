@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **内部协议请求体覆盖（v7）** — primary↔follower 控制面与对象协议的 HMAC 签名现包含规范的请求体 SHA-256 行，并以 `x-aster-content-sha256` 声明头在线传输：follower 在读取 body 前即可验签，收完流式字节后再对账。全部对象上传均被覆盖且零新增缓冲：digest 发送前已知的路径直接先承诺签名；relay 流式直推等收完才知道 digest 的路径签显式占位，由新增的响应签名机制对账——follower 把算出的 digest 以绑定本次请求 nonce 的 HMAC 响应签名回传，primary 验签并比对后才接受传输。任何篡改都会被拒绝，摘要校验失败不会触碰正式对象。旧版五行签名直接拒绝：**primary 与 follower 实例必须同时升级**——混合版本集群的内部请求一律 401，不做静默降级。出站远程请求现禁用重定向，签名请求头不会泄露到其他源。
+- **分享密码 cookie 过期与密码绑定** — 公开分享的密码 cookie 现以 HMAC 绑定已验证的密码哈希与签发时间戳，一小时后过期并允许有限的时钟偏移；分享密码修改或 cookie 被篡改后立即失效。旧版本签发的 cookie 不再通过验证。
+- **禁用 master binding 写保护** — follower 拒绝对已禁用 master binding 的存储 target 创建/更新/删除（HTTP 412），同时保留 binding 同步与 target 列表，primary 仍可重新启用节点。
+- **WebDAV 账号卫生** — WebDAV 用户名现在会被修剪并校验（可见 ASCII、禁冒号、限制字节长度）；新建 WebDAV 密码要求至少 8 个字符；禁用或无效的 WebDAV 账号统一返回 401，不暴露账号状态。
+- **TOTP 重放防护** — 每个 TOTP 码在登录挑战与敏感操作确认（删除 factor、重新生成恢复码）中只能消费一次：验证成功时原子记录匹配的 30 秒时间步，接受窗口内的重放按无效码拒绝。新增 `mfa_totp_used_steps` 表支撑该防护并自动清理过期记录；删除 factor 与管理员重置 MFA 时会一并清理。
+- **审计链路的可信客户端 IP 解析** — 所有被审计端点的客户端 IP 现在从 `network_trust.trusted_proxies` 解析（启动时解析一次并以共享 app data 注入），不再采信客户端可伪造的 `Forwarded`/`X-Forwarded-For`/`X-Real-IP` 头。来自不可信 peer 的请求记录 TCP peer 地址，伪造的转发头无法把任意 IP 写进审计行。未配置代理时记录 peer 地址，自托管直连部署行为不变。旧提取入口已删除；`AuditContext::from_request`/`AuditRequestInfo::from_request` 保持原签名。
+- **杂项加固** — 内部与 presigned 签名验证改用常数时间比较；一次性 nonce 条目保留至超出时间戳接受窗口；follower 注册接入限流；审计 CSV 导出做公式中和并严格校验客户端 IP；未知账号执行哑密码验证以削弱用户枚举的时序信号。
+
 ## [v0.6.3] - 2026-10-22
 
 ### Release Highlights

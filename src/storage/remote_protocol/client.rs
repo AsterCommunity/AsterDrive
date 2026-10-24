@@ -106,7 +106,7 @@ impl RemoteStorageClient {
     pub async fn probe_capabilities(&self) -> Result<RemoteStorageCapabilities> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/capabilities");
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         let body = ensure_success_with_body_limit(
             response,
@@ -146,17 +146,22 @@ impl RemoteStorageClient {
                 path,
                 None,
                 RemoteRequestBody::Bytes(Bytes::copy_from_slice(data)),
+                true,
             )
             .await?;
         ensure_success_without_body(response, "put remote storage object").await
     }
 
+    /// 流式上传对象。`content_sha256`：发送方已知 digest 时传入（先承诺签名，
+    /// follower 收完对账）；`None` 时签占位，返回 follower 签名回传的 body
+    /// digest（`Some`），由调用方与本地 tee digest 比对闭环内容完整性。
     pub async fn put_reader(
         &self,
         key: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: u64,
-    ) -> Result<()> {
+        content_sha256: Option<&str>,
+    ) -> Result<Option<String>> {
         let mut path = self.object_path(key);
         self.append_policy_max_file_size(&mut path);
         let response = self
@@ -164,16 +169,23 @@ impl RemoteStorageClient {
                 Method::PUT,
                 path,
                 None,
-                RemoteRequestBody::Reader { reader, size },
+                RemoteRequestBody::Reader {
+                    reader,
+                    size,
+                    body_sha256: content_sha256.map(str::to_owned),
+                },
+                true,
             )
             .await?;
-        ensure_success_without_body(response, "stream put remote storage object").await
+        let object_body_sha256 = response.object_body_sha256.clone();
+        ensure_success_without_body(response, "stream put remote storage object").await?;
+        Ok(object_body_sha256)
     }
 
     pub async fn get_bytes(&self, key: &str) -> Result<Vec<u8>> {
         let path = self.object_path(key);
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         ensure_success(response, "get remote storage object").await
     }
@@ -195,7 +207,7 @@ impl RemoteStorageClient {
         append_query_pairs(&mut path, query);
 
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         let response = ensure_success_response(response, "stream remote storage object").await?;
         Ok(response_stream(response))
@@ -204,7 +216,7 @@ impl RemoteStorageClient {
     pub async fn delete(&self, key: &str) -> Result<()> {
         let path = self.object_path(key);
         let response = self
-            .send_signed(Method::DELETE, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::DELETE, path, None, RemoteRequestBody::Empty, false)
             .await?;
         ensure_success_without_body(response, "delete remote storage object").await
     }
@@ -212,7 +224,7 @@ impl RemoteStorageClient {
     pub async fn exists(&self, key: &str) -> Result<bool> {
         let path = self.object_path(key);
         let response = self
-            .send_signed(Method::HEAD, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::HEAD, path, None, RemoteRequestBody::Empty, false)
             .await?;
         match response.status() {
             StatusCode::OK => Ok(true),
@@ -228,7 +240,7 @@ impl RemoteStorageClient {
     pub async fn metadata(&self, key: &str) -> Result<BlobMetadata> {
         let path = self.object_metadata_path(key);
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         let body = ensure_success_with_body_limit(
             response,
@@ -290,7 +302,7 @@ impl RemoteStorageClient {
             append_query_pairs(&mut path, query);
 
             let response = self
-                .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+                .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
                 .await?;
             let body = ensure_success_with_body_limit(
                 response,
@@ -346,7 +358,7 @@ impl RemoteStorageClient {
         let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/capacity");
         self.append_storage_target_key(&mut path);
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         let body = ensure_success_with_body_limit(
             response,
@@ -392,6 +404,7 @@ impl RemoteStorageClient {
                 path,
                 Some("application/json"),
                 RemoteRequestBody::Bytes(Bytes::from(body)),
+                false,
             )
             .await?;
         ensure_success_without_body(response, "sync remote binding state").await
@@ -400,7 +413,7 @@ impl RemoteStorageClient {
     pub async fn list_storage_targets(&self) -> Result<Vec<RemoteStorageTargetInfo>> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/targets");
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         let body = ensure_success_with_body_limit(
             response,
@@ -436,7 +449,7 @@ impl RemoteStorageClient {
         let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/target-connectors");
         append_query_pairs(&mut path, [("locale", locale.as_str())]);
         let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty, false)
             .await?;
         let body = ensure_success_with_body_limit(
             response,
@@ -485,6 +498,7 @@ impl RemoteStorageClient {
                 path,
                 Some("application/json"),
                 RemoteRequestBody::Bytes(Bytes::from(body)),
+                false,
             )
             .await?;
         parse_storage_target_response(response, "create remote storage target").await
@@ -508,6 +522,7 @@ impl RemoteStorageClient {
                 path,
                 Some("application/json"),
                 RemoteRequestBody::Bytes(Bytes::from(body)),
+                false,
             )
             .await?;
         parse_storage_target_response(response, "update remote storage target").await
@@ -516,7 +531,7 @@ impl RemoteStorageClient {
     pub async fn delete_storage_target(&self, target_key: &str) -> Result<()> {
         let path = self.storage_target_path(target_key);
         let response = self
-            .send_signed(Method::DELETE, path, None, RemoteRequestBody::Empty)
+            .send_signed(Method::DELETE, path, None, RemoteRequestBody::Empty, false)
             .await?;
         ensure_success_without_body(response, "delete remote storage target").await
     }
@@ -577,6 +592,7 @@ impl RemoteStorageClient {
                 path,
                 Some("application/json"),
                 RemoteRequestBody::Bytes(Bytes::from(body)),
+                false,
             )
             .await?;
         let body = ensure_success_with_body_limit(
@@ -612,6 +628,7 @@ impl RemoteStorageClient {
         path_and_query: String,
         content_type: Option<&'static str>,
         body: RemoteRequestBody,
+        expect_response_body_sha256: bool,
     ) -> Result<RemoteTransportResponse> {
         use aster_drive_metrics::{RemoteReason, RemoteRequestGuard, TransferOutcome};
         let operation = super::observation::operation(method.as_str(), &path_and_query);
@@ -624,6 +641,7 @@ impl RemoteStorageClient {
                 path_and_query,
                 content_type,
                 body,
+                expect_response_body_sha256,
             })
             .await;
         let (outcome, reason) = match &result {

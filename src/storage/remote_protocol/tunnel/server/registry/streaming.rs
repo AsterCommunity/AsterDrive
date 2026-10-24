@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::io::StreamReader;
 
 use super::broker::RemoteTunnelStreamHttpResponse;
-use super::headers::request_headers;
+use super::headers::{request_headers, take_expected_response_nonce};
 use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT,
     REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY, RemoteTunnelRegistry, TunnelDisconnectReason,
@@ -203,7 +203,7 @@ impl RemoteTunnelRegistry {
         method: Method,
         path_and_query: String,
         content_length: Option<u64>,
-        extra_headers: Vec<(String, String)>,
+        mut extra_headers: Vec<(String, String)>,
         mut body: Box<dyn AsyncRead + Unpin + Send>,
     ) -> Result<RemoteTunnelStreamHttpResponse> {
         let lane = match self.stream_lane(remote_node).await {
@@ -219,6 +219,7 @@ impl RemoteTunnelRegistry {
         };
 
         let request_id = aster_forge_utils::id::new_uuid();
+        let response_nonce = take_expected_response_nonce(&mut extra_headers)?;
         let (start_tx, start_rx) = oneshot::channel();
         let (body_tx, body_rx) = mpsc::channel(REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY);
         let response_complete = Arc::new(AtomicBool::new(false));
@@ -234,9 +235,25 @@ impl RemoteTunnelRegistry {
             },
         );
 
-        let headers = request_headers(remote_node, &method, &path_and_query, content_length)
-            .chain(extra_headers)
-            .collect();
+        // streaming body 边际流式转发，digest 以 primary 的声明头为准（重签者
+        // 不是 digest 权威）：非空先承诺、空串占位，follower 收完对账。
+        let declared_sha256 = extra_headers
+            .iter()
+            .find(|(name, _)| {
+                name == crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER
+            })
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default();
+        let headers = request_headers(
+            remote_node,
+            &method,
+            &path_and_query,
+            content_length,
+            &declared_sha256,
+            &response_nonce,
+        )
+        .chain(extra_headers)
+        .collect();
         let request_start = RemoteTunnelStreamFrame {
             kind: RemoteTunnelStreamFrameKind::RequestStart,
             request_id: request_id.clone(),

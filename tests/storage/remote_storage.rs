@@ -31,8 +31,28 @@ use aster_drive::storage::remote_protocol::{
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL,
     REMOTE_NODE_BINDING_STATE_PATH, RemoteBindingSyncRequest, RemoteStorageCapabilities,
     RemoteStorageClient, RemoteStorageComposeRequest, RemoteUpdateStorageTargetRequest,
-    sign_internal_request, sign_presigned_request,
+    body_sha256_hex, empty_body_sha256, sign_presigned_request,
 };
+
+/// 测试辅助：签一个无 body 的内部协议请求（控制面 GET 为主）。
+fn sign_internal_request(
+    secret_key: &str,
+    method: &str,
+    path_and_query: &str,
+    timestamp: i64,
+    nonce: &str,
+    content_length: Option<u64>,
+) -> String {
+    aster_drive::storage::remote_protocol::sign_internal_request(
+        secret_key,
+        method,
+        path_and_query,
+        timestamp,
+        nonce,
+        content_length,
+        empty_body_sha256(),
+    )
+}
 use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
 use aster_drive_model::types::{
     RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy, ResolvedRemoteTransport,
@@ -570,6 +590,13 @@ fn internal_auth_headers(
         reqwest::header::HeaderName::from_static(INTERNAL_AUTH_SIGNATURE_HEADER),
         reqwest::header::HeaderValue::from_str(signature)
             .expect("signature header value should parse"),
+    );
+    headers.insert(
+        reqwest::header::HeaderName::from_static(
+            aster_drive::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+        ),
+        reqwest::header::HeaderValue::from_str(empty_body_sha256())
+            .expect("declared digest header value should parse"),
     );
     headers
 }
@@ -2812,6 +2839,138 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
 }
 
 #[actix_web::test]
+async fn test_disabled_master_binding_rejects_storage_target_writes_but_keeps_sync_and_list() {
+    let provider_state = common::setup().await;
+    let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
+
+    let (binding, _) = master_binding::upsert_from_enrollment(
+        provider_state.writer_db(),
+        master_binding::UpsertMasterBindingInput {
+            name: "disabled-write-binding".to_string(),
+            master_url: "http://primary.example.com".to_string(),
+            access_key: "disabled-write-ak".to_string(),
+            secret_key: "disabled-write-sk".to_string(),
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("provider binding should be created");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+
+    let client = RemoteStorageClient::new(
+        &provider_server.base_url,
+        &binding.access_key,
+        &binding.secret_key,
+    )
+    .expect("remote storage client should build");
+    let target = client
+        .create_storage_target(&remote_local_target(
+            "Enabled Local".to_string(),
+            "disabled-write-profile".to_string(),
+        ))
+        .await
+        .expect("enabled binding should create storage targets");
+
+    // 模拟 master 禁用节点后 binding sync 推送 is_enabled=false
+    client
+        .sync_binding(&RemoteBindingSyncRequest {
+            name: "disabled-write-binding".to_string(),
+            is_enabled: false,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 2,
+        })
+        .await
+        .expect("binding sync must stay available while disabled");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload after disable");
+
+    // 写操作必须被拒绝；读列表与 sync 保持放行
+    for (action, write) in [
+        (
+            "create",
+            WriteAction::Create(remote_local_target(
+                "While Disabled".to_string(),
+                "disabled-write-2".to_string(),
+            )),
+        ),
+        (
+            "update",
+            WriteAction::Update(RemoteUpdateStorageTargetRequest {
+                name: Some("Renamed While Disabled".to_string()),
+                connection: None,
+            }),
+        ),
+        ("delete", WriteAction::Delete),
+    ] {
+        let error = match &write {
+            WriteAction::Create(input) => client
+                .create_storage_target(input)
+                .await
+                .expect_err("disabled binding must not create storage targets"),
+            WriteAction::Update(input) => client
+                .update_storage_target(&target.target_key, input)
+                .await
+                .expect_err("disabled binding must not update storage targets"),
+            WriteAction::Delete => client
+                .delete_storage_target(&target.target_key)
+                .await
+                .expect_err("disabled binding must not delete storage targets"),
+        };
+        assert!(
+            error.message().contains("disabled"),
+            "{action} while disabled must be rejected, got: {}",
+            error.message()
+        );
+    }
+
+    client
+        .list_storage_targets()
+        .await
+        .expect("list must remain available while disabled");
+
+    // 重新启用（sync 放行）后写操作恢复
+    client
+        .sync_binding(&RemoteBindingSyncRequest {
+            name: "disabled-write-binding".to_string(),
+            is_enabled: true,
+            resolved_transport: ResolvedRemoteTransport::Direct,
+            desired_revision: 3,
+        })
+        .await
+        .expect("binding sync should re-enable the binding");
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload after re-enable");
+    client
+        .update_storage_target(
+            &target.target_key,
+            &RemoteUpdateStorageTargetRequest {
+                name: Some("Renamed After Re-enable".to_string()),
+                connection: None,
+            },
+        )
+        .await
+        .expect("re-enabled binding should update storage targets again");
+
+    provider_server.stop().await;
+}
+
+enum WriteAction {
+    Create(aster_drive::storage::remote_protocol::RemoteCreateStorageTargetRequest),
+    Update(RemoteUpdateStorageTargetRequest),
+    Delete,
+}
+
+#[actix_web::test]
 async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_limit() {
     let provider_state = common::setup().await;
     let provider_default_policy = provider_state
@@ -2966,6 +3125,237 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
 }
 
 #[actix_web::test]
+async fn test_internal_storage_rejects_tampered_json_body() {
+    let provider_state = common::setup().await;
+    let (access_key, secret_key) =
+        create_internal_hmac_binding(&provider_state, "tampered-json").await;
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    // 两个请求体等长：content_length 一致，唯一差异是 body 字节本身，
+    // 因此拒绝只能来自签名对 body digest 的覆盖。
+    let signed_body = serde_json::to_vec(&remote_local_target("honest-target", "./ingress-honest"))
+        .expect("create target body should serialize");
+    let tampered_body =
+        serde_json::to_vec(&remote_local_target("honest-target", "/attacker-pwned-"))
+            .expect("tampered target body should serialize");
+    assert_eq!(signed_body.len(), tampered_body.len());
+
+    let path = "/api/v1/internal/storage/targets";
+    let timestamp = Utc::now().timestamp();
+    let nonce = "tampered-json-nonce";
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &secret_key,
+        "POST",
+        path,
+        timestamp,
+        nonce,
+        Some(u64::try_from(signed_body.len()).expect("signed body length should fit u64")),
+        &body_sha256_hex(&signed_body),
+    );
+    let request = test::TestRequest::post()
+        .uri(path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", body_sha256_hex(&signed_body)))
+        .insert_header((actix_web::http::header::CONTENT_TYPE, "application/json"))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            tampered_body.len().to_string(),
+        ))
+        .set_payload(tampered_body)
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert_eq!(response.status().as_u16(), 401);
+}
+
+/// v7 先承诺：声明 digest 与实际 body 不一致的 PUT 必须被拒，且对象不落盘。
+#[actix_web::test]
+async fn test_internal_storage_rejects_put_object_digest_mismatch() {
+    let provider_state = common::setup().await;
+    let (access_key, secret_key) =
+        create_internal_hmac_binding(&provider_state, "digest-mismatch-put").await;
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    let body = b"trusted body bytes".as_slice();
+    let declared = body_sha256_hex(b"attacker bytes of same length?"); // 任意错误声明
+    let path = format!(
+        "/api/v1/internal/storage/objects/mismatch.bin?target_key={}&max_file_size=1048576",
+        urlencoding::encode(&target.target_key)
+    );
+    let timestamp = Utc::now().timestamp();
+    let nonce = "digest-mismatch-put-nonce";
+    // primary 先承诺 declared（canonical 第 6 行），链路把 body 换成 body：
+    // follower 收完 tee 对账必须失败。
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &secret_key,
+        "PUT",
+        &path,
+        timestamp,
+        nonce,
+        Some(u64::try_from(body.len()).expect("body length should fit u64")),
+        &declared,
+    );
+    let request = test::TestRequest::put()
+        .uri(&path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", declared.as_str()))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            body.len().to_string(),
+        ))
+        .set_payload(body)
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert_eq!(response.status().as_u16(), 400);
+    // 拒绝后对象不得存在：storage path 覆盖检查交给 follower 端 delete 兜底，
+    // 这里直接再上传同 key 的诚实内容验证没有脏数据短路。
+    let honest_signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &secret_key,
+        "PUT",
+        &path,
+        timestamp,
+        "digest-mismatch-put-nonce-2",
+        Some(u64::try_from(body.len()).expect("body length should fit u64")),
+        &body_sha256_hex(body),
+    );
+    let honest_request = test::TestRequest::put()
+        .uri(&path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", "digest-mismatch-put-nonce-2"))
+        .insert_header(("x-aster-signature", honest_signature))
+        .insert_header(("x-aster-content-sha256", body_sha256_hex(body).as_str()))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            body.len().to_string(),
+        ))
+        .set_payload(body)
+        .to_request();
+    let honest_response = test::call_service(&app, honest_request).await;
+    assert_eq!(honest_response.status().as_u16(), 200);
+    let honest_headers = honest_response.headers();
+    let digest_header = honest_headers
+        .get("x-aster-object-sha256")
+        .and_then(|value| value.to_str().ok())
+        .expect("honest upload should echo the signed body digest");
+    assert_eq!(digest_header, body_sha256_hex(body));
+}
+
+/// v7 占位签（relay 直推）：成功响应必须携带 follower 签名的 body digest，
+/// 且签名可用 binding secret 验证——primary 端靠它与本地 tee 对账。
+#[actix_web::test]
+async fn test_internal_storage_placeholder_upload_returns_signed_digest() {
+    let provider_state = common::setup().await;
+    let (access_key, secret_key) =
+        create_internal_hmac_binding(&provider_state, "placeholder-digest").await;
+    provider_state
+        .driver_registry
+        .reload_master_bindings(provider_state.writer_db())
+        .await
+        .expect("provider binding registry should reload");
+    let target =
+        create_managed_local_ingress_for_binding(&provider_state, &access_key, &access_key).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    let body = b"relayed streaming body".as_slice();
+    let path = format!(
+        "/api/v1/internal/storage/objects/placeholder.bin?target_key={}&max_file_size=1048576",
+        urlencoding::encode(&target.target_key)
+    );
+    let timestamp = Utc::now().timestamp();
+    let nonce = "placeholder-digest-nonce";
+    // 占位签：canonical 第 6 行为空串，声明头同为空串。
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
+        &secret_key,
+        "PUT",
+        &path,
+        timestamp,
+        nonce,
+        Some(u64::try_from(body.len()).expect("body length should fit u64")),
+        "",
+    );
+    let request = test::TestRequest::put()
+        .uri(&path)
+        .insert_header(("x-aster-access-key", access_key.as_str()))
+        .insert_header(("x-aster-timestamp", timestamp.to_string()))
+        .insert_header(("x-aster-nonce", nonce))
+        .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", ""))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            body.len().to_string(),
+        ))
+        .set_payload(body)
+        .to_request();
+    let response = test::call_service(&app, request).await;
+
+    assert_eq!(response.status().as_u16(), 200);
+    let headers = response.headers();
+    let digest = headers
+        .get("x-aster-object-sha256")
+        .and_then(|value| value.to_str().ok())
+        .expect("placeholder upload should echo the computed body digest");
+    let signature_header = headers
+        .get("x-aster-response-signature")
+        .and_then(|value| value.to_str().ok())
+        .expect("placeholder upload should sign the body digest");
+    let response_nonce = headers
+        .get("x-aster-response-nonce")
+        .and_then(|value| value.to_str().ok())
+        .expect("placeholder upload should bind the response to the request nonce");
+    assert_eq!(response_nonce, nonce);
+    assert_eq!(digest, body_sha256_hex(body));
+    assert!(
+        aster_drive::storage::remote_protocol::verify_internal_response_signature(
+            &secret_key,
+            response_nonce,
+            digest,
+            signature_header
+        )
+    );
+}
+
+#[actix_web::test]
 async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
     let provider_state = common::setup().await;
     let (access_key, secret_key) =
@@ -3004,6 +3394,7 @@ async fn test_internal_storage_truncated_put_aborts_attempt_staging() {
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
         .insert_header((actix_web::http::header::CONTENT_LENGTH, "64"))
         .set_payload(b"short payload".to_vec())
         .to_request();
@@ -3075,6 +3466,7 @@ async fn test_internal_storage_commit_failure_aborts_local_attempt_staging() {
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
         .insert_header((actix_web::http::header::CONTENT_LENGTH, "5"))
         .set_payload(b"valid".to_vec())
         .to_request();
@@ -3389,13 +3781,15 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
     );
     let timestamp = Utc::now().timestamp();
     let nonce = "compose-limit-test";
-    let signature = sign_internal_request(
+    // compose 的 body 整体入签，覆盖真实 digest。
+    let signature = aster_drive::storage::remote_protocol::sign_internal_request(
         secret_key,
         "POST",
         &path,
         timestamp,
         nonce,
         Some(u64::try_from(body.len()).expect("compose body length should fit u64")),
+        &body_sha256_hex(&body),
     );
     let req = test::TestRequest::post()
         .uri(&path)
@@ -3408,6 +3802,7 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", body_sha256_hex(&body)))
         .set_payload(body)
         .to_request();
     let resp = test::call_service(&follower_app, req).await;
@@ -3716,6 +4111,7 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
         .to_request();
     let resp = test::call_service(&follower_app, req).await;
 
@@ -3774,6 +4170,7 @@ async fn test_internal_storage_rejects_replayed_hmac_nonce() {
             .insert_header(("x-aster-timestamp", timestamp.to_string()))
             .insert_header(("x-aster-nonce", nonce))
             .insert_header(("x-aster-signature", signature.as_str()))
+            .insert_header(("x-aster-content-sha256", empty_body_sha256()))
             .to_request()
     };
 
@@ -3824,6 +4221,7 @@ async fn test_internal_storage_invalid_signature_does_not_consume_hmac_nonce() {
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
         .to_request();
     let valid_resp = test::call_service(&follower_app, valid_req).await;
 
@@ -3863,6 +4261,8 @@ async fn test_internal_storage_hmac_nonce_is_scoped_by_access_key() {
             .insert_header(("x-aster-timestamp", timestamp.to_string()))
             .insert_header(("x-aster-nonce", nonce))
             .insert_header(("x-aster-signature", signature))
+            .insert_header(("x-aster-content-sha256", empty_body_sha256()))
+            .insert_header(("x-aster-content-sha256", empty_body_sha256()))
             .to_request()
     };
 
@@ -3912,6 +4312,10 @@ async fn test_internal_storage_rejects_concurrent_replayed_hmac_nonce() {
                 .header("x-aster-timestamp", timestamp_header.as_str())
                 .header("x-aster-nonce", nonce.as_str())
                 .header("x-aster-signature", signature.as_str())
+                .header(
+                    "x-aster-content-sha256",
+                    aster_drive::storage::remote_protocol::empty_body_sha256(),
+                )
                 .send()
                 .await
         }
@@ -8202,6 +8606,7 @@ async fn test_internal_storage_get_honors_range_header() {
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
+        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
         .to_request();
     let resp = test::call_service(&follower_app, req).await;
 

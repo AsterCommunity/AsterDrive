@@ -159,7 +159,33 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
         log: web::Data<Arc<ProtocolLog>>,
     ) -> HttpResponse {
         log_request(&req, &body, &log);
-        HttpResponse::NoContent().finish()
+        // v7：对象写响应必须回传签名的 body digest（与真实 follower 一致）。
+        let digest = crate::storage::remote_protocol::body_sha256_hex(&body);
+        let nonce = req
+            .headers()
+            .get(crate::storage::remote_protocol::INTERNAL_AUTH_NONCE_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        let signature = crate::storage::remote_protocol::sign_internal_response_signature(
+            "secret-key",
+            &nonce,
+            &digest,
+        );
+        HttpResponse::NoContent()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+                digest.as_str(),
+            ))
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_SIGNATURE_HEADER,
+                signature.as_str(),
+            ))
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_NONCE_HEADER,
+                nonce.as_str(),
+            ))
+            .finish()
     }
 
     async fn get_object(
@@ -777,8 +803,8 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .probe_capabilities()
         .await
         .expect("capabilities should load");
-    assert_eq!(capabilities.protocol_version, "v6");
-    assert_eq!(capabilities.min_supported_protocol_version, "v6");
+    assert_eq!(capabilities.protocol_version, "v7");
+    assert_eq!(capabilities.min_supported_protocol_version, "v7");
     assert!(capabilities.features.object_get);
     assert!(capabilities.features.object_head);
     assert!(capabilities.features.range_get);
@@ -821,6 +847,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
             "stream-upload.bin",
             Box::new(std::io::Cursor::new(b"stream".to_vec())),
             6,
+            None,
         )
         .await
         .expect("put reader should succeed");
@@ -1194,7 +1221,7 @@ async fn remote_client_probe_rejects_v2_capabilities_without_capacity_support() 
         Some(StorageErrorKind::Misconfigured)
     );
     assert!(
-        capabilities.message().contains("local supports v6-v6"),
+        capabilities.message().contains("local supports v7-v7"),
         "unexpected error message: {}",
         capabilities.message()
     );
@@ -1316,7 +1343,7 @@ fn capabilities_validation_rejects_incompatible_protocol_versions() {
         error.message()
     );
     assert!(
-        error.message().contains("local supports v6-v6"),
+        error.message().contains("local supports v7-v7"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1335,7 +1362,7 @@ fn capabilities_validation_rejects_v2_remote_nodes() {
         .validate_protocol("test remote node")
         .expect_err("v2 discovery should be incompatible with v4");
     assert!(
-        error.message().contains("local supports v6-v6"),
+        error.message().contains("local supports v7-v7"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1344,8 +1371,8 @@ fn capabilities_validation_rejects_v2_remote_nodes() {
 #[test]
 fn remote_storage_target_capabilities_use_exact_connector_ids() {
     let capabilities: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v6",
-        "min_supported_protocol_version": "v6",
+        "protocol_version": "v7",
+        "min_supported_protocol_version": "v7",
         "remote_storage_target": {
             "enabled": true,
             "connector_ids": ["asterdrive.storage.local", "plugin.example.archive"]
@@ -1365,8 +1392,8 @@ fn remote_storage_target_capabilities_use_exact_connector_ids() {
 #[test]
 fn remote_storage_target_capabilities_require_enabled_and_matching_connector() {
     let disabled: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v6",
-        "min_supported_protocol_version": "v6",
+        "protocol_version": "v7",
+        "min_supported_protocol_version": "v7",
         "remote_storage_target": {
             "enabled": false,
             "connector_ids": ["asterdrive.storage.local"]
@@ -1382,8 +1409,8 @@ fn remote_storage_target_capabilities_require_enabled_and_matching_connector() {
     );
 
     let empty: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v6",
-        "min_supported_protocol_version": "v6",
+        "protocol_version": "v7",
+        "min_supported_protocol_version": "v7",
         "remote_storage_target": {"enabled": true}
     }))
     .expect("missing connector ids should decode as empty");
@@ -1456,15 +1483,15 @@ fn missing_remote_storage_target_capabilities_remain_wire_missing() {
     assert!(empty.remote_storage_target.is_none());
 
     let v6_without_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v6",
+        "protocol_version": "v7",
         "min_supported_protocol_version": "v4"
     }))
     .expect("v5 capabilities without managed ingress should decode");
     assert!(v6_without_field.remote_storage_target.is_none());
 
     let v6_with_null_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
-        "protocol_version": "v6",
-        "min_supported_protocol_version": "v6",
+        "protocol_version": "v7",
+        "min_supported_protocol_version": "v7",
         "remote_storage_target": null
     }))
     .expect("v6 capabilities with explicit null remote_storage_target should decode");
@@ -1472,8 +1499,8 @@ fn missing_remote_storage_target_capabilities_remain_wire_missing() {
 
     let v6_with_explicit_empty_field: RemoteStorageCapabilities =
         serde_json::from_value(serde_json::json!({
-            "protocol_version": "v6",
-            "min_supported_protocol_version": "v6",
+            "protocol_version": "v7",
+            "min_supported_protocol_version": "v7",
             "remote_storage_target": {
                 "enabled": false,
                 "connector_ids": []
