@@ -83,6 +83,32 @@ fn replay_event(body: &str) -> ReplayEvent {
     )
 }
 
+fn head_object_event(size: u64) -> ReplayEvent {
+    ReplayEvent::new(
+        http::Request::builder().body(SdkBody::empty()).unwrap(),
+        http::Response::builder()
+            .status(200)
+            .header("content-length", size.to_string())
+            .header("content-type", "application/octet-stream")
+            .body(SdkBody::empty())
+            .unwrap(),
+    )
+}
+
+fn multipart_copy_events() -> Vec<ReplayEvent> {
+    vec![
+        head_object_event(5 * 1024 * 1024 * 1024 + 1),
+        replay_event(
+            "<InitiateMultipartUploadResult><UploadId>copy-1</UploadId></InitiateMultipartUploadResult>",
+        ),
+        replay_event("<CopyPartResult><ETag>\"part-a\"</ETag></CopyPartResult>"),
+        replay_event("<CopyPartResult><ETag>\"part-b\"</ETag></CopyPartResult>"),
+        replay_event(
+            "<CompleteMultipartUploadResult><ETag>\"complete\"</ETag></CompleteMultipartUploadResult>",
+        ),
+    ]
+}
+
 #[tokio::test]
 async fn capacity_info_returns_unsupported_without_s3_request() {
     let response = http::Response::builder()
@@ -374,22 +400,32 @@ async fn abort_multipart_upload_maps_no_such_upload_to_not_found() {
 
 #[tokio::test]
 async fn copy_object_url_encodes_source_key() {
-    let response = http::Response::builder()
-        .status(200)
-        .body(SdkBody::from(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+    let head = head_object_event(123);
+    let copy = ReplayEvent::new(
+        http::Request::builder()
+            .uri("https://example.invalid/copy")
+            .body(SdkBody::empty())
+            .expect("expected CopyObject request"),
+        http::Response::builder()
+            .status(200)
+            .body(SdkBody::from(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
                 <CopyObjectResult><ETag>"abc"</ETag></CopyObjectResult>"#,
-        ))
-        .expect("mocked response");
-    let (driver, request) = mocked_driver(response);
+            ))
+            .expect("mocked CopyObject response"),
+    );
+    let (driver, requests) = replay_driver(vec![head, copy], "");
 
     driver
         .copy_object("folder with space/中文 file+1.txt", "dest/key")
         .await
         .expect("copy should succeed");
 
-    let captured = request.expect_request();
-    let copy_source = captured
+    let captured = requests.actual_requests().collect::<Vec<_>>();
+    assert_eq!(captured.len(), 2);
+    assert_eq!(*captured[0].method(), http::Method::HEAD);
+    assert_eq!(*captured[1].method(), http::Method::PUT);
+    let copy_source = captured[1]
         .headers()
         .get("x-amz-copy-source")
         .expect("copy-source header");
@@ -411,6 +447,116 @@ async fn copy_object_url_encodes_source_key() {
         copy_source.starts_with("test-bucket/"),
         "bucket prefix missing in '{copy_source}'"
     );
+}
+
+#[tokio::test]
+async fn copy_object_at_or_below_single_copy_limit_uses_head_then_copy() {
+    for size in [0, 5 * 1024 * 1024 * 1024 - 1, 5 * 1024 * 1024 * 1024] {
+        let (driver, requests) = replay_driver(
+            vec![
+                head_object_event(size),
+                replay_event("<CopyObjectResult><ETag>\"copy\"</ETag></CopyObjectResult>"),
+            ],
+            "base",
+        );
+        assert_eq!(
+            driver.copy_object("source", "target").await.unwrap(),
+            "target"
+        );
+        let methods = requests
+            .actual_requests()
+            .map(|request| request.method().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(methods, ["HEAD", "PUT"], "size={size}");
+    }
+}
+
+#[tokio::test]
+async fn copy_object_above_single_copy_limit_uses_server_side_multipart_copy() {
+    let (driver, requests) = replay_driver(multipart_copy_events(), "base");
+    assert!(driver.extensions().native_publish.is_none());
+    assert_eq!(
+        driver.copy_object("source", "target").await.unwrap(),
+        "target"
+    );
+    let captured = requests.actual_requests().collect::<Vec<_>>();
+    assert_eq!(captured.len(), 5);
+    let methods = captured
+        .iter()
+        .map(|request| request.method().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(methods, ["HEAD", "POST", "PUT", "PUT", "POST"]);
+    assert!(captured[0].uri().to_string().contains("/base/source"));
+    assert!(
+        captured[1]
+            .uri()
+            .to_string()
+            .contains("/base/target?uploads")
+    );
+    assert_eq!(
+        captured[1].headers().get("content-type"),
+        Some("application/octet-stream")
+    );
+    for (index, range) in [
+        (2, "bytes=0-5368709119"),
+        (3, "bytes=5368709120-5368709120"),
+    ] {
+        let request = captured[index];
+        assert!(request.uri().to_string().contains("uploadId=copy-1"));
+        assert!(
+            request
+                .uri()
+                .to_string()
+                .contains(&format!("partNumber={}", index - 1))
+        );
+        assert_eq!(
+            request.headers().get("x-amz-copy-source"),
+            Some("test-bucket/base/source")
+        );
+        assert_eq!(
+            request.headers().get("x-amz-copy-source-range"),
+            Some(range)
+        );
+    }
+    let complete_body = std::str::from_utf8(captured[4].body().bytes().unwrap()).unwrap();
+    assert!(complete_body.contains("part-a"));
+    assert!(complete_body.contains("part-b"));
+}
+
+#[tokio::test]
+async fn copy_object_aborts_multipart_after_part_or_completion_failure() {
+    for failure_index in [2, 4] {
+        let mut events = multipart_copy_events();
+        events.truncate(failure_index);
+        events.push(ReplayEvent::new(
+            http::Request::builder().body(SdkBody::empty()).unwrap(),
+            http::Response::builder()
+                .status(403)
+                .body(SdkBody::from("<Error><Code>AccessDenied</Code><Message>injected copy failure</Message></Error>"))
+                .unwrap(),
+        ));
+        events.push(ReplayEvent::new(
+            http::Request::builder().body(SdkBody::empty()).unwrap(),
+            http::Response::builder()
+                .status(204)
+                .body(SdkBody::empty())
+                .unwrap(),
+        ));
+        let (driver, requests) = replay_driver(events, "");
+        let error = driver.copy_object("source", "target").await.unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Permission);
+        let captured = requests.actual_requests().collect::<Vec<_>>();
+        assert_eq!(captured.len(), failure_index + 2);
+        let abort = captured.last().unwrap();
+        assert_eq!(*abort.method(), http::Method::DELETE);
+        let abort_url = url::Url::parse(abort.uri()).unwrap();
+        assert_eq!(abort_url.path(), "/target");
+        assert!(
+            abort_url
+                .query_pairs()
+                .any(|(key, value)| key == "uploadId" && value == "copy-1")
+        );
+    }
 }
 
 #[tokio::test]

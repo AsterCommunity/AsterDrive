@@ -173,7 +173,7 @@ pub(crate) async fn write_follower_object(
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
         return Err(error.into());
     }
-    if let Err(error) = driver.copy_object(&attempt_path, storage_path).await {
+    if let Err(error) = publish_staged_object(driver.as_ref(), &attempt_path, storage_path).await {
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, object_key).await;
         return Err(error.into());
     }
@@ -289,7 +289,9 @@ pub(crate) async fn compose_follower_objects(
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
         return Err(error.into());
     }
-    if let Err(error) = driver.copy_object(&attempt_path, target_storage_path).await {
+    if let Err(error) =
+        publish_staged_object(driver.as_ref(), &attempt_path, target_storage_path).await
+    {
         cleanup_unpublished_attempt(driver.as_ref(), &attempt_path, binding_id, target_key).await;
         return Err(error.into());
     }
@@ -304,6 +306,22 @@ pub(crate) async fn compose_follower_objects(
     Ok(bytes_written)
 }
 
+/// Publishes only after digest/size verification. Native rename avoids a second
+/// full-object transfer for Local/SFTP; generic copy remains outside the
+/// staging timeout and is the fallback for other drivers. The fallback is not
+/// protected by `STREAM_ATTEMPT_TIMEOUT`.
+async fn publish_staged_object(
+    driver: &dyn StorageDriver,
+    staging_path: &str,
+    storage_path: &str,
+) -> aster_drive_storage::Result<String> {
+    if let Some(publisher) = driver.extensions().native_publish {
+        publisher.publish_staged(staging_path, storage_path).await
+    } else {
+        driver.copy_object(staging_path, storage_path).await
+    }
+}
+
 async fn log_aborted_relay_join<T>(task: tokio::task::JoinHandle<T>, context: &'static str) {
     if let Err(error) = task.await
         && !error.is_cancelled()
@@ -315,38 +333,284 @@ async fn log_aborted_relay_join<T>(task: tokio::task::JoinHandle<T>, context: &'
 #[cfg(test)]
 mod tests {
     use super::{
-        FollowerObjectWriteRequest, FollowerUploadBody, RelayStageContext, stage_with_relay,
-        write_follower_object,
+        FollowerObjectWriteRequest, FollowerUploadBody, RelayStageContext,
+        compose_follower_objects, publish_staged_object, stage_with_relay, write_follower_object,
     };
     use crate::errors::AsterError;
     use crate::storage::drivers::local::LocalDriver;
     use aster_drive_metrics::NoopMetrics;
-    use aster_drive_storage::{StorageDriver, StreamUploadDriver};
+    use aster_drive_storage::{
+        BlobMetadata, NativePublishStorageDriver, StorageDriver, StorageDriverExtensions,
+        StorageErrorKind, StreamUploadDriver, storage_driver_error,
+    };
     use bytes::Bytes;
     use sha2::Digest;
     use std::path::Path;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     fn test_root(label: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
             "aster-follower-stream-{label}-{}-{}",
             std::process::id(),
-            rand::random::<u64>()
+            uuid::Uuid::now_v7()
         ))
     }
 
     fn assert_no_attempt_files(root: &Path) {
         let entries = std::fs::read_dir(root)
             .unwrap()
-            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.unwrap())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert!(
-            entries
-                .iter()
-                .all(|name| !name.starts_with(".aster-attempt-"))
+            entries.iter().all(|name| !name.contains(".aster-attempt-")),
+            "attempt files remain: {entries:?}"
         );
+    }
+
+    struct PublishProbe {
+        native: bool,
+        error: Option<StorageErrorKind>,
+        publishes: AtomicUsize,
+        copies: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl StorageDriver for PublishProbe {
+        async fn put(&self, _: &str, _: &[u8]) -> aster_drive_storage::Result<String> {
+            unreachable!("publish must not read or upload object contents")
+        }
+        async fn get(&self, _: &str) -> aster_drive_storage::Result<Vec<u8>> {
+            unreachable!("publish must not read or upload object contents")
+        }
+        async fn get_stream(
+            &self,
+            _: &str,
+        ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+            unreachable!("publish must not read or upload object contents")
+        }
+        async fn delete(&self, _: &str) -> aster_drive_storage::Result<()> {
+            unreachable!("publication dispatch must not delete the final object")
+        }
+        async fn exists(&self, _: &str) -> aster_drive_storage::Result<bool> {
+            unreachable!()
+        }
+        async fn metadata(&self, _: &str) -> aster_drive_storage::Result<BlobMetadata> {
+            unreachable!()
+        }
+        async fn copy_object(
+            &self,
+            source: &str,
+            target: &str,
+        ) -> aster_drive_storage::Result<String> {
+            assert_eq!((source, target), ("staged", "target"));
+            self.copies.fetch_add(1, Ordering::SeqCst);
+            Ok(target.to_owned())
+        }
+        fn extensions(&self) -> StorageDriverExtensions<'_> {
+            StorageDriverExtensions {
+                native_publish: self.native.then_some(self),
+                ..Default::default()
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl NativePublishStorageDriver for PublishProbe {
+        async fn publish_staged(
+            &self,
+            source: &str,
+            target: &str,
+        ) -> aster_drive_storage::Result<String> {
+            assert_eq!((source, target), ("staged", "target"));
+            self.publishes.fetch_add(1, Ordering::SeqCst);
+            match self.error {
+                Some(kind) => Err(storage_driver_error(kind, "injected publish failure")),
+                None => Ok(target.to_owned()),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_prefers_native_and_only_copies_when_capability_is_absent() {
+        for native in [true, false] {
+            let driver = PublishProbe {
+                native,
+                error: None,
+                publishes: AtomicUsize::new(0),
+                copies: AtomicUsize::new(0),
+            };
+            assert_eq!(
+                publish_staged_object(&driver, "staged", "target")
+                    .await
+                    .unwrap(),
+                "target"
+            );
+            assert_eq!(driver.publishes.load(Ordering::SeqCst), usize::from(native));
+            assert_eq!(driver.copies.load(Ordering::SeqCst), usize::from(!native));
+        }
+    }
+
+    #[tokio::test]
+    async fn native_publication_errors_never_retry_with_copy() {
+        for kind in [
+            StorageErrorKind::Unsupported,
+            StorageErrorKind::Transient,
+            StorageErrorKind::Permission,
+        ] {
+            let driver = PublishProbe {
+                native: true,
+                error: Some(kind),
+                publishes: AtomicUsize::new(0),
+                copies: AtomicUsize::new(0),
+            };
+            assert_eq!(
+                publish_staged_object(&driver, "staged", "target")
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                kind
+            );
+            assert_eq!(driver.publishes.load(Ordering::SeqCst), 1);
+            assert_eq!(driver.copies.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn attempt_file_assertion_detects_staging_and_committed_attempt_names() {
+        let root = test_root("attempt-assertion");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("object.bin"), b"original").unwrap();
+        assert_no_attempt_files(&root);
+        for name in [".aster-attempt-test.tmp", "object.bin.aster-attempt-test"] {
+            let path = root.join(name);
+            std::fs::write(&path, b"attempt").unwrap();
+            assert!(std::panic::catch_unwind(|| assert_no_attempt_files(&root)).is_err());
+            std::fs::remove_file(path).unwrap();
+        }
+        assert_no_attempt_files(&root);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn successful_local_publish_renames_verified_attempt() {
+        let root = test_root("successful-publish");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let driver = Arc::new(LocalDriver::new(root.to_str().unwrap()).unwrap());
+        let payload: FollowerUploadBody = Box::pin(futures::stream::once(async {
+            Ok(Bytes::from_static(b"published"))
+        }));
+
+        write_follower_object(
+            driver.clone(),
+            &NoopMetrics::new(),
+            FollowerObjectWriteRequest {
+                binding_id: 7,
+                object_key: "object.bin",
+                storage_path: "object.bin",
+                content_length: 9,
+                expected_sha256: Some(&hex::encode(sha2::Sha256::digest(b"published"))),
+            },
+            payload,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(driver.get("object.bin").await.unwrap(), b"published");
+        assert_no_attempt_files(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn compose_uses_native_local_publish_and_cleans_parts() {
+        let root = test_root("compose-publish");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let driver = Arc::new(LocalDriver::new(root.to_str().unwrap()).unwrap());
+        driver.put("part-a", b"hello ").await.unwrap();
+        driver.put("part-b", b"world").await.unwrap();
+
+        let bytes = compose_follower_objects(
+            driver.clone(),
+            &NoopMetrics::new(),
+            7,
+            "object.bin",
+            "object.bin",
+            vec!["part-a".to_owned(), "part-b".to_owned()],
+            11,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(bytes, 11);
+        assert_eq!(driver.get("object.bin").await.unwrap(), b"hello world");
+        assert!(!driver.exists("part-a").await.unwrap());
+        assert!(!driver.exists("part-b").await.unwrap());
+        assert_no_attempt_files(&root);
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn native_local_publish_moves_empty_and_existing_objects_without_copy() {
+        let root = test_root("native-rename");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let driver = LocalDriver::new(root.to_str().unwrap()).unwrap();
+        for bytes in [b"".as_slice(), b"replacement".as_slice()] {
+            driver.put("staged", bytes).await.unwrap();
+            driver.put("target", b"original").await.unwrap();
+            #[cfg(unix)]
+            let inode = {
+                use std::os::unix::fs::MetadataExt;
+                tokio::fs::metadata(root.join("staged"))
+                    .await
+                    .unwrap()
+                    .ino()
+            };
+            publish_staged_object(&driver, "staged", "target")
+                .await
+                .unwrap();
+            assert_eq!(driver.get("target").await.unwrap(), bytes);
+            assert!(!driver.exists("staged").await.unwrap());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                assert_eq!(
+                    tokio::fs::metadata(root.join("target"))
+                        .await
+                        .unwrap()
+                        .ino(),
+                    inode
+                );
+            }
+        }
+        tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn compose_size_mismatch_preserves_original_and_parts_and_cleans_attempt() {
+        let root = test_root("compose-size");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        let driver = Arc::new(LocalDriver::new(root.to_str().unwrap()).unwrap());
+        driver.put("part", b"new").await.unwrap();
+        driver.put("object.bin", b"original").await.unwrap();
+        for expected_size in [2, 4] {
+            compose_follower_objects(
+                driver.clone(),
+                &NoopMetrics::new(),
+                7,
+                "object.bin",
+                "object.bin",
+                vec!["part".to_owned()],
+                expected_size,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(driver.get("object.bin").await.unwrap(), b"original");
+            assert_eq!(driver.get("part").await.unwrap(), b"new");
+            assert_no_attempt_files(&root);
+        }
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
     #[tokio::test]
@@ -381,7 +645,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn commit_error_aborts_staging_and_preserves_existing_directory() {
+    async fn publish_error_cleans_attempt_and_preserves_existing_directory() {
         let root = test_root("commit-error");
         tokio::fs::create_dir_all(root.join("object.bin"))
             .await

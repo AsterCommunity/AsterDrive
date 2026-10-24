@@ -21,8 +21,8 @@ use aster_drive_storage::error::{
     storage_driver_error_with_context,
 };
 use aster_drive_storage::{
-    BlobMetadata, ExactSizeReader, StorageDriver, StreamUploadAttempt, StreamUploadCleanup,
-    StreamUploadDriver,
+    BlobMetadata, ExactSizeReader, NativePublishStorageDriver, StorageDriver, StreamUploadAttempt,
+    StreamUploadCleanup, StreamUploadDriver,
 };
 
 const DEFAULT_SFTP_PORT: u16 = 22;
@@ -612,8 +612,25 @@ impl StorageDriver for SftpDriver {
     fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
+            native_publish: Some(self),
             ..Default::default()
         }
+    }
+}
+
+#[async_trait]
+impl NativePublishStorageDriver for SftpDriver {
+    async fn publish_staged(
+        &self,
+        staging_path: &str,
+        storage_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        let staging = self.full_path(staging_path)?;
+        let destination = self.full_path(storage_path)?;
+        let mut connection = self.acquire_connection().await?;
+        replace_sftp_object(&mut connection, &staging, &destination, storage_path).await?;
+        connection.mark_reusable();
+        Ok(storage_path.to_string())
     }
 }
 

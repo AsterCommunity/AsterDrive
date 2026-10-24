@@ -4,7 +4,7 @@ use tokio::io::{AsyncRead, AsyncSeekExt};
 
 use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::{
-    LocalPathStorageDriver, StorageCapacityInfo, StorageCapacityStatus,
+    LocalPathStorageDriver, NativePublishStorageDriver, StorageCapacityInfo, StorageCapacityStatus,
 };
 use aster_drive_storage::{MapStorageErr, StorageError, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers::u64_to_i64;
@@ -150,6 +150,7 @@ impl StorageDriver for LocalDriver {
             list: Some(self),
             stream_upload: Some(self),
             local_path: Some(self),
+            native_publish: Some(self),
             ..Default::default()
         }
     }
@@ -189,6 +190,22 @@ impl StorageDriver for LocalDriver {
 
     fn capacity_probe_policy(&self) -> aster_drive_storage::StorageCapacityProbePolicy {
         aster_drive_storage::StorageCapacityProbePolicy::local()
+    }
+}
+
+#[async_trait]
+impl NativePublishStorageDriver for LocalDriver {
+    async fn publish_staged(
+        &self,
+        staging_path: &str,
+        storage_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        let staging = self.full_path(staging_path)?;
+        let destination = self.full_path(storage_path)?;
+        tokio::fs::rename(staging, destination)
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "publish local staged object")?;
+        Ok(storage_path.to_string())
     }
 }
 
