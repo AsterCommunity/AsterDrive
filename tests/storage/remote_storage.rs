@@ -3231,7 +3231,10 @@ async fn test_internal_storage_rejects_put_object_digest_mismatch() {
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
         .insert_header(("x-aster-content-sha256", declared.as_str()))
-        .insert_header((actix_web::http::header::CONTENT_LENGTH, body.len().to_string()))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            body.len().to_string(),
+        ))
         .set_payload(body)
         .to_request();
     let response = test::call_service(&app, request).await;
@@ -3254,11 +3257,11 @@ async fn test_internal_storage_rejects_put_object_digest_mismatch() {
         .insert_header(("x-aster-timestamp", timestamp.to_string()))
         .insert_header(("x-aster-nonce", "digest-mismatch-put-nonce-2"))
         .insert_header(("x-aster-signature", honest_signature))
+        .insert_header(("x-aster-content-sha256", body_sha256_hex(body).as_str()))
         .insert_header((
-            "x-aster-content-sha256",
-            body_sha256_hex(body).as_str(),
+            actix_web::http::header::CONTENT_LENGTH,
+            body.len().to_string(),
         ))
-        .insert_header((actix_web::http::header::CONTENT_LENGTH, body.len().to_string()))
         .set_payload(body)
         .to_request();
     let honest_response = test::call_service(&app, honest_request).await;
@@ -3318,7 +3321,10 @@ async fn test_internal_storage_placeholder_upload_returns_signed_digest() {
         .insert_header(("x-aster-nonce", nonce))
         .insert_header(("x-aster-signature", signature))
         .insert_header(("x-aster-content-sha256", ""))
-        .insert_header((actix_web::http::header::CONTENT_LENGTH, body.len().to_string()))
+        .insert_header((
+            actix_web::http::header::CONTENT_LENGTH,
+            body.len().to_string(),
+        ))
         .set_payload(body)
         .to_request();
     let response = test::call_service(&app, request).await;
@@ -3339,12 +3345,14 @@ async fn test_internal_storage_placeholder_upload_returns_signed_digest() {
         .expect("placeholder upload should bind the response to the request nonce");
     assert_eq!(response_nonce, nonce);
     assert_eq!(digest, body_sha256_hex(body));
-    assert!(aster_drive::storage::remote_protocol::verify_internal_response_signature(
-        &secret_key,
-        response_nonce,
-        digest,
-        signature_header
-    ));
+    assert!(
+        aster_drive::storage::remote_protocol::verify_internal_response_signature(
+            &secret_key,
+            response_nonce,
+            digest,
+            signature_header
+        )
+    );
 }
 
 #[actix_web::test]
@@ -4161,7 +4169,7 @@ async fn test_internal_storage_rejects_replayed_hmac_nonce() {
             .insert_header(("x-aster-access-key", access_key.as_str()))
             .insert_header(("x-aster-timestamp", timestamp.to_string()))
             .insert_header(("x-aster-nonce", nonce))
-    .insert_header(("x-aster-signature", signature.as_str()))
+            .insert_header(("x-aster-signature", signature.as_str()))
             .insert_header(("x-aster-content-sha256", empty_body_sha256()))
             .to_request()
     };
@@ -4254,7 +4262,7 @@ async fn test_internal_storage_hmac_nonce_is_scoped_by_access_key() {
             .insert_header(("x-aster-nonce", nonce))
             .insert_header(("x-aster-signature", signature))
             .insert_header(("x-aster-content-sha256", empty_body_sha256()))
-        .insert_header(("x-aster-content-sha256", empty_body_sha256()))
+            .insert_header(("x-aster-content-sha256", empty_body_sha256()))
             .to_request()
     };
 

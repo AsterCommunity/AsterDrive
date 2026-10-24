@@ -163,7 +163,12 @@ impl MultipartStorageDriver for RemoteDriver {
         };
         let follower_digest = self
             .client
-            .put_reader(&self.object_key(&part_key), Box::new(hashing_reader), size, None)
+            .put_reader(
+                &self.object_key(&part_key),
+                Box::new(hashing_reader),
+                size,
+                None,
+            )
             .await?
             .ok_or_else(|| {
                 storage_driver_error(

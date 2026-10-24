@@ -1518,7 +1518,9 @@ async fn test_audit_ip_ignores_client_forwarded_headers_without_trusted_proxies(
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
-    aster_drive::services::ops::audit::flush(&state).await.unwrap();
+    aster_drive::services::ops::audit::flush(&state)
+        .await
+        .unwrap();
 
     let stored = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FolderCreate))

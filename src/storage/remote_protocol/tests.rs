@@ -168,7 +168,9 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
             .unwrap_or_default()
             .to_owned();
         let signature = crate::storage::remote_protocol::sign_internal_response_signature(
-            "secret-key", &nonce, &digest,
+            "secret-key",
+            &nonce,
+            &digest,
         );
         HttpResponse::NoContent()
             .insert_header((

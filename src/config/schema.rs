@@ -290,11 +290,13 @@ impl TrustedClientNetworks {
     /// 空列表 = 无反代或未配置：真实客户端就是 TCP peer。
     pub fn real_ip(&self, req: &actix_web::HttpRequest) -> Option<std::net::IpAddr> {
         let peer = req.peer_addr()?.ip();
-        Some(aster_forge_middleware::actix::client_ip::real_ip_from_trusted_headers(
-            req.headers(),
-            peer,
-            &self.proxies,
-        ))
+        Some(
+            aster_forge_middleware::actix::client_ip::real_ip_from_trusted_headers(
+                req.headers(),
+                peer,
+                &self.proxies,
+            ),
+        )
     }
 }
 

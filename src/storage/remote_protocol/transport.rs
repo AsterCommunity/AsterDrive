@@ -77,9 +77,7 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => super::empty_body_sha256().to_string(),
             Self::Bytes(body) => super::body_sha256_hex(body),
-            Self::Reader { body_sha256, .. } => {
-                body_sha256.clone().unwrap_or_default()
-            }
+            Self::Reader { body_sha256, .. } => body_sha256.clone().unwrap_or_default(),
         }
     }
 
@@ -87,9 +85,7 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => Ok(Box::new(std::io::Cursor::new(Bytes::new()))),
             Self::Bytes(body) => Ok(Box::new(std::io::Cursor::new(body))),
-            Self::Reader { reader, size, .. } => {
-                Ok(Box::new(ExactSizeReader::new(reader, size)))
-            }
+            Self::Reader { reader, size, .. } => Ok(Box::new(ExactSizeReader::new(reader, size))),
         }
     }
 
@@ -323,17 +319,16 @@ impl RemoteTransport for DirectHttpTransport {
             }
         })?;
         // 失败响应直接透传原始错误；digest 验签只对成功响应强制。
-        let object_body_sha256 = if request.expect_response_body_sha256
-            && response.status().is_success()
-        {
-            Some(verify_response_body_sha256(
-                response.headers(),
-                &self.secret_key,
-                "direct transport object upload",
-            )?)
-        } else {
-            None
-        };
+        let object_body_sha256 =
+            if request.expect_response_body_sha256 && response.status().is_success() {
+                Some(verify_response_body_sha256(
+                    response.headers(),
+                    &self.secret_key,
+                    "direct transport object upload",
+                )?)
+            } else {
+                None
+            };
         Ok(RemoteTransportResponse {
             object_body_sha256,
             kind: RemoteTransportResponseKind::Direct(response),
@@ -442,7 +437,7 @@ impl RemoteTransport for ReverseTunnelTransport {
                     return Ok(RemoteTransportResponse {
                         object_body_sha256: None,
                         kind: RemoteTransportResponseKind::TunnelStream(response),
-                    })
+                    });
                 }
                 Err(error) if should_fallback_stream_error_to_poll(&error) => {
                     let Some(fallback_body) = fallback_body else {
@@ -738,7 +733,9 @@ pub fn response_stream(response: RemoteTransportResponse) -> Box<dyn AsyncRead +
                 .map_err(|error| std::io::Error::other(error.to_string()));
             Box::new(StreamReader::new(stream))
         }
-        RemoteTransportResponseKind::Tunnel(response) => Box::new(std::io::Cursor::new(response.body)),
+        RemoteTransportResponseKind::Tunnel(response) => {
+            Box::new(std::io::Cursor::new(response.body))
+        }
         RemoteTransportResponseKind::TunnelStream(response) => response.body,
     }
 }
@@ -1533,9 +1530,9 @@ mod tests {
                     reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-body!"))),
                     size: 9,
                     body_sha256: None,
-                    },
-                    expect_response_body_sha256: false,
-                    })
+                },
+                expect_response_body_sha256: false,
+            })
             .await;
         let error = match result {
             Ok(_) => panic!("reader longer than declared size must be rejected"),
@@ -1565,9 +1562,9 @@ mod tests {
                     reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-bod"))),
                     size: 9,
                     body_sha256: None,
-                    },
-                    expect_response_body_sha256: false,
-                    })
+                },
+                expect_response_body_sha256: false,
+            })
             .await;
         let error = match result {
             Ok(_) => panic!("reader shorter than declared size must be rejected"),
@@ -1610,9 +1607,9 @@ mod tests {
                     reader: Box::new(ErrorReader),
                     size: 1,
                     body_sha256: None,
-                    },
-                    expect_response_body_sha256: false,
-                    })
+                },
+                expect_response_body_sha256: false,
+            })
             .await;
         let error = match result {
             Ok(_) => panic!("polling reader I/O failure should be returned"),

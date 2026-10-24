@@ -8,9 +8,7 @@ use super::broker::RemoteTunnelHttpResponse;
 fn declared_body_sha256(extra_headers: &[(String, String)]) -> String {
     extra_headers
         .iter()
-        .find(|(name, _)| {
-            name == crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER
-        })
+        .find(|(name, _)| name == crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
         .map(|(_, value)| value.clone())
         .unwrap_or_default()
 }

@@ -159,7 +159,11 @@ pub(crate) fn verify_internal_request_signature(
 /// 这类发送时 digest 不可知路径的内容完整性。
 ///
 /// canonical 复用请求 nonce，把响应绑定到单个请求，防重放与跨请求搬移。
-pub fn sign_internal_response_signature(secret_key: &str, nonce: &str, body_sha256: &str) -> String {
+pub fn sign_internal_response_signature(
+    secret_key: &str,
+    nonce: &str,
+    body_sha256: &str,
+) -> String {
     let mac = internal_response_mac(secret_key, nonce, body_sha256);
     hex::encode(mac.finalize().into_bytes())
 }

@@ -12,10 +12,10 @@ use crate::services::{
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_RESPONSE_NONCE_HEADER,
     INTERNAL_RESPONSE_OBJECT_SHA256_HEADER, INTERNAL_RESPONSE_SIGNATURE_HEADER,
-    PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
-    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
-    RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
-    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
+    PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE, RemoteBindingSyncRequest,
+    RemoteCreateStorageTargetRequest, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
+    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
+    RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
 };
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
@@ -80,10 +80,7 @@ fn internal_storage_validation_error(
 
 /// 反序列化控制面 JSON body，并对其与签名声明 digest 做对账：验签只证明
 /// primary 签过声明值，body 字节本身必须与此一致才算完整覆盖。
-fn json_request_body<T: serde::de::DeserializeOwned>(
-    req: &HttpRequest,
-    body: &[u8],
-) -> Result<T> {
+fn json_request_body<T: serde::de::DeserializeOwned>(req: &HttpRequest, body: &[u8]) -> Result<T> {
     let declared = crate::storage::remote_protocol::declared_content_sha256(req.headers());
     let computed = crate::storage::remote_protocol::body_sha256_hex(body);
     if !declared.is_empty() && declared != computed {
@@ -332,8 +329,7 @@ async fn get_capabilities(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     tracing::debug!(
         binding_id = binding.id,
         "follower internal storage capabilities requested"
@@ -374,8 +370,7 @@ async fn sync_binding(
     body: web::Bytes,
 ) -> Result<HttpResponse> {
     // binding sync 的 body 是有界 JSON，整体入签后再反序列化。
-    let binding =
-        master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let body: RemoteBindingSyncRequest = json_request_body(&req, &body)?;
     let synced = master_binding::sync_from_primary(
         state.get_ref(),
@@ -595,9 +590,7 @@ async fn put_object(
                 "failed to cleanup rejected object after digest mismatch: {error}"
             );
         }
-        return Err(AsterError::validation_error(
-            "object body digest mismatch",
-        ));
+        return Err(AsterError::validation_error("object body digest mismatch"));
     }
     tracing::info!(
         binding_id = ctx.binding.id,
@@ -958,8 +951,7 @@ async fn list_storage_targets(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let targets = storage_target::list(state.get_ref(), &binding).await?;
     tracing::debug!(
         binding_id = binding.id,
@@ -974,8 +966,7 @@ async fn list_storage_target_connectors(
     req: HttpRequest,
     query: web::Query<StorageTargetConnectorCatalogQuery>,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let catalog = storage_target::remote_storage_target_connector_catalog(
         state.driver_registry().connectors(),
         &query.locale,
@@ -997,12 +988,7 @@ async fn create_storage_target(
     // 写操作要求 binding 处于启用态：节点被 master 禁用后，持旧凭据的
     // 一方不得继续修改本节点存储配置；binding sync 端点保持放行以便
     // 重新启用时能同步 is_enabled=true。body 是有界 JSON，整体入签。
-    let binding =
-        master_binding::authorize_internal_binding_request(
-            state.get_ref(),
-            &req,
-            )
-            .await?;
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     let body: RemoteCreateStorageTargetRequest = json_request_body(&req, &body)?;
     let target = storage_target::create(state.get_ref(), &binding, body).await?;
     tracing::info!(
@@ -1037,12 +1023,7 @@ async fn update_storage_target(
     body: web::Bytes,
 ) -> Result<HttpResponse> {
     // 与 create_storage_target 相同：写操作要求 binding 启用；body 整体入签。
-    let binding =
-        master_binding::authorize_internal_binding_request(
-            state.get_ref(),
-            &req,
-            )
-            .await?;
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
     let body: RemoteUpdateStorageTargetRequest = json_request_body(&req, &body)?;
     let target = storage_target::update(state.get_ref(), &binding, &target_key, body).await?;
@@ -1077,8 +1058,7 @@ async fn delete_storage_target(
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
     // 与 create_storage_target 相同：写操作要求 binding 启用。
-    let binding =
-        master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
     let deleted_target = storage_target::delete(state.get_ref(), &binding, &target_key).await?;
     tracing::info!(
