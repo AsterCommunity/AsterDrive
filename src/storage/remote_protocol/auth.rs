@@ -103,9 +103,8 @@ pub(crate) fn internal_request_mac(
 /// - `body: None`：body 未读（流式上传/proxy）或端点无 body，接受流式占位与
 ///   空 body digest 两种签名形态。
 ///
-/// 滚动升级兼容：混合版本窗口内还接受旧版 5 行 canonical（无 body 行）。
-/// 该候选只能由持 secret 的旧版客户端产生，无法被第三方用于降级新签名。
-/// 所有部署升级完成后可移除旧格式候选。
+/// 不接受旧版 5 行 canonical：primary 与 follower 必须同时升级，混合版本
+/// 部署的内部请求一律 401，不做滚动窗口。
 #[expect(
     clippy::expect_used,
     clippy::too_many_arguments,
@@ -132,7 +131,7 @@ pub(crate) fn verify_internal_request_signature(
     let new_canonical = |body_sha256: &str| {
         format!("{method}\n{path_and_query}\n{timestamp}\n{nonce}\n{content_length}\n{body_sha256}")
     };
-    let mut canonicals: Vec<String> = Vec::with_capacity(4);
+    let mut canonicals: Vec<String> = Vec::with_capacity(3);
     if let Some(body) = body {
         canonicals.push(new_canonical(&body_sha256_hex(body)));
     }
@@ -140,10 +139,6 @@ pub(crate) fn verify_internal_request_signature(
     canonicals.push(new_canonical(""));
     // 空 body 的规范 digest（sha256("")）
     canonicals.push(new_canonical(empty_body_sha256()));
-    // 旧版 5 行 canonical（滚动升级窗口）
-    canonicals.push(format!(
-        "{method}\n{path_and_query}\n{timestamp}\n{nonce}\n{content_length}"
-    ));
 
     for canonical in canonicals {
         let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(secret_key.as_bytes())
@@ -218,32 +213,6 @@ mod tests {
         body_sha256_hex, empty_body_sha256, sign_internal_request, sign_presigned_request,
         verify_internal_request_signature, verify_presigned_request_signature,
     };
-
-    fn sign_legacy_5_line(
-        secret_key: &str,
-        method: &str,
-        path_and_query: &str,
-        timestamp: i64,
-        nonce: &str,
-        content_length: Option<u64>,
-    ) -> String {
-        use hmac::{Hmac, KeyInit, Mac};
-        use sha2::Sha256;
-        let canonical = format!(
-            "{}\n{}\n{}\n{}\n{}",
-            method,
-            path_and_query,
-            timestamp,
-            nonce,
-            content_length
-                .map(|value| value.to_string())
-                .unwrap_or_default()
-        );
-        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(secret_key.as_bytes())
-            .expect("HMAC accepts any key length");
-        mac.update(canonical.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
-    }
 
     #[test]
     fn internal_signature_covers_body_digest() {
@@ -332,42 +301,6 @@ mod tests {
 
         // 两种占位与真实 digest 互不相同
         assert_ne!(empty, streaming);
-    }
-
-    #[test]
-    fn internal_signature_accepts_legacy_5_line_only_as_fallback() {
-        let args = (
-            "secret",
-            "PUT",
-            "/internal/storage/objects/k",
-            1_700_000_i64,
-            "nonce-3",
-        );
-
-        // 旧版客户端的 5 行签名在滚动升级窗口内被接受
-        let legacy = sign_legacy_5_line(args.0, args.1, args.2, args.3, args.4, Some(5));
-        assert!(verify_internal_request_signature(
-            args.0,
-            args.1,
-            args.2,
-            args.3,
-            args.4,
-            Some(5),
-            None,
-            &legacy
-        ));
-
-        // 但同样字节的新版签名（digest 覆盖）与其不同，不能互相伪造
-        let modern = sign_internal_request(
-            args.0,
-            args.1,
-            args.2,
-            args.3,
-            args.4,
-            Some(5),
-            &body_sha256_hex(b"chunk"),
-        );
-        assert_ne!(legacy, modern);
     }
 
     #[test]

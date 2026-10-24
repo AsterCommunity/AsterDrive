@@ -474,8 +474,8 @@ async fn reverse_tunnel_driver_rejects_presigned_browser_urls() {
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     let follower = build_reverse_follower_with_capabilities(
         r#"{
-            "protocol_version":"v6",
-            "min_supported_protocol_version":"v6",
+            "protocol_version":"v7",
+            "min_supported_protocol_version":"v7",
             "supports_stream_upload":true,
             "supports_list":true,
             "supports_range_read":true
