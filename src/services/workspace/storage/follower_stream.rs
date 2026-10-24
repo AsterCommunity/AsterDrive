@@ -20,6 +20,14 @@ const STREAM_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 pub(crate) type FollowerUploadBody = Pin<Box<dyn Stream<Item = Result<Bytes>> + 'static>>;
 
+pub(crate) struct FollowerObjectWriteRequest<'a> {
+    pub binding_id: i64,
+    pub object_key: &'a str,
+    pub storage_path: &'a str,
+    pub content_length: i64,
+    pub expected_sha256: Option<&'a str>,
+}
+
 #[derive(Clone, Copy)]
 struct RelayStageContext {
     stage_abort_join: &'static str,
@@ -77,13 +85,16 @@ where
 pub(crate) async fn write_follower_object(
     driver: Arc<dyn StorageDriver>,
     metrics: &dyn MetricsRecorder,
-    binding_id: i64,
-    object_key: &str,
-    storage_path: &str,
-    content_length: i64,
-    expected_sha256: Option<&str>,
+    request: FollowerObjectWriteRequest<'_>,
     mut payload: FollowerUploadBody,
 ) -> Result<String> {
+    let FollowerObjectWriteRequest {
+        binding_id,
+        object_key,
+        storage_path,
+        content_length,
+        expected_sha256,
+    } = request;
     let stream_driver = driver.extensions().stream_upload.ok_or_else(|| {
         crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
@@ -303,7 +314,10 @@ async fn log_aborted_relay_join<T>(task: tokio::task::JoinHandle<T>, context: &'
 
 #[cfg(test)]
 mod tests {
-    use super::{FollowerUploadBody, RelayStageContext, stage_with_relay, write_follower_object};
+    use super::{
+        FollowerObjectWriteRequest, FollowerUploadBody, RelayStageContext, stage_with_relay,
+        write_follower_object,
+    };
     use crate::errors::AsterError;
     use crate::storage::drivers::local::LocalDriver;
     use aster_drive_metrics::NoopMetrics;
@@ -348,11 +362,13 @@ mod tests {
         let error = write_follower_object(
             driver.clone(),
             &NoopMetrics::new(),
-            7,
-            "object.bin",
-            "object.bin",
-            64,
-            None,
+            FollowerObjectWriteRequest {
+                binding_id: 7,
+                object_key: "object.bin",
+                storage_path: "object.bin",
+                content_length: 64,
+                expected_sha256: None,
+            },
             payload,
         )
         .await
@@ -378,11 +394,13 @@ mod tests {
         write_follower_object(
             driver,
             &NoopMetrics::new(),
-            7,
-            "object.bin",
-            "object.bin",
-            5,
-            None,
+            FollowerObjectWriteRequest {
+                binding_id: 7,
+                object_key: "object.bin",
+                storage_path: "object.bin",
+                content_length: 5,
+                expected_sha256: None,
+            },
             payload,
         )
         .await
@@ -413,11 +431,13 @@ mod tests {
         write_follower_object(
             driver.clone(),
             &NoopMetrics::new(),
-            7,
-            "object.bin",
-            "object.bin",
-            8,
-            Some(&hex::encode(sha2::Sha256::digest(b"expected"))),
+            FollowerObjectWriteRequest {
+                binding_id: 7,
+                object_key: "object.bin",
+                storage_path: "object.bin",
+                content_length: 8,
+                expected_sha256: Some(&hex::encode(sha2::Sha256::digest(b"expected"))),
+            },
             payload,
         )
         .await

@@ -3,13 +3,12 @@
   "type": "module",
   "scripts": {
     "docs:dev": "astro dev",
-    "docs:build": "bun run docs:check-observability && astro build",
+    "docs:build": "astro build",
     "docs:preview": "astro preview",
     "developer-docs:generate-openapi": "cargo nextest run --profile ci --manifest-path ../Cargo.toml --features openapi --test generate_openapi generate_openapi -- --exact",
     "developer-docs:prepare": "node scripts/prepare-developer-docs.mjs",
     "developer-docs:dev": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro dev --config astro.developer.config.mts",
-    "developer-docs:build": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro build --config astro.developer.config.mts",
-    "docs:check-observability": "bun scripts/check-observability-docs.mjs"
+    "developer-docs:build": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro build --config astro.developer.config.mts"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",

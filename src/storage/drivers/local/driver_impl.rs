@@ -111,14 +111,37 @@ impl StorageDriver for LocalDriver {
     ) -> aster_drive_storage::Result<String> {
         let src_full = self.full_path(src_path)?;
         let dest_full = self.full_path(dest_path)?;
-        if let Some(parent) = dest_full.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_storage_err(StorageErrorKind::Transient)?;
-        }
-        tokio::fs::copy(&src_full, &dest_full)
+        let parent = dest_full.parent().ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "local copy destination has no parent",
+            )
+        })?;
+        tokio::fs::create_dir_all(parent)
             .await
-            .map_storage_err_ctx(StorageErrorKind::Transient, "copy_object")?;
+            .map_storage_err(StorageErrorKind::Transient)?;
+        let temp = parent.join(format!(
+            ".aster-copy-{}.tmp",
+            aster_forge_utils::id::new_uuid()
+        ));
+        let result = async {
+            tokio::fs::copy(&src_full, &temp)
+                .await
+                .map_storage_err_ctx(StorageErrorKind::Transient, "copy_object staging")?;
+            tokio::fs::rename(&temp, &dest_full)
+                .await
+                .map_storage_err_ctx(StorageErrorKind::Transient, "copy_object publish")?;
+            Ok::<(), aster_drive_storage::StorageError>(())
+        }
+        .await;
+        if let Err(error) = result {
+            if let Err(cleanup_error) = tokio::fs::remove_file(&temp).await
+                && cleanup_error.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(path = %temp.display(), "failed to clean up local copy staging file: {cleanup_error}");
+            }
+            return Err(error);
+        }
         Ok(dest_path.to_string())
     }
 

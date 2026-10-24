@@ -7,7 +7,10 @@ use crate::runtime::FollowerAppState;
 use crate::services::{
     ops::audit,
     remote::{master_binding, storage_target},
-    workspace::storage::{FollowerUploadBody, compose_follower_objects, write_follower_object},
+    workspace::storage::{
+        FollowerObjectWriteRequest, FollowerUploadBody, compose_follower_objects,
+        write_follower_object,
+    },
 };
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_RESPONSE_NONCE_HEADER,
@@ -570,13 +573,15 @@ async fn put_object(
     let etag = write_follower_object(
         ctx.ingress_driver,
         state.metrics.as_ref(),
-        ctx.binding.id,
-        &object_key,
-        &storage_path,
-        content_length,
-        signed
-            .then_some(declared_sha256.as_str())
-            .filter(|value| !value.is_empty()),
+        FollowerObjectWriteRequest {
+            binding_id: ctx.binding.id,
+            object_key: &object_key,
+            storage_path: &storage_path,
+            content_length,
+            expected_sha256: signed
+                .then_some(declared_sha256.as_str())
+                .filter(|value| !value.is_empty()),
+        },
         payload,
     )
     .await?;

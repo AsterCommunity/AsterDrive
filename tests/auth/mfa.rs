@@ -1479,6 +1479,46 @@ async fn test_totp_sensitive_confirmation_rejects_code_replay() {
 }
 
 #[tokio::test]
+async fn test_totp_sensitive_confirmation_allows_only_one_concurrent_code_consumer() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    register_user(&app, "tsenscon", "tsenscon@example.com", "password123").await;
+    let (access, _) = login_user!(app, "tsenscon", "password123");
+    let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
+    let code = totp_code(&secret);
+
+    let make_request = || {
+        test::TestRequest::post()
+            .uri("/api/v1/auth/mfa/recovery-codes/regenerate")
+            .insert_header(("Cookie", common::access_cookie_header(&access)))
+            .insert_header(common::csrf_header_for(&access))
+            .set_json(serde_json::json!({ "code": code }))
+            .to_request()
+    };
+    let (first, second) = futures::join!(
+        test::call_service(&app, make_request()),
+        test::call_service(&app, make_request()),
+    );
+    let statuses = [first.status(), second.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1,
+        "the unique (factor_id, time_step) insert must have one sensitive-action winner"
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::UNAUTHORIZED)
+            .count(),
+        1,
+        "the concurrent sensitive-action replay must be rejected"
+    );
+}
+
+#[tokio::test]
 async fn test_totp_login_challenge_rejects_cross_flow_code_replay() {
     let state = common::setup().await;
     let app = create_test_app!(state);
@@ -1526,8 +1566,6 @@ async fn test_totp_login_challenge_allows_only_one_concurrent_code_consumer() {
     .await;
     let (access, _) = login_user!(app, "totpconcurrent", "password123");
     let (_factor_id, secret, _recovery_codes) = enable_totp(&app, &access).await;
-    let code = totp_code(&secret);
-
     let first = login_raw(&app, "totpconcurrent", "password123").await;
     let first_body: Value = test::read_body_json(first).await;
     let first_flow = first_body["data"]["flow_token"]
@@ -1540,6 +1578,7 @@ async fn test_totp_login_challenge_allows_only_one_concurrent_code_consumer() {
         .as_str()
         .unwrap()
         .to_string();
+    let code = totp_code(&secret);
 
     let (first, second) = futures::join!(
         verify_mfa(&app, &first_flow, "totp", &code),

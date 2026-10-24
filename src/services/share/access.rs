@@ -338,10 +338,10 @@ async fn verify_share_password_effective_hash(
         return Err(AsterError::auth_invalid_credentials("wrong share password"));
     }
 
-    if verification.needs_rehash {
-        if let Some(new_hash) = upgrade_share_password_hash(state, share, pw_hash, password).await {
-            return Ok(new_hash);
-        }
+    if verification.needs_rehash
+        && let Some(new_hash) = upgrade_share_password_hash(state, share, pw_hash, password).await
+    {
+        return Ok(new_hash);
     }
 
     Ok(pw_hash.to_string())
