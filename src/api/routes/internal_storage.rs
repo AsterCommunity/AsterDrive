@@ -10,7 +10,9 @@ use crate::services::{
     workspace::storage::{FollowerUploadBody, compose_follower_objects, write_follower_object},
 };
 use crate::storage::remote_protocol::{
-    INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
+    INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_RESPONSE_NONCE_HEADER,
+    INTERNAL_RESPONSE_OBJECT_SHA256_HEADER, INTERNAL_RESPONSE_SIGNATURE_HEADER,
+    PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
     RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
     RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
     RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
@@ -76,36 +78,22 @@ fn internal_storage_validation_error(
     validation_error_with_code(api_code, message)
 }
 
-/// 反序列化已通过签名验证的控制面 JSON body。
-fn json_request_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T> {
+/// 反序列化控制面 JSON body，并对其与签名声明 digest 做对账：验签只证明
+/// primary 签过声明值，body 字节本身必须与此一致才算完整覆盖。
+fn json_request_body<T: serde::de::DeserializeOwned>(
+    req: &HttpRequest,
+    body: &[u8],
+) -> Result<T> {
+    let declared = crate::storage::remote_protocol::declared_content_sha256(req.headers());
+    let computed = crate::storage::remote_protocol::body_sha256_hex(body);
+    if !declared.is_empty() && declared != computed {
+        return Err(AsterError::auth_invalid_credentials(
+            "request body does not match the signed digest",
+        ));
+    }
     serde_json::from_slice(body).map_err(|error| {
         AsterError::validation_error(format!("invalid JSON request body: {error}"))
     })
-}
-
-/// 上传 body 进入签名验证的缓冲上限：超过该值的 body 不可能来自
-/// polling 隧道（其 body 上限即此值），必然是流式上传（占位签名）。
-const PUT_BODY_DIGEST_BUFFER_LIMIT: usize =
-    crate::storage::remote_protocol::tunnel::server::REMOTE_TUNNEL_POLL_BODY_LIMIT;
-
-/// 读取有界上传 body 用于签名验证。字节超出声明上限即拒绝——
-/// content-length 与实际 body 不一致的请求不可信。
-async fn read_bounded_body(payload: &mut web::Payload, limit: usize) -> Result<bytes::Bytes> {
-    use futures::StreamExt;
-
-    let mut body = bytes::BytesMut::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(|error| {
-            AsterError::validation_error(format!("read upload payload: {error}"))
-        })?;
-        if body.len() + chunk.len() > limit {
-            return Err(AsterError::payload_too_large(format!(
-                "upload body exceeds the {limit} byte digest verification buffer"
-            )));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body.freeze())
 }
 
 fn content_length_header(headers: &HeaderMap) -> Result<i64> {
@@ -345,7 +333,7 @@ async fn get_capabilities(
     req: HttpRequest,
 ) -> Result<HttpResponse> {
     let binding =
-        master_binding::authorize_internal_binding_request(state.get_ref(), &req, None).await?;
+        master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     tracing::debug!(
         binding_id = binding.id,
         "follower internal storage capabilities requested"
@@ -369,7 +357,7 @@ async fn get_capacity(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req, None).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let capacity = ctx.ingress_driver.capacity_info().await?;
     tracing::debug!(
         binding_id = ctx.binding.id,
@@ -387,8 +375,8 @@ async fn sync_binding(
 ) -> Result<HttpResponse> {
     // binding sync 的 body 是有界 JSON，整体入签后再反序列化。
     let binding =
-        master_binding::authorize_binding_sync_request(state.get_ref(), &req, Some(&body)).await?;
-    let body: RemoteBindingSyncRequest = json_request_body(&body)?;
+        master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let body: RemoteBindingSyncRequest = json_request_body(&req, &body)?;
     let synced = master_binding::sync_from_primary(
         state.get_ref(),
         &binding.access_key,
@@ -431,7 +419,7 @@ async fn list_objects(
     req: HttpRequest,
     query: web::Query<ObjectQuery>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req, None).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let list_driver = ctx.ingress_driver.extensions().list.ok_or_else(|| {
         crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
@@ -522,7 +510,7 @@ async fn put_object(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
     path: web::Path<String>,
-    mut payload: web::Payload,
+    payload: web::Payload,
 ) -> Result<HttpResponse> {
     let content_length = content_length_header(req.headers())?;
     if content_length < 0 {
@@ -532,26 +520,26 @@ async fn put_object(
         ));
     }
     let signed = req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER);
-    // 有界小 body（控制面探测/缓冲上传）整体读入签名验证，digest 覆盖生效；
-    // 更大的 body 必然来自流式上传（签名占位，显式不覆盖），保持流式管道。
-    let buffered_body = if signed && content_length <= PUT_BODY_DIGEST_BUFFER_LIMIT as i64 {
-        Some(read_bounded_body(&mut payload, PUT_BODY_DIGEST_BUFFER_LIMIT).await?)
-    } else {
-        None
-    };
     let ctx = if signed {
-        master_binding::authorize_internal_write_request(
-            state.get_ref(),
-            &req,
-            buffered_body.as_deref(),
-        )
-        .await?
+        master_binding::authorize_internal_write_request(state.get_ref(), &req).await?
     } else {
         master_binding::authorize_presigned_put_request(state.get_ref(), &req).await?
     };
     let object_key = path.into_inner();
     let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
+    let ingress_driver = std::sync::Arc::clone(&ctx.ingress_driver);
     validate_ingress_object_size(content_length, ctx.ingress_max_file_size, "object")?;
+    // v7 声明头：非空 = primary 先承诺的 body digest（收完对账）；空 = relay
+    // 直推的占位签（内容完整性由响应签名对账补齐）。
+    let declared_sha256 = if signed {
+        req.headers()
+            .get(crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    } else {
+        String::new()
+    };
     tracing::debug!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -559,28 +547,25 @@ async fn put_object(
         "follower object write accepted"
     );
 
-    let payload: FollowerUploadBody = match buffered_body {
-        Some(body) => Box::pin(futures::stream::iter([Ok(body)])),
-        None => {
-            let payload = crate::storage::transfer_metrics::payload(
-                payload.into_inner(),
-                state.metrics.clone(),
-                aster_drive_metrics::TransferLabels {
-                    direction: aster_drive_metrics::TransferDirection::Ingress,
-                    source: aster_drive_metrics::TransferSource::Remote,
-                    mode: if signed {
-                        aster_drive_metrics::TransferMode::Stream
-                    } else {
-                        aster_drive_metrics::TransferMode::Presigned
-                    },
+    let payload: FollowerUploadBody = {
+        let payload = crate::storage::transfer_metrics::payload(
+            payload.into_inner(),
+            state.metrics.clone(),
+            aster_drive_metrics::TransferLabels {
+                direction: aster_drive_metrics::TransferDirection::Ingress,
+                source: aster_drive_metrics::TransferSource::Remote,
+                mode: if signed {
+                    aster_drive_metrics::TransferMode::Stream
+                } else {
+                    aster_drive_metrics::TransferMode::Presigned
                 },
-            );
-            Box::pin(payload.map(|chunk| {
-                chunk.map_err(|error| {
-                    AsterError::validation_error(format!("read upload payload: {error}"))
-                })
-            }))
-        }
+            },
+        );
+        Box::pin(payload.map(|chunk| {
+            chunk.map_err(|error| {
+                AsterError::validation_error(format!("read upload payload: {error}"))
+            })
+        }))
     };
     let etag = write_follower_object(
         ctx.ingress_driver,
@@ -592,6 +577,28 @@ async fn put_object(
         payload,
     )
     .await?;
+    // relay hasher 算出的内容 digest（etag 即 sha256 hex）。
+    let computed_sha256 = etag.trim_matches('"').to_owned();
+    if signed && !declared_sha256.is_empty() && computed_sha256 != declared_sha256 {
+        // 先承诺对账失败：源内容或传输链路被篡改，清理并拒绝。
+        tracing::warn!(
+            binding_id = ctx.binding.id,
+            object_key = %object_key,
+            declared = %declared_sha256,
+            computed = %computed_sha256,
+            "follower object digest mismatch; rejecting upload"
+        );
+        if let Err(error) = ingress_driver.delete(&storage_path).await {
+            tracing::warn!(
+                binding_id = ctx.binding.id,
+                storage_path = %storage_path,
+                "failed to cleanup rejected object after digest mismatch: {error}"
+            );
+        }
+        return Err(AsterError::validation_error(
+            "object body digest mismatch",
+        ));
+    }
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
@@ -620,9 +627,32 @@ async fn put_object(
         )
         .await;
     }
-    Ok(HttpResponse::Ok()
-        .insert_header((actix_web::http::header::ETAG, etag))
-        .json(crate::api::response::empty_success()))
+    let nonce = if signed {
+        req.headers()
+            .get(INTERNAL_AUTH_NONCE_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned()
+    } else {
+        String::new()
+    };
+    let signature = if signed {
+        crate::storage::remote_protocol::sign_internal_response_signature(
+            &ctx.binding.secret_key,
+            &nonce,
+            &computed_sha256,
+        )
+    } else {
+        String::new()
+    };
+    let mut builder = HttpResponse::Ok();
+    builder.insert_header((actix_web::http::header::ETAG, etag));
+    if signed {
+        builder.insert_header((INTERNAL_RESPONSE_OBJECT_SHA256_HEADER, computed_sha256));
+        builder.insert_header((INTERNAL_RESPONSE_SIGNATURE_HEADER, signature));
+        builder.insert_header((INTERNAL_RESPONSE_NONCE_HEADER, nonce));
+    }
+    Ok(builder.json(crate::api::response::empty_success()))
 }
 
 async fn compose_objects(
@@ -630,9 +660,8 @@ async fn compose_objects(
     req: HttpRequest,
     body: web::Bytes,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding::authorize_internal_write_request(state.get_ref(), &req, Some(&body))
-        .await?;
-    let body: RemoteStorageComposeRequest = json_request_body(&body)?;
+    let ctx = master_binding::authorize_internal_write_request(state.get_ref(), &req).await?;
+    let body: RemoteStorageComposeRequest = json_request_body(&req, &body)?;
     if body.part_keys.is_empty() {
         return Err(internal_storage_validation_error(
             ApiErrorCode::InternalStorageComposePartsRequired,
@@ -719,7 +748,7 @@ async fn get_object(
     query: web::Query<ObjectQuery>,
 ) -> Result<HttpResponse> {
     let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
-        master_binding::authorize_internal_request(state.get_ref(), &req, None).await?
+        master_binding::authorize_internal_request(state.get_ref(), &req).await?
     } else if req
         .query_string()
         .split('&')
@@ -728,7 +757,7 @@ async fn get_object(
     {
         master_binding::authorize_presigned_get_request(state.get_ref(), &req).await?
     } else {
-        master_binding::authorize_internal_request(state.get_ref(), &req, None).await?
+        master_binding::authorize_internal_request(state.get_ref(), &req).await?
     };
     let object_key = path.into_inner();
     let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
@@ -842,7 +871,7 @@ async fn head_object(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req, None).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let object_key = path.into_inner();
     let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let metadata = metadata_or_not_found(ctx.ingress_driver.as_ref(), &storage_path).await?;
@@ -867,7 +896,7 @@ async fn get_object_metadata(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req, None).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let object_key = path.into_inner();
     let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let metadata = metadata_or_not_found(ctx.ingress_driver.as_ref(), &storage_path).await?;
@@ -891,7 +920,7 @@ async fn delete_object(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req, None).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let object_key = path.into_inner();
     let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     ctx.ingress_driver.delete(&storage_path).await?;
@@ -930,7 +959,7 @@ async fn list_storage_targets(
     req: HttpRequest,
 ) -> Result<HttpResponse> {
     let binding =
-        master_binding::authorize_binding_sync_request(state.get_ref(), &req, None).await?;
+        master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let targets = storage_target::list(state.get_ref(), &binding).await?;
     tracing::debug!(
         binding_id = binding.id,
@@ -946,7 +975,7 @@ async fn list_storage_target_connectors(
     query: web::Query<StorageTargetConnectorCatalogQuery>,
 ) -> Result<HttpResponse> {
     let binding =
-        master_binding::authorize_binding_sync_request(state.get_ref(), &req, None).await?;
+        master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let catalog = storage_target::remote_storage_target_connector_catalog(
         state.driver_registry().connectors(),
         &query.locale,
@@ -969,9 +998,12 @@ async fn create_storage_target(
     // 一方不得继续修改本节点存储配置；binding sync 端点保持放行以便
     // 重新启用时能同步 is_enabled=true。body 是有界 JSON，整体入签。
     let binding =
-        master_binding::authorize_internal_binding_request(state.get_ref(), &req, Some(&body))
+        master_binding::authorize_internal_binding_request(
+            state.get_ref(),
+            &req,
+            )
             .await?;
-    let body: RemoteCreateStorageTargetRequest = json_request_body(&body)?;
+    let body: RemoteCreateStorageTargetRequest = json_request_body(&req, &body)?;
     let target = storage_target::create(state.get_ref(), &binding, body).await?;
     tracing::info!(
         binding_id = binding.id,
@@ -1006,10 +1038,13 @@ async fn update_storage_target(
 ) -> Result<HttpResponse> {
     // 与 create_storage_target 相同：写操作要求 binding 启用；body 整体入签。
     let binding =
-        master_binding::authorize_internal_binding_request(state.get_ref(), &req, Some(&body))
+        master_binding::authorize_internal_binding_request(
+            state.get_ref(),
+            &req,
+            )
             .await?;
     let target_key = path.into_inner();
-    let body: RemoteUpdateStorageTargetRequest = json_request_body(&body)?;
+    let body: RemoteUpdateStorageTargetRequest = json_request_body(&req, &body)?;
     let target = storage_target::update(state.get_ref(), &binding, &target_key, body).await?;
     tracing::info!(
         binding_id = binding.id,
@@ -1043,7 +1078,7 @@ async fn delete_storage_target(
 ) -> Result<HttpResponse> {
     // 与 create_storage_target 相同：写操作要求 binding 启用。
     let binding =
-        master_binding::authorize_internal_binding_request(state.get_ref(), &req, None).await?;
+        master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
     let deleted_target = storage_target::delete(state.get_ref(), &binding, &target_key).await?;
     tracing::info!(

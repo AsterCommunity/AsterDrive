@@ -37,7 +37,6 @@ async fn get_binding_state(
         path_and_query,
         req.headers(),
         None,
-        None,
     )
     .await?;
     let desired =

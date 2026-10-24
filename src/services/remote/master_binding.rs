@@ -120,24 +120,22 @@ async fn update_existing_from_enrollment<C: ConnectionTrait>(
     Ok((updated, "updated"))
 }
 
-/// `body`：handler 已读取完整 body（JSON 控制面请求）时传 `Some`，签名必须
-/// 覆盖其 digest；流式上传或无 body 请求传 `None`，验证只接受空串占位与
-/// 旧版格式（滚动升级兼容）。
+/// body digest 取自 `x-aster-content-sha256` 声明头：签名 canonical 的第 6
+/// 行与之同值，非空即先承诺（follower 收完 tee 对账），空串即 relay 直推的
+/// 占位签（内容完整性由响应签名对账补齐）。
 pub async fn authorize_internal_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
-    body: Option<&[u8]>,
 ) -> Result<AuthorizedMasterBinding> {
-    let binding = authorize_binding_request(state, req, false, body).await?;
+    let binding = authorize_binding_request(state, req, false).await?;
     resolve_authorized_ingress(state, binding, required_remote_storage_target_key(req)?, 0).await
 }
 
 pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
-    body: Option<&[u8]>,
 ) -> Result<AuthorizedMasterBinding> {
-    let binding = authorize_binding_request(state, req, false, body).await?;
+    let binding = authorize_binding_request(state, req, false).await?;
     resolve_authorized_ingress(
         state,
         binding,
@@ -150,17 +148,15 @@ pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
 pub async fn authorize_internal_binding_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
-    body: Option<&[u8]>,
 ) -> Result<master_binding::Model> {
-    authorize_binding_request(state, req, false, body).await
+    authorize_binding_request(state, req, false).await
 }
 
 pub async fn authorize_binding_sync_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
-    body: Option<&[u8]>,
 ) -> Result<master_binding::Model> {
-    authorize_binding_request(state, req, true, body).await
+    authorize_binding_request(state, req, true).await
 }
 
 pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
@@ -225,11 +221,21 @@ pub async fn sync_from_primary<S: FollowerRuntimeState>(
     Ok(updated)
 }
 
+/// 签名声明的 body digest：与 canonical 第 6 行同值，缺失按空串处理只会
+/// 让验签失败（v7 primary 总是发送该头）。
+fn declared_body_sha256(req: &actix_web::HttpRequest) -> Result<String> {
+    Ok(req
+        .headers()
+        .get(crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned())
+}
+
 async fn authorize_binding_request<S: FollowerRuntimeState>(
     state: &S,
     req: &actix_web::HttpRequest,
     allow_disabled: bool,
-    body: Option<&[u8]>,
 ) -> Result<master_binding::Model> {
     let access_key = header_value(req, INTERNAL_AUTH_ACCESS_KEY_HEADER)?;
     let timestamp = header_value(req, INTERNAL_AUTH_TIMESTAMP_HEADER)?
@@ -275,7 +281,7 @@ async fn authorize_binding_request<S: FollowerRuntimeState>(
         timestamp,
         &nonce,
         content_length,
-        body,
+        Some(&declared_body_sha256(req)?),
         &signature,
     ) {
         return Err(AsterError::auth_invalid_credentials(

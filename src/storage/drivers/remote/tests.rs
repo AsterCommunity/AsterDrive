@@ -560,7 +560,7 @@ async fn get_range_forwards_offset_and_length_to_remote_object_request() {
 }
 
 #[tokio::test]
-async fn v6_remote_driver_rejects_v2_node_without_capacity_support() {
+async fn v7_remote_driver_rejects_v2_node_without_capacity_support() {
     let error = build_driver_with_capabilities_err(
         "http://127.0.0.1:9",
         "base",
@@ -577,7 +577,7 @@ async fn v6_remote_driver_rejects_v2_node_without_capacity_support() {
         Some(StorageErrorKind::Misconfigured)
     );
     assert!(
-        error.message().contains("local supports v6-v6"),
+        error.message().contains("local supports v7-v7"),
         "unexpected error message: {}",
         error.message()
     );

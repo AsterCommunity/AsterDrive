@@ -580,6 +580,21 @@ pub trait StreamUploadDriver: Send + Sync {
     ///
     /// 从本地文件路径写入存储，供需要显式控制临时文件生命周期的调用方使用。
     async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String>;
+
+    /// 内容 digest 已知的流式上传。
+    ///
+    /// 只有内部协议（remote driver）消费该 digest 做先承诺签名；其它 provider
+    /// 默认忽略 digest 走 [`StreamUploadDriver::put_reader`]。
+    async fn put_reader_with_sha256(
+        &self,
+        storage_path: &str,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+        content_sha256: &str,
+    ) -> Result<String> {
+        let _ = content_sha256;
+        self.put_reader(storage_path, reader, size).await
+    }
 }
 
 /// 本地路径暴露（仅用于把底层文件路径安全交给受控的外部命令）。

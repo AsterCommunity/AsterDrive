@@ -2,7 +2,7 @@ use http::Method;
 
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER, sign_internal_request,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_CONTENT_SHA256_HEADER, sign_internal_request,
 };
 use aster_drive_model::entities::managed_follower;
 
@@ -21,6 +21,10 @@ pub(super) fn request_headers(
         body_sha256,
     )
     .into_iter()
+    .chain(std::iter::once((
+        INTERNAL_CONTENT_SHA256_HEADER.to_string(),
+        body_sha256.to_string(),
+    )))
     .chain(content_length.map(|content_length| {
         (
             http::header::CONTENT_LENGTH.to_string(),

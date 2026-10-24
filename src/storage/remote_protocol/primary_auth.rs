@@ -10,13 +10,21 @@ use super::{
 
 /// `body`：接收方已读完整 body 时传 `Some(bytes)`（签名覆盖其 digest）；
 /// 流式 body 传 `None`（只接受空串占位与旧版格式）。
+/// 签名声明的 body digest（见 master_binding::declared_body_sha256）。
+fn declared_body_sha256(headers: &actix_web::http::header::HeaderMap) -> Result<String> {
+    Ok(headers
+        .get(crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned())
+}
+
 pub async fn authorize_remote_node_request<S: SharedRuntimeState>(
     state: &S,
     method: &actix_web::http::Method,
     path_and_query: &str,
     headers: &actix_web::http::header::HeaderMap,
     content_length: Option<u64>,
-    body: Option<&[u8]>,
 ) -> Result<managed_follower::Model> {
     let access_key = header_value(headers, INTERNAL_AUTH_ACCESS_KEY_HEADER)?;
     let timestamp = header_value(headers, INTERNAL_AUTH_TIMESTAMP_HEADER)?
@@ -42,7 +50,7 @@ pub async fn authorize_remote_node_request<S: SharedRuntimeState>(
         timestamp,
         &nonce,
         content_length,
-        body,
+        Some(&declared_body_sha256(headers)?),
         &signature,
     ) {
         return Err(AsterError::auth_invalid_credentials(

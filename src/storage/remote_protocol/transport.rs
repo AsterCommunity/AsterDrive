@@ -49,6 +49,10 @@ pub enum RemoteRequestBody {
     Reader {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: u64,
+        /// 发送方已知的 body digest：`Some` 时填入签名 canonical（先承诺，
+        /// follower 收完对账拒绝篡改）；`None` 时签空串占位（relay 直推这类
+        /// 发送时 digest 不可知的路径，内容完整性由响应签名对账补齐）。
+        body_sha256: Option<String>,
     },
 }
 
@@ -68,12 +72,14 @@ impl RemoteRequestBody {
 
     /// 签名覆盖的 body SHA-256：
     /// - Empty/Bytes：完整入签；
-    /// - Reader：流式发送方在签名时无法预知 digest，用空串显式声明不覆盖。
+    /// - Reader：`body_sha256` 已知时入签，否则空串占位显式声明不覆盖。
     pub fn body_sha256(&self) -> String {
         match self {
             Self::Empty => super::empty_body_sha256().to_string(),
             Self::Bytes(body) => super::body_sha256_hex(body),
-            Self::Reader { .. } => String::new(),
+            Self::Reader { body_sha256, .. } => {
+                body_sha256.clone().unwrap_or_default()
+            }
         }
     }
 
@@ -81,7 +87,9 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => Ok(Box::new(std::io::Cursor::new(Bytes::new()))),
             Self::Bytes(body) => Ok(Box::new(std::io::Cursor::new(body))),
-            Self::Reader { reader, size } => Ok(Box::new(ExactSizeReader::new(reader, size))),
+            Self::Reader { reader, size, .. } => {
+                Ok(Box::new(ExactSizeReader::new(reader, size)))
+            }
         }
     }
 
@@ -89,7 +97,7 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => Ok(Bytes::new()),
             Self::Bytes(body) => Ok(body),
-            Self::Reader { reader, size } => {
+            Self::Reader { reader, size, .. } => {
                 if size
                     > u64::try_from(super::tunnel::server::REMOTE_TUNNEL_POLL_BODY_LIMIT)
                         .unwrap_or(u64::MAX)
@@ -142,9 +150,19 @@ pub struct RemoteTransportRequest {
     pub path_and_query: String,
     pub content_type: Option<&'static str>,
     pub body: RemoteRequestBody,
+    /// 对象上传请求：要求 follower 在响应头携带签名 body digest，transport
+    /// 验签后填充 `RemoteTransportResponse::object_body_sha256`。
+    pub expect_response_body_sha256: bool,
 }
 
-pub enum RemoteTransportResponse {
+pub struct RemoteTransportResponse {
+    kind: RemoteTransportResponseKind,
+    /// follower 签名回传的 body digest；仅 `expect_response_body_sha256`
+    /// 请求且响应验签通过时为 `Some`。
+    pub object_body_sha256: Option<String>,
+}
+
+pub enum RemoteTransportResponseKind {
     Direct(reqwest::Response),
     Tunnel(RemoteTunnelHttpResponse),
     TunnelStream(RemoteTunnelStreamHttpResponse),
@@ -152,10 +170,10 @@ pub enum RemoteTransportResponse {
 
 impl RemoteTransportResponse {
     pub fn status(&self) -> StatusCode {
-        match self {
-            Self::Direct(response) => response.status(),
-            Self::Tunnel(response) => response.status,
-            Self::TunnelStream(response) => response.status,
+        match &self.kind {
+            RemoteTransportResponseKind::Direct(response) => response.status(),
+            RemoteTransportResponseKind::Tunnel(response) => response.status,
+            RemoteTransportResponseKind::TunnelStream(response) => response.status,
         }
     }
 }
@@ -265,6 +283,8 @@ impl RemoteTransport for DirectHttpTransport {
         let content_length = request.body.content_length()?;
         let body_sha256 = request.body.body_sha256();
         let url = self.url_for_request(&request.path_and_query)?;
+        let request_timestamp = chrono::Utc::now().timestamp();
+        let request_nonce = uuid::Uuid::new_v4().to_string();
         let mut builder = signed_request(
             &self.client,
             &self.access_key,
@@ -273,6 +293,8 @@ impl RemoteTransport for DirectHttpTransport {
             url,
             content_length,
             &body_sha256,
+            request_timestamp,
+            &request_nonce,
         );
         if let Some(content_type) = request.content_type {
             builder = builder.header(reqwest::header::CONTENT_TYPE, content_type);
@@ -280,30 +302,42 @@ impl RemoteTransport for DirectHttpTransport {
         builder = match request.body {
             RemoteRequestBody::Empty => builder,
             RemoteRequestBody::Bytes(body) => builder.body(body),
-            RemoteRequestBody::Reader { reader, size } => {
+            RemoteRequestBody::Reader { reader, size, .. } => {
                 let stream = ReaderStream::new(ExactSizeReader::new(reader, size))
                     .map_err(std::io::Error::other);
                 builder.body(reqwest::Body::wrap_stream(stream))
             }
         };
 
-        builder
-            .send()
-            .await
-            .map(RemoteTransportResponse::Direct)
-            .map_err(|error| {
-                let reason = if error.is_timeout() {
-                    aster_drive_metrics::RemoteReason::Timeout
-                } else if error.is_connect() {
-                    aster_drive_metrics::RemoteReason::Disconnected
-                } else {
-                    aster_drive_metrics::RemoteReason::Error
-                };
-                RemoteTransportError {
-                    error: map_reqwest_error(error),
-                    reason,
-                }
-            })
+        let response = builder.send().await.map_err(|error| {
+            let reason = if error.is_timeout() {
+                aster_drive_metrics::RemoteReason::Timeout
+            } else if error.is_connect() {
+                aster_drive_metrics::RemoteReason::Disconnected
+            } else {
+                aster_drive_metrics::RemoteReason::Error
+            };
+            RemoteTransportError {
+                error: map_reqwest_error(error),
+                reason,
+            }
+        })?;
+        // 失败响应直接透传原始错误；digest 验签只对成功响应强制。
+        let object_body_sha256 = if request.expect_response_body_sha256
+            && response.status().is_success()
+        {
+            Some(verify_response_body_sha256(
+                response.headers(),
+                &self.secret_key,
+                "direct transport object upload",
+            )?)
+        } else {
+            None
+        };
+        Ok(RemoteTransportResponse {
+            object_body_sha256,
+            kind: RemoteTransportResponseKind::Direct(response),
+        })
     }
 
     fn presigned_url(
@@ -360,11 +394,17 @@ impl RemoteTransport for ReverseTunnelTransport {
                 )
             })?;
         let path_and_query = request.path_and_query;
-        let extra_headers = request
+        // 声明头跨隧道链透传：重签者（proxy/registry）用它重建 canonical，
+        // follower 收完对账。
+        let mut extra_headers = request
             .content_type
             .map(|value| (reqwest::header::CONTENT_TYPE.to_string(), value.to_string()))
             .into_iter()
             .collect::<Vec<_>>();
+        extra_headers.push((
+            super::INTERNAL_CONTENT_SHA256_HEADER.to_string(),
+            request.body.body_sha256(),
+        ));
 
         let mut polling_body = Some(request.body);
         if self.broker.has_tunnel_stream_lane(&self.remote_node) {
@@ -398,7 +438,12 @@ impl RemoteTransport for ReverseTunnelTransport {
                 )
                 .await
             {
-                Ok(response) => return Ok(RemoteTransportResponse::TunnelStream(response)),
+                Ok(response) => {
+                    return Ok(RemoteTransportResponse {
+                        object_body_sha256: None,
+                        kind: RemoteTransportResponseKind::TunnelStream(response),
+                    })
+                }
                 Err(error) if should_fallback_stream_error_to_poll(&error) => {
                     let Some(fallback_body) = fallback_body else {
                         return Err(error.into());
@@ -422,7 +467,8 @@ impl RemoteTransport for ReverseTunnelTransport {
             .into());
         };
         let body = body.into_buffered_bytes().await?;
-        self.broker
+        let response = self
+            .broker
             .clone()
             .send_tunnel_request(
                 &self.remote_node,
@@ -432,10 +478,57 @@ impl RemoteTransport for ReverseTunnelTransport {
                 extra_headers,
                 body,
             )
-            .await
-            .map(RemoteTransportResponse::Tunnel)
-            .map_err(RemoteTransportError::from)
+            .await?;
+        let object_body_sha256 =
+            if request.expect_response_body_sha256 && response.status.is_success() {
+                Some(verify_response_body_sha256(
+                    &response.headers,
+                    &self.remote_node.secret_key,
+                    "reverse tunnel polling object upload",
+                )?)
+            } else {
+                None
+            };
+        Ok(RemoteTransportResponse {
+            object_body_sha256,
+            kind: RemoteTransportResponseKind::Tunnel(response),
+        })
     }
+}
+
+/// 读取并验证对象上传响应的签名 body digest 头。三个头都缺失或验签失败
+/// 都按协议错误处理：v7 follower 必须为占位签上传回传签名的 digest。
+fn verify_response_body_sha256(
+    headers: &reqwest::header::HeaderMap,
+    secret_key: &str,
+    context: &str,
+) -> Result<String> {
+    use super::{
+        INTERNAL_RESPONSE_NONCE_HEADER, INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+        INTERNAL_RESPONSE_SIGNATURE_HEADER,
+    };
+    let header_str = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                crate::errors::storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    format!("{context}: missing {name} response header"),
+                )
+            })
+    };
+    let digest = header_str(INTERNAL_RESPONSE_OBJECT_SHA256_HEADER)?;
+    let signature = header_str(INTERNAL_RESPONSE_SIGNATURE_HEADER)?;
+    let nonce = header_str(INTERNAL_RESPONSE_NONCE_HEADER)?;
+    if !super::verify_internal_response_signature(secret_key, &nonce, &digest, &signature) {
+        return Err(crate::errors::storage_driver_error(
+            StorageErrorKind::Precondition,
+            format!("{context}: response body digest signature mismatch"),
+        ));
+    }
+    Ok(digest)
 }
 
 fn should_fallback_stream_error_to_poll(error: &AsterError) -> bool {
@@ -450,14 +543,14 @@ fn should_fallback_stream_error_to_poll(error: &AsterError) -> bool {
 
 pub async fn ensure_success(response: RemoteTransportResponse, context: &str) -> Result<Vec<u8>> {
     let response = ensure_success_response(response, context).await?;
-    match response {
-        RemoteTransportResponse::Direct(response) => response
+    match response.kind {
+        RemoteTransportResponseKind::Direct(response) => response
             .bytes()
             .await
             .map(|bytes| bytes.to_vec())
             .map_err(map_reqwest_error),
-        RemoteTransportResponse::Tunnel(response) => Ok(response.body.to_vec()),
-        RemoteTransportResponse::TunnelStream(mut response) => {
+        RemoteTransportResponseKind::Tunnel(response) => Ok(response.body.to_vec()),
+        RemoteTransportResponseKind::TunnelStream(mut response) => {
             let mut body = Vec::new();
             response
                 .body
@@ -480,15 +573,15 @@ pub async fn ensure_success_with_body_limit(
     max_body_bytes: usize,
 ) -> Result<Vec<u8>> {
     let response = ensure_success_response(response, context).await?;
-    match response {
-        RemoteTransportResponse::Direct(response) => {
+    match response.kind {
+        RemoteTransportResponseKind::Direct(response) => {
             read_reqwest_response_body_limited(response, context, max_body_bytes).await
         }
-        RemoteTransportResponse::Tunnel(response) => {
+        RemoteTransportResponseKind::Tunnel(response) => {
             ensure_body_within_limit(&response.body, context, max_body_bytes)?;
             Ok(response.body.to_vec())
         }
-        RemoteTransportResponse::TunnelStream(response) => {
+        RemoteTransportResponseKind::TunnelStream(response) => {
             read_async_body_limited(response.body, context, max_body_bytes).await
         }
     }
@@ -518,8 +611,8 @@ pub async fn build_remote_status_error(
     context: &str,
     not_found_as_record: bool,
 ) -> AsterError {
-    match response {
-        RemoteTransportResponse::Direct(response) => {
+    match response.kind {
+        RemoteTransportResponseKind::Direct(response) => {
             let status = response.status();
             let body = match read_reqwest_response_body_limited(
                 response,
@@ -533,7 +626,7 @@ pub async fn build_remote_status_error(
             };
             build_remote_status_error_from_parts(status, &body, context, not_found_as_record)
         }
-        RemoteTransportResponse::Tunnel(response) => {
+        RemoteTransportResponseKind::Tunnel(response) => {
             if let Err(error) =
                 ensure_body_within_limit(&response.body, context, REMOTE_CONTROL_PLANE_BODY_LIMIT)
             {
@@ -547,7 +640,7 @@ pub async fn build_remote_status_error(
                 not_found_as_record,
             )
         }
-        RemoteTransportResponse::TunnelStream(response) => {
+        RemoteTransportResponseKind::TunnelStream(response) => {
             let body = match read_async_body_limited(
                 response.body,
                 context,
@@ -638,18 +731,22 @@ fn ensure_body_within_limit(body: &[u8], context: &str, max_body_bytes: usize) -
 }
 
 pub fn response_stream(response: RemoteTransportResponse) -> Box<dyn AsyncRead + Unpin + Send> {
-    match response {
-        RemoteTransportResponse::Direct(response) => {
+    match response.kind {
+        RemoteTransportResponseKind::Direct(response) => {
             let stream = response
                 .bytes_stream()
                 .map_err(|error| std::io::Error::other(error.to_string()));
             Box::new(StreamReader::new(stream))
         }
-        RemoteTransportResponse::Tunnel(response) => Box::new(std::io::Cursor::new(response.body)),
-        RemoteTransportResponse::TunnelStream(response) => response.body,
+        RemoteTransportResponseKind::Tunnel(response) => Box::new(std::io::Cursor::new(response.body)),
+        RemoteTransportResponseKind::TunnelStream(response) => response.body,
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each parameter is one header of the six-line signed canonical"
+)]
 pub fn signed_headers(
     access_key: &str,
     secret_key: &str,
@@ -657,16 +754,16 @@ pub fn signed_headers(
     url: &reqwest::Url,
     content_length: Option<u64>,
     body_sha256: &str,
+    timestamp: i64,
+    nonce: &str,
 ) -> Vec<(String, String)> {
-    let timestamp = chrono::Utc::now().timestamp();
-    let nonce = uuid::Uuid::new_v4().to_string();
     let path_and_query = path_and_query_for_url(url);
     let signature = sign_internal_request(
         secret_key,
         method.as_str(),
         &path_and_query,
         timestamp,
-        &nonce,
+        nonce,
         content_length,
         body_sha256,
     );
@@ -676,14 +773,22 @@ pub fn signed_headers(
             access_key.to_string(),
         ),
         (
+            super::INTERNAL_CONTENT_SHA256_HEADER.to_string(),
+            body_sha256.to_string(),
+        ),
+        (
             INTERNAL_AUTH_TIMESTAMP_HEADER.to_string(),
             timestamp.to_string(),
         ),
-        (INTERNAL_AUTH_NONCE_HEADER.to_string(), nonce),
+        (INTERNAL_AUTH_NONCE_HEADER.to_string(), nonce.to_string()),
         (INTERNAL_AUTH_SIGNATURE_HEADER.to_string(), signature),
     ]
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each parameter is one header of the six-line signed canonical"
+)]
 fn signed_request(
     client: &reqwest::Client,
     access_key: &str,
@@ -692,6 +797,8 @@ fn signed_request(
     url: reqwest::Url,
     content_length: Option<u64>,
     body_sha256: &str,
+    timestamp: i64,
+    nonce: &str,
 ) -> reqwest::RequestBuilder {
     let mut builder = client.request(method.clone(), url.clone());
     for (name, value) in signed_headers(
@@ -701,6 +808,8 @@ fn signed_request(
         &url,
         content_length,
         body_sha256,
+        timestamp,
+        nonce,
     ) {
         builder = builder.header(name, value);
     }
@@ -1038,13 +1147,18 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(tokio::io::repeat(0).take(size_u64)),
                     size: size_u64,
+                    body_sha256: None,
                 },
+                expect_response_body_sha256: false,
             }),
         )
         .await;
         assert!(matches!(
             response,
-            Ok(RemoteTransportResponse::TunnelStream(_))
+            Ok(RemoteTransportResponse {
+                kind: RemoteTransportResponseKind::TunnelStream(_),
+                ..
+            })
         ));
         (allocations, broker)
     }
@@ -1062,13 +1176,15 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-body"))),
                     size: 9,
+                    body_sha256: None,
                 },
+                expect_response_body_sha256: false,
             })
             .await
             .expect("poll fallback request should succeed");
 
-        match response {
-            RemoteTransportResponse::Tunnel(response) => {
+        match response.kind {
+            RemoteTransportResponseKind::Tunnel(response) => {
                 assert_eq!(response.status, StatusCode::OK);
                 assert_eq!(response.body, Bytes::from_static(b"poll-response"));
             }
@@ -1104,12 +1220,13 @@ mod tests {
                 path_and_query: "/api/v1/internal/storage/objects/stream.bin".to_string(),
                 content_type: Some("application/octet-stream"),
                 body: RemoteRequestBody::Bytes(Bytes::from_static(b"stream-body")),
+                expect_response_body_sha256: false,
             })
             .await
             .expect("stream lane request should succeed");
 
-        match response {
-            RemoteTransportResponse::TunnelStream(mut response) => {
+        match response.kind {
+            RemoteTransportResponseKind::TunnelStream(mut response) => {
                 let mut body = Vec::new();
                 response
                     .body
@@ -1151,11 +1268,15 @@ mod tests {
                 path_and_query: "/api/v1/internal/storage/objects/empty.bin".to_string(),
                 content_type: None,
                 body: RemoteRequestBody::Empty,
+                expect_response_body_sha256: false,
             })
             .await
             .expect("empty body should use available stream lane");
 
-        assert!(matches!(response, RemoteTransportResponse::TunnelStream(_)));
+        assert!(matches!(
+            response.kind,
+            RemoteTransportResponseKind::TunnelStream(_)
+        ));
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 1);
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
     }
@@ -1171,6 +1292,7 @@ mod tests {
                 path_and_query: "/api/v1/internal/storage/objects/bytes.bin".to_string(),
                 content_type: None,
                 body: RemoteRequestBody::Bytes(Bytes::from_static(b"bytes-body")),
+                expect_response_body_sha256: false,
             })
             .await
             .expect("bytes body should use polling without a stream lane");
@@ -1237,7 +1359,9 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"reader-body"))),
                     size: 11,
+                    body_sha256: None,
                 },
+                expect_response_body_sha256: false,
             })
             .await;
         let error = match result {
@@ -1303,12 +1427,13 @@ mod tests {
                 path_and_query: "/api/v1/internal/storage/objects/poll.bin".to_string(),
                 content_type: Some("application/octet-stream"),
                 body: RemoteRequestBody::Bytes(Bytes::from_static(b"poll-body")),
+                expect_response_body_sha256: false,
             })
             .await
             .expect("closed stream lane should fall back to poll request");
 
-        match response {
-            RemoteTransportResponse::Tunnel(response) => {
+        match response.kind {
+            RemoteTransportResponseKind::Tunnel(response) => {
                 assert_eq!(response.status, StatusCode::OK);
                 assert_eq!(response.body, Bytes::from_static(b"poll-response"));
             }
@@ -1341,7 +1466,9 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(std::io::Cursor::new(Bytes::new())),
                     size: oversized,
+                    body_sha256: None,
                 },
+                expect_response_body_sha256: false,
             })
             .await;
         let error = match result {
@@ -1372,7 +1499,9 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(std::io::Cursor::new(body.clone())),
                     size: body.len() as u64,
+                    body_sha256: None,
                 },
+                expect_response_body_sha256: false,
             })
             .await
             .expect("reader at the exact polling body limit should be accepted");
@@ -1403,8 +1532,10 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-body!"))),
                     size: 9,
-                },
-            })
+                    body_sha256: None,
+                    },
+                    expect_response_body_sha256: false,
+                    })
             .await;
         let error = match result {
             Ok(_) => panic!("reader longer than declared size must be rejected"),
@@ -1433,8 +1564,10 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(std::io::Cursor::new(Bytes::from_static(b"poll-bod"))),
                     size: 9,
-                },
-            })
+                    body_sha256: None,
+                    },
+                    expect_response_body_sha256: false,
+                    })
             .await;
         let error = match result {
             Ok(_) => panic!("reader shorter than declared size must be rejected"),
@@ -1476,8 +1609,10 @@ mod tests {
                 body: RemoteRequestBody::Reader {
                     reader: Box::new(ErrorReader),
                     size: 1,
-                },
-            })
+                    body_sha256: None,
+                    },
+                    expect_response_body_sha256: false,
+                    })
             .await;
         let error = match result {
             Ok(_) => panic!("polling reader I/O failure should be returned"),
@@ -1555,11 +1690,14 @@ mod tests {
     async fn buffered_and_streaming_tunnel_errors_keep_the_same_status_semantics() {
         let body = Bytes::from_static(br#"{"code":"storage_object_not_found","msg":"missing"}"#);
         let buffered = ensure_success_response(
-            RemoteTransportResponse::Tunnel(RemoteTunnelHttpResponse {
-                status: StatusCode::NOT_FOUND,
-                headers: http::HeaderMap::new(),
-                body: body.clone(),
-            }),
+            RemoteTransportResponse {
+                kind: RemoteTransportResponseKind::Tunnel(RemoteTunnelHttpResponse {
+                    status: StatusCode::NOT_FOUND,
+                    headers: http::HeaderMap::new(),
+                    body: body.clone(),
+                }),
+                object_body_sha256: None,
+            },
             "read remote object",
         )
         .await;
@@ -1568,11 +1706,14 @@ mod tests {
             Err(error) => error,
         };
         let streaming = ensure_success_response(
-            RemoteTransportResponse::TunnelStream(RemoteTunnelStreamHttpResponse {
-                status: StatusCode::NOT_FOUND,
-                headers: http::HeaderMap::new(),
-                body: Box::new(std::io::Cursor::new(body)),
-            }),
+            RemoteTransportResponse {
+                kind: RemoteTransportResponseKind::TunnelStream(RemoteTunnelStreamHttpResponse {
+                    status: StatusCode::NOT_FOUND,
+                    headers: http::HeaderMap::new(),
+                    body: Box::new(std::io::Cursor::new(body)),
+                }),
+                object_body_sha256: None,
+            },
             "read remote object",
         )
         .await;

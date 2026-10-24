@@ -1404,6 +1404,10 @@ fn signed_master_ws_request(
         INTERNAL_AUTH_SIGNATURE_HEADER,
         header_value(&signature, INTERNAL_AUTH_SIGNATURE_HEADER)?,
     );
+    headers.insert(
+        crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+        header_value(empty_body_sha256(), "content sha256")?,
+    );
     Ok(request)
 }
 

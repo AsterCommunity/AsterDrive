@@ -98,10 +98,11 @@ pub(crate) fn internal_request_mac(
 
 /// 验证内部协议签名，覆盖请求 body。
 ///
-/// - `body: Some(bytes)`：接收方已读完整 body（JSON 控制面），首选候选为真实
-///   body digest；
-/// - `body: None`：body 未读（流式上传/proxy）或端点无 body，接受流式占位与
-///   空 body digest 两种签名形态。
+/// - `body_sha256: Some(digest)`：调用方已知 body digest（JSON 控制面的完整
+///   body，或流式收完后的 tee digest），只接受与该 digest 精确匹配的签名；
+/// - `body_sha256: None`：digest 发送时不可预知（relay 直推占位签）或端点无
+///   body，接受流式占位与空 body digest 两种签名形态。占位请求的内容完整性
+///   由响应签名对账补齐。
 ///
 /// 不接受旧版 5 行 canonical：primary 与 follower 必须同时升级，混合版本
 /// 部署的内部请求一律 401，不做滚动窗口。
@@ -117,7 +118,7 @@ pub(crate) fn verify_internal_request_signature(
     timestamp: i64,
     nonce: &str,
     content_length: Option<u64>,
-    body: Option<&[u8]>,
+    body_sha256: Option<&str>,
     provided_signature: &str,
 ) -> bool {
     let mut decoded = [0u8; 32];
@@ -131,14 +132,16 @@ pub(crate) fn verify_internal_request_signature(
     let new_canonical = |body_sha256: &str| {
         format!("{method}\n{path_and_query}\n{timestamp}\n{nonce}\n{content_length}\n{body_sha256}")
     };
-    let mut canonicals: Vec<String> = Vec::with_capacity(3);
-    if let Some(body) = body {
-        canonicals.push(new_canonical(&body_sha256_hex(body)));
+    let mut canonicals: Vec<String> = Vec::with_capacity(2);
+    match body_sha256 {
+        // 已知 digest：只接受精确覆盖该 digest 的签名，不回退占位
+        Some(digest) => canonicals.push(new_canonical(digest)),
+        // digest 未知：流式占位与空 body digest 两种形态
+        None => {
+            canonicals.push(new_canonical(""));
+            canonicals.push(new_canonical(empty_body_sha256()));
+        }
     }
-    // 流式 body 的显式未覆盖占位（body 行为空串）
-    canonicals.push(new_canonical(""));
-    // 空 body 的规范 digest（sha256("")）
-    canonicals.push(new_canonical(empty_body_sha256()));
 
     for canonical in canonicals {
         let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(secret_key.as_bytes())
@@ -149,6 +152,42 @@ pub(crate) fn verify_internal_request_signature(
         }
     }
     false
+}
+
+/// 对象上传响应的 body digest 签名：follower 收完流式 body 后把它算出的
+/// sha256 签在响应头回传，primary 与本地 tee digest 比对，闭环 relay 直推
+/// 这类发送时 digest 不可知路径的内容完整性。
+///
+/// canonical 复用请求 nonce，把响应绑定到单个请求，防重放与跨请求搬移。
+pub fn sign_internal_response_signature(secret_key: &str, nonce: &str, body_sha256: &str) -> String {
+    let mac = internal_response_mac(secret_key, nonce, body_sha256);
+    hex::encode(mac.finalize().into_bytes())
+}
+
+pub fn verify_internal_response_signature(
+    secret_key: &str,
+    nonce: &str,
+    body_sha256: &str,
+    provided_signature: &str,
+) -> bool {
+    let mut decoded = [0u8; 32];
+    if hex::decode_to_slice(provided_signature, &mut decoded).is_err() {
+        return false;
+    }
+    let mac = internal_response_mac(secret_key, nonce, body_sha256);
+    mac.verify_slice(&decoded).is_ok()
+}
+
+#[expect(
+    clippy::expect_used,
+    reason = "HMAC-SHA256 accepts keys of every length, so construction with secret bytes is infallible"
+)]
+fn internal_response_mac(secret_key: &str, nonce: &str, body_sha256: &str) -> Hmac<Sha256> {
+    let canonical = format!("response\n{nonce}\n{body_sha256}");
+    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(secret_key.as_bytes())
+        .expect("HMAC accepts any key length");
+    mac.update(canonical.as_bytes());
+    mac
 }
 
 pub fn sign_presigned_request(
@@ -243,10 +282,10 @@ mod tests {
             args.3,
             args.4,
             Some(content_length),
-            Some(body),
+            Some(body_sha256_hex(body).as_str()),
             &signature
         ));
-        // body 被篡改后 digest 不再匹配
+        // 声明 digest 被篡改后签名不再匹配
         assert!(!verify_internal_request_signature(
             args.0,
             args.1,
@@ -254,7 +293,7 @@ mod tests {
             args.3,
             args.4,
             Some(content_length),
-            Some(br#"{"connector":"s3","secret":"hijacked"}"#),
+            Some(body_sha256_hex(br#"{"connector":"s3","secret":"hijacked"}"#).as_str()),
             &signature
         ));
     }
@@ -286,7 +325,7 @@ mod tests {
             args.3,
             args.4,
             None,
-            Some(b""),
+            Some(empty_body_sha256()),
             &empty
         ));
         assert!(verify_internal_request_signature(
@@ -323,7 +362,7 @@ mod tests {
             1_700_000,
             "nonce-4",
             Some(8),
-            Some(body),
+            Some(body_sha256_hex(body).as_str()),
             &signature
         ));
         assert!(!verify_internal_request_signature(
@@ -333,7 +372,7 @@ mod tests {
             1_700_000,
             "nonce-4",
             Some(7),
-            Some(b"payload2"),
+            Some(body_sha256_hex(b"payload2").as_str()),
             &signature
         ));
         assert!(!verify_internal_request_signature(
@@ -343,7 +382,7 @@ mod tests {
             1_700_000,
             "nonce-4",
             Some(7),
-            Some(body),
+            Some(body_sha256_hex(body).as_str()),
             &signature
         ));
         assert!(!verify_internal_request_signature(
@@ -353,7 +392,7 @@ mod tests {
             1_700_000,
             "nonce-4",
             Some(7),
-            Some(body),
+            Some(body_sha256_hex(body).as_str()),
             "zz"
         ));
     }

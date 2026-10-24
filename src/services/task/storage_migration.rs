@@ -1241,9 +1241,18 @@ async fn copy_blob_streaming(
     let stream_upload = target_driver.extensions().stream_upload.ok_or_else(|| {
         AsterError::storage_driver_error("target storage policy does not support stream upload")
     })?;
-    let upload_result = stream_upload
-        .put_reader(target_path, Box::new(hashing_reader), blob.size)
-        .await;
+    // blob.hash 是内容 sha256 时先承诺签名：follower 收完对账，源读或链路
+    // 篡改都会被拒；synthetic key 的 blob 退回占位签，靠 part 响应对账语义
+    // （remote driver 内部 tee 比对）兜底。
+    let upload_result = if is_content_sha256_blob_key(&blob.hash) {
+        stream_upload
+            .put_reader_with_sha256(target_path, Box::new(hashing_reader), blob.size, &blob.hash)
+            .await
+    } else {
+        stream_upload
+            .put_reader(target_path, Box::new(hashing_reader), blob.size)
+            .await
+    };
     if let Err(error) = upload_result {
         // A streaming PUT can fail after the remote side has already accepted
         // bytes, especially when the client times out waiting for the response.

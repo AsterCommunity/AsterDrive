@@ -4,6 +4,16 @@ use tokio::sync::oneshot;
 
 use super::super::payload::serialized_poll_response_len;
 use super::broker::RemoteTunnelHttpResponse;
+
+fn declared_body_sha256(extra_headers: &[(String, String)]) -> String {
+    extra_headers
+        .iter()
+        .find(|(name, _)| {
+            name == crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER
+        })
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default()
+}
 use super::headers::request_headers;
 use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT, RemoteTunnelRegistry,
@@ -132,13 +142,14 @@ impl RemoteTunnelRegistry {
         let request = RemoteTunnelRequest {
             request_id: request_id.clone(),
             method: method.as_str().to_string(),
-            // 控制面 body 已完整缓冲，digest 全量入签。
+            // 重签跟随 primary 的声明头（重签者不是 digest 权威）；body 已
+            // 完整缓冲，其真实 digest 由 follower 收完对账与响应对账闭环。
             headers: request_headers(
                 remote_node,
                 &method,
                 &path_and_query,
                 content_length,
-                &crate::storage::remote_protocol::body_sha256_hex(&body),
+                &declared_body_sha256(&extra_headers),
             )
             .chain(extra_headers)
             .collect(),

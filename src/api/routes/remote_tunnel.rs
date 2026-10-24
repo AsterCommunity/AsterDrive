@@ -90,7 +90,6 @@ pub async fn poll_remote_tunnel(
         tunnel::REMOTE_TUNNEL_POLL_PATH,
         req.headers(),
         content_length,
-        Some(&body),
     )
     .await?;
     let body: RemoteTunnelPollReq = serde_json::from_slice(&body).map_err(|error| {
@@ -129,7 +128,6 @@ pub async fn complete_remote_tunnel(
         tunnel::REMOTE_TUNNEL_COMPLETE_PATH,
         req.headers(),
         content_length,
-        Some(&body),
     )
     .await?;
     let body: RemoteTunnelResponse = serde_json::from_slice(&body).map_err(|error| {
@@ -150,7 +148,6 @@ pub async fn connect_remote_tunnel(
         req.method(),
         tunnel::REMOTE_TUNNEL_CONNECT_PATH,
         req.headers(),
-        None,
         None,
     )
     .await?;

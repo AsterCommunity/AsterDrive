@@ -234,14 +234,21 @@ impl RemoteTunnelRegistry {
             },
         );
 
-        // streaming body 边际流式转发，签名时无法预知 digest，用空串占位
-        // 显式声明“不覆盖 body”（与直接传输侧的流式语义一致）。
+        // streaming body 边际流式转发，digest 以 primary 的声明头为准（重签者
+        // 不是 digest 权威）：非空先承诺、空串占位，follower 收完对账。
+        let declared_sha256 = extra_headers
+            .iter()
+            .find(|(name, _)| {
+                name == crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER
+            })
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default();
         let headers = request_headers(
             remote_node,
             &method,
             &path_and_query,
             content_length,
-            crate::storage::remote_protocol::empty_body_sha256(),
+            &declared_sha256,
         )
         .chain(extra_headers)
         .collect();

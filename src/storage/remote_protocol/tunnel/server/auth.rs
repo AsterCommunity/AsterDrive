@@ -8,7 +8,6 @@ pub async fn authorize_tunnel_request<S: SharedRuntimeState>(
     path_and_query: &str,
     headers: &actix_web::http::header::HeaderMap,
     content_length: Option<u64>,
-    body: Option<&[u8]>,
 ) -> Result<managed_follower::Model> {
     let remote_node = crate::storage::remote_protocol::authorize_remote_node_request(
         state,
@@ -16,7 +15,6 @@ pub async fn authorize_tunnel_request<S: SharedRuntimeState>(
         path_and_query,
         headers,
         content_length,
-        body,
     )
     .await?;
     if !remote_node.is_enabled {

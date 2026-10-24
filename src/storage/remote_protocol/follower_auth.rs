@@ -60,6 +60,10 @@ pub async fn send_signed_master_request(
         .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
         .header(INTERNAL_AUTH_NONCE_HEADER, nonce)
         .header(INTERNAL_AUTH_SIGNATURE_HEADER, signature)
+        .header(
+            crate::storage::remote_protocol::INTERNAL_CONTENT_SHA256_HEADER,
+            &body_sha256,
+        )
         .header(reqwest::header::CONTENT_TYPE, "application/json");
     if let Some(content_length) = content_length {
         builder = builder.header(reqwest::header::CONTENT_LENGTH, content_length);

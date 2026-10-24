@@ -159,7 +159,31 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
         log: web::Data<Arc<ProtocolLog>>,
     ) -> HttpResponse {
         log_request(&req, &body, &log);
-        HttpResponse::NoContent().finish()
+        // v7：对象写响应必须回传签名的 body digest（与真实 follower 一致）。
+        let digest = crate::storage::remote_protocol::body_sha256_hex(&body);
+        let nonce = req
+            .headers()
+            .get(crate::storage::remote_protocol::INTERNAL_AUTH_NONCE_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        let signature = crate::storage::remote_protocol::sign_internal_response_signature(
+            "secret-key", &nonce, &digest,
+        );
+        HttpResponse::NoContent()
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_OBJECT_SHA256_HEADER,
+                digest.as_str(),
+            ))
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_SIGNATURE_HEADER,
+                signature.as_str(),
+            ))
+            .insert_header((
+                crate::storage::remote_protocol::INTERNAL_RESPONSE_NONCE_HEADER,
+                nonce.as_str(),
+            ))
+            .finish()
     }
 
     async fn get_object(
@@ -821,6 +845,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
             "stream-upload.bin",
             Box::new(std::io::Cursor::new(b"stream".to_vec())),
             6,
+            None,
         )
         .await
         .expect("put reader should succeed");
