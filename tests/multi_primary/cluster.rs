@@ -39,8 +39,8 @@ use aster_drive::storage::remote_protocol::tunnel::server::{
 };
 use aster_drive::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH, RemoteStorageCapabilities,
-    empty_body_sha256,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_CONTENT_SHA256_HEADER, INTERNAL_STORAGE_BASE_PATH,
+    RemoteStorageCapabilities, empty_body_sha256,
 };
 
 /// 测试辅助：签一个无 body 的内部协议请求（tunnel connect / proxy 探测）。
@@ -1505,6 +1505,10 @@ async fn run_synthetic_tunnel_connection(
         INTERNAL_AUTH_SIGNATURE_HEADER,
         HeaderValue::from_str(&signature)
             .map_err(|error| format!("set synthetic tunnel signature: {error}"))?,
+    );
+    headers.insert(
+        INTERNAL_CONTENT_SHA256_HEADER,
+        HeaderValue::from_static(empty_body_sha256()),
     );
 
     let (socket, _) = connect_async(request)

@@ -21,4 +21,11 @@ ignore = [
     # 保留审计阻塞并不能修复上游协议栈；待 actix-http 发布切换到 h2 >= 0.4.16
     # 的版本后立即删除本项并刷新 Cargo.lock。当前 PR 不扩大为替换 Actix HTTP 栈。
     "RUSTSEC-2026-0258",
+
+    # crypto-bigint 0.5.5 constant-time timing variability (RUSTSEC-2026-0387)
+    # 修复版本为 >=0.7.6，但当前依赖图仍由 aws-sigv4 1.6.3 和
+    # elliptic-curve 0.13.8（OIDC/WebAuthn）要求 0.5.x；Cargo.lock 同时含有
+    # 0.7.8 也不能替代这些 semver 不兼容的调用方。待上游升级到兼容依赖后
+    # 删除本项并刷新 Cargo.lock；该例外记录风险，不代表 timing 侧信道已修复。
+    "RUSTSEC-2026-0387",
 ]
