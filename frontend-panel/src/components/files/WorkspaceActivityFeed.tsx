@@ -47,7 +47,11 @@ export function WorkspaceActivityFeed({
 		}
 	};
 	return (
-		<section className="space-y-3" aria-label={t("activity_title")}>
+		<section
+			className="space-y-3"
+			aria-label={t("activity_title")}
+			aria-busy={data.loading}
+		>
 			<div className="flex items-center justify-between gap-3">
 				<h3 className="text-sm font-semibold">{t("activity_title")}</h3>
 				{resource.export ? (
@@ -64,16 +68,12 @@ export function WorkspaceActivityFeed({
 			{data.failed ? (
 				<div role="alert" className="space-y-2 text-sm text-muted-foreground">
 					<p>{t("activity_load_failed")}</p>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => void data.reload()}
-					>
+					<Button variant="outline" size="sm" onClick={() => void data.retry()}>
 						{t("activity_retry")}
 					</Button>
 				</div>
 			) : null}
-			{data.loading && data.items.length === 0 ? (
+			{data.loading ? (
 				<p role="status" className="text-sm text-muted-foreground">
 					{t("activity_loading")}
 				</p>
@@ -117,15 +117,31 @@ export function WorkspaceActivityFeed({
 					);
 				})}
 			</ol>
-			{data.next !== null ? (
-				<Button
-					variant="outline"
-					size="sm"
-					disabled={data.loading}
-					onClick={() => void data.loadMore()}
+			{data.items.length > 0 || data.page > 1 ? (
+				<nav
+					className="flex items-center justify-between gap-3"
+					aria-label={t("activity_pagination")}
 				>
-					{data.loading ? t("activity_loading") : t("activity_load_more")}
-				</Button>
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={data.loading || data.page <= 1}
+						onClick={() => void data.previousPage()}
+					>
+						{t("activity_previous")}
+					</Button>
+					<span className="text-xs text-muted-foreground" aria-live="polite">
+						{t("activity_page", { page: data.page })}
+					</span>
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={data.loading || data.next === null}
+						onClick={() => void data.nextPage()}
+					>
+						{t("activity_next")}
+					</Button>
+				</nav>
 			) : null}
 		</section>
 	);

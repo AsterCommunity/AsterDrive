@@ -479,23 +479,20 @@ async fn finalize_operation(
             if files.is_empty() {
                 break;
             }
+            let mut batch = crate::services::workspace::activity::ActivityBatch::new(&activity);
             for before in files {
                 after_id = before.id;
                 if before.deleted_at.is_some() == deleting {
                     continue;
                 }
-                let mut after = before.clone();
-                after.deleted_at = if deleting { Some(now) } else { None };
                 let action = if deleting {
                     aster_drive_model::types::AuditAction::FileDelete
                 } else {
                     aster_drive_model::types::AuditAction::FileRestore
                 };
-                crate::services::workspace::activity::file_changed(
-                    txn, &activity, &before, &mut after, action,
-                )
-                .await?;
+                batch.file_lifecycle(&before, action);
             }
+            batch.persist(txn).await?;
         }
         after_id = 0;
         loop {
@@ -504,23 +501,20 @@ async fn finalize_operation(
             if folders.is_empty() {
                 break;
             }
+            let mut batch = crate::services::workspace::activity::ActivityBatch::new(&activity);
             for before in folders {
                 after_id = before.id;
                 if before.deleted_at.is_some() == deleting {
                     continue;
                 }
-                let mut after = before.clone();
-                after.deleted_at = if deleting { Some(now) } else { None };
                 let action = if deleting {
                     aster_drive_model::types::AuditAction::FolderDelete
                 } else {
                     aster_drive_model::types::AuditAction::FolderRestore
                 };
-                crate::services::workspace::activity::folder_changed(
-                    txn, &activity, &before, &mut after, action,
-                )
-                .await?;
+                batch.folder_lifecycle(&before, action);
             }
+            batch.persist(txn).await?;
         }
         let counts = match payload.operation {
             FolderTreeMutationOperation::Delete => {

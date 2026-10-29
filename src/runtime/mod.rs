@@ -136,13 +136,6 @@ impl PrimaryAppState {
         &self.config_sync
     }
 
-    pub fn should_record_audit_action(
-        &self,
-        action: aster_drive_model::types::AuditAction,
-    ) -> bool {
-        self.runtime_config.should_record_audit_action(action)
-    }
-
     pub fn follower_view(&self) -> FollowerAppState {
         FollowerAppState::from(self)
     }

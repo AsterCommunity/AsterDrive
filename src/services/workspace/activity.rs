@@ -1,10 +1,12 @@
 //! Workspace business facts and attribution. Persistence errors roll back the caller's mutation.
+mod batch;
 use crate::{
     db::repository::{user_repo, workspace_activity_repo},
     errors::Result,
 };
 use aster_drive_model::entities::{file, folder, workspace_activity};
 use aster_drive_model::types::AuditAction;
+pub(crate) use batch::ActivityBatch;
 use chrono::Utc;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
 use serde::{Deserialize, Serialize};
@@ -178,6 +180,30 @@ pub struct ActivityContext {
     pub operation_id: String,
 }
 
+#[derive(Serialize)]
+pub(crate) struct FileChangeDetails<'a> {
+    pub previous_name: &'a str,
+    pub next_name: &'a str,
+    pub source_folder_id: Option<i64>,
+    pub target_folder_id: Option<i64>,
+    pub previous_size: i64,
+    pub size: i64,
+    pub previous_mime_type: &'a str,
+    pub mime_type: &'a str,
+}
+
+#[derive(Serialize)]
+pub(crate) struct FolderChangeDetails<'a> {
+    pub previous_name: &'a str,
+    pub next_name: &'a str,
+    pub source_parent_id: Option<i64>,
+    pub target_parent_id: Option<i64>,
+    pub previous_kind: &'a aster_drive_model::types::FolderIconKind,
+    pub kind: &'a aster_drive_model::types::FolderIconKind,
+    pub previous_key: Option<&'a str>,
+    pub key: Option<&'a str>,
+}
+
 impl ActivityContext {
     pub async fn actor<C: ConnectionTrait>(
         db: &C,
@@ -215,27 +241,7 @@ pub async fn display_names(
     state: &impl crate::runtime::SharedRuntimeState,
     ids: &[i64],
 ) -> Result<std::collections::HashMap<i64, String>> {
-    let ids = ids
-        .iter()
-        .copied()
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let users = user_repo::find_by_ids(state.reader_db(), &ids).await?;
-    let profiles =
-        crate::db::repository::user_profile_repo::find_by_user_ids(state.reader_db(), &ids).await?;
-    Ok(users
-        .into_iter()
-        .map(|user| {
-            let name = profiles
-                .get(&user.id)
-                .and_then(|p| p.display_name.as_deref())
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or(&user.username)
-                .to_owned();
-            (user.id, name)
-        })
-        .collect())
+    user_repo::find_public_display_names(state.reader_db(), ids).await
 }
 
 pub fn resolve_identity(
@@ -268,25 +274,49 @@ async fn append<C: ConnectionTrait>(
 ) -> Result<()> {
     workspace_activity_repo::append(
         db,
-        workspace_activity::ActiveModel {
-            event_id: Set(uuid::Uuid::new_v4().to_string()),
-            operation_id: Set(ctx.operation_id.clone()),
-            team_id: Set(team_id),
-            owner_user_id: Set(owner_user_id),
-            entity_type: Set(kind.to_owned()),
-            entity_id: Set(id),
-            entity_name: Set(name.to_owned()),
-            actor_user_id: Set(ctx.actor_user_id),
-            actor_name: Set(ctx.actor_name.clone()),
-            action: Set(action.as_str().to_owned()),
-            source: Set(ctx.source.as_str().to_owned()),
-            details: Set(details.to_string()),
-            created_at: Set(Utc::now()),
-            ..Default::default()
-        },
+        activity_model(
+            ctx,
+            team_id,
+            owner_user_id,
+            kind,
+            id,
+            name,
+            action,
+            details,
+            Utc::now(),
+        ),
     )
     .await?;
     Ok(())
+}
+
+fn activity_model(
+    ctx: &ActivityContext,
+    team_id: Option<i64>,
+    owner_user_id: Option<i64>,
+    kind: &str,
+    id: i64,
+    name: &str,
+    action: AuditAction,
+    details: serde_json::Value,
+    now: chrono::DateTime<Utc>,
+) -> workspace_activity::ActiveModel {
+    workspace_activity::ActiveModel {
+        event_id: Set(uuid::Uuid::new_v4().to_string()),
+        operation_id: Set(ctx.operation_id.clone()),
+        team_id: Set(team_id),
+        owner_user_id: Set(owner_user_id),
+        entity_type: Set(kind.to_owned()),
+        entity_id: Set(id),
+        entity_name: Set(name.to_owned()),
+        actor_user_id: Set(ctx.actor_user_id),
+        actor_name: Set(ctx.actor_name.clone()),
+        action: Set(action.as_str().to_owned()),
+        source: Set(ctx.source.as_str().to_owned()),
+        details: Set(details.to_string()),
+        created_at: Set(now),
+        ..Default::default()
+    }
 }
 
 pub(crate) async fn file_created<C: ConnectionTrait>(
@@ -370,8 +400,31 @@ pub(crate) async fn file_changed<C: ConnectionTrait>(
     after.modified_by_user_id = ctx.actor_user_id;
     after.modified_by_username = Some(ctx.actor_name.clone());
     after.modified_at = Some(now);
-    append(db,ctx,after.team_id,after.owner_user_id,"file",after.id,&after.name,change.action,
-        merge_details(serde_json::json!({"previous_name":before.name,"next_name":after.name,"source_folder_id":before.folder_id,"target_folder_id":after.folder_id,"previous_size":before.size,"size":after.size,"previous_mime_type":before.mime_type,"mime_type":after.mime_type}),change.details)).await
+    append(
+        db,
+        ctx,
+        after.team_id,
+        after.owner_user_id,
+        "file",
+        after.id,
+        &after.name,
+        change.action,
+        merge_details(
+            serde_json::to_value(FileChangeDetails {
+                previous_name: &before.name,
+                next_name: &after.name,
+                source_folder_id: before.folder_id,
+                target_folder_id: after.folder_id,
+                previous_size: before.size,
+                size: after.size,
+                previous_mime_type: &before.mime_type,
+                mime_type: &after.mime_type,
+            })
+            .expect("file activity details are serializable"),
+            change.details,
+        ),
+    )
+    .await
 }
 
 pub(crate) async fn folder_changed<C: ConnectionTrait>(
@@ -412,8 +465,31 @@ pub(crate) async fn folder_changed<C: ConnectionTrait>(
     after.modified_by_user_id = ctx.actor_user_id;
     after.modified_by_username = Some(ctx.actor_name.clone());
     after.modified_at = Some(now);
-    append(db,ctx,after.team_id,after.owner_user_id,"folder",after.id,&after.name,change.action,
-        merge_details(serde_json::json!({"previous_name":before.name,"next_name":after.name,"source_parent_id":before.parent_id,"target_parent_id":after.parent_id,"previous_kind":before.icon_kind,"kind":after.icon_kind,"previous_key":before.icon_value,"key":after.icon_value}),change.details)).await
+    append(
+        db,
+        ctx,
+        after.team_id,
+        after.owner_user_id,
+        "folder",
+        after.id,
+        &after.name,
+        change.action,
+        merge_details(
+            serde_json::to_value(FolderChangeDetails {
+                previous_name: &before.name,
+                next_name: &after.name,
+                source_parent_id: before.parent_id,
+                target_parent_id: after.parent_id,
+                previous_kind: &before.icon_kind,
+                kind: &after.icon_kind,
+                previous_key: before.icon_value.as_deref(),
+                key: after.icon_value.as_deref(),
+            })
+            .expect("folder activity details are serializable"),
+            change.details,
+        ),
+    )
+    .await
 }
 
 /// Create a directory and its activity on the same caller-owned transaction.
@@ -589,6 +665,22 @@ async fn location_changes<C: ConnectionTrait>(
         .flatten()
         .collect::<Vec<_>>();
     let paths = crate::services::files::folder::build_folder_paths(db, &ids).await?;
+    location_details(
+        &paths,
+        source_parent,
+        source_name,
+        target_parent,
+        target_name,
+    )
+}
+
+fn location_details(
+    paths: &std::collections::HashMap<i64, String>,
+    source_parent: Option<i64>,
+    source_name: &str,
+    target_parent: Option<i64>,
+    target_name: &str,
+) -> Result<serde_json::Value> {
     let path = |parent: Option<i64>, name: &str| -> Result<String> {
         let parent = match parent {
             Some(id) => paths
@@ -613,12 +705,22 @@ pub(crate) async fn file_copied<C: ConnectionTrait>(
     source: &file::Model,
     target: &file::Model,
 ) -> Result<()> {
+    let mut records = Vec::with_capacity(2);
+    file_copy_records(&mut records, ctx, source, target, Utc::now());
+    workspace_activity_repo::append_many(db, records).await
+}
+fn file_copy_records(
+    records: &mut Vec<workspace_activity::ActiveModel>,
+    ctx: &ActivityContext,
+    source: &file::Model,
+    target: &file::Model,
+    now: chrono::DateTime<Utc>,
+) {
     let same = source.team_id == target.team_id && source.owner_user_id == target.owner_user_id;
     let details = if same {
         serde_json::json!({"source_file_id":source.id,"source_name":source.name,"source_folder_id":source.folder_id,"target_folder_id":target.folder_id})
     } else {
-        append(
-            db,
+        records.push(activity_model(
             ctx,
             source.team_id,
             source.owner_user_id,
@@ -627,12 +729,11 @@ pub(crate) async fn file_copied<C: ConnectionTrait>(
             &source.name,
             AuditAction::FileCopy,
             serde_json::json!({"direction":"outgoing","destination_workspace":"external"}),
-        )
-        .await?;
+            now,
+        ));
         serde_json::json!({"direction":"incoming","source_workspace":"external","target_folder_id":target.folder_id})
     };
-    append(
-        db,
+    records.push(activity_model(
         ctx,
         target.team_id,
         target.owner_user_id,
@@ -641,8 +742,8 @@ pub(crate) async fn file_copied<C: ConnectionTrait>(
         &target.name,
         AuditAction::FileCopy,
         details,
-    )
-    .await
+        now,
+    ));
 }
 
 pub(crate) async fn folder_copied<C: ConnectionTrait>(
@@ -651,12 +752,22 @@ pub(crate) async fn folder_copied<C: ConnectionTrait>(
     source: &folder::Model,
     target: &folder::Model,
 ) -> Result<()> {
+    let mut records = Vec::with_capacity(2);
+    folder_copy_records(&mut records, ctx, source, target, Utc::now());
+    workspace_activity_repo::append_many(db, records).await
+}
+fn folder_copy_records(
+    records: &mut Vec<workspace_activity::ActiveModel>,
+    ctx: &ActivityContext,
+    source: &folder::Model,
+    target: &folder::Model,
+    now: chrono::DateTime<Utc>,
+) {
     let same = source.team_id == target.team_id && source.owner_user_id == target.owner_user_id;
     let details = if same {
         serde_json::json!({"source_folder_id":source.id,"source_name":source.name,"source_parent_id":source.parent_id,"target_parent_id":target.parent_id})
     } else {
-        append(
-            db,
+        records.push(activity_model(
             ctx,
             source.team_id,
             source.owner_user_id,
@@ -665,12 +776,11 @@ pub(crate) async fn folder_copied<C: ConnectionTrait>(
             &source.name,
             AuditAction::FolderCopy,
             serde_json::json!({"direction":"outgoing","destination_workspace":"external"}),
-        )
-        .await?;
+            now,
+        ));
         serde_json::json!({"direction":"incoming","source_workspace":"external","target_parent_id":target.parent_id})
     };
-    append(
-        db,
+    records.push(activity_model(
         ctx,
         target.team_id,
         target.owner_user_id,
@@ -679,6 +789,6 @@ pub(crate) async fn folder_copied<C: ConnectionTrait>(
         &target.name,
         AuditAction::FolderCopy,
         details,
-    )
-    .await
+        now,
+    ));
 }

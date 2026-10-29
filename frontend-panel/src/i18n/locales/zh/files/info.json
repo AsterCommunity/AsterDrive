@@ -133,5 +133,10 @@
 	"activity_retry": "重试",
 	"activity_loading": "正在加载活动…",
 	"activity_empty": "暂无活动记录；升级前的操作可能未记录",
-	"activity_load_more": "加载更早记录"
+	"activity_view": "查看文件活动",
+	"activity_hide": "收起文件活动",
+	"activity_previous": "上一页",
+	"activity_next": "下一页",
+	"activity_page": "第 {{page}} 页",
+	"activity_pagination": "文件活动分页"
 }

@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TagChips } from "@/components/files/TagChips";
 import {
@@ -19,6 +19,7 @@ import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
+import { workspaceKey } from "@/lib/workspace";
 import type { ActivityTarget } from "@/services/workspaceActivityService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type {
@@ -337,6 +338,34 @@ function TagsSection({
 	);
 }
 
+function ResourceActivitySection({
+	target,
+	enabled,
+}: {
+	target: ActivityTarget;
+	enabled: boolean;
+}) {
+	const { t } = useTranslation(["files"]);
+	const [expanded, setExpanded] = useState(false);
+	const contentId = useId();
+	return (
+		<section className="space-y-3">
+			<Button
+				variant="outline"
+				size="sm"
+				aria-expanded={expanded}
+				aria-controls={contentId}
+				onClick={() => setExpanded((previous) => !previous)}
+			>
+				{t(expanded ? "activity_hide" : "activity_view")}
+			</Button>
+			<div id={contentId}>
+				{enabled && expanded ? <WorkspaceActivityFeed target={target} /> : null}
+			</div>
+		</section>
+	);
+}
+
 export function FileInfoDialog({
 	open,
 	onOpenChange,
@@ -479,7 +508,11 @@ export function FileInfoDialog({
 			summarySubtitle={summarySubtitle}
 			tagsSection={tagsSection}
 			activitySection={
-				<WorkspaceActivityFeed target={activityTarget} enabled={open} />
+				<ResourceActivitySection
+					key={`${open}:${workspaceKey(workspace)}:${renderedFile ? "file" : "folder"}:${renderedFile?.id ?? renderedFolder?.id}`}
+					target={activityTarget}
+					enabled={open}
+				/>
 			}
 			targetIcon={
 				renderedFile

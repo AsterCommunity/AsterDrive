@@ -306,6 +306,10 @@ describe("FileInfoDialog", () => {
 		expect(screen.getByText("Editor Bob")).toBeInTheDocument();
 		expect(screen.getByText("date:2026-02-01")).toBeInTheDocument();
 		expect(screen.queryByText("date:2026-04-01")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "activity_view" }));
 		expect(screen.getByTestId("workspace-activity-feed")).toBeInTheDocument();
 		expect(mockState.getFile).not.toHaveBeenCalled();
 	});
@@ -952,5 +956,46 @@ describe("FileInfoDialog", () => {
 			vi.advanceTimersByTime(320);
 		});
 		expect(screen.queryByLabelText("info")).not.toBeInTheDocument();
+	});
+	it("collapses activity when closing or changing the inspected resource", () => {
+		const file = {
+			lock_state: { state: "unlocked" },
+			id: 71,
+			name: "lazy.txt",
+			size: 1,
+			blob_id: 2,
+			mime_type: "text/plain",
+			created_at: "2026-01-01",
+			updated_at: "2026-01-01",
+		} as unknown as import("@/types/api").FileInfo;
+		const { rerender } = render(
+			<FileInfoDialog open onOpenChange={vi.fn()} file={file} />,
+		);
+		const expand = () =>
+			fireEvent.click(screen.getByRole("button", { name: "activity_view" }));
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		expand();
+		expect(screen.getByTestId("workspace-activity-feed")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "activity_hide" }));
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		expand();
+		rerender(
+			<FileInfoDialog open={false} onOpenChange={vi.fn()} file={file} />,
+		);
+		rerender(<FileInfoDialog open onOpenChange={vi.fn()} file={file} />);
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		expand();
+		rerender(
+			<FileInfoDialog open onOpenChange={vi.fn()} file={{ ...file, id: 72 }} />,
+		);
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
 	});
 });

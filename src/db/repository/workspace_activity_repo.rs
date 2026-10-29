@@ -2,16 +2,36 @@
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::workspace_activity::{self, Entity};
 use chrono::{DateTime, Utc};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder,
-    QuerySelect,
-};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 pub async fn append<C: ConnectionTrait>(
     db: &C,
     model: workspace_activity::ActiveModel,
-) -> Result<workspace_activity::Model> {
-    model.insert(db).await.map_err(AsterError::from)
+) -> Result<()> {
+    Entity::insert(model)
+        .exec_without_returning(db)
+        .await
+        .map(|_| ())
+        .map_err(AsterError::from)
+}
+
+/// Keep each statement below conservative SQLite bind limits (14 values per event).
+pub async fn append_many<C: ConnectionTrait>(
+    db: &C,
+    models: Vec<workspace_activity::ActiveModel>,
+) -> Result<()> {
+    let mut rows = models.into_iter();
+    loop {
+        let chunk = rows.by_ref().take(50).collect::<Vec<_>>();
+        if chunk.is_empty() {
+            break;
+        }
+        Entity::insert_many(chunk)
+            .exec_without_returning(db)
+            .await
+            .map_err(AsterError::from)?;
+    }
+    Ok(())
 }
 
 pub struct ActivityQuery<'a> {
@@ -58,56 +78,92 @@ pub async fn list<C: ConnectionTrait>(
 pub async fn export_snapshot<C: ConnectionTrait>(
     db: &C,
     team_id: i64,
+    max_rows: u64,
 ) -> Result<Option<(i64, u64)>> {
     use sea_orm::PaginatorTrait;
     let max = Entity::find()
+        .select_only()
+        .column(workspace_activity::Column::Id)
         .filter(workspace_activity::Column::TeamId.eq(team_id))
         .order_by_desc(workspace_activity::Column::Id)
+        .into_tuple::<i64>()
         .one(db)
         .await?;
     let Some(max) = max else {
         return Ok(None);
     };
     let count = Entity::find()
+        .select_only()
+        .column(workspace_activity::Column::Id)
         .filter(workspace_activity::Column::TeamId.eq(team_id))
-        .filter(workspace_activity::Column::Id.lte(max.id))
+        .filter(workspace_activity::Column::Id.lte(max))
+        .limit(max_rows.saturating_add(1))
         .count(db)
         .await?;
-    Ok(Some((max.id, count)))
+    Ok(Some((max, count)))
 }
 
 pub async fn delete_before<C: ConnectionTrait>(db: &C, cutoff: DateTime<Utc>) -> Result<u64> {
-    Ok(Entity::delete_many()
-        .filter(workspace_activity::Column::CreatedAt.lt(cutoff))
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?
-        .rows_affected)
+    let mut deleted = 0u64;
+    loop {
+        let ids = Entity::find()
+            .select_only()
+            .column(workspace_activity::Column::Id)
+            .filter(workspace_activity::Column::CreatedAt.lt(cutoff))
+            .order_by_asc(workspace_activity::Column::CreatedAt)
+            .order_by_asc(workspace_activity::Column::Id)
+            .limit(400)
+            .into_tuple::<i64>()
+            .all(db)
+            .await?;
+        if ids.is_empty() {
+            return Ok(deleted);
+        }
+        deleted += Entity::delete_many()
+            .filter(workspace_activity::Column::Id.is_in(ids))
+            .exec(db)
+            .await?
+            .rows_affected;
+        // Each statement releases its DB lock; give foreground requests a scheduling point.
+        tokio::task::yield_now().await;
+    }
 }
 
-pub async fn action_page_in_range<C: ConnectionTrait>(
+/// Aggregate in the DB rather than transferring every activity to the overview service.
+/// Explicit UTC boundaries preserve local-day and DST semantics across all DB backends.
+pub async fn action_counts_in_windows<C: ConnectionTrait>(
     db: &C,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    after: Option<i64>,
-    limit: u64,
-) -> Result<Vec<(i64, String, DateTime<Utc>)>> {
-    let mut query = Entity::find()
-        .select_only()
-        .columns([
-            workspace_activity::Column::Id,
-            workspace_activity::Column::Action,
-            workspace_activity::Column::CreatedAt,
-        ])
-        .filter(workspace_activity::Column::CreatedAt.gte(start))
-        .filter(workspace_activity::Column::CreatedAt.lt(end));
-    if let Some(id) = after {
-        query = query.filter(workspace_activity::Column::Id.gt(id));
+    windows: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<Vec<(i32, String, i64)>> {
+    use sea_orm::{
+        Condition,
+        sea_query::{Alias, Expr},
+    };
+    let Some((first_start, first_end)) = windows.first() else {
+        return Ok(Vec::new());
+    };
+    let condition = |start: DateTime<Utc>, end: DateTime<Utc>| {
+        Condition::all()
+            .add(workspace_activity::Column::CreatedAt.gte(start))
+            .add(workspace_activity::Column::CreatedAt.lt(end))
+    };
+    let mut bucket = Expr::case(condition(*first_start, *first_end), 0i32);
+    for (index, (start, end)) in windows.iter().enumerate().skip(1) {
+        let index = i32::try_from(index)
+            .map_err(|_| AsterError::validation_error("too many activity report windows"))?;
+        bucket = bucket.case(condition(*start, *end), index);
     }
-    query
-        .order_by_asc(workspace_activity::Column::Id)
-        .limit(limit)
-        .into_tuple()
+    let start = windows.iter().map(|(start, _)| *start).min().unwrap();
+    let end = windows.iter().map(|(_, end)| *end).max().unwrap();
+    Entity::find()
+        .select_only()
+        .expr_as(bucket.finally(-1i32), "day_index")
+        .column(workspace_activity::Column::Action)
+        .column_as(workspace_activity::Column::Id.count(), "event_count")
+        .filter(condition(start, end))
+        .group_by(Expr::col(Alias::new("day_index")))
+        .group_by(workspace_activity::Column::Action)
+        .into_tuple::<(i32, String, i64)>()
         .all(db)
         .await
         .map_err(AsterError::from)

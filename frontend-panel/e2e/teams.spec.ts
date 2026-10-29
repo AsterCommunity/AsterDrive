@@ -197,6 +197,12 @@ test("team file list and details retain creator and modifier after rename and re
 	await expect(
 		inspector.locator("dd").getByText(name, { exact: true }),
 	).toHaveCount(2);
+	await expect(
+		inspector.getByRole("region", { name: "File activity" }),
+	).toHaveCount(0);
+	await inspector
+		.getByRole("button", { name: "View file activity", exact: true })
+		.click();
 	const activity = inspector.getByRole("region", { name: "File activity" });
 	await expect(activity).toContainText(renamed);
 	await expect(activity).toContainText("Renamed file");

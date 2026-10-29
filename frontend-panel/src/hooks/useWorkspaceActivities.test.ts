@@ -74,7 +74,7 @@ describe("useWorkspaceActivities", () => {
 		expect(result.current.items).toEqual([]);
 		expect(result.current.failed).toBe(false);
 	});
-	it("preserves loaded history on a failed next page and retries the same cursor", async () => {
+	it("preserves the current page on failure and retries the same cursor", async () => {
 		const list = vi
 			.fn()
 			.mockResolvedValueOnce({ items: [event(3)], next_before_id: 3 })
@@ -84,16 +84,16 @@ describe("useWorkspaceActivities", () => {
 		const { result } = renderHook(() => useWorkspaceActivities(resource, true));
 		await waitFor(() => expect(result.current.loading).toBe(false));
 		await act(async () => {
-			await result.current.loadMore();
+			await result.current.nextPage();
 		});
 		expect(result.current.items.map((e) => e.id)).toEqual([3]);
 		expect(result.current.failed).toBe(true);
 		await act(async () => {
-			await result.current.loadMore();
+			await result.current.retry();
 		});
 		expect(list.mock.calls[1]?.[0]).toBe(3);
 		expect(list.mock.calls[2]?.[0]).toBe(3);
-		expect(result.current.items.map((e) => e.id)).toEqual([3, 2]);
+		expect(result.current.items.map((e) => e.id)).toEqual([2]);
 	});
 	it("deduplicates rapid load-more clicks and ignores responses after unmount", async () => {
 		const next = deferred<WorkspaceActivityPage>();
@@ -108,8 +108,8 @@ describe("useWorkspaceActivities", () => {
 		await waitFor(() => expect(result.current.items).toHaveLength(1));
 		let request: Promise<unknown> | undefined;
 		act(() => {
-			request = result.current.loadMore();
-			void result.current.loadMore();
+			request = result.current.nextPage();
+			void result.current.nextPage();
 		});
 		expect(list).toHaveBeenCalledTimes(2);
 		const signal = list.mock.calls[1]?.[1] as AbortSignal;
@@ -119,5 +119,32 @@ describe("useWorkspaceActivities", () => {
 			next.resolve({ items: [event(2)], next_before_id: null });
 			await request;
 		});
+	});
+	it("replaces pages instead of accumulating history and navigates back by cursor", async () => {
+		const list = vi
+			.fn()
+			.mockResolvedValueOnce({ items: [event(4), event(3)], next_before_id: 3 })
+			.mockResolvedValueOnce({
+				items: [event(2), event(1)],
+				next_before_id: null,
+			})
+			.mockResolvedValueOnce({
+				items: [event(4), event(3)],
+				next_before_id: 3,
+			});
+		const resource = { key: "personal:file:7", list, export: undefined };
+		const { result } = renderHook(() => useWorkspaceActivities(resource, true));
+		await waitFor(() => expect(result.current.items).toHaveLength(2));
+		await act(async () => {
+			await result.current.nextPage();
+		});
+		expect(result.current.items.map((e) => e.id)).toEqual([2, 1]);
+		expect(result.current.page).toBe(2);
+		await act(async () => {
+			await result.current.previousPage();
+		});
+		expect(list.mock.calls[2]?.[0]).toBe(null);
+		expect(result.current.items.map((e) => e.id)).toEqual([4, 3]);
+		expect(result.current.page).toBe(1);
 	});
 });

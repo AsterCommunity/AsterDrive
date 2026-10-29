@@ -242,22 +242,34 @@ async fn create_frontier_children_from_plans_in_scope(
             folder_repo::find_team_children_in_parents(&txn, team_id, &dest_parent_ids).await?
         }
     };
+    let source_ids = child_plans
+        .iter()
+        .map(|plan| plan.src_folder_id)
+        .collect::<Vec<_>>();
+    let sources = folder_repo::find_by_ids(&txn, &source_ids)
+        .await?
+        .into_iter()
+        .map(|folder| (folder.id, folder))
+        .collect::<HashMap<_, _>>();
     let expected = child_plans
         .iter()
-        .map(|p| (Some(p.dest_parent_id), p.dest_name.as_str()))
-        .collect::<std::collections::HashSet<_>>();
+        .map(|plan| {
+            (
+                (Some(plan.dest_parent_id), plan.dest_name.as_str()),
+                plan.src_folder_id,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut activities = crate::services::workspace::activity::ActivityBatch::new(activity);
     for child in &created_children {
-        if expected.contains(&(child.parent_id, child.name.as_str())) {
-            let source_id = child_plans
-                .iter()
-                .find(|p| Some(p.dest_parent_id) == child.parent_id && p.dest_name == child.name)
-                .ok_or_else(|| AsterError::internal_error("copied folder source missing"))?
-                .src_folder_id;
-            let source = folder_repo::find_by_id(&txn, source_id).await?;
-            crate::services::workspace::activity::folder_copied(&txn, activity, &source, child)
-                .await?;
+        if let Some(source_id) = expected.get(&(child.parent_id, child.name.as_str())) {
+            let source = sources
+                .get(source_id)
+                .ok_or_else(|| AsterError::internal_error("copied folder source missing"))?;
+            activities.folder_copied(source, child);
         }
     }
+    activities.persist(&txn).await?;
     aster_forge_db::transaction::commit(txn).await?;
     let created_by_parent_and_name: HashMap<(i64, String), i64> = created_children
         .into_iter()

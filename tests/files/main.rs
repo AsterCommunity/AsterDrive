@@ -23,3 +23,5 @@ mod upload;
 mod activities;
 
 mod activity_contract;
+
+mod activity_performance;

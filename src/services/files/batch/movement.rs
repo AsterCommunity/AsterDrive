@@ -310,57 +310,43 @@ pub(crate) async fn batch_move_in_scope(
         }
         let mut locked_file_ids = file_ids_to_move.clone();
         locked_file_ids.sort_unstable();
+        let mut before_files = Vec::with_capacity(locked_file_ids.len());
         for file_id in locked_file_ids {
-            let snapshot = file_repo::find_by_id(&txn, file_id).await?;
-            storage::ensure_active_file_scope(&snapshot, scope)?;
-            crate::services::files::lock::enforce_file_mutation_on(
+            let snapshot = &file_map[&file_id];
+            let current = crate::services::files::lock::enforce_file_mutation_on(
                 &txn,
-                &snapshot,
+                snapshot,
                 &crate::services::files::lock::SubmittedLockCredentials::none(),
             )
             .await?;
+            storage::ensure_active_file_scope(&current, scope)?;
+            before_files.push(current);
         }
-        revalidate_batch_folder_move(&txn, scope, &folder_ids_to_move, target_folder_id).await?;
+        let before_folders =
+            revalidate_batch_folder_move(&txn, scope, &folder_ids_to_move, target_folder_id)
+                .await?;
         let activity = crate::services::workspace::activity::ActivityContext::actor(
             &txn,
             scope.actor_user_id(),
             crate::services::workspace::activity::ActivitySource::Rest,
         )
         .await?;
-        let mut before_files = Vec::new();
-        for id in &file_ids_to_move {
-            before_files.push(file_repo::find_by_id(&txn, *id).await?);
+        let mut batch = crate::services::workspace::activity::ActivityBatch::new(&activity);
+        for before in &before_files {
+            if before.folder_id != target_folder_id {
+                batch.file_moved(before, target_folder_id);
+            }
         }
-        let mut before_folders = Vec::new();
-        for id in &folder_ids_to_move {
-            before_folders.push(folder_repo::find_by_id(&txn, *id).await?);
+        for before in &before_folders {
+            if before.parent_id != target_folder_id {
+                batch.folder_moved(before, target_folder_id);
+            }
         }
+        // Capture source paths before moving selected folders. Every activity remains atomic
+        // with both the bulk metadata write and the attribution update.
+        batch.persist(&txn).await?;
         file_repo::move_many_to_folder(&txn, &file_ids_to_move, target_folder_id, now).await?;
         folder_repo::move_many_to_parent(&txn, &folder_ids_to_move, target_folder_id, now).await?;
-        for before in before_files {
-            let mut after = before.clone();
-            after.folder_id = target_folder_id;
-            crate::services::workspace::activity::file_changed(
-                &txn,
-                &activity,
-                &before,
-                &mut after,
-                aster_drive_model::types::AuditAction::FileMove,
-            )
-            .await?;
-        }
-        for before in before_folders {
-            let mut after = before.clone();
-            after.parent_id = target_folder_id;
-            crate::services::workspace::activity::folder_changed(
-                &txn,
-                &activity,
-                &before,
-                &mut after,
-                aster_drive_model::types::AuditAction::FolderMove,
-            )
-            .await?;
-        }
         transaction::commit(txn).await?;
 
         if !file_ids_to_move.is_empty() {
@@ -397,9 +383,9 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
     scope: WorkspaceStorageScope,
     folder_ids_to_move: &[i64],
     target_folder_id: Option<i64>,
-) -> Result<()> {
+) -> Result<Vec<folder::Model>> {
     let Some(first_folder_id) = folder_ids_to_move.first().copied() else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let workspace_snapshot = folder_repo::find_by_id(db, first_folder_id).await?;
     storage::ensure_active_folder_scope(&workspace_snapshot, scope)?;
@@ -414,10 +400,11 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
     lock_folder_ids_in_order(db, &lock_ids).await?;
 
     let target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
+    let mut before = Vec::with_capacity(folder_ids_to_move.len());
     for &folder_id in folder_ids_to_move {
         let folder = folder_repo::lock_by_id(db, folder_id).await?;
         storage::ensure_active_folder_scope(&folder, scope)?;
-        crate::services::files::lock::enforce_folder_mutation_on(
+        let current = crate::services::files::lock::enforce_folder_mutation_on(
             db,
             &folder,
             aster_drive_model::types::LockDepth::Infinity,
@@ -429,9 +416,10 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
                 "cannot move folder into its own subfolder",
             ));
         }
+        before.push(current);
     }
 
-    Ok(())
+    Ok(before)
 }
 
 async fn load_folder_chain_in_scope<C: ConnectionTrait>(

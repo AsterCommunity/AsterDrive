@@ -9,8 +9,10 @@ const mock = vi.hoisted(() => ({
 		next: null as number | null,
 		loading: false,
 		failed: false,
-		reload: vi.fn(),
-		loadMore: vi.fn(),
+		retry: vi.fn(),
+		page: 1,
+		previousPage: vi.fn(),
+		nextPage: vi.fn(),
 	},
 	exportCsv: vi.fn(),
 	handleError: vi.fn(),
@@ -62,6 +64,7 @@ describe("WorkspaceActivityFeed", () => {
 			next: null,
 			loading: false,
 			failed: false,
+			page: 1,
 		});
 		mock.canExport = false;
 	});
@@ -92,14 +95,20 @@ describe("WorkspaceActivityFeed", () => {
 		expect(screen.getByRole("alert")).toHaveTextContent("activity_load_failed");
 		expect(screen.queryByText("activity_empty")).not.toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "activity_retry" }));
-		expect(mock.state.reload).toHaveBeenCalledOnce();
+		expect(mock.state.retry).toHaveBeenCalledOnce();
 	});
 	it("shows loading and prevents a concurrent next-page request", () => {
 		mock.state.loading = true;
 		mock.state.next = 1;
+		mock.state.items = [event];
 		render(<WorkspaceActivityFeed target={target} />);
 		expect(screen.getByRole("status")).toHaveTextContent("activity_loading");
-		expect(screen.getByRole("button")).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: "activity_next" }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole("button", { name: "activity_previous" }),
+		).toBeDisabled();
 	});
 	it("reports export failures and re-enables the export action", async () => {
 		mock.canExport = true;
@@ -110,5 +119,23 @@ describe("WorkspaceActivityFeed", () => {
 		fireEvent.click(button);
 		await waitFor(() => expect(mock.handleError).toHaveBeenCalledWith(failure));
 		expect(button).not.toBeDisabled();
+	});
+	it("navigates one page at a time and disables navigation at the boundaries", () => {
+		mock.state.items = [event];
+		mock.state.next = 1;
+		const { rerender } = render(<WorkspaceActivityFeed target={target} />);
+		expect(
+			screen.getByRole("button", { name: "activity_previous" }),
+		).toBeDisabled();
+		fireEvent.click(screen.getByRole("button", { name: "activity_next" }));
+		expect(mock.state.nextPage).toHaveBeenCalledOnce();
+		mock.state.page = 2;
+		mock.state.next = null;
+		rerender(<WorkspaceActivityFeed target={target} />);
+		expect(
+			screen.getByRole("button", { name: "activity_next" }),
+		).toBeDisabled();
+		fireEvent.click(screen.getByRole("button", { name: "activity_previous" }));
+		expect(mock.state.previousPage).toHaveBeenCalledOnce();
 	});
 });

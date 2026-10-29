@@ -76,7 +76,12 @@ async fn prepare_authorized_team(
     state: &PrimaryAppState,
     team_id: i64,
 ) -> Result<ActivityCsvExport> {
-    let snapshot = workspace_activity_repo::export_snapshot(state.writer_db(), team_id).await?;
+    let snapshot = workspace_activity_repo::export_snapshot(
+        state.writer_db(),
+        team_id,
+        crate::services::ops::audit::AUDIT_CSV_EXPORT_MAX_ROWS,
+    )
+    .await?;
     let total = snapshot.map_or(0, |(_, count)| count);
     if total > crate::services::ops::audit::AUDIT_CSV_EXPORT_MAX_ROWS {
         return Err(AsterError::validation_error(

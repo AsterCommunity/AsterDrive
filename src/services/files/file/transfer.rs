@@ -243,6 +243,7 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
         .iter()
         .map(|spec| (spec.dest_name.as_ref(), spec.src))
         .collect::<HashMap<_, _>>();
+    let mut activities = crate::services::workspace::activity::ActivityBatch::new(&context);
     for created in &created_files {
         crate::db::repository::revision_repo::create_initial(
             &txn,
@@ -253,9 +254,10 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
         let source = *source_by_name
             .get(created.name.as_str())
             .ok_or_else(|| AsterError::internal_error("copied file source missing"))?;
-        crate::services::workspace::activity::file_copied(&txn, &context, source, created).await?;
+        activities.file_copied(source, created);
     }
 
+    activities.persist(&txn).await?;
     transaction::commit(txn).await?;
     Ok(created_files)
 }
@@ -558,10 +560,11 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     )
     .await?;
 
+    let mut activities = crate::services::workspace::activity::ActivityBatch::new(activity);
     for (created, spec) in created_in_spec_order.iter().zip(copy_specs) {
-        crate::services::workspace::activity::file_copied(&txn, activity, spec.src, created)
-            .await?;
+        activities.file_copied(spec.src, created);
     }
+    activities.persist(&txn).await?;
     storage::update_storage_used(&txn, scope, total_size).await?;
 
     transaction::commit(txn).await?;

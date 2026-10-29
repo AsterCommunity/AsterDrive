@@ -502,53 +502,60 @@ async fn build_daily_reports(
             };
             let report = &mut reports[report_index];
             let action = audit::AuditAction::from_str_name(action);
-            record_audit_action(report, action);
+            record_audit_actions(report, action, 1);
         }
         cursor = events.last().map(|(id, _, created_at)| (*created_at, *id));
     }
 
-    let mut after_id = None;
-    loop {
-        let events = crate::db::repository::workspace_activity_repo::action_page_in_range(
+    let windows = (0..days)
+        .map(|offset| {
+            let date = today - Duration::days(i64::from(offset));
+            Ok((
+                start_of_local_day(date, timezone)?,
+                start_of_local_day(date + Duration::days(1), timezone)?,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    for (index, action, count) in
+        crate::db::repository::workspace_activity_repo::action_counts_in_windows(
             state.writer_db(),
-            start,
-            end,
-            after_id,
-            ADMIN_OVERVIEW_AUDIT_ACTION_BATCH_SIZE,
+            &windows,
         )
-        .await?;
-        if events.is_empty() {
-            break;
-        }
-        for (_, action, created_at) in &events {
-            let date = created_at.with_timezone(&timezone).date_naive();
-            if let Some(index) = report_indexes.get(&date).copied() {
-                record_audit_action(
-                    &mut reports[index],
-                    audit::AuditAction::from_str_name(action),
+        .await?
+    {
+        if let Ok(index) = usize::try_from(index) {
+            if let Some(report) = reports.get_mut(index) {
+                record_audit_actions(
+                    report,
+                    audit::AuditAction::from_str_name(&action),
+                    u64::try_from(count)
+                        .map_err(|_| AsterError::internal_error("invalid activity count"))?,
                 );
             }
         }
-        after_id = events.last().map(|(id, _, _)| *id);
     }
     Ok(reports)
 }
 
-fn record_audit_action(report: &mut AdminOverviewDailyReport, action: Option<audit::AuditAction>) {
-    report.total_events += 1;
+fn record_audit_actions(
+    report: &mut AdminOverviewDailyReport,
+    action: Option<audit::AuditAction>,
+    count: u64,
+) {
+    report.total_events += count;
 
     match action {
         Some(audit::AuditAction::UserLogin)
         | Some(audit::AuditAction::UserPasskeyLogin)
-        | Some(audit::AuditAction::UserExternalAuthLogin) => report.sign_ins += 1,
+        | Some(audit::AuditAction::UserExternalAuthLogin) => report.sign_ins += count,
         Some(audit::AuditAction::SystemSetup)
         | Some(audit::AuditAction::UserRegister)
-        | Some(audit::AuditAction::AdminCreateUser) => report.new_users += 1,
-        Some(audit::AuditAction::FileUpload) => report.uploads += 1,
-        Some(audit::AuditAction::ShareCreate) => report.share_creations += 1,
+        | Some(audit::AuditAction::AdminCreateUser) => report.new_users += count,
+        Some(audit::AuditAction::FileUpload) => report.uploads += count,
+        Some(audit::AuditAction::ShareCreate) => report.share_creations += count,
         Some(audit::AuditAction::BatchDelete)
         | Some(audit::AuditAction::FileDelete)
-        | Some(audit::AuditAction::FolderDelete) => report.deletions += 1,
+        | Some(audit::AuditAction::FolderDelete) => report.deletions += count,
         _ => {}
     }
 }
@@ -576,7 +583,7 @@ fn start_of_local_day(date: NaiveDate, timezone: Tz) -> Result<DateTimeUtc> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdminOverviewDailyReport, record_audit_action};
+    use super::{AdminOverviewDailyReport, record_audit_actions};
     use crate::services::ops::audit;
 
     fn empty_report() -> AdminOverviewDailyReport {
@@ -592,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn record_audit_action_counts_categories() {
+    fn record_audit_actions_counts_categories() {
         let mut report = empty_report();
 
         for action in [
@@ -610,7 +617,7 @@ mod tests {
             Some(audit::AuditAction::ConfigUpdate),
             None,
         ] {
-            record_audit_action(&mut report, action);
+            record_audit_actions(&mut report, action, 1);
         }
 
         assert_eq!(report.sign_ins, 3);

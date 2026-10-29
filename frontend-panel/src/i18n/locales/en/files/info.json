@@ -133,5 +133,10 @@
 	"activity_retry": "Retry",
 	"activity_loading": "Loading activity…",
 	"activity_empty": "No activity recorded. Operations before this upgrade may be unavailable.",
-	"activity_load_more": "Load earlier activity"
+	"activity_view": "View file activity",
+	"activity_hide": "Hide file activity",
+	"activity_previous": "Previous page",
+	"activity_next": "Next page",
+	"activity_page": "Page {{page}}",
+	"activity_pagination": "File activity pagination"
 }
