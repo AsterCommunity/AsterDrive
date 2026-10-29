@@ -63,6 +63,51 @@ pub(crate) struct BlobPolicyResolution {
     pub routing_decision: Option<StorageRoutingDecision>,
 }
 
+/// Receive ceiling for a stream whose final size is not yet known. Existing files retain
+/// their blob policy; new files retain final-size routing rather than selecting a size-zero policy.
+pub(crate) async fn resolve_blob_write_size_limit(
+    state: &PrimaryAppState,
+    request: BlobPolicyRequest<'_>,
+) -> Result<i64> {
+    if request.existing_file_id.is_some() {
+        let policy = resolve_blob_policy_for_write(state, request).await?.policy;
+        return Ok(if policy.max_file_size > 0 {
+            policy.max_file_size
+        } else {
+            i64::MAX
+        });
+    }
+    let folder = match (request.folder_hint, request.folder_id) {
+        (Some(hint), _) => Some(hint),
+        (None, Some(id)) => {
+            let folder = verify_folder_access(state, request.scope, id).await?;
+            Some(
+                resolve_verified_folder_policy_hint_on(state.writer_db(), request.scope, folder)
+                    .await?,
+            )
+        }
+        (None, None) => None,
+    };
+    let profile_id = placement_profile_id(state, state.writer_db(), request.scope).await?;
+    let profile = state
+        .policy_snapshot()
+        .get_placement_profile(profile_id)
+        .ok_or_else(|| {
+            AsterError::storage_policy_not_found(format!("placement profile #{profile_id}"))
+        })?;
+    let context =
+        StoragePlacementContext::from_filename(profile_id, request.filename, 0, request.mime_type);
+    let folder_override = folder_placement_override(state, folder)?;
+    crate::services::storage_policy::policy::placement::maximum_admitted_file_size(
+        &profile,
+        &context,
+        folder_override.as_ref(),
+    )
+    .map_err(|rejection| {
+        AsterError::validation_error(format!("{}: {profile_id}", rejection.code()))
+    })
+}
+
 pub(crate) async fn resolve_blob_policy_for_write(
     state: &PrimaryAppState,
     request: BlobPolicyRequest<'_>,
@@ -191,45 +236,14 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
     aster_drive_model::entities::storage_policy::Model,
     StorageRoutingDecision,
 )> {
-    let profile_id = match request.scope {
-        WorkspaceStorageScope::Personal { user_id } => state
-            .policy_snapshot()
-            .require_user_policy_group_id(user_id)?,
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id,
-        } => match state
-            .policy_snapshot()
-            .resolve_team_policy_group_id(team_id)
-        {
-            Some(profile_id) => profile_id,
-            None => {
-                // TODO(0.6.0): remove this cache-miss compatibility read once
-                // all team assignment mutation paths publish snapshot updates.
-                require_team_policy_group_id_with_db(state, fallback_db, team_id, actor_user_id)
-                    .await?
-            }
-        },
-    };
+    let profile_id = placement_profile_id(state, fallback_db, request.scope).await?;
     let context = StoragePlacementContext::from_filename(
         profile_id,
         request.filename,
         request.file_size,
         request.mime_type,
     );
-    let folder_override = folder
-        .and_then(|hint| hint.policy_id())
-        .map(|policy_id| -> Result<FolderPlacementOverride> {
-            let policy = state.policy_snapshot().get_policy_or_err(policy_id)?;
-            Ok(FolderPlacementOverride {
-                policy_id,
-                policy_max_file_size: policy.max_file_size,
-                is_available: state
-                    .policy_snapshot()
-                    .is_policy_available_for_outbound(&policy),
-            })
-        })
-        .transpose()?;
+    let folder_override = folder_placement_override(state, folder)?;
     if let Some(folder) = folder_override.as_ref()
         && folder.policy_max_file_size > 0
         && request.file_size > folder.policy_max_file_size
@@ -267,6 +281,52 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
         .policy_snapshot()
         .get_policy_or_err(decision.policy_id)?;
     Ok((policy, decision))
+}
+
+async fn placement_profile_id<C: ConnectionTrait>(
+    state: &impl SharedRuntimeState,
+    fallback_db: &C,
+    scope: WorkspaceStorageScope,
+) -> Result<i64> {
+    Ok(match scope {
+        WorkspaceStorageScope::Personal { user_id } => state
+            .policy_snapshot()
+            .require_user_policy_group_id(user_id)?,
+        WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id,
+        } => match state
+            .policy_snapshot()
+            .resolve_team_policy_group_id(team_id)
+        {
+            Some(profile_id) => profile_id,
+            None => {
+                // TODO(0.6.0): remove this cache-miss compatibility read once
+                // all team assignment mutation paths publish snapshot updates.
+                require_team_policy_group_id_with_db(state, fallback_db, team_id, actor_user_id)
+                    .await?
+            }
+        },
+    })
+}
+
+fn folder_placement_override(
+    state: &impl SharedRuntimeState,
+    folder: Option<VerifiedFolderPolicyHint>,
+) -> Result<Option<FolderPlacementOverride>> {
+    folder
+        .and_then(|hint| hint.policy_id())
+        .map(|policy_id| -> Result<FolderPlacementOverride> {
+            let policy = state.policy_snapshot().get_policy_or_err(policy_id)?;
+            Ok(FolderPlacementOverride {
+                policy_id,
+                policy_max_file_size: policy.max_file_size,
+                is_available: state
+                    .policy_snapshot()
+                    .is_policy_available_for_outbound(&policy),
+            })
+        })
+        .transpose()
 }
 
 pub(crate) fn record_storage_routing_decision(

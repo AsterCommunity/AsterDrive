@@ -101,6 +101,8 @@ When uploading large files through WebDAV, these three limits apply, and **the s
 
 If any one of them blocks the upload, the whole upload is blocked. Check all three while troubleshooting.
 
+PUT checks the cumulative received size before each write, including chunked requests without `Content-Length`. Body or policy size limits return `413`; insufficient personal or team quota returns `507`. The rejected chunk is not written, and the upload is aborted and cleaned before responding. Unknown-length uploads retain routing by final size, including rules with a minimum size. Quota is observed when the upload opens and checked again transactionally at completion; this is not a reservation of disk space across concurrent requests.
+
 `xml_payload_limit` does not limit file content uploads. It only limits XML control requests. Most deployments do not need to adjust it unless a client sends unusually large directory queries, lock requests, or property updates.
 
 ## Locks and Concurrent Writes

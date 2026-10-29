@@ -53,6 +53,7 @@ pub(crate) fn lock_enforcement_error_response(
 pub struct WebDavState {
     pub prefix: String,
     pub xml_payload_limit: usize,
+    pub payload_limit: u64,
     event_sink: Arc<dyn DavEventSink>,
 }
 
@@ -142,6 +143,7 @@ pub async fn webdav_handler(
         auth_result.scope,
         auth_result.root_folder_id,
         audit_ctx.clone(),
+        webdav.payload_limit,
     );
     let lock_system = backend::lock::DbLockSystem::new_with_audit(
         state.get_ref().clone(),
@@ -463,6 +465,7 @@ pub fn configure_with_rate_limit(
         });
     let webdav_state = web::Data::new(WebDavState {
         prefix: webdav_config.prefix.clone(),
+        payload_limit: webdav_config.payload_limit,
         xml_payload_limit: u64_to_usize(
             webdav_config.xml_payload_limit,
             "webdav.xml_payload_limit",

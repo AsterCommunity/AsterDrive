@@ -12,14 +12,20 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_storage::StorageDriver;
-use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64, usize_to_u64};
+use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
+
 use aster_forge_webdav::{DavBackendError, DavBackendErrorKind, DavWriteHandle, FsError};
+
+mod receive_limits;
+use receive_limits::ReceiveLimits;
 
 const RELAY_DIRECT_BUFFER_SIZE: usize = 64 * 1024;
 
 /// WebDAV 顺序写句柄，按后端能力选择临时文件或直连流写入。
 pub struct AsterDavWriteHandle {
     mode: WriteMode,
+    limits: ReceiveLimits,
+    failure: Option<FsError>,
 }
 
 pub(crate) struct DavWriteOpenContext {
@@ -28,6 +34,7 @@ pub(crate) struct DavWriteOpenContext {
     pub(crate) filename: String,
     pub(crate) existing_file_id: Option<i64>,
     pub(crate) declared_size: Option<u64>,
+    pub(crate) payload_limit: u64,
     pub(crate) submitted_lock_tokens: Vec<String>,
     pub(crate) audit_ctx: AuditContext,
     pub(crate) file_precondition: Option<storage::FileWritePrecondition>,
@@ -108,6 +115,7 @@ impl AsterDavWriteHandle {
         existing_file_id: Option<i64>,
         declared_size: Option<u64>,
     ) -> Result<Self, FsError> {
+        let payload_limit = state.config.webdav.payload_limit;
         Self::for_write_with_audit(
             state,
             DavWriteOpenContext {
@@ -116,6 +124,7 @@ impl AsterDavWriteHandle {
                 filename,
                 existing_file_id,
                 declared_size,
+                payload_limit,
                 submitted_lock_tokens: Vec::new(),
                 file_precondition: None,
                 audit_ctx: AuditContext {
@@ -138,11 +147,41 @@ impl AsterDavWriteHandle {
             filename,
             existing_file_id,
             declared_size,
+            payload_limit,
             submitted_lock_tokens,
             audit_ctx,
             file_precondition,
         } = context;
-        let declared_size = declared_size.and_then(|size| i64::try_from(size).ok());
+        let declared_size = declared_size
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| FsError::TooLarge)?;
+        let filename = aster_forge_validation::filename::normalize_validate_name(&filename)
+            .map_err(|_| FsError::BadRequest)?;
+        let mime_type = mime_guess::from_path(&filename)
+            .first_or_octet_stream()
+            .to_string();
+        let policy_limit = storage::resolve_blob_write_size_limit(
+            &state,
+            storage::BlobPolicyRequest {
+                scope,
+                folder_id,
+                folder_hint: None,
+                filename: &filename,
+                file_size: 0,
+                mime_type: &mime_type,
+                existing_file_id,
+            },
+        )
+        .await
+        .map_err(super::to_fs_error)?;
+        let (used, quota) = storage::load_storage_limits(&state, scope)
+            .await
+            .map_err(super::to_fs_error)?;
+        let limits = ReceiveLimits::new(payload_limit, policy_limit, used, quota)?;
+        if let Some(size) = declared_size {
+            limits.validate(declared_size_u64(size)?, None)?;
+        }
         let resolved_policy = if existing_file_id.is_some() || declared_size.is_some() {
             Some(
                 storage::resolve_blob_policy_for_write(
@@ -153,12 +192,12 @@ impl AsterDavWriteHandle {
                         folder_hint: None,
                         filename: &filename,
                         file_size: declared_size.unwrap_or(0),
-                        mime_type: "application/octet-stream",
+                        mime_type: &mime_type,
                         existing_file_id,
                     },
                 )
                 .await
-                .map_err(|_| FsError::GeneralFailure)?,
+                .map_err(super::to_fs_error)?,
             )
         } else {
             None
@@ -205,18 +244,6 @@ impl AsterDavWriteHandle {
                 )
                 .map_err(|error| streaming_direct_eligibility_error(&policy, &error))?
             {
-                if policy.max_file_size > 0 && size_hint > policy.max_file_size {
-                    return Err(FsError::TooLarge);
-                }
-                storage::check_quota(state.writer_db(), scope, size_hint)
-                    .await
-                    .map_err(|error| match error {
-                        crate::errors::AsterError::StorageQuotaExceeded(_) => {
-                            FsError::InsufficientStorage
-                        }
-                        _ => FsError::GeneralFailure,
-                    })?;
-
                 let driver = state
                     .driver_registry
                     .get_driver(&policy)
@@ -257,6 +284,8 @@ impl AsterDavWriteHandle {
                 });
 
                 return Ok(Self {
+                    limits,
+                    failure: None,
                     mode: WriteMode::WriteDirect {
                         state,
                         scope,
@@ -289,6 +318,8 @@ impl AsterDavWriteHandle {
         };
 
         Ok(Self {
+            limits,
+            failure: None,
             mode: WriteMode::Write {
                 state,
                 scope,
@@ -325,6 +356,61 @@ impl AsterDavWriteHandle {
         Ok((file, temp_path))
     }
 
+    async fn cleanup(&mut self) {
+        match &mut self.mode {
+            WriteMode::Write {
+                file, temp_path, ..
+            } => {
+                drop(file.take());
+                aster_forge_utils::fs::cleanup_temp_file(&*temp_path).await;
+                temp_path.clear();
+            }
+            WriteMode::WriteDirect {
+                writer,
+                upload_task,
+                prepared_upload,
+                driver,
+                ..
+            } => {
+                drop(writer.take());
+                if upload_task.is_some() || prepared_upload.is_some() {
+                    let cleanup = Self::spawn_direct_cleanup(
+                        driver.clone(),
+                        upload_task.take(),
+                        prepared_upload.take(),
+                    );
+                    if let Err(error) = cleanup.await {
+                        tracing::warn!(%error, "WebDAV direct cleanup task failed");
+                    }
+                }
+            }
+        }
+    }
+
+    // Own the upload and object cleanup in a task: dropping an in-flight abort/write future
+    // must not detach the upload before its partial object can be removed.
+    fn spawn_direct_cleanup(
+        driver: Arc<dyn StorageDriver>,
+        upload_task: Option<tokio::task::JoinHandle<AsterResult<String>>>,
+        prepared_upload: Option<storage::PreparedNonDedupBlobUpload>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            if let Some(upload_task) = upload_task
+                && let Err(error) = upload_task.await
+            {
+                tracing::warn!(%error, "failed to join cancelled WebDAV direct upload");
+            }
+            if let Some(prepared_upload) = prepared_upload {
+                storage::cleanup_preuploaded_blob_upload(
+                    driver.as_ref(),
+                    &prepared_upload,
+                    "cancelled WebDAV direct upload",
+                )
+                .await;
+            }
+        })
+    }
+
     /// 清理临时文件（best-effort，异步后台执行）
     fn cleanup_temp(temp_path: &str) {
         let path = temp_path.to_string();
@@ -345,16 +431,6 @@ fn streaming_direct_eligibility_error(
         "failed to resolve WebDAV streaming direct upload eligibility"
     );
     FsError::GeneralFailure
-}
-
-fn add_written_bytes(written: &mut u64, chunk_len: usize) -> Result<u64, FsError> {
-    let chunk_len =
-        usize_to_u64(chunk_len, "webdav written chunk").map_err(|_| FsError::GeneralFailure)?;
-    let next_written = written
-        .checked_add(chunk_len)
-        .ok_or(FsError::GeneralFailure)?;
-    *written = next_written;
-    Ok(next_written)
 }
 
 fn declared_size_u64(value: i64) -> Result<u64, FsError> {
@@ -384,19 +460,12 @@ impl Drop for AsterDavWriteHandle {
         } = &mut self.mode
         {
             drop(writer.take());
-            if let (Some(upload_task), Some(prepared_upload)) =
-                (upload_task.take(), prepared_upload.take())
-            {
-                let driver = driver.clone();
-                tokio::spawn(async move {
-                    let _ = upload_task.await;
-                    storage::cleanup_preuploaded_blob_upload(
-                        driver.as_ref(),
-                        &prepared_upload,
-                        "dropped WebDAV direct upload",
-                    )
-                    .await;
-                });
+            if upload_task.is_some() || prepared_upload.is_some() {
+                Self::spawn_direct_cleanup(
+                    driver.clone(),
+                    upload_task.take(),
+                    prepared_upload.take(),
+                );
             }
         }
     }
@@ -404,52 +473,67 @@ impl Drop for AsterDavWriteHandle {
 
 impl DavWriteHandle for AsterDavWriteHandle {
     async fn write_bytes(&mut self, buf: Bytes) -> Result<(), DavBackendError> {
-        let result: Result<(), FsError> = match &mut self.mode {
+        if let Some(error) = self.failure {
+            return Err(error.into());
+        }
+        let (written, declared) = match &self.mode {
             WriteMode::Write {
-                file,
-                written,
-                hasher,
-                ..
-            } => {
-                if let Some(hasher) = hasher.as_mut() {
-                    hasher.update(&buf);
-                }
-                file.as_mut()
-                    .ok_or(FsError::GeneralFailure)?
-                    .write_all(&buf)
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
-                add_written_bytes(written, buf.len())?;
-                Ok(())
-            }
-            WriteMode::WriteDirect {
-                writer,
                 written,
                 declared_size,
                 ..
-            } => {
-                let chunk_len = usize_to_u64(buf.len(), "webdav direct write chunk")
-                    .map_err(|_| FsError::GeneralFailure)?;
-                let next_written = written
-                    .checked_add(chunk_len)
-                    .ok_or(FsError::GeneralFailure)?;
-                if next_written > declared_size_u64(*declared_size)? {
-                    return Err(FsError::BadRequest.into());
-                }
-                writer
-                    .as_mut()
-                    .ok_or(FsError::GeneralFailure)?
-                    .write_all(&buf)
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
-                *written = next_written;
-                Ok(())
-            }
+            } => (*written, *declared_size),
+            WriteMode::WriteDirect {
+                written,
+                declared_size,
+                ..
+            } => (*written, Some(*declared_size)),
         };
+        let result: Result<(), FsError> = async {
+            // Validate before hashing, file I/O or passing bytes to a remote driver.
+            let next_written = self.limits.next_size(written, buf.len(), declared)?;
+            match &mut self.mode {
+                WriteMode::Write {
+                    file,
+                    written,
+                    hasher,
+                    ..
+                } => {
+                    file.as_mut()
+                        .ok_or(FsError::GeneralFailure)?
+                        .write_all(&buf)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
+                    if let Some(hasher) = hasher {
+                        hasher.update(&buf);
+                    }
+                    *written = next_written;
+                }
+                WriteMode::WriteDirect {
+                    writer, written, ..
+                } => {
+                    writer
+                        .as_mut()
+                        .ok_or(FsError::GeneralFailure)?
+                        .write_all(&buf)
+                        .await
+                        .map_err(|_| FsError::GeneralFailure)?;
+                    *written = next_written;
+                }
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            self.failure = Some(error);
+            self.cleanup().await;
+        }
         result.map_err(Into::into)
     }
 
     async fn finish(mut self) -> Result<(), DavBackendError> {
+        if let Some(error) = self.failure {
+            return Err(error.into());
+        }
         let result: Result<(), FsError> = match &mut self.mode {
             WriteMode::Write {
                 state,
@@ -568,11 +652,9 @@ impl DavWriteHandle for AsterDavWriteHandle {
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
 
-                let upload_result = upload_task
-                    .take()
-                    .ok_or(FsError::GeneralFailure)?
-                    .await
-                    .map_err(|_| FsError::GeneralFailure)?;
+                let upload_result = upload_task.as_mut().ok_or(FsError::GeneralFailure)?.await;
+                upload_task.take();
+                let upload_result = upload_result.map_err(|_| FsError::GeneralFailure)?;
                 if let Err(error) = upload_result {
                     if let Some(prepared_upload) = prepared_upload.take() {
                         storage::cleanup_preuploaded_blob_upload(
@@ -646,35 +728,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
     }
 
     async fn abort(mut self) -> Result<(), DavBackendError> {
-        match &mut self.mode {
-            WriteMode::Write {
-                file, temp_path, ..
-            } => {
-                drop(file.take());
-                aster_forge_utils::fs::cleanup_temp_file(&*temp_path).await;
-                temp_path.clear();
-            }
-            WriteMode::WriteDirect {
-                writer,
-                upload_task,
-                prepared_upload,
-                driver,
-                ..
-            } => {
-                drop(writer.take());
-                if let Some(upload_task) = upload_task.take() {
-                    let _ = upload_task.await;
-                }
-                if let Some(prepared_upload) = prepared_upload.take() {
-                    storage::cleanup_preuploaded_blob_upload(
-                        driver.as_ref(),
-                        &prepared_upload,
-                        "aborted WebDAV direct upload",
-                    )
-                    .await;
-                }
-            }
-        }
+        self.cleanup().await;
         Ok(())
     }
 }
