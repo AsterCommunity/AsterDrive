@@ -28,7 +28,9 @@ pub(crate) async fn ingest_stream(
     payload: web::Payload,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
-    let session = super::session::scope::load_upload_session(state, scope, upload_id).await?;
+    let session =
+        super::session::scope::load_upload_session(state, state.writer_db(), scope, upload_id)
+            .await?;
     if session.session_kind != UploadSessionKind::Stream {
         return Err(AsterError::validation_error(
             "upload session does not accept a stream body",

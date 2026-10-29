@@ -96,21 +96,9 @@ async fn get_progress_impl(
         }
         UploadSessionKind::ProviderDirectResumable => {
             let secret = decrypt_provider_session(state, &session)?;
-            let step = if session.status == UploadSessionStatus::Uploading {
-                Some(
-                    super::browser::advance_session(
-                        state,
-                        &session,
-                        &super::browser::BrowserUploadReport {
-                            request_id: None,
-                            observation: None,
-                        },
-                    )
-                    .await?,
-                )
-            } else {
-                secret.browser.as_ref().map(|value| value.step())
-            };
+            // Progress is a read of persisted state. Only provider-step may reconcile
+            // with the provider and replace the in-flight request ID.
+            let step = super::browser::stored_step(&secret);
             let offset = step.as_ref().map(|s| s.confirmed_offset).unwrap_or(0);
             let completed = step.as_ref().is_some_and(|s| s.provider_completed);
             // Only whole logical chunks are complete; a partially acknowledged chunk must resume.
@@ -249,7 +237,7 @@ async fn list_recoverable_sessions_impl(
     frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
     let sessions = upload_session_repo::find_recoverable_by_owner(
-        state.writer_db(),
+        state.reader_db(),
         user_id,
         team_id,
         frontend_client_id,
@@ -270,7 +258,8 @@ pub async fn get_progress(
     upload_id: &str,
     user_id: i64,
 ) -> Result<UploadProgressResponse> {
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.reader_db(), personal_scope(user_id), upload_id).await?;
     get_progress_impl(state, session).await
 }
 
@@ -288,7 +277,13 @@ pub async fn get_progress_for_team(
     upload_id: &str,
     user_id: i64,
 ) -> Result<UploadProgressResponse> {
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.reader_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     get_progress_impl(state, session).await
 }
 
@@ -397,7 +392,8 @@ pub async fn presign_parts(
     user_id: i64,
     part_numbers: Vec<i32>,
 ) -> Result<HashMap<i32, PresignedUploadRequest>> {
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     run_upload_stage_operation(
         state,
         &session,
@@ -413,7 +409,13 @@ pub async fn presign_parts_for_team(
     user_id: i64,
     part_numbers: Vec<i32>,
 ) -> Result<HashMap<i32, PresignedUploadRequest>> {
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.writer_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     run_upload_stage_operation(
         state,
         &session,
