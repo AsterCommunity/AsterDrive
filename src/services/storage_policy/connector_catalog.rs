@@ -127,6 +127,13 @@ mod tests {
     use aster_drive_model::types::LocaleTag;
     use aster_drive_storage::ConnectorId;
 
+    fn builtin_count() -> usize {
+        crate::storage::connectors::builtin_storage_connector_registry()
+            .unwrap()
+            .descriptors()
+            .len()
+    }
+
     fn connector_ids(config: &Config, context: StorageConnectorCatalogContext) -> Vec<ConnectorId> {
         let registry = crate::storage::connectors::builtin_storage_connector_registry()
             .expect("built-in connector registry");
@@ -146,7 +153,8 @@ mod tests {
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 10);
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.google_drive")));
+        assert_eq!(drivers.len(), builtin_count());
     }
 
     #[test]
@@ -160,7 +168,8 @@ mod tests {
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 10);
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.google_drive")));
+        assert_eq!(drivers.len(), builtin_count());
     }
 
     #[test]
@@ -171,7 +180,8 @@ mod tests {
         assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(single_drivers.len(), 10);
+        assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.google_drive")));
+        assert_eq!(single_drivers.len(), builtin_count());
 
         let mut cluster = Config::default();
         cluster.deployment.profile = DeploymentProfile::Cluster;
@@ -180,7 +190,10 @@ mod tests {
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(cluster_drivers.len(), 10);
+        assert!(
+            cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.google_drive"))
+        );
+        assert_eq!(cluster_drivers.len(), builtin_count());
     }
 
     #[test]
@@ -194,7 +207,8 @@ mod tests {
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.alibaba_oss")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.huawei_obs")));
         assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
-        assert_eq!(drivers.len(), 10);
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.google_drive")));
+        assert_eq!(drivers.len(), builtin_count());
     }
 
     #[test]
@@ -214,7 +228,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(catalog.requested_locale, requested_locale);
-        assert_eq!(catalog.resources.len(), 10);
+        assert_eq!(catalog.resources.len(), builtin_count());
         assert!(catalog.resources.iter().all(|resource| {
             resource.resolved_locale.as_str() == "zh"
                 && resource.namespace == resource.connector_id.as_str()

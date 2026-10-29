@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Google Drive storage backend** — Administrators can authorize an encrypted Google OAuth application and use a folder, shared drive, or appDataFolder as an AsterDrive blob pool. Uploads support bounded server relay and browser-direct resumable transfer; account quota observation uses Google's cross-service usage and reports unavailable shared-drive bounds honestly. Downloads and Range reads retain the current AsterDrive filename through server relay. Administrator OAuth tokens stay on the server; only browser-direct uploads receive a temporary capability URL for their own session.
+
+### Fixed
+
+- **OneDrive authorization races** — A delayed OAuth callback can no longer overwrite a newer application configuration or recreate a deleted credential. Authorization flows retain the saved credential revision through the final transaction. Unfinished authorization pages opened before the upgrade must restart the flow; existing saved authorizations are retained.
+
 ### Security
 
 - **Internal protocol request-body coverage (v7)** — HMAC signatures on the primary↔follower control plane and object protocol now include a canonical request-body SHA-256 line, carried on the wire as an `x-aster-content-sha256` declaration header so followers verify the signature before reading the body and reconcile it against the streamed bytes afterward. All object uploads are covered with no buffering added: uploads whose digest is known up front sign it directly (committed upfront), while relay-streamed uploads whose digest is unknown until completion sign an explicit placeholder and are reconciled through a new signed-response mechanism — followers return the computed digest under an HMAC response signature bound to the request nonce, which primaries verify before accepting the transfer. Any tampering is rejected and the existing object remains untouched. The legacy five-line signatures are rejected outright: **primary and follower instances must be upgraded together** — mixed-version clusters fail internal requests with 401 instead of degrading silently. Outbound remote requests now disable redirects so signed headers cannot leak to other origins.

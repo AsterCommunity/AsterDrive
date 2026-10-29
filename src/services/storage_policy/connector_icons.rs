@@ -61,6 +61,7 @@ mod tests {
             "asterdrive.storage.tencent_cos",
             "asterdrive.storage.remote",
             "asterdrive.storage.onedrive",
+            "asterdrive.storage.google_drive",
             "asterdrive.storage.qiniu",
         ] {
             let connector_id = ConnectorId::declared(id);
@@ -73,7 +74,7 @@ mod tests {
         let registry = crate::storage::connectors::builtin_storage_connector_registry()
             .expect("built-in connector registry");
         let descriptors = descriptors_with_backend_icons(&registry);
-        assert_eq!(descriptors.len(), 10);
+        assert_eq!(descriptors.len(), registry.descriptors().len());
         for descriptor in descriptors {
             let icon = registry
                 .icon(&descriptor.connector_id)

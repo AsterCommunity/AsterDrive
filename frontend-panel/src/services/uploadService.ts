@@ -459,11 +459,27 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			start: number,
 			totalSize: number,
 			options: ProviderResumableUploadOptions = {},
-		): Promise<void> => {
+		): Promise<number> => {
 			return new Promise((resolve, reject) => {
 				if (data.size === 0) {
 					reject(
 						new UploadRequestError("provider upload chunk cannot be empty", {
+							retryable: false,
+						}),
+					);
+					return;
+				}
+				const endExclusive = start + data.size;
+				if (
+					!Number.isSafeInteger(start) ||
+					!Number.isSafeInteger(totalSize) ||
+					start < 0 ||
+					totalSize <= 0 ||
+					!Number.isSafeInteger(endExclusive) ||
+					endExclusive > totalSize
+				) {
+					reject(
+						new UploadRequestError("invalid provider upload byte range", {
 							retryable: false,
 						}),
 					);
@@ -489,8 +505,82 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				}
 
 				xhr.onload = () => {
+					// TODO(#656): select acknowledgement parsing from the backend's
+					// versioned protocol declaration, including init/resume snapshots.
+					// Graph documents 202 + nextExpectedRanges and 200/201 completion:
+					// https://learn.microsoft.com/en-us/graph/api/driveitem-createuploadsession
+					// Drive documents 308 + Range and warns against assuming receipt:
+					// https://developers.google.com/workspace/drive/api/guides/manage-uploads
 					if (xhr.status >= 200 && xhr.status < 300) {
-						resolve();
+						if (xhr.status === 202) {
+							try {
+								const body = JSON.parse(xhr.responseText) as {
+									nextExpectedRanges?: unknown;
+								};
+								if (
+									Array.isArray(body.nextExpectedRanges) &&
+									body.nextExpectedRanges.every(
+										(value) => typeof value === "string",
+									)
+								) {
+									const next = providerResumeOffset(
+										body.nextExpectedRanges,
+										totalSize,
+										endExclusive,
+									);
+									if (next > endExclusive)
+										throw new Error("acknowledged unsent bytes");
+									if (next >= totalSize)
+										throw new Error("incomplete response claims completion");
+									resolve(next);
+									return;
+								}
+								throw new Error("missing provider acknowledgement");
+							} catch {
+								reject(
+									new UploadRequestError(
+										"provider acknowledgement requires server reconciliation",
+										{ status: xhr.status, retryable: true },
+									),
+								);
+								return;
+							}
+						}
+						if (endExclusive !== totalSize) {
+							reject(
+								new UploadRequestError(
+									"provider completed before the final fragment",
+									{ status: xhr.status, retryable: true },
+								),
+							);
+							return;
+						}
+						resolve(endExclusive);
+						return;
+					}
+					// Google uses 308 Resume Incomplete, not a redirect. Range is
+					// an acknowledgement, not a suggestion to advance by bytes sent.
+					// If CORS hides Range, reconcile with the authenticated backend;
+					// never assume that the remote provider accepted the whole body.
+					if (xhr.status === 308) {
+						const range = xhr.getResponseHeader("Range");
+						const match = range?.match(/^bytes=0-(\d+)$/);
+						const nextOffset = match ? Number(match[1]) + 1 : Number.NaN;
+						if (
+							Number.isSafeInteger(nextOffset) &&
+							nextOffset >= 0 &&
+							nextOffset <= endExclusive &&
+							nextOffset < totalSize
+						) {
+							resolve(nextOffset);
+						} else {
+							reject(
+								new UploadRequestError(
+									"provider acknowledgement requires server reconciliation",
+									{ status: 308, retryable: true },
+								),
+							);
+						}
 						return;
 					}
 					reject(
@@ -522,3 +612,31 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 }
 
 export const uploadService = bindWorkspaceService(createUploadService);
+
+/** Normalize nextExpectedRanges from the provider or our progress API. */
+export function providerResumeOffset(
+	ranges: string[] | undefined,
+	total: number,
+	fallback: number,
+): number {
+	if (!ranges) return fallback;
+	if (ranges.length === 0) return total;
+	const starts = ranges.map((range) => {
+		const match = /^(\d+)-(\d*)$/.exec(range);
+		const value = match ? Number(match[1]) : Number.NaN;
+		const end = match?.[2] ? Number(match[2]) : undefined;
+		if (
+			!Number.isSafeInteger(value) ||
+			value < 0 ||
+			value >= total ||
+			(end !== undefined &&
+				(!Number.isSafeInteger(end) || end < value || end >= total))
+		) {
+			throw new UploadRequestError("invalid provider resume offset", {
+				retryable: false,
+			});
+		}
+		return value;
+	});
+	return Math.min(...starts);
+}

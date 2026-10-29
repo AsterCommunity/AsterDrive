@@ -352,6 +352,8 @@ pub enum StorageCapacityAssessment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadCapabilities {
+    // TODO(#656): declare the browser fragment acknowledgement protocol here
+    // and project it consistently into descriptor + init/progress snapshots.
     /// Provider 标识，例如 `microsoft_graph`。
     pub provider: &'static str,
     /// 面向日志/诊断的 session 名称，例如 `upload_session`。

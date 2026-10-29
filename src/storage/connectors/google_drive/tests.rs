@@ -2,6 +2,65 @@ use super::super::test_support;
 use super::*;
 use aster_drive_storage::{ConnectorId, StoragePolicyBehaviorConfig};
 
+mod acceptance;
+mod boundaries;
+
+/// Reuse the real connector context and encrypted repository in management
+/// tests, so direct trait calls do not accidentally bypass registry validation.
+struct TestContext {
+    db: sea_orm::DatabaseConnection,
+    policy: storage_policy::Model,
+    config: crate::config::Config,
+    runtime: crate::config::RuntimeConfig,
+    registry: crate::storage::DriverRegistry,
+}
+impl TestContext {
+    async fn new(values: serde_json::Value, credential: Option<GoogleDriveCredentialV1>) -> Self {
+        use sea_orm::ActiveModelTrait;
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        test_support::migrate_current_storage_test_schema(&db).await;
+        let policy = test_support::insertable_policy(test_support::policy(
+            GoogleDriveConnector::ID,
+            1,
+            values,
+            StoragePolicyBehaviorConfig::default(),
+        ))
+        .insert(&db)
+        .await
+        .unwrap();
+        let mut config = crate::config::Config::default();
+        config.auth.storage_credential_secret_key = KEY.into();
+        if let Some(payload) = credential {
+            super::super::persist_connector_credential_payload(
+                &db,
+                KEY,
+                policy.id,
+                &ConnectorId::declared(GoogleDriveConnector::ID),
+                1,
+                &payload,
+            )
+            .await
+            .unwrap();
+        }
+        Self {
+            db,
+            policy,
+            config,
+            runtime: crate::config::RuntimeConfig::new(),
+            registry: crate::storage::DriverRegistry::noop().unwrap(),
+        }
+    }
+    fn context(&self) -> crate::storage::connectors::StorageConnectorContext<'_> {
+        crate::storage::connectors::StorageConnectorContext::new(
+            &self.db,
+            &self.config,
+            &self.runtime,
+            &self.registry,
+            None,
+        )
+    }
+}
+
 const KEY: &str = "google-drive-test-master-key-32bytes";
 pub(super) fn payload() -> GoogleDriveCredentialV1 {
     GoogleDriveCredentialV1 {
@@ -23,7 +82,7 @@ pub(super) fn payload() -> GoogleDriveCredentialV1 {
     }
 }
 #[test]
-fn descriptor_declares_only_server_side_oauth_and_upload_capabilities() {
+fn descriptor_declares_server_side_oauth_and_optional_browser_uploads() {
     let connector = GoogleDriveConnector;
     let descriptor = connector.descriptor();
     descriptor.validate().unwrap();
@@ -38,7 +97,7 @@ fn descriptor_declares_only_server_side_oauth_and_upload_capabilities() {
     );
     assert!(!descriptor.capabilities.presigned_download);
     assert!(
-        !descriptor
+        descriptor
             .upload_workflows
             .frontend_direct_provider_resumable_upload
     );
@@ -212,7 +271,14 @@ async fn encrypted_credential_info_failure_states_and_runtime_revocation() {
             .unwrap()
             .is_none()
     );
-    let provider = GoogleTokenProvider::new(Some(db.clone()), KEY.into(), policy.id, payload());
+    let provider = GoogleTokenProvider::new(
+        Some(db.clone()),
+        KEY.into(),
+        policy.id,
+        payload(),
+        CredentialUse::Runtime,
+    )
+    .unwrap();
     assert_eq!(provider.access_token().await.unwrap(), "private-access");
     assert!(!format!("{provider:?}").contains("private-"));
     repo::delete_by_policy(&db, policy.id).await.unwrap();

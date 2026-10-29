@@ -34,6 +34,7 @@
 | Storage connector / descriptor / 表单字段 | [Descriptor 规范化](../design/storage-descriptor-normalization-contract.md)、[后端服务所有权](../architecture/backend-service-ownership.md) | `crates/aster_drive_storage/`、`src/storage/connectors/`、admin storage policy frontend | validation、descriptor、payload、连接测试、`make storage-docs-check`、OpenAPI 和前端 focused tests |
 | Storage driver / SDK 行为 | [项目契约](../architecture/project-contract.md) | `src/storage/drivers/`、connector runtime construction | 普通请求、错误映射、range、upload/download/delete；presigned 与普通请求分别证明 |
 | 对象命名和 OneDrive | [对象命名与 OneDrive](../design/storage-object-naming-and-onedrive-direct-download.md) | storage object key、OneDrive driver/connector | 编码、特殊字符、直链、缓存和回退边界 |
+| Google Drive connector / OAuth / resumable | [Google Drive 契约](../design/google-drive-connector-contract.md) | `src/storage/connectors/google_drive/`、`src/storage/drivers/google_drive/` | 正式 registry、OAuth 错误与 CAS、分页、会话清理、完整 provider 请求契约；真实 Google 验收单独记录 |
 | 远端节点 / storage target / policy ownership | [远端存储目标归属](../design/remote-storage-target-policy-ownership.md) | `src/services/remote/`、storage policy、remote protocol | direct/reverse tunnel/auto、binding、capability、target selection 和失败映射 |
 | Internal storage / reverse tunnel wire contract | [内部存储 API](../api/internal-storage.md)、[架构概览](../architecture/index.md) | `src/api/routes/internal_storage.rs`、`remote_tunnel.rs`、`src/storage/remote_protocol/` | 签名、版本兼容、path encoding、超时/取消、流式响应和 transport fallback |
 

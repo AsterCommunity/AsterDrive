@@ -12,6 +12,8 @@ use aster_drive_storage::PresignedUploadRequest;
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ProviderResumableUploadResponse {
+    // TODO(#656): include a versioned backend-declared acknowledgement contract
+    // shared by init, progress and persisted-session restoration.
     pub upload_url: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub expires_at: Option<DateTime<Utc>>,

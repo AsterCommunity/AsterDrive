@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Google Drive 存储后端** — 管理员可通过加密保存的 Google OAuth 应用授权，将普通目录、共享盘或 appDataFolder 作为 AsterDrive blob 存储池。上传支持有界服务端中继与浏览器直传；账号容量按 Google 跨服务总用量观测，共享盘独立容量边界不可观测时明确返回不支持。下载与 Range 读取经服务端中继，使用当前 AsterDrive 文件名。管理员 OAuth token 留在后端，仅浏览器直传模式向上传 owner 返回其本次会话的临时能力地址。
+
+### Fixed
+
+- **OneDrive 授权回调竞争** — 延迟返回的 OAuth 回调不能再覆盖较新的应用配置或重建已删除的凭据。授权开始时记录的凭据 revision 会作为最终事务写入的前置条件。升级前已经打开但未完成的授权页面需要重新发起授权；已有的已保存授权继续保留。
+
 ### Security
 
 - **内部协议请求体覆盖（v7）** — primary↔follower 控制面与对象协议的 HMAC 签名现包含规范的请求体 SHA-256 行，并以 `x-aster-content-sha256` 声明头在线传输：follower 在读取 body 前即可验签，收完流式字节后再对账。全部对象上传均被覆盖且零新增缓冲：digest 发送前已知的路径直接先承诺签名；relay 流式直推等收完才知道 digest 的路径签显式占位，由新增的响应签名机制对账——follower 把算出的 digest 以绑定本次请求 nonce 的 HMAC 响应签名回传，primary 验签并比对后才接受传输。任何篡改都会被拒绝，摘要校验失败不会触碰正式对象。旧版五行签名直接拒绝：**primary 与 follower 实例必须同时升级**——混合版本集群的内部请求一律 401，不做静默降级。出站远程请求现禁用重定向，签名请求头不会泄露到其他源。

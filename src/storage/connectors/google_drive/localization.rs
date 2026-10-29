@@ -2,6 +2,41 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy",
+        "Upload transfer",
+        "上传传输策略"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy_server_relay",
+        "Server relay",
+        "服务端中继"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy_server_relay_desc",
+        "AsterDrive relays file content to Google Drive.",
+        "AsterDrive 将文件内容中继到 Google Drive。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy_frontend_direct",
+        "Browser direct",
+        "浏览器直传"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy_frontend_direct_desc",
+        "Upload to a temporary Google session URL. Administrator tokens remain on the server; the browser must be able to reach Google Drive with CORS support.",
+        "上传到临时 Google 会话地址。管理员 token 留在后端；浏览器需要能访问 Google Drive 并通过 CORS 校验。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "capacity_probe_timeout_secs",
+        "Capacity probe timeout (seconds)",
+        "容量探测超时（秒）"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "capacity_probe_timeout_secs_desc",
+        "Maximum time for account quota observation. Shared-drive limits and unlimited accounts may not provide a finite capacity bound.",
+        "账号配额观测的最长时间。共享盘限制和无限容量账号可能无法提供有限的容量边界。"
+    ),
+    aster_drive_storage::storage_connector_message!(
         "driver_type_google_drive",
         "Google Drive",
         "Google Drive"

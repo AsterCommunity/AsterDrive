@@ -137,14 +137,17 @@ export async function configureInitialStorage(
 	await expect(
 		storageDriverOptions.getByRole("button", { name: /Alibaba Cloud OSS/ }),
 	).toBeVisible();
-	await expect(
-		storageDriverOptions.getByRole("button", { name: /OneDrive/ }),
-	).toBeDisabled();
-	await expect(
-		storageDriverOptions.getByText(
-			"This connector must be saved and authorized in the browser. Finish system setup, then add it from storage administration.",
-		),
-	).toBeVisible();
+	// Several delegated connectors share this descriptor-driven explanation.
+	// Scope it to the option being checked instead of assuming unique text.
+	for (const name of [/^OneDrive\b/, /^Google Drive\b/]) {
+		const option = storageDriverOptions.getByRole("button", { name });
+		await expect(option).toBeDisabled();
+		await expect(
+			option.getByText(
+				"This connector must be saved and authorized in the browser. Finish system setup, then add it from storage administration.",
+			),
+		).toBeVisible();
+	}
 
 	if (storage.kind === "cluster-s3") {
 		await expect(

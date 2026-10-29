@@ -406,6 +406,52 @@ pub(crate) async fn persist_connector_credential_value<C: sea_orm::ConnectionTra
     })
 }
 
+/// Commit a connector's authorization result inside the caller's transaction.
+///
+/// Every delegated connector retains its flow-start application revision until
+/// the final write. Checking it only around the provider
+/// HTTP request leaves a race where an administrator's newer application/grant
+/// can be overwritten before persistence. CAS also handles a writer racing the
+/// authoritative row read below; no provider payload is interpreted here.
+pub(crate) async fn persist_authorization_callback(
+    db: &sea_orm::DatabaseTransaction,
+    encryption_key: &str,
+    policy: &aster_drive_model::entities::storage_policy::Model,
+    descriptor: &aster_drive_storage::StorageConnectorDescriptor,
+    credential_payload: serde_json::Value,
+    expected_credential_revision: i64,
+) -> Result<aster_drive_model::entities::storage_policy_connector_credential::Model> {
+    let policy_id = policy.id;
+    // Match policy edits' lock order: policy row, then credential CAS. A plain
+    // read under READ COMMITTED would allow a storage-only edit between the
+    // comparison below and credential publication. Require a real transaction
+    // so PostgreSQL/MySQL hold this lock through commit; SQLite rejects stale
+    // snapshot promotion instead of silently committing a stale write.
+    let current_policy = crate::db::repository::policy_repo::lock_by_id(db, policy_id).await?;
+    if current_policy.connector_id != policy.connector_id
+        || current_policy.storage_config != policy.storage_config
+    {
+        return Err(crate::errors::AsterError::database_operation(
+            "storage policy changed during authorization; restart authorization",
+        ));
+    }
+    let current = crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+        db, policy_id,
+    )
+    .await?
+    .filter(|row| {
+        row.revision == expected_credential_revision
+            && row.connector_id == descriptor.connector_id.as_str()
+            && u32::try_from(row.schema_version).ok() == descriptor.credential_schema_version
+    })
+    .ok_or_else(|| {
+        crate::errors::AsterError::database_operation(
+            "storage credential changed during authorization; restart authorization",
+        )
+    })?;
+    persist_connector_credential_value(db, encryption_key, &current, credential_payload).await
+}
+
 pub(crate) fn decode_typed_connector_credential<T: serde::de::DeserializeOwned>(
     encryption_key: &str,
     record: &aster_drive_model::entities::storage_policy_connector_credential::Model,

@@ -100,6 +100,9 @@ pub(crate) struct StorageConnectorAuthorizationAudit {
 pub(crate) struct StorageConnectorAuthorizationCallback {
     pub(crate) credential_payload: serde_json::Value,
     pub(crate) audit: StorageConnectorAuthorizationAudit,
+    /// Bind every flow to its saved application revision. Core retains this
+    /// precondition in the final write transaction for all delegated connectors.
+    pub(crate) expected_credential_revision: i64,
 }
 
 /// Exactly one connector credential channel supplied by an API caller.

@@ -13,6 +13,10 @@ use crate::services::storage_policy::credential::crypto;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct MicrosoftGraphFlowContext {
+    /// Older in-flight flows deserialize but must restart authorization; they
+    /// have no safe precondition for the final credential write after upgrade.
+    #[serde(default)]
+    pub(super) credential_revision: Option<i64>,
     pub(super) cloud: MicrosoftGraphCloud,
     pub(super) tenant: String,
     pub(super) client_id: String,

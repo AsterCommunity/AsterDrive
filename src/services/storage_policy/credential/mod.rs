@@ -12,9 +12,10 @@ pub use management::{
     StoragePolicyCredentialValidationResult, list_policy_credentials, validate_policy_credential,
 };
 pub(crate) use oauth::audit::{
-    OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED, OAUTH_AUDIT_EVENT_REAUTH_REQUIRED,
-    OAUTH_AUDIT_RESULT_FAILED, OAUTH_AUDIT_RESULT_RECOVERED, OAUTH_AUDIT_RESULT_SUCCESS,
-    StorageCredentialOauthAuditDetails, write_storage_credential_oauth_audit,
+    OAUTH_AUDIT_EVENT_AUTHORIZATION_FAILED, OAUTH_AUDIT_EVENT_CREDENTIAL_REFRESHED,
+    OAUTH_AUDIT_EVENT_REAUTH_REQUIRED, OAUTH_AUDIT_RESULT_FAILED, OAUTH_AUDIT_RESULT_RECOVERED,
+    OAUTH_AUDIT_RESULT_SUCCESS, StorageCredentialOauthAuditDetails,
+    write_storage_credential_oauth_audit,
 };
 pub(crate) use oauth::finish_authorization_callback;
 pub use oauth::{
