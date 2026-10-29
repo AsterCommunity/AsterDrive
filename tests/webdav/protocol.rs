@@ -22,6 +22,9 @@ use std::io::Cursor;
 use std::num::{NonZeroU32, NonZeroU64};
 use tokio::task::JoinHandle;
 
+#[path = "upload_limits.rs"]
+mod upload_limits;
+
 fn basic_auth_header(username: &str, password: &str) -> String {
     format!(
         "Basic {}",
@@ -371,7 +374,7 @@ impl RunningWebdavServer {
 
 async fn start_real_webdav_server(state: PrimaryAppState) -> RunningWebdavServer {
     let db = state.writer_db().clone();
-    let webdav_config = WebDavConfig::default();
+    let webdav_config = state.config.webdav.clone();
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
         .expect("real WebDAV test server should bind to a random local port");
     let addr = listener

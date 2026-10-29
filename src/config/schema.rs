@@ -225,13 +225,13 @@ impl AuthConfig {
 ///
 /// 运行时配置通过 system_config 表管理：
 /// - `webdav_enabled`: 是否启用 (默认 "true")
-/// - `webdav_max_upload_size`: 软上传限制字节数 (默认 "1073741824" = 1GB)
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebDavConfig {
     /// 路由前缀，改了要重启
     #[serde(default = "WebDavConfig::default_prefix")]
     pub prefix: String,
-    /// actix payload 硬上限，改了要重启。运行时软限制从 DB 读。
+    /// PUT 累计接收字节硬上限，包含 chunked / 未知长度请求；改动需要重启。
+    /// 存储策略与 workspace 剩余配额会进一步限制接收大小。
     #[serde(default = "WebDavConfig::default_payload_limit")]
     pub payload_limit: u64,
     /// XML 类 WebDAV 请求体上限，改了要重启。用于 REPORT/PROPFIND/PROPPATCH/LOCK/VERSION-CONTROL。

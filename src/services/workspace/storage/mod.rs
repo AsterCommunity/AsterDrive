@@ -39,9 +39,9 @@ pub(crate) use crate::services::workspace::storage_core::{
     lock_storage_usage_for_resource_scope, parse_relative_upload_path,
     record_storage_routing_decision, resolve_blob_policy_for_write,
     resolve_blob_policy_for_write_on, resolve_blob_policy_for_write_with_exclusions,
-    resolve_existing_upload_parent, resolve_verified_folder_policy_hint,
-    resolve_verified_folder_policy_hint_on, update_storage_used,
-    update_storage_used_for_resource_scope,
+    resolve_blob_write_size_limit, resolve_existing_upload_parent,
+    resolve_verified_folder_policy_hint, resolve_verified_folder_policy_hint_on,
+    update_storage_used, update_storage_used_for_resource_scope,
 };
 
 use crate::services::storage_policy::policy::placement::UploadExecutionPreference;

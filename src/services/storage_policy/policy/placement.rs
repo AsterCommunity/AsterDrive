@@ -382,6 +382,51 @@ pub fn resolve_placement(
     resolve_placement_with_random(profile, context, folder_override, None)
 }
 
+/// Largest final size this topology can admit, without binding an unknown-size stream to a
+/// target. All size predicates are constant between these inclusive interval endpoints. Reuse
+/// the resolver so rule priority, reject/fallback, classification and target eligibility stay
+/// identical to final placement. The fixed draw avoids consuming weighted-selection randomness.
+pub(crate) fn maximum_admitted_file_size(
+    profile: &CompiledPlacementProfile,
+    context: &StoragePlacementContext,
+    folder_override: Option<&FolderPlacementOverride>,
+) -> Result<i64, PlacementRejection> {
+    let mut endpoints = vec![i64::MAX, 0];
+    if profile.admission.max_file_size > 0 {
+        endpoints.push(profile.admission.max_file_size);
+    }
+    if let Some(folder) = folder_override
+        && folder.policy_max_file_size > 0
+    {
+        endpoints.push(folder.policy_max_file_size);
+    }
+    for rule in &profile.rules {
+        if rule.matcher.min_file_size > 0 {
+            endpoints.push(rule.matcher.min_file_size - 1);
+        }
+        if rule.matcher.max_file_size > 0 {
+            endpoints.push(rule.matcher.max_file_size - 1);
+        }
+        for target in &rule.targets {
+            if target.policy_max_file_size > 0 {
+                endpoints.push(target.policy_max_file_size);
+            }
+        }
+    }
+    endpoints.sort_unstable();
+    endpoints.dedup();
+    let mut candidate = context.clone();
+    let mut rejection = PlacementRejection::NoMatchingRule;
+    for size in endpoints.into_iter().rev() {
+        candidate.file_size = size;
+        match resolve_placement_with_random(profile, &candidate, folder_override, Some(0)) {
+            Ok(_) => return Ok(size),
+            Err(error) => rejection = error,
+        }
+    }
+    Err(rejection)
+}
+
 pub fn resolve_placement_with_random(
     profile: &CompiledPlacementProfile,
     context: &StoragePlacementContext,
@@ -723,6 +768,152 @@ mod tests {
 
     fn context(filename: &str, size: i64) -> StoragePlacementContext {
         StoragePlacementContext::from_filename(7, filename, size, "application/octet-stream")
+    }
+
+    #[test]
+    fn stream_ceiling_includes_later_large_file_rules_and_exclusive_maximum() {
+        let mut profile = profile();
+        profile.rules[0].matcher.max_file_size = 8;
+        profile.rules[0].targets[0].policy_max_file_size = 7;
+        let mut large = profile.rules[0].clone();
+        large.id = 12;
+        large.matcher.min_file_size = 16;
+        large.matcher.max_file_size = 33;
+        large.targets[0].policy_max_file_size = 40;
+        profile.rules.push(large);
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Ok(32)
+        );
+        profile.admission.max_file_size = 24;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Ok(24)
+        );
+        profile.admission.max_file_size = 12;
+        // The admission limit lies in a routing gap: only the small-file rule remains possible.
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Ok(7)
+        );
+    }
+
+    #[test]
+    fn stream_ceiling_preserves_reject_fallback_and_classification() {
+        let mut profile = profile();
+        profile.rules[0].targets[0].policy_max_file_size = 8;
+        let mut fallback = profile.rules[0].clone();
+        fallback.targets[0].policy_max_file_size = 32;
+        profile.rules.push(fallback);
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Ok(32)
+        );
+        profile.rules[0].unavailable_behavior = PlacementUnavailableBehavior::Reject;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Ok(8)
+        );
+        profile.rules[0].matcher.extensions = vec!["txt".into()];
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Ok(32)
+        );
+        profile.admission.denied_extensions = vec!["bin".into()];
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x.bin", 0), None),
+            Err(PlacementRejection::AdmissionExtensionDenied)
+        );
+    }
+
+    #[test]
+    fn stream_ceiling_handles_empty_only_unlimited_and_i64_boundary() {
+        let mut profile = profile();
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), None),
+            Ok(i64::MAX)
+        );
+        profile.rules[0].matcher.min_file_size = i64::MAX;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), None),
+            Ok(i64::MAX)
+        );
+        profile.rules[0].matcher.min_file_size = 0;
+        profile.rules[0].matcher.max_file_size = 1;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), None),
+            Ok(0)
+        );
+        profile.rules[0].targets[0].accepting_new_writes = false;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), None),
+            Err(PlacementRejection::NoEligibleTarget)
+        );
+    }
+
+    #[test]
+    fn stream_ceiling_preserves_folder_override_admission_and_weighted_targets() {
+        let mut profile = profile();
+        profile.rules[0].selection_mode = PlacementSelectionMode::WeightedRandom;
+        profile.rules[0].targets[0].policy_max_file_size = 8;
+        let mut target = profile.rules[0].targets[0].clone();
+        target.policy_id = 102;
+        target.policy_max_file_size = 32;
+        profile.rules[0].targets.push(target);
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), None),
+            Ok(32)
+        );
+        let folder = FolderPlacementOverride {
+            policy_id: 200,
+            policy_max_file_size: 16,
+            is_available: true,
+        };
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), Some(&folder)),
+            Ok(16)
+        );
+        profile.admission.max_file_size = 12;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), Some(&folder)),
+            Ok(12)
+        );
+        profile.is_enabled = false;
+        assert_eq!(
+            maximum_admitted_file_size(&profile, &context("x", 0), Some(&folder)),
+            Err(PlacementRejection::ProfileDisabled)
+        );
+    }
+
+    #[test]
+    fn stream_ceiling_matches_exhaustive_resolver_results() {
+        for reject in [false, true] {
+            for min in [0, 7, 15] {
+                for max in [0, 16, 30] {
+                    let mut profile = profile();
+                    profile.admission.max_file_size = 40;
+                    profile.rules[0].matcher.min_file_size = min;
+                    profile.rules[0].matcher.max_file_size = max;
+                    profile.rules[0].targets[0].policy_max_file_size = 12;
+                    profile.rules[0].unavailable_behavior = if reject {
+                        PlacementUnavailableBehavior::Reject
+                    } else {
+                        PlacementUnavailableBehavior::NextRule
+                    };
+                    let mut fallback = profile.rules[0].clone();
+                    fallback.matcher = PlacementMatcher::default();
+                    fallback.targets[0].policy_max_file_size = 25;
+                    profile.rules.push(fallback);
+                    let expected = (0..=40).rev().find(|size| {
+                        resolve_placement(&profile, &context("x", *size), None).is_ok()
+                    });
+                    assert_eq!(
+                        maximum_admitted_file_size(&profile, &context("x", 0), None).ok(),
+                        expected
+                    );
+                }
+            }
+        }
     }
 
     #[test]

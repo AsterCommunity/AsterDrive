@@ -26,8 +26,8 @@ pub(crate) use policy::{
     BlobPolicyRequest, VerifiedFolderPolicyHint, ensure_policy_available_for_folder_binding,
     load_storage_limits, local_content_dedup_enabled, record_storage_routing_decision,
     resolve_blob_policy_for_write, resolve_blob_policy_for_write_on,
-    resolve_blob_policy_for_write_with_exclusions, resolve_verified_folder_policy_hint,
-    resolve_verified_folder_policy_hint_on,
+    resolve_blob_policy_for_write_with_exclusions, resolve_blob_write_size_limit,
+    resolve_verified_folder_policy_hint, resolve_verified_folder_policy_hint_on,
 };
 pub(crate) use quota::{
     check_quota, lock_storage_usage, lock_storage_usage_for_resource_scope, update_storage_used,

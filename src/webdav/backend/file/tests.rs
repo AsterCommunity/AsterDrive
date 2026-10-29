@@ -1,5 +1,8 @@
 //! Tests for WebDAV file write handling.
 
+#[path = "limit_tests.rs"]
+mod limit_tests;
+
 use super::{AsterDavWriteHandle, DavWriteOpenContext, streaming_direct_eligibility_error};
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
@@ -14,11 +17,11 @@ use aster_drive_model::types::{
 use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
-use aster_forge_webdav::DavWriteHandle;
+use aster_forge_webdav::{DavBackendErrorKind, DavWriteHandle, FsError};
 use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
@@ -32,6 +35,8 @@ struct MockDirectS3Driver {
     objects: Arc<Mutex<HashMap<String, Vec<u8>>>>,
     put_file_calls: Arc<AtomicUsize>,
     put_reader_calls: Arc<AtomicUsize>,
+    delete_calls: Arc<AtomicUsize>,
+    upload_pause: Arc<Mutex<Option<Arc<tokio::sync::Semaphore>>>>,
 }
 
 impl MockDirectS3Driver {
@@ -72,6 +77,7 @@ impl StorageDriver for MockDirectS3Driver {
     }
 
     async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+        self.delete_calls.fetch_add(1, Ordering::SeqCst);
         self.objects
             .lock()
             .expect("mock direct S3 driver lock should succeed")
@@ -142,6 +148,10 @@ impl StreamUploadDriver for MockDirectS3Driver {
                 "mock direct S3 reader failed: {error}"
             ))
         })?;
+        let pause = self.upload_pause.lock().unwrap().clone();
+        if let Some(pause) = pause {
+            let _permit = pause.acquire().await.unwrap();
+        }
         self.objects
             .lock()
             .expect("mock direct S3 driver lock should succeed")
@@ -338,6 +348,7 @@ async fn known_size_s3_write_with_precondition_uses_transactional_temp_upload() 
             folder_id: None,
             filename: "conditional-s3.txt".to_string(),
             existing_file_id: None,
+            payload_limit: Config::default().webdav.payload_limit,
             declared_size: Some(
                 u64::try_from(payload.len()).expect("payload length should fit u64"),
             ),
@@ -400,4 +411,160 @@ fn streaming_direct_eligibility_failure_maps_to_general_failure() {
         streaming_direct_eligibility_error(&policy, &error),
         aster_forge_webdav::FsError::GeneralFailure
     ));
+}
+
+#[tokio::test]
+async fn unknown_size_write_rejects_policy_overflow_before_writing_chunk() {
+    let (state, user, policy, _) = build_s3_direct_test_state().await;
+    let mut policy = policy.into_active_model();
+    policy.max_file_size = Set(8);
+    policy.update(state.writer_db()).await.unwrap();
+    state
+        .driver_registry
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .unwrap();
+
+    let mut handle =
+        AsterDavWriteHandle::for_write(state, user.id, None, "limited.txt".to_string(), None, None)
+            .await
+            .unwrap();
+    handle
+        .write_bytes(Bytes::from_static(b"12345678"))
+        .await
+        .unwrap();
+    let result = handle.write_bytes(Bytes::from_static(b"9")).await;
+    handle.abort().await.unwrap();
+    assert!(
+        result.is_err(),
+        "the ninth byte must be rejected during write, before finish"
+    );
+    assert_eq!(
+        result.unwrap_err().kind,
+        DavBackendErrorKind::PayloadTooLarge
+    );
+}
+
+#[tokio::test]
+async fn unknown_size_write_rejects_quota_overflow_during_write() {
+    let (state, user, _, _) = build_s3_direct_test_state().await;
+    let user_id = user.id;
+    let mut user = user.into_active_model();
+    user.storage_used = Set(2);
+    user.storage_quota = Set(10);
+    user.update(state.writer_db()).await.unwrap();
+
+    let mut handle =
+        AsterDavWriteHandle::for_write(state, user_id, None, "quota.txt".to_string(), None, None)
+            .await
+            .unwrap();
+    handle
+        .write_bytes(Bytes::from_static(b"12345678"))
+        .await
+        .unwrap();
+    let result = handle.write_bytes(Bytes::from_static(b"9")).await;
+    handle.abort().await.unwrap();
+    assert!(
+        result.is_err(),
+        "remaining quota must bound temporary writes before finish"
+    );
+    assert_eq!(
+        result.unwrap_err().kind,
+        DavBackendErrorKind::InsufficientStorage
+    );
+}
+
+#[tokio::test]
+async fn unknown_size_write_rejects_global_limit_before_finish() {
+    let (mut state, user, _, _) = build_s3_direct_test_state().await;
+    Arc::make_mut(&mut state.config).webdav.payload_limit = 8;
+    let mut handle =
+        AsterDavWriteHandle::for_write(state, user.id, None, "global.txt".into(), None, None)
+            .await
+            .unwrap();
+    handle
+        .write_bytes(Bytes::from_static(b"12345678"))
+        .await
+        .unwrap();
+    let result = handle.write_bytes(Bytes::from_static(b"9")).await;
+    handle.abort().await.unwrap();
+    assert_eq!(
+        result
+            .expect_err("global limit must apply during streaming")
+            .kind,
+        DavBackendErrorKind::PayloadTooLarge
+    );
+}
+
+#[tokio::test]
+async fn known_size_write_rejects_unrepresentable_content_length() {
+    let (state, user, _, _) = build_s3_direct_test_state().await;
+    let result = AsterDavWriteHandle::for_write(
+        state,
+        user.id,
+        None,
+        "huge.txt".into(),
+        None,
+        Some(u64::MAX),
+    )
+    .await;
+    assert_eq!(result.unwrap_err(), FsError::TooLarge);
+}
+
+#[tokio::test]
+async fn known_size_temp_write_rejects_declared_overflow_during_write() {
+    let (state, user, _, _) = build_s3_direct_test_state().await;
+    let mut handle = AsterDavWriteHandle::for_write_with_audit(
+        state,
+        DavWriteOpenContext {
+            scope: crate::services::workspace::storage::WorkspaceStorageScope::Personal {
+                user_id: user.id,
+            },
+            folder_id: None,
+            filename: "conditional-overflow.txt".into(),
+            existing_file_id: None,
+            payload_limit: Config::default().webdav.payload_limit,
+            declared_size: Some(8),
+            submitted_lock_tokens: vec![],
+            file_precondition: Some(
+                crate::services::workspace::storage::FileWritePrecondition::Missing,
+            ),
+            audit_ctx: crate::services::ops::audit::AuditContext {
+                user_id: user.id,
+                ip_address: None,
+                user_agent: None,
+            },
+        },
+    )
+    .await
+    .unwrap();
+    handle
+        .write_bytes(Bytes::from_static(b"12345678"))
+        .await
+        .unwrap();
+    let result = handle.write_bytes(Bytes::from_static(b"9")).await;
+    handle.abort().await.unwrap();
+    assert_eq!(
+        result
+            .expect_err("temp path must enforce Content-Length before finish")
+            .kind,
+        DavBackendErrorKind::InvalidInput
+    );
+}
+
+#[tokio::test]
+async fn known_size_write_prechecks_global_limit_without_creating_upload() {
+    let (mut state, user, _, driver) = build_s3_direct_test_state().await;
+    Arc::make_mut(&mut state.config).webdav.payload_limit = 8;
+    let result = AsterDavWriteHandle::for_write(
+        state,
+        user.id,
+        None,
+        "global-declared.txt".into(),
+        None,
+        Some(9),
+    )
+    .await;
+    assert_eq!(result.unwrap_err(), FsError::TooLarge);
+    assert_eq!(driver.put_reader_calls(), 0);
 }

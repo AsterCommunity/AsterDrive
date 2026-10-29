@@ -2072,6 +2072,95 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
     let _ = std::fs::remove_dir_all(temp_root);
 }
 
+// Deliberately withhold EOF: a finish-only check cannot pass these regressions.
+#[actix_web::test]
+async fn handle_put_policy_limit_stops_open_body_and_cleans_temp() {
+    assert_put_limit_stops_open_body(false).await;
+}
+
+#[actix_web::test]
+async fn handle_put_quota_limit_stops_open_body_and_cleans_temp() {
+    assert_put_limit_stops_open_body(true).await;
+}
+
+async fn assert_put_limit_stops_open_body(quota: bool) {
+    let driver = CountingDirectUploadDriver::default();
+    let mut policy = crate::storage::connectors::test_support::s3_policy(
+        "https://mock-storage.example",
+        "mock-bucket",
+        "",
+        ObjectStorageUploadStrategy::RelayStream,
+        ObjectStorageDownloadStrategy::RelayStream,
+    );
+    if !quota {
+        policy.max_file_size = 8;
+    }
+    let (state, user, _, temp_root) =
+        build_webdav_test_state(Some(policy), Arc::new(driver.clone())).await;
+    if quota {
+        let mut active: user::ActiveModel = user.clone().into();
+        active.storage_quota = Set(8);
+        active.update(state.writer_db()).await.unwrap();
+    }
+    let req = actix_web::test::TestRequest::put()
+        .uri("/webdav/limited.txt")
+        .to_http_request();
+    assert!(!req.headers().contains_key(header::CONTENT_LENGTH));
+    let (mut sender, body) = actix_http::h1::Payload::create(false);
+    sender.feed_data(bytes::Bytes::from_static(b"12345678"));
+    sender.feed_data(bytes::Bytes::from_static(b"9"));
+    let mut body = actix_web::dev::Payload::from(body);
+    let mut payload = web::Payload::from_request(&req, &mut body).await.unwrap();
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let policy = crate::webdav::system_file::SystemFileBlockPolicy::from_runtime_config(
+        &state.runtime_config,
+    );
+    let response = tokio::time::timeout(
+        Duration::from_secs(1),
+        handle_put(
+            &req,
+            &parsed_request_head(&req),
+            &dav_fs,
+            &NoopLockSystem::default(),
+            "/webdav",
+            &policy,
+            &mut payload,
+            &capability_snapshot(aster_forge_webdav::DavResourceState::Unmapped),
+        ),
+    )
+    .await
+    .expect("over-limit PUT must return before the sender supplies EOF");
+    assert_eq!(
+        response.status(),
+        if quota {
+            StatusCode::INSUFFICIENT_STORAGE
+        } else {
+            StatusCode::PAYLOAD_TOO_LARGE
+        }
+    );
+    assert!(
+        crate::test_support::snapshot_dir_tree(
+            PathBuf::from(&state.config.server.upload_temp_dir).as_path()
+        )
+        .unwrap()
+        .is_empty(),
+        "abort must remove the temporary file before responding"
+    );
+    assert!(
+        file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "limited.txt")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(driver.objects.lock().unwrap().is_empty());
+    assert_eq!(driver.put_file_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(driver.put_reader_calls.load(Ordering::SeqCst), 0);
+    drop(sender);
+    drop(payload);
+    drop(state);
+    std::fs::remove_dir_all(temp_root).unwrap();
+}
+
 #[actix_web::test]
 async fn put_transfer_outcome_waits_for_writer_finalization_and_keeps_exact_bytes() {
     #[derive(Default)]

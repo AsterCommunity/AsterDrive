@@ -54,6 +54,7 @@ pub struct AsterDavFs {
     /// 限制访问范围：None = 用户全部文件，Some(id) = 只能访问该文件夹及子目录
     root_folder_id: Option<i64>,
     audit_ctx: AuditContext,
+    payload_limit: u64,
 }
 
 pub(crate) struct AsterDavDownloadFile {
@@ -128,6 +129,7 @@ impl std::fmt::Debug for AsterDavFs {
 
 impl AsterDavFs {
     pub fn new(state: PrimaryAppState, user_id: i64, root_folder_id: Option<i64>) -> Self {
+        let payload_limit = state.config.webdav.payload_limit;
         Self::new_with_audit(
             state,
             None,
@@ -138,6 +140,7 @@ impl AsterDavFs {
                 ip_address: None,
                 user_agent: None,
             },
+            payload_limit,
         )
     }
 
@@ -147,6 +150,7 @@ impl AsterDavFs {
         scope: WorkspaceStorageScope,
         root_folder_id: Option<i64>,
         audit_ctx: AuditContext,
+        payload_limit: u64,
     ) -> Self {
         Self {
             state,
@@ -154,6 +158,7 @@ impl AsterDavFs {
             scope,
             root_folder_id,
             audit_ctx,
+            payload_limit,
         }
     }
 
@@ -665,6 +670,7 @@ impl AsterDavFs {
                 filename,
                 existing_file_id,
                 declared_size: options.expected_length,
+                payload_limit: self.payload_limit,
                 submitted_lock_tokens: options.credentials.submitted_lock_tokens,
                 audit_ctx: self.audit_ctx.clone(),
                 file_precondition,
