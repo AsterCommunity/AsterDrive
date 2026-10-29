@@ -507,6 +507,30 @@ async fn build_daily_reports(
         cursor = events.last().map(|(id, _, created_at)| (*created_at, *id));
     }
 
+    let mut after_id = None;
+    loop {
+        let events = crate::db::repository::workspace_activity_repo::action_page_in_range(
+            state.writer_db(),
+            start,
+            end,
+            after_id,
+            ADMIN_OVERVIEW_AUDIT_ACTION_BATCH_SIZE,
+        )
+        .await?;
+        if events.is_empty() {
+            break;
+        }
+        for (_, action, created_at) in &events {
+            let date = created_at.with_timezone(&timezone).date_naive();
+            if let Some(index) = report_indexes.get(&date).copied() {
+                record_audit_action(
+                    &mut reports[index],
+                    audit::AuditAction::from_str_name(action),
+                );
+            }
+        }
+        after_id = events.last().map(|(id, _, _)| *id);
+    }
     Ok(reports)
 }
 

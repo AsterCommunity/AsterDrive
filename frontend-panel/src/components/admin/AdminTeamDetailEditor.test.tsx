@@ -4,6 +4,10 @@ import { AdminTeamDetailEditor } from "@/components/admin/AdminTeamDetailEditor"
 import { formatStorageQuotaDraft } from "@/lib/storageQuota";
 import type { UserSummary } from "@/types/api";
 
+vi.mock("@/components/files/WorkspaceActivityFeed", () => ({
+	WorkspaceActivityFeed: () => <div data-testid="workspace-activity-feed" />,
+}));
+
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	toastError: vi.fn(),

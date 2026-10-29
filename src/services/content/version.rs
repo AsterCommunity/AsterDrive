@@ -123,6 +123,7 @@ async fn restore_version_inner(
     .map_err(super::revision::map_append_error)?;
 
     let current_name = current.name.clone();
+    let before_activity = current.clone();
     let mut active: aster_drive_model::entities::file::ActiveModel = current.into();
     active.blob_id = Set(target_blob_id);
     active.size = Set(target.logical_size);
@@ -133,10 +134,24 @@ async fn restore_version_inner(
     active.compound_extension = Set(classification.compound_extension);
     active.file_category = Set(classification.category);
     active.updated_at = Set(now);
-    let updated = active
+    let mut updated = active
         .update(&txn)
         .await
         .map_aster_err(AsterError::database_operation)?;
+    let activity = crate::services::workspace::activity::ActivityContext::actor(
+        &txn,
+        scope.actor_user_id(),
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
+    crate::services::workspace::activity::file_changed(
+        &txn,
+        &activity,
+        &before_activity,
+        &mut updated,
+        aster_drive_model::types::AuditAction::FileVersionRestore,
+    )
+    .await?;
     transaction::commit(txn).await?;
 
     if target_blob_was_changed {

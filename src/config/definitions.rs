@@ -1863,6 +1863,18 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         description: "Gravatar avatar base URL (change to proxy/mirror if needed)",
         ..aster_forge_config::ConfigDefinition::private_system()
     },
+    ConfigDef {
+        key: "workspace_activity_retention_days",
+        label_i18n_key: "settings_item_workspace_activity_retention_days_label",
+        description_i18n_key: "settings_item_workspace_activity_retention_days_desc",
+        value_type: ConfigValueType::Number,
+        default_fn: || "0".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_AUDIT,
+        description: "Workspace business activity retention in days; 0 retains all activity. Current attribution is retained independently.",
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
     // ── Audit ─────────────────────────────────────────────
     ConfigDef {
         key: AUDIT_LOG_ENABLED_KEY,

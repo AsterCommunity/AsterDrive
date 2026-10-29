@@ -83,6 +83,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "remote_storage_target_credentials",
     "system_config",
     "audit_logs",
+    "workspace_activities",
     "mail_outbox",
     "background_tasks",
     "folder_tree_operation_members",

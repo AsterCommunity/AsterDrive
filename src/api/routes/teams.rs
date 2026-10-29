@@ -32,6 +32,14 @@ pub fn routes(
         .route("/{id}", web::patch().to(patch_team))
         .route("/{id}", web::delete().to(delete_team))
         .route("/{id}/restore", web::post().to(restore_team))
+        .route(
+            "/{id}/activities/export",
+            web::get().to(super::workspace_activities::export_team),
+        )
+        .route(
+            "/{id}/activities",
+            web::get().to(super::workspace_activities::team),
+        )
         .route("/{id}/audit-logs", web::get().to(list_audit_logs))
         .route("/{id}/audit-logs/export", web::get().to(export_audit_logs))
         .route(

@@ -101,6 +101,8 @@ Deleting a tag removes it from every file and folder using it in the current wor
 
 ## What the Details Panel Shows
 
+List view and search results show the creator and last modifier. Details also includes file activity for renames, moves, content saves and resource metadata changes. Editing preserves the original creator; a new copy belongs to the actor who created it. Historical modifiers that cannot be established reliably appear as Unknown rather than being inferred from content revision authors. Saved name snapshots remain available after account deletion. Public shares do not disclose attribution or activity history.
+
 The "details" of a file or folder show name, size, occupied space, type, creation time, modification time, lock status, share status, storage policy ID, and more. When investigating "which policy is this file actually on" or "is it locked", look here first.
 
 "Size" and "occupied space" are not the same concept:

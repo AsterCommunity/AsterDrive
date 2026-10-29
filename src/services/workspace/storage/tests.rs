@@ -2066,6 +2066,7 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let err = store_preuploaded_nondedup(
         &state,
         StorePreuploadedNondedupParams {
+            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             scope,
             folder_id: None,
             filename: "quota-fail-preuploaded.bin",

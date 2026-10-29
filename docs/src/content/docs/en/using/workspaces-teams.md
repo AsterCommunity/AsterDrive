@@ -64,3 +64,7 @@ If you are an owner or admin of a team, you can also enter the team management p
 5. Do the relevant shares, tasks, or recycle bin items belong to the same team space?
 
 The full admin triage path (policy groups, audit, tasks) is in [Users and Teams](/en/admin/users-teams/).
+
+## Team File Activity
+
+Members can view activity in the details of resources they can access. Team owners and admins can also view team-wide file activity and export CSV from team management. File activity and membership/role audit entries have separate sections, pagination and exports. Leaving the team or deleting an account does not erase committed history; administrators configure activity retention separately.

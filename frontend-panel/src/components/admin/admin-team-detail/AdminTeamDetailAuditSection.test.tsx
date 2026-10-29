@@ -3,6 +3,10 @@ import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTeamDetailAuditSection } from "@/components/admin/admin-team-detail/AdminTeamDetailAuditSection";
 
+vi.mock("@/components/files/WorkspaceActivityFeed", () => ({
+	WorkspaceActivityFeed: () => <div data-testid="workspace-activity-feed" />,
+}));
+
 const mocks = vi.hoisted(() => ({
 	exportAuditLogs: vi.fn(),
 	handleApiError: vi.fn(),

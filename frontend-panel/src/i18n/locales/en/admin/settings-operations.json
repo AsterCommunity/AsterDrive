@@ -34,9 +34,11 @@
 	"settings_item_task_retention_hours_label": "Task retention window",
 	"settings_item_task_retention_hours_desc": "How long temporary background task artifacts remain available before expiry; task records themselves are retained as history.",
 	"settings_item_audit_log_enabled_label": "Enable audit logging",
-	"settings_item_audit_log_enabled_desc": "Controls whether administrative and security-relevant actions are recorded. When disabled, no new audit records will be written.",
+	"settings_item_audit_log_enabled_desc": "Controls system, administrative and security audit logging. Required workspace file activities are recorded independently.",
 	"settings_item_audit_log_retention_days_label": "Audit log retention window",
 	"settings_item_audit_log_retention_days_desc": "How long audit log entries are kept before they are permanently deleted. Set to 0 to keep audit logs indefinitely.",
 	"settings_item_audit_log_recorded_actions_label": "Recorded audit actions",
-	"settings_item_audit_log_recorded_actions_desc": "Choose which audit actions are written. Empty means audit logging is enabled but no actions are recorded."
+	"settings_item_audit_log_recorded_actions_desc": "Choose which system audit actions are written. An empty selection disables these records; required workspace file activities remain independent.",
+	"settings_item_workspace_activity_retention_days_label": "Workspace activity retention days",
+	"settings_item_workspace_activity_retention_days_desc": "Independent of system audit logs. 0 retains all activity. Cleanup does not remove current file attribution."
 }

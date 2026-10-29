@@ -2,7 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveEnum, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
+    ActiveEnum, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
     sea_query::{Expr, ExprTrait, Query},
 };
 
@@ -120,4 +121,34 @@ fn member_ids_subquery(
         .and_where(Expr::col(member::Column::TaskId).eq(task_id))
         .and_where(Expr::col(member::Column::ResourceKind).eq(resource_kind.to_value()))
         .to_owned()
+}
+
+/// Bounded staged resource snapshots, read under the task's transaction/operation lock.
+pub async fn staged_files<C: ConnectionTrait>(
+    db: &C,
+    task_id: i64,
+    after: i64,
+) -> Result<Vec<file::Model>> {
+    file::Entity::find()
+        .filter(file::Column::Id.in_subquery(member_ids_subquery(task_id, EntityType::File)))
+        .filter(file::Column::Id.gt(after))
+        .order_by_asc(file::Column::Id)
+        .limit(256)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+pub async fn staged_folders<C: ConnectionTrait>(
+    db: &C,
+    task_id: i64,
+    after: i64,
+) -> Result<Vec<folder::Model>> {
+    folder::Entity::find()
+        .filter(folder::Column::Id.in_subquery(member_ids_subquery(task_id, EntityType::Folder)))
+        .filter(folder::Column::Id.gt(after))
+        .order_by_asc(folder::Column::Id)
+        .limit(256)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
 }

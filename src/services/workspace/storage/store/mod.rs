@@ -125,6 +125,7 @@ pub(crate) struct StoreFromTempHints<'a> {
 }
 
 pub(crate) struct StorePreuploadedNondedupParams<'a> {
+    pub activity_source: crate::services::workspace::activity::ActivitySource,
     pub scope: WorkspaceStorageScope,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
@@ -435,6 +436,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     params: StorePreuploadedNondedupParams<'_>,
 ) -> Result<file::Model> {
     let StorePreuploadedNondedupParams {
+        activity_source,
         scope,
         folder_id,
         filename,
@@ -592,6 +594,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                         .await?
                         .current_revision_id;
                     let current_name = current_file.name.clone();
+                    let before_activity = current_file.clone();
                     let mut active: file::ActiveModel = current_file.into();
                     active.blob_id = Set(blob.id);
                     active.size = Set(blob.size);
@@ -602,7 +605,21 @@ pub(crate) async fn store_preuploaded_nondedup(
                     active.compound_extension = Set(classification.compound_extension);
                     active.file_category = Set(classification.category);
                     active.updated_at = Set(now);
-                    let updated = active.update(txn).await.map_err(AsterError::from)?;
+                    let mut updated = active.update(txn).await.map_err(AsterError::from)?;
+                    let activity = crate::services::workspace::activity::ActivityContext::actor(
+                        txn,
+                        scope.actor_user_id(),
+                        activity_source,
+                    )
+                    .await?;
+                    crate::services::workspace::activity::file_changed(
+                        txn,
+                        &activity,
+                        &before_activity,
+                        &mut updated,
+                        aster_drive_model::types::AuditAction::FileEdit,
+                    )
+                    .await?;
 
                     let actor_username = match actor_username {
                         Some(username) => username,
@@ -646,6 +663,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                     let created = create_file_from_blob_with_mime(
                         txn,
                         CreateFileFromBlobWithMimeParams {
+                            activity_source: activity_source,
                             scope,
                             folder_id,
                             filename: &filename,

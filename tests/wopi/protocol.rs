@@ -591,7 +591,7 @@ async fn test_wopi_check_file_info_rejects_token_for_another_file() {
 async fn test_wopi_lock_put_get_and_unlock_lifecycle() {
     let state = common::setup().await;
     configure_test_wopi_runtime(&state);
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let (access_cookie, _) = register_and_login!(app);
     let file_id = upload_test_file_named!(app, access_cookie, "report 1.docx");
@@ -675,6 +675,24 @@ async fn test_wopi_lock_put_get_and_unlock_lifecycle() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["lock_state"]["state"], "unlocked");
+    assert_eq!(body["data"]["modified_by"]["name"], "testuser");
+    use aster_drive_model::entities::workspace_activity;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+    let activities = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::EntityId.eq(file_id))
+        .filter(workspace_activity::Column::EntityType.eq("file"))
+        .order_by_asc(workspace_activity::Column::Id)
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(
+        activities.len(),
+        2,
+        "locks and reads must not rewrite business attribution"
+    );
+    assert_eq!(activities[1].source, "wopi");
+    assert_eq!(activities[1].action, "file_edit");
+    assert_eq!(activities[1].actor_name, "testuser");
 }
 
 #[actix_web::test]

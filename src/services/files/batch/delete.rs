@@ -21,6 +21,7 @@ pub(crate) async fn batch_delete_in_scope(
     scope: WorkspaceStorageScope,
     file_ids: &[i64],
     folder_ids: &[i64],
+    activity: Option<&crate::services::workspace::activity::ActivityContext>,
 ) -> Result<BatchResult> {
     tracing::debug!(
         scope = ?scope,
@@ -164,6 +165,43 @@ pub(crate) async fn batch_delete_in_scope(
 
         let total_file_count = file_ids_to_delete.len();
         let total_folder_count = folder_ids_to_delete.len();
+        let ctx = match activity {
+            Some(context) => context.clone(),
+            None => {
+                crate::services::workspace::activity::ActivityContext::actor(
+                    &txn,
+                    scope.actor_user_id(),
+                    crate::services::workspace::activity::ActivitySource::Rest,
+                )
+                .await?
+            }
+        };
+        for id in &file_ids_to_delete {
+            let before = file_repo::find_by_id(&txn, *id).await?;
+            let mut after = before.clone();
+            after.deleted_at = Some(now);
+            crate::services::workspace::activity::file_changed(
+                &txn,
+                &ctx,
+                &before,
+                &mut after,
+                aster_drive_model::types::AuditAction::FileDelete,
+            )
+            .await?;
+        }
+        for id in &folder_ids_to_delete {
+            let before = folder_repo::find_by_id(&txn, *id).await?;
+            let mut after = before.clone();
+            after.deleted_at = Some(now);
+            crate::services::workspace::activity::folder_changed(
+                &txn,
+                &ctx,
+                &before,
+                &mut after,
+                aster_drive_model::types::AuditAction::FolderDelete,
+            )
+            .await?;
+        }
         file_repo::soft_delete_many(&txn, &file_ids_to_delete, now).await?;
         folder_repo::soft_delete_many(&txn, &folder_ids_to_delete, now).await?;
         transaction::commit(txn).await?;
@@ -226,6 +264,7 @@ pub async fn batch_delete(
         WorkspaceStorageScope::Personal { user_id },
         file_ids,
         folder_ids,
+        None,
     )
     .await
 }
@@ -246,6 +285,7 @@ pub async fn batch_delete_team(
         },
         file_ids,
         folder_ids,
+        None,
     )
     .await
 }

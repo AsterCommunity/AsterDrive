@@ -123,5 +123,15 @@
 	"tag_search_placeholder": "搜索或创建标签",
 	"tag_selected": "已选标签",
 	"tag_usage_count_one": "{{count}} 项",
-	"tag_usage_count_other": "{{count}} 项"
+	"tag_usage_count_other": "{{count}} 项",
+	"info_created_by": "创建者",
+	"info_modified_by": "最后修改者",
+	"info_unknown_actor": "未知",
+	"activity_title": "文件活动",
+	"activity_export": "导出文件活动",
+	"activity_load_failed": "活动记录加载失败",
+	"activity_retry": "重试",
+	"activity_loading": "正在加载活动…",
+	"activity_empty": "暂无活动记录；升级前的操作可能未记录",
+	"activity_load_more": "加载更早记录"
 }

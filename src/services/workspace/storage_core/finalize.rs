@@ -42,8 +42,16 @@ pub(crate) async fn finalize_upload_session_blob_with_actor_username<C: Connecti
             .await?
         }
         None => {
-            create_new_file_from_blob(db, scope, session.folder_id, &session.filename, blob, now)
-                .await?
+            create_new_file_from_blob(
+                db,
+                scope,
+                session.folder_id,
+                &session.filename,
+                blob,
+                now,
+                aster_drive_model::types::AuditAction::FileUpload,
+            )
+            .await?
         }
     };
     let create_elapsed_ms = started_at.elapsed().as_millis();

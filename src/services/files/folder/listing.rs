@@ -55,6 +55,7 @@ async fn build_folder_contents(
     scope: WorkspaceResourceScope,
     listing: FolderListingResult,
     params: &FolderListParams,
+    include_identity: bool,
 ) -> Result<FolderContents> {
     let FolderListingResult {
         folders,
@@ -83,7 +84,7 @@ async fn build_folder_contents(
     let tags_by_entity = tag::load_entity_tag_map(state, scope, &file_ids, &folder_ids).await?;
     let lock_states = lock::load_for_scope(state, scope, &files, &folders).await?;
 
-    Ok(FolderContents {
+    let mut contents = FolderContents {
         folders: build_folder_list_items_with_tags_and_lock_states(
             folders,
             &shared_folder_ids,
@@ -99,7 +100,43 @@ async fn build_folder_contents(
         folders_total,
         files_total,
         next_file_cursor,
-    })
+    };
+    if include_identity {
+        let ids = contents
+            .files
+            .iter()
+            .flat_map(|f| [f.created_by.as_ref(), f.modified_by.as_ref()])
+            .chain(
+                contents
+                    .folders
+                    .iter()
+                    .flat_map(|f| [f.created_by.as_ref(), f.modified_by.as_ref()]),
+            )
+            .flatten()
+            .filter_map(|i| i.user_id)
+            .collect::<Vec<_>>();
+        let names = crate::services::workspace::activity::display_names(state, &ids).await?;
+        for file in &mut contents.files {
+            crate::services::workspace::activity::resolve_identity(&mut file.created_by, &names);
+            crate::services::workspace::activity::resolve_identity(&mut file.modified_by, &names);
+        }
+        for folder in &mut contents.folders {
+            crate::services::workspace::activity::resolve_identity(&mut folder.created_by, &names);
+            crate::services::workspace::activity::resolve_identity(&mut folder.modified_by, &names);
+        }
+    } else {
+        for file in &mut contents.files {
+            file.created_by = None;
+            file.modified_by = None;
+            file.modified_at = None;
+        }
+        for folder in &mut contents.folders {
+            folder.created_by = None;
+            folder.modified_by = None;
+            folder.modified_at = None;
+        }
+    }
+    Ok(contents)
 }
 
 pub(crate) async fn list_in_scope(
@@ -274,6 +311,7 @@ pub(crate) async fn list_in_scope(
             files_total,
         },
         params,
+        true,
     )
     .await?;
     tracing::debug!(
@@ -354,6 +392,7 @@ pub async fn list_shared(
                 files_total,
             },
             params,
+            false,
         )
         .await?
     } else {
@@ -394,6 +433,7 @@ pub async fn list_shared(
                 files_total,
             },
             params,
+            false,
         )
         .await?
     };

@@ -967,6 +967,38 @@ export interface paths {
         patch: operations["admin_update_team"];
         trace?: never;
     };
+    "/api/v1/admin/teams/{id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_list_team_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/teams/{id}/activities/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_export_team_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/teams/{id}/audit-logs": {
         parameters: {
             query?: never;
@@ -2172,6 +2204,22 @@ export interface paths {
         patch: operations["patch_file"];
         trace?: never;
     };
+    "/api/v1/files/{id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_file_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/{id}/archive-preview": {
         parameters: {
             query?: never;
@@ -2458,6 +2506,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["patch_folder"];
+        trace?: never;
+    };
+    "/api/v1/folders/{id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_folder_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/folders/{id}/ancestors": {
@@ -3212,6 +3276,38 @@ export interface paths {
         patch: operations["patch_team"];
         trace?: never;
     };
+    "/api/v1/teams/{id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_team_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{id}/activities/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_team_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams/{id}/audit-logs": {
         parameters: {
             query?: never;
@@ -3548,6 +3644,22 @@ export interface paths {
         patch: operations["patch_team_file"];
         trace?: never;
     };
+    "/api/v1/teams/{team_id}/files/{id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_team_file_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/teams/{team_id}/files/{id}/archive-preview": {
         parameters: {
             query?: never;
@@ -3834,6 +3946,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["patch_team_folder"];
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/folders/{id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_team_folder_activities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/teams/{team_id}/folders/{id}/ancestors": {
@@ -4396,6 +4524,19 @@ export interface components {
         ActionMessageResp: {
             message: string;
         };
+        ActivityIdentity: {
+            name: string;
+            /** Format: int64 */
+            user_id?: number | null;
+        };
+        ActivityListQuery: {
+            /** Format: int64 */
+            before_id?: number | null;
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        /** @enum {string} */
+        ActivitySource: "rest" | "webdav" | "wopi" | "task" | "service";
         /** @description Add a user to a team. */
         AddTeamMemberReq: {
             identifier?: string | null;
@@ -5815,6 +5956,10 @@ export interface components {
             /** Format: int64 */
             id: number;
             mime_type: string;
+            modified_at?: string | null;
+            /** Format: int64 */
+            modified_by_user_id?: number | null;
+            modified_by_username?: string | null;
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -5829,6 +5974,7 @@ export interface components {
             blob_id: number;
             compound_extension?: string | null;
             created_at: string;
+            created_by?: components["schemas"]["ActivityIdentity"] | null;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
@@ -5841,6 +5987,11 @@ export interface components {
             id: number;
             lock_state: components["schemas"]["ResourceLockState"];
             mime_type: string;
+            modified_at?: string | null;
+            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+            /** Format: int64 */
+            modified_by_user_id?: number | null;
+            modified_by_username?: string | null;
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -5863,6 +6014,7 @@ export interface components {
              *     Populated only when the file name ends with a supported compound extension.
              */
             compound_extension?: string | null;
+            created_by?: components["schemas"]["ActivityIdentity"] | null;
             /** @description Lowercase final extension without a leading dot. Empty when the file name has no extension. */
             extension: string;
             /** @description Category derived from the extension first, then MIME type as fallback. */
@@ -5872,6 +6024,8 @@ export interface components {
             is_shared: boolean;
             lock_state: components["schemas"]["ResourceLockState"];
             mime_type: string;
+            modified_at?: string | null;
+            modified_by?: components["schemas"]["ActivityIdentity"] | null;
             name: string;
             /** Format: int64 */
             size: number;
@@ -5943,6 +6097,10 @@ export interface components {
             /** Format: int64 */
             id: number;
             mime_type: string;
+            modified_at?: string | null;
+            /** Format: int64 */
+            modified_by_user_id?: number | null;
+            modified_by_username?: string | null;
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -6011,6 +6169,10 @@ export interface components {
             icon_value?: string | null;
             /** Format: int64 */
             id: number;
+            modified_at?: string | null;
+            /** Format: int64 */
+            modified_by_user_id?: number | null;
+            modified_by_username?: string | null;
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -6041,6 +6203,7 @@ export interface components {
         FolderIconKind: "default" | "builtin" | "emoji";
         FolderInfo: {
             created_at: string;
+            created_by?: components["schemas"]["ActivityIdentity"] | null;
             /** Format: int64 */
             created_by_user_id?: number | null;
             created_by_username: string;
@@ -6049,6 +6212,11 @@ export interface components {
             /** Format: int64 */
             id: number;
             lock_state: components["schemas"]["ResourceLockState"];
+            modified_at?: string | null;
+            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+            /** Format: int64 */
+            modified_by_user_id?: number | null;
+            modified_by_username?: string | null;
             name: string;
             /** Format: int64 */
             owner_user_id?: number | null;
@@ -6068,11 +6236,14 @@ export interface components {
             updated_at: string;
         };
         FolderListItem: {
+            created_by?: components["schemas"]["ActivityIdentity"] | null;
             icon: components["schemas"]["FolderIcon"];
             /** Format: int64 */
             id: number;
             is_shared: boolean;
             lock_state: components["schemas"]["ResourceLockState"];
+            modified_at?: string | null;
+            modified_by?: components["schemas"]["ActivityIdentity"] | null;
             name: string;
             tags: components["schemas"]["TagSummary"][];
             updated_at: string;
@@ -9937,6 +10108,26 @@ export interface components {
         WopiLockOwnerInfo: {
             app_key: string;
             lock: string;
+        };
+        WorkspaceActivity: {
+            action: components["schemas"]["AuditAction"];
+            actor: components["schemas"]["ActivityIdentity"];
+            created_at: string;
+            details: unknown;
+            /** Format: int64 */
+            entity_id: number;
+            entity_name: string;
+            entity_type: string;
+            event_id: string;
+            /** Format: int64 */
+            id: number;
+            operation_id: string;
+            source: components["schemas"]["ActivitySource"];
+        };
+        WorkspaceActivityPage: {
+            items: components["schemas"]["WorkspaceActivity"][];
+            /** Format: int64 */
+            next_before_id?: number | null;
         };
         WorkspaceRef: {
             /** @enum {string} */
@@ -14954,6 +15145,59 @@ export interface operations {
             };
         };
     };
+    admin_list_team_activities: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: components["schemas"]["WorkspaceActivity"][];
+                            /** Format: int64 */
+                            next_before_id?: number | null;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    admin_export_team_activities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace activity CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     admin_list_team_audit_logs: {
         parameters: {
             query?: {
@@ -18458,6 +18702,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -18470,6 +18715,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -18735,6 +18985,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -18747,6 +18998,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -18800,6 +19056,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -18812,6 +19069,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19030,6 +19292,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -19042,6 +19305,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19143,6 +19411,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -19155,6 +19424,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19189,6 +19463,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_file_activities: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: components["schemas"]["WorkspaceActivity"][];
+                            /** Format: int64 */
+                            next_before_id?: number | null;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
             };
         };
     };
@@ -19312,6 +19619,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -19324,6 +19632,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19404,6 +19717,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -19416,6 +19730,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -19727,6 +20046,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -19739,6 +20059,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20135,6 +20460,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20147,6 +20473,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20320,6 +20651,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20328,6 +20660,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20534,6 +20871,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20542,6 +20880,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20578,6 +20921,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_folder_activities: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: components["schemas"]["WorkspaceActivity"][];
+                            /** Format: int64 */
+                            next_before_id?: number | null;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
             };
         };
     };
@@ -20654,6 +21030,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20662,6 +21039,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20727,6 +21109,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20735,6 +21118,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20803,6 +21191,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20811,6 +21200,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -20876,6 +21270,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -20884,6 +21279,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -23640,6 +24040,59 @@ export interface operations {
             };
         };
     };
+    list_team_activities: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: components["schemas"]["WorkspaceActivity"][];
+                            /** Format: int64 */
+                            next_before_id?: number | null;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    export_team_activities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace activity CSV */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     list_team_audit_logs: {
         parameters: {
             query?: {
@@ -24490,6 +24943,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -24502,6 +24956,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -24825,6 +25284,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -24837,6 +25297,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -24892,6 +25357,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -24904,6 +25370,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25151,6 +25622,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -25163,6 +25635,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25282,6 +25759,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -25294,6 +25772,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25335,6 +25818,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_team_file_activities: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: components["schemas"]["WorkspaceActivity"][];
+                            /** Format: int64 */
+                            next_before_id?: number | null;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
             };
         };
     };
@@ -25462,6 +25979,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -25474,6 +25992,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25563,6 +26086,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -25575,6 +26099,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -25931,6 +26460,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -25943,6 +26473,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -26402,6 +26937,7 @@ export interface operations {
                             blob_id: number;
                             compound_extension?: string | null;
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -26414,6 +26950,11 @@ export interface operations {
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
                             mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -26616,6 +27157,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -26624,6 +27166,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -26857,6 +27404,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -26865,6 +27413,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -26908,6 +27461,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    list_team_folder_activities: {
+        parameters: {
+            query?: {
+                before_id?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                team_id: number;
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            items: components["schemas"]["WorkspaceActivity"][];
+                            /** Format: int64 */
+                            next_before_id?: number | null;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
             };
         };
     };
@@ -26995,6 +27582,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -27003,6 +27591,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -27077,6 +27670,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -27085,6 +27679,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -27162,6 +27761,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -27170,6 +27770,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;
@@ -27244,6 +27849,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
                             /** Format: int64 */
                             created_by_user_id?: number | null;
                             created_by_username: string;
@@ -27252,6 +27858,11 @@ export interface operations {
                             /** Format: int64 */
                             id: number;
                             lock_state: components["schemas"]["ResourceLockState"];
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
                             name: string;
                             /** Format: int64 */
                             owner_user_id?: number | null;

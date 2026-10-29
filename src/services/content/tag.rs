@@ -465,6 +465,104 @@ pub(crate) async fn list_entity_tags_in_scope(
     })
 }
 
+#[derive(Clone)]
+enum TagMutation {
+    Attach(i64),
+    Detach(i64),
+    Replace(Vec<i64>),
+}
+
+async fn mutate_tags_on<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    ctx: &crate::services::workspace::activity::ActivityContext,
+    kind: EntityType,
+    id: i64,
+    mutation: &TagMutation,
+) -> Result<()> {
+    enum Target {
+        File(aster_drive_model::entities::file::Model),
+        Folder(aster_drive_model::entities::folder::Model),
+    }
+    let target = match kind {
+        EntityType::File => {
+            let f = file_repo::lock_by_id(db, id).await?;
+            crate::services::workspace::storage::ensure_active_file_scope(&f, scope)?;
+            crate::services::files::lock::enforce_file_mutation_on(
+                db,
+                &f,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+            Target::File(f)
+        }
+        EntityType::Folder => {
+            let f = folder_repo::lock_by_id(db, id).await?;
+            crate::services::workspace::storage::ensure_active_folder_scope(&f, scope)?;
+            crate::services::files::lock::enforce_folder_mutation_on(
+                db,
+                &f,
+                aster_drive_model::types::LockDepth::Resource,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+            Target::Folder(f)
+        }
+    };
+    let before = property_repo::find_by_entity(db, kind, id)
+        .await?
+        .into_iter()
+        .filter(|p| p.namespace == TAG_PROPERTY_NAMESPACE)
+        .filter_map(|p| p.name.parse::<i64>().ok())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut after = before.clone();
+    match mutation {
+        TagMutation::Attach(tag) => {
+            after.insert(*tag);
+        }
+        TagMutation::Detach(tag) => {
+            after.remove(tag);
+        }
+        TagMutation::Replace(tags) => after = tags.iter().copied().collect(),
+    }
+    if before == after {
+        return Ok(());
+    }
+    if after.len() > MAX_TAGS_PER_ENTITY {
+        return Err(AsterError::validation_error("too many tags on resource"));
+    }
+    property_repo::delete_namespace_for_entity(db, kind, id, TAG_PROPERTY_NAMESPACE).await?;
+    for tag in &after {
+        property_repo::upsert(db, kind, id, TAG_PROPERTY_NAMESPACE, &tag.to_string(), None).await?;
+    }
+    let action = if after.is_subset(&before) {
+        aster_drive_model::types::AuditAction::TagDetach
+    } else {
+        aster_drive_model::types::AuditAction::TagAttach
+    };
+    let change = crate::services::workspace::activity::ActivityChange::with_details(
+        action,
+        serde_json::json!({"previous_tag_ids":before,"tag_ids":after}),
+    );
+    match target {
+        Target::File(before) => {
+            let mut after = before.clone();
+            crate::services::workspace::activity::file_changed(
+                db, ctx, &before, &mut after, change,
+            )
+            .await?;
+        }
+        Target::Folder(before) => {
+            let mut after = before.clone();
+            crate::services::workspace::activity::folder_changed(
+                db, ctx, &before, &mut after, change,
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn attach_to_entity_in_scope(
     state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
@@ -474,14 +572,23 @@ pub(crate) async fn attach_to_entity_in_scope(
 ) -> Result<EntityTags> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
     verify_entity_write(state, scope, entity_type, entity_id).await?;
-    property_repo::upsert(
-        state.writer_db(),
-        entity_type,
-        entity_id,
-        TAG_PROPERTY_NAMESPACE,
-        &tag_id.to_string(),
-        None,
-    )
+    transaction::with_transaction(state.writer_db(), async |txn| {
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
+            txn,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await?;
+        mutate_tags_on(
+            txn,
+            scope,
+            &ctx,
+            entity_type,
+            entity_id,
+            &TagMutation::Attach(tag_id),
+        )
+        .await
+    })
     .await?;
     let tags = list_entity_tags_in_scope(state, scope, entity_type, entity_id).await?;
     publish_entity_tag_assignment_change(state, scope, entity_type, entity_id).await?;
@@ -497,13 +604,23 @@ pub(crate) async fn detach_from_entity_in_scope(
 ) -> Result<EntityTags> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
     verify_entity_write(state, scope, entity_type, entity_id).await?;
-    property_repo::delete_prop(
-        state.writer_db(),
-        entity_type,
-        entity_id,
-        TAG_PROPERTY_NAMESPACE,
-        &tag_id.to_string(),
-    )
+    transaction::with_transaction(state.writer_db(), async |txn| {
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
+            txn,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await?;
+        mutate_tags_on(
+            txn,
+            scope,
+            &ctx,
+            entity_type,
+            entity_id,
+            &TagMutation::Detach(tag_id),
+        )
+        .await
+    })
     .await?;
     let tags = list_entity_tags_in_scope(state, scope, entity_type, entity_id).await?;
     publish_entity_tag_assignment_change(state, scope, entity_type, entity_id).await?;
@@ -521,25 +638,21 @@ pub(crate) async fn replace_entity_tags_in_scope(
     let unique_tag_ids = unique_ids(tag_ids)?;
     ensure_tags_belong_to_scope(state, scope, &unique_tag_ids).await?;
     transaction::with_transaction(state.writer_db(), async |txn| {
-        property_repo::delete_namespace_for_entity(
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
             txn,
-            entity_type,
-            entity_id,
-            TAG_PROPERTY_NAMESPACE,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
         )
         .await?;
-        for tag_id in &unique_tag_ids {
-            property_repo::upsert(
-                txn,
-                entity_type,
-                entity_id,
-                TAG_PROPERTY_NAMESPACE,
-                &tag_id.to_string(),
-                None,
-            )
-            .await?;
-        }
-        Ok::<_, AsterError>(())
+        mutate_tags_on(
+            txn,
+            scope,
+            &ctx,
+            entity_type,
+            entity_id,
+            &TagMutation::Replace(unique_tag_ids.clone()),
+        )
+        .await
     })
     .await?;
     let tags = list_entity_tags_in_scope(state, scope, entity_type, entity_id).await?;
@@ -555,29 +668,40 @@ pub(crate) async fn batch_attach_in_scope(
     folder_ids: &[i64],
 ) -> Result<()> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
-    let file_ids = unique_entity_ids(file_ids);
-    let folder_ids = unique_entity_ids(folder_ids);
+    let mut file_ids = unique_entity_ids(file_ids);
+    file_ids.sort_unstable();
+    let mut folder_ids = unique_entity_ids(folder_ids);
+    folder_ids.sort_unstable();
     verify_entities_for_batch_write(state, scope, &file_ids, &folder_ids).await?;
-    let tag_id = tag_id.to_string();
     transaction::with_transaction(state.writer_db(), async |txn| {
-        property_repo::insert_many_for_entities(
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
             txn,
-            EntityType::File,
-            &file_ids,
-            TAG_PROPERTY_NAMESPACE,
-            &tag_id,
-            None,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
         )
         .await?;
-        property_repo::insert_many_for_entities(
-            txn,
-            EntityType::Folder,
-            &folder_ids,
-            TAG_PROPERTY_NAMESPACE,
-            &tag_id,
-            None,
-        )
-        .await?;
+        for id in &file_ids {
+            mutate_tags_on(
+                txn,
+                scope,
+                &ctx,
+                EntityType::File,
+                *id,
+                &TagMutation::Attach(tag_id),
+            )
+            .await?;
+        }
+        for id in &folder_ids {
+            mutate_tags_on(
+                txn,
+                scope,
+                &ctx,
+                EntityType::Folder,
+                *id,
+                &TagMutation::Attach(tag_id),
+            )
+            .await?;
+        }
         Ok::<_, AsterError>(())
     })
     .await?;
@@ -592,27 +716,40 @@ pub(crate) async fn batch_detach_in_scope(
     folder_ids: &[i64],
 ) -> Result<()> {
     load_tag_for_write_scope(state, scope, tag_id).await?;
-    let file_ids = unique_entity_ids(file_ids);
-    let folder_ids = unique_entity_ids(folder_ids);
+    let mut file_ids = unique_entity_ids(file_ids);
+    file_ids.sort_unstable();
+    let mut folder_ids = unique_entity_ids(folder_ids);
+    folder_ids.sort_unstable();
     verify_entities_for_batch_write(state, scope, &file_ids, &folder_ids).await?;
-    let tag_id = tag_id.to_string();
     transaction::with_transaction(state.writer_db(), async |txn| {
-        property_repo::delete_many_for_entities(
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
             txn,
-            EntityType::File,
-            &file_ids,
-            TAG_PROPERTY_NAMESPACE,
-            &tag_id,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
         )
         .await?;
-        property_repo::delete_many_for_entities(
-            txn,
-            EntityType::Folder,
-            &folder_ids,
-            TAG_PROPERTY_NAMESPACE,
-            &tag_id,
-        )
-        .await?;
+        for id in &file_ids {
+            mutate_tags_on(
+                txn,
+                scope,
+                &ctx,
+                EntityType::File,
+                *id,
+                &TagMutation::Detach(tag_id),
+            )
+            .await?;
+        }
+        for id in &folder_ids {
+            mutate_tags_on(
+                txn,
+                scope,
+                &ctx,
+                EntityType::Folder,
+                *id,
+                &TagMutation::Detach(tag_id),
+            )
+            .await?;
+        }
         Ok::<_, AsterError>(())
     })
     .await?;

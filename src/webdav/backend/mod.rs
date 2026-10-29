@@ -1212,6 +1212,15 @@ impl DavFileSystem for AsterDavFs {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
+            let before_activity =
+                crate::services::workspace::activity::ResourceSnapshot::lock_authorized(
+                    &txn,
+                    self.scope,
+                    entity_type,
+                    entity_id,
+                )
+                .await
+                .map_err(to_fs_error)?;
             let mut applied = Vec::with_capacity(patches.len());
 
             for (set, prop) in &patches {
@@ -1310,6 +1319,25 @@ impl DavFileSystem for AsterDavFs {
                         .map_err(to_fs_error)?;
                     }
                     controlled_revision_file_id = Some(file.id);
+                }
+            }
+
+            if changed {
+                let ctx = crate::services::workspace::activity::ActivityContext::actor(
+                    &txn,
+                    self.scope.actor_user_id(),
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await
+                .map_err(to_fs_error)?;
+                for ((set, prop), applied) in patches.iter().zip(&applied) {
+                    if !applied {
+                        continue;
+                    }
+                    before_activity.record(&txn,&ctx,crate::services::workspace::activity::ActivityChange::with_details(
+                        if *set { audit::AuditAction::PropertySet } else { audit::AuditAction::PropertyDelete },
+                        serde_json::json!({"namespace":prop.namespace.as_deref().unwrap_or(""),"property_name":prop.name})
+                    )).await.map_err(to_fs_error)?;
                 }
             }
 

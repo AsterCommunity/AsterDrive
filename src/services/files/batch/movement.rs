@@ -321,8 +321,46 @@ pub(crate) async fn batch_move_in_scope(
             .await?;
         }
         revalidate_batch_folder_move(&txn, scope, &folder_ids_to_move, target_folder_id).await?;
+        let activity = crate::services::workspace::activity::ActivityContext::actor(
+            &txn,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await?;
+        let mut before_files = Vec::new();
+        for id in &file_ids_to_move {
+            before_files.push(file_repo::find_by_id(&txn, *id).await?);
+        }
+        let mut before_folders = Vec::new();
+        for id in &folder_ids_to_move {
+            before_folders.push(folder_repo::find_by_id(&txn, *id).await?);
+        }
         file_repo::move_many_to_folder(&txn, &file_ids_to_move, target_folder_id, now).await?;
         folder_repo::move_many_to_parent(&txn, &folder_ids_to_move, target_folder_id, now).await?;
+        for before in before_files {
+            let mut after = before.clone();
+            after.folder_id = target_folder_id;
+            crate::services::workspace::activity::file_changed(
+                &txn,
+                &activity,
+                &before,
+                &mut after,
+                aster_drive_model::types::AuditAction::FileMove,
+            )
+            .await?;
+        }
+        for before in before_folders {
+            let mut after = before.clone();
+            after.parent_id = target_folder_id;
+            crate::services::workspace::activity::folder_changed(
+                &txn,
+                &activity,
+                &before,
+                &mut after,
+                aster_drive_model::types::AuditAction::FolderMove,
+            )
+            .await?;
+        }
         transaction::commit(txn).await?;
 
         if !file_ids_to_move.is_empty() {

@@ -208,6 +208,25 @@ describe("i18n", () => {
 		).toBeUndefined();
 	});
 
+	it("loads shared audit labels without loading unrelated administrator settings", async () => {
+		localStorage.setItem("aster-language", "en");
+		const module = await loadI18nModule();
+		await module.ensureI18nNamespaces(
+			[{ namespace: "admin", parts: ["audit"] }],
+			"en",
+		);
+		expect(module.default.t("admin:audit_action_file_rename")).toBe(
+			"Renamed file",
+		);
+		expect(
+			module.default.getResource("en", "admin", "overview_total_users"),
+		).toBeUndefined();
+		await module.ensureI18nNamespaces(["admin"], "en");
+		expect(
+			module.default.getResource("en", "admin", "overview_total_users"),
+		).toBeDefined();
+	});
+
 	it("merges split locale files into their original namespaces", async () => {
 		localStorage.setItem("aster-language", "zh");
 		const module = await loadI18nModule();

@@ -336,10 +336,10 @@ async function ensureNamespaces(
 }
 
 export async function ensureI18nNamespaces(
-	namespaces: readonly LocaleNamespace[],
+	namespaces: readonly LocaleLoadRequest[],
 	language: string = i18n.language,
 ) {
-	await ensureNamespaces(normalizeLanguage(language), namespaces);
+	await ensureLocaleRequests(normalizeLanguage(language), namespaces);
 }
 
 export async function ensureAuthenticatedShellI18nNamespaces(

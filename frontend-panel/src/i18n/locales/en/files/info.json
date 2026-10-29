@@ -123,5 +123,15 @@
 	"tag_search_placeholder": "Search or create tags",
 	"tag_selected": "Selected tags",
 	"tag_usage_count_one": "{{count}} item",
-	"tag_usage_count_other": "{{count}} items"
+	"tag_usage_count_other": "{{count}} items",
+	"info_created_by": "Created by",
+	"info_modified_by": "Last modified by",
+	"info_unknown_actor": "Unknown",
+	"activity_title": "File activity",
+	"activity_export": "Export file activity",
+	"activity_load_failed": "Could not load activity",
+	"activity_retry": "Retry",
+	"activity_loading": "Loading activity…",
+	"activity_empty": "No activity recorded. Operations before this upgrade may be unavailable.",
+	"activity_load_more": "Load earlier activity"
 }

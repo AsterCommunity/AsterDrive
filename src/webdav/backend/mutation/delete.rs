@@ -93,17 +93,28 @@ impl AsterDavFs {
 
         let deleted = match (node, prepared_folder) {
             (ResolvedNode::File(file), None) => {
-                file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
-                    .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                file_ops::delete_in_scope_on(
+                    &txn,
+                    self.scope,
+                    file.id,
+                    true,
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
                 Deleted::File(file)
             }
             (ResolvedNode::Folder(_), Some(locked)) => Deleted::Folder(
-                folder::apply_locked_tree_deletion_on(&txn, locked, chrono::Utc::now())
-                    .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?,
+                folder::apply_locked_tree_deletion_on(
+                    &txn,
+                    locked,
+                    chrono::Utc::now(),
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
             ),
             _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
         };

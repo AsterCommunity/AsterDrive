@@ -160,16 +160,27 @@ impl AsterDavFs {
         if let Some(node) = destination_node {
             match (node, prepared_destination_folder) {
                 (ResolvedNode::File(file), None) => {
-                    file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
-                        .await
-                        .map_err(to_fs_error)
-                        .map_err(AsterDavMutationError::FileSystem)?;
+                    file_ops::delete_in_scope_on(
+                        &txn,
+                        self.scope,
+                        file.id,
+                        true,
+                        crate::services::workspace::activity::ActivitySource::Webdav,
+                    )
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
                 }
                 (ResolvedNode::Folder(_), Some(locked)) => {
-                    folder::apply_locked_tree_deletion_on(&txn, locked, chrono::Utc::now())
-                        .await
-                        .map_err(to_fs_error)
-                        .map_err(AsterDavMutationError::FileSystem)?;
+                    folder::apply_locked_tree_deletion_on(
+                        &txn,
+                        locked,
+                        chrono::Utc::now(),
+                        crate::services::workspace::activity::ActivitySource::Webdav,
+                    )
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
                 }
                 _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
             }
@@ -204,12 +215,30 @@ impl AsterDavFs {
                 active.name = Set(destination_name);
                 active.folder_id = Set(destination_parent_id);
                 active.updated_at = Set(chrono::Utc::now());
-                let moved = active
+                let mut moved = active
                     .update(&txn)
                     .await
                     .map_err(crate::errors::AsterError::from)
                     .map_err(to_fs_error)
                     .map_err(AsterDavMutationError::FileSystem)?;
+                let ctx = crate::services::workspace::activity::ActivityContext::actor(
+                    &txn,
+                    self.scope.actor_user_id(),
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
+                crate::services::workspace::activity::file_changed(
+                    &txn,
+                    &ctx,
+                    &file,
+                    &mut moved,
+                    aster_drive_model::types::AuditAction::FileMove,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
                 (
                     EntityType::File,
                     moved.id,
@@ -232,12 +261,30 @@ impl AsterDavFs {
                 active.name = Set(destination_name);
                 active.parent_id = Set(destination_parent_id);
                 active.updated_at = Set(chrono::Utc::now());
-                let moved = active
+                let mut moved = active
                     .update(&txn)
                     .await
                     .map_err(crate::errors::AsterError::from)
                     .map_err(to_fs_error)
                     .map_err(AsterDavMutationError::FileSystem)?;
+                let ctx = crate::services::workspace::activity::ActivityContext::actor(
+                    &txn,
+                    self.scope.actor_user_id(),
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
+                crate::services::workspace::activity::folder_changed(
+                    &txn,
+                    &ctx,
+                    &folder,
+                    &mut moved,
+                    aster_drive_model::types::AuditAction::FolderMove,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
                 (
                     EntityType::Folder,
                     moved.id,

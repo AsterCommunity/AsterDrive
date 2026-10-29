@@ -73,7 +73,7 @@ pub(crate) async fn batch_delete_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<BatchResult> {
     validate_batch_ids(file_ids, folder_ids)?;
-    let result = delete::batch_delete_in_scope(state, scope, file_ids, folder_ids).await?;
+    let result = delete::batch_delete_in_scope(state, scope, file_ids, folder_ids, None).await?;
     audit::log_with_details(
         state,
         audit_ctx,

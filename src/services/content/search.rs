@@ -111,6 +111,15 @@ fn build_search_file_list_items(
             compound_extension: file.compound_extension,
             file_category: file.file_category,
             updated_at: file.updated_at,
+            created_by: crate::services::workspace::activity::snapshot_identity(
+                file.created_by_user_id,
+                Some(&file.created_by_username),
+            ),
+            modified_by: crate::services::workspace::activity::snapshot_identity(
+                file.modified_by_user_id,
+                file.modified_by_username.as_deref(),
+            ),
+            modified_at: file.modified_at,
             lock_state: lock_states
                 .get(&(aster_drive_model::types::EntityType::File, file.id))
                 .cloned()
@@ -554,7 +563,7 @@ pub(crate) async fn search_in_scope(
     .await?;
     let lock_states = lock::load_for_scope(state, scope.into(), &lock_files, &lock_folders).await?;
 
-    let results = SearchResults {
+    let mut results = SearchResults {
         files: build_search_file_list_items(files, &shared_file_ids, &tags_by_entity, &lock_states),
         folders: build_folder_list_items_with_tags_and_lock_states(
             folders,
@@ -565,6 +574,28 @@ pub(crate) async fn search_in_scope(
         total_files,
         total_folders,
     };
+    let ids = results
+        .files
+        .iter()
+        .flat_map(|f| [f.created_by.as_ref(), f.modified_by.as_ref()])
+        .chain(
+            results
+                .folders
+                .iter()
+                .flat_map(|f| [f.created_by.as_ref(), f.modified_by.as_ref()]),
+        )
+        .flatten()
+        .filter_map(|identity| identity.user_id)
+        .collect::<Vec<_>>();
+    let names = crate::services::workspace::activity::display_names(state, &ids).await?;
+    for file in &mut results.files {
+        crate::services::workspace::activity::resolve_identity(&mut file.created_by, &names);
+        crate::services::workspace::activity::resolve_identity(&mut file.modified_by, &names);
+    }
+    for folder in &mut results.folders {
+        crate::services::workspace::activity::resolve_identity(&mut folder.created_by, &names);
+        crate::services::workspace::activity::resolve_identity(&mut folder.modified_by, &names);
+    }
     tracing::debug!(
         scope = ?scope,
         total_files = results.total_files,

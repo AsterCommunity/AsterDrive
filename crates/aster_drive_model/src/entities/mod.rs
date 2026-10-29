@@ -52,3 +52,5 @@ pub mod user_invitation;
 pub mod user_profile;
 pub mod webdav_account;
 pub mod wopi_session;
+
+pub mod workspace_activity;

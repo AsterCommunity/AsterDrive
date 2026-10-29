@@ -52,3 +52,5 @@ pub mod user_profile_repo;
 pub mod user_repo;
 pub mod webdav_account_repo;
 pub mod wopi_session_repo;
+
+pub mod workspace_activity_repo;

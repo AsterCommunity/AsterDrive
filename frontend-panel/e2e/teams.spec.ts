@@ -1,3 +1,4 @@
+import type { UserInfo } from "@/types/api";
 import { createTeamViaApi } from "./support/api";
 import { authenticate } from "./support/auth";
 import {
@@ -12,11 +13,14 @@ import {
 	fileDropZone,
 	fileNameCell,
 	openFolder,
+	openItemContextMenu,
+	renameItem,
 	toggleItemSelection,
 	trashItemRow,
 	uploadViaPicker,
 } from "./support/files";
 import { uniqueName } from "./support/fixtures";
+import { apiJsonInPage } from "./support/network";
 import { expectShareCardVisible } from "./support/shares";
 import { expect, test } from "./support/test";
 
@@ -144,3 +148,56 @@ test.describe
 			await expect(taskCard.getByText("Prepare archive sources")).toBeVisible();
 		});
 	});
+
+test("team file list and details retain creator and modifier after rename and refresh", async ({
+	page,
+	request,
+}) => {
+	await authenticate(page, request);
+	const me = await apiJsonInPage<UserInfo>(page, "/api/v1/auth/me");
+	const name = me.profile?.display_name || me.username;
+	const team = await createTeamViaApi(
+		page,
+		uniqueName("pw-attribution"),
+		"Attribution test",
+	);
+	const workspacePath = `/teams/${team.id}`;
+	const file = {
+		name: `${uniqueName("pw-authors")}.txt`,
+		mimeType: "text/plain",
+		buffer: Buffer.from("authors"),
+	};
+	await page.goto(workspacePath);
+	await uploadViaPicker(page, [file]);
+	const renamed = `${uniqueName("pw-authors-renamed")}.txt`;
+	await renameItem(page, file.name, renamed);
+	await page.reload();
+	const listButton = page.getByRole("button", {
+		name: "List View",
+		exact: true,
+	});
+	if (await listButton.isVisible()) await listButton.click();
+	const row = page.getByRole("row").filter({ hasText: renamed });
+	await expect(row.getByText(name, { exact: true })).toHaveCount(2);
+	await expect(
+		page.getByRole("columnheader", { name: "Created by", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("columnheader", { name: "Last modified by", exact: true }),
+	).toBeVisible();
+	await openItemContextMenu(page, renamed);
+	await page.getByRole("menuitem", { name: "Details", exact: true }).click();
+	const inspector = page.getByRole("complementary", { name: "Details" });
+	await expect(
+		inspector.getByText("Created by", { exact: true }),
+	).toBeVisible();
+	await expect(
+		inspector.getByText("Last modified by", { exact: true }),
+	).toBeVisible();
+	await expect(
+		inspector.locator("dd").getByText(name, { exact: true }),
+	).toHaveCount(2);
+	const activity = inspector.getByRole("region", { name: "File activity" });
+	await expect(activity).toContainText(renamed);
+	await expect(activity).toContainText("Renamed file");
+});

@@ -13,7 +13,14 @@ pub(crate) async fn delete_in_scope(
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "soft deleting file");
     let txn = transaction::begin(state.writer_db()).await?;
-    let file = delete_in_scope_on(&txn, scope, id, false).await?;
+    let file = delete_in_scope_on(
+        &txn,
+        scope,
+        id,
+        false,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
     transaction::commit(txn).await?;
     storage_change::publish(
         state,
@@ -43,6 +50,7 @@ pub(crate) async fn delete_in_scope_on<C: ConnectionTrait>(
     scope: WorkspaceStorageScope,
     id: i64,
     allow_locked: bool,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     let snapshot = file_repo::find_by_id(db, id).await?;
     crate::services::workspace::storage::ensure_active_file_scope(&snapshot, scope)?;
@@ -57,6 +65,22 @@ pub(crate) async fn delete_in_scope_on<C: ConnectionTrait>(
         .await?
     };
     file_repo::soft_delete(db, id).await?;
+    let ctx = crate::services::workspace::activity::ActivityContext::actor(
+        db,
+        scope.actor_user_id(),
+        source,
+    )
+    .await?;
+    let mut after = file.clone();
+    after.deleted_at = Some(chrono::Utc::now());
+    crate::services::workspace::activity::file_changed(
+        db,
+        &ctx,
+        &file,
+        &mut after,
+        aster_drive_model::types::AuditAction::FileDelete,
+    )
+    .await?;
     Ok(file)
 }
 

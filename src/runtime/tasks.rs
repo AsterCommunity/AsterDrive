@@ -525,17 +525,20 @@ async fn run_primary_runtime_group(
                 maintenance_cleanup_interval_for_web_state,
                 Some(MAINTENANCE_CLEANUP_JITTER_CAP),
                 |s| async move {
-                    match crate::services::ops::audit::cleanup_expired(s.get_ref()).await {
-                        Ok(count) if count > 0 => {
+                    // Attempt both policies independently, but report either failure to task health.
+                    let activities = crate::services::workspace::activity::cleanup_expired(s.get_ref()).await;
+                    let audit = crate::services::ops::audit::cleanup_expired(s.get_ref()).await;
+                    match (activities, audit) {
+                        (Ok(activities), Ok(audit)) if activities > 0 || audit > 0 => {
                             crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
-                                "cleaned up {count} expired audit log entries"
+                                "cleaned up {activities} expired workspace activities and {audit} audit log entries"
                             )))
                         }
-                        Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
-                        Err(error) => {
-                            tracing::warn!("audit log cleanup failed: {error}");
+                        (Ok(_), Ok(_)) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
+                        (Err(error), _) | (_, Err(error)) => {
+                            tracing::warn!("activity/audit cleanup failed: {error}");
                             crate::services::task::RuntimeTaskRunOutcome::failed(
-                                Some("Audit log cleanup failed".to_string()),
+                                Some("Activity/audit cleanup failed".to_string()),
                                 error.to_string(),
                             )
                         }

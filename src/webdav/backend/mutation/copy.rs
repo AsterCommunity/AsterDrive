@@ -158,16 +158,27 @@ impl AsterDavFs {
         if let Some(node) = destination_node {
             match (node, prepared_destination_folder) {
                 (ResolvedNode::File(file), None) => {
-                    file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
-                        .await
-                        .map_err(to_fs_error)
-                        .map_err(AsterDavMutationError::FileSystem)?;
+                    file_ops::delete_in_scope_on(
+                        &txn,
+                        self.scope,
+                        file.id,
+                        true,
+                        crate::services::workspace::activity::ActivitySource::Webdav,
+                    )
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
                 }
                 (ResolvedNode::Folder(_), Some(locked)) => {
-                    folder::apply_locked_tree_deletion_on(&txn, locked, chrono::Utc::now())
-                        .await
-                        .map_err(to_fs_error)
-                        .map_err(AsterDavMutationError::FileSystem)?;
+                    folder::apply_locked_tree_deletion_on(
+                        &txn,
+                        locked,
+                        chrono::Utc::now(),
+                        crate::services::workspace::activity::ActivitySource::Webdav,
+                    )
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
                 }
                 _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
             }
@@ -190,6 +201,7 @@ impl AsterDavFs {
             &source_file,
             destination_parent_id,
             &destination_name,
+            crate::services::workspace::activity::ActivitySource::Webdav,
         )
         .await
         .map_err(to_fs_error)

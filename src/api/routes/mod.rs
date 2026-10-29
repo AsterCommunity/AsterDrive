@@ -33,3 +33,5 @@ pub(crate) fn team_scope(team_id: i64, user_id: i64) -> WorkspaceStorageScope {
         actor_user_id: user_id,
     }
 }
+
+pub mod workspace_activities;

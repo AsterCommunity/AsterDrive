@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { UserIdentity } from "@/components/common/UserIdentity";
+import { WorkspaceActivityFeed } from "@/components/files/WorkspaceActivityFeed";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -11,6 +12,7 @@ import { formatAuditDetail, formatAuditSummary } from "@/lib/audit";
 import { formatDateAbsolute } from "@/lib/format";
 import { formatTeamAuditSummary } from "@/lib/team";
 import { teamService } from "@/services/teamService";
+import type { ActivityTarget } from "@/services/workspaceActivityService";
 import type { TeamAuditEntryInfo, TeamMemberRole } from "@/types/api";
 
 interface AuditSectionProps {
@@ -44,6 +46,10 @@ export function TeamManageAuditSection({
 }: AuditSectionProps) {
 	const { t } = useTranslation(["core", "settings", "admin"]);
 	const [exporting, setExporting] = useState(false);
+	const activityTarget = useMemo<ActivityTarget>(
+		() => ({ kind: "team", teamId, admin: false }),
+		[teamId],
+	);
 	const mountedRef = useRef(true);
 	useEffect(() => {
 		mountedRef.current = true;
@@ -66,7 +72,8 @@ export function TeamManageAuditSection({
 	const nextAuditOffset = auditOffset + auditPageSize;
 
 	return (
-		<section>
+		<section className="space-y-8">
+			<WorkspaceActivityFeed target={activityTarget} />
 			<div className="mb-5 flex flex-wrap items-start justify-between gap-3">
 				<div>
 					<h4 className="text-base font-semibold text-foreground">

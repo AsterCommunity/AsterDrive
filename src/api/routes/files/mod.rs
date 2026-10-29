@@ -93,6 +93,10 @@ pub fn routes(
         // Web app upload cancellation.
         .route("/upload/{upload_id}", web::delete().to(cancel_upload))
         // Web app file detail panel and store refresh.
+        .route(
+            "/{id}/activities",
+            web::get().to(super::workspace_activities::file),
+        )
         .route("/{id}", web::get().to(get_file))
         // Archive preview panel manifest; not for raw file bytes.
         .route("/{id}/archive-preview", web::get().to(get_archive_preview))
@@ -184,6 +188,10 @@ pub fn team_routes() -> actix_web::Scope {
         // Team "new empty file" action.
         .route("/new", web::post().to(team_create_empty))
         // Team file detail panel and store refresh.
+        .route(
+            "/{id}/activities",
+            web::get().to(super::workspace_activities::team_file),
+        )
         .route("/{id}", web::get().to(team_get_file))
         // Team archive preview manifest.
         .route(

@@ -156,6 +156,12 @@ pub(crate) async fn ensure_upload_parent_path_with_created<C: sea_orm::Connectio
             (folder, was_created)
         };
         if was_created {
+            crate::services::workspace::activity::folder_created(
+                db,
+                &folder,
+                crate::services::workspace::activity::ActivitySource::Rest,
+            )
+            .await?;
             created.push(folder.id);
         }
         current_parent = Some(folder.id);

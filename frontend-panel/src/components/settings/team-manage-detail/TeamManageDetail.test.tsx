@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TeamManageDetail } from "@/components/settings/team-manage-detail/TeamManageDetail";
 import type { UserSummary } from "@/types/api";
 
+vi.mock("@/components/files/WorkspaceActivityFeed", () => ({
+	WorkspaceActivityFeed: () => <div data-testid="workspace-activity-feed" />,
+}));
+
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	navigate: vi.fn(),

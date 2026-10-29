@@ -272,6 +272,14 @@ pub fn routes(
                     // teams
                     .route("/teams", web::get().to(list_teams))
                     .route("/teams", web::post().to(create_team))
+                    .route(
+                        "/teams/{id}/activities",
+                        web::get().to(super::workspace_activities::admin_team),
+                    )
+                    .route(
+                        "/teams/{id}/activities/export",
+                        web::get().to(super::workspace_activities::admin_export_team),
+                    )
                     .route("/teams/{id}", web::get().to(get_team))
                     .route("/teams/{id}", web::patch().to(update_team))
                     .route("/teams/{id}", web::delete().to(delete_team))

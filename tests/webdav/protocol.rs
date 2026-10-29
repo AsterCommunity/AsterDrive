@@ -9786,3 +9786,59 @@ async fn test_webdav_bearer_access_token_is_rejected_with_basic_challenge() {
         Some("Basic realm=\"AsterDrive WebDAV\"")
     );
 }
+
+#[actix_web::test]
+async fn test_webdav_activity_is_durable_and_tracks_protocol_source_and_actor() {
+    let (app, state) = setup_with_webdav!(with_state);
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    state
+        .runtime_config
+        .apply(common::system_config_model("audit_log_enabled", "false"));
+    for (method, path, payload, destination) in [
+        ("PUT", "/webdav/activity-657.txt", "first", None),
+        ("PUT", "/webdav/activity-657.txt", "edited", None),
+        (
+            "MOVE",
+            "/webdav/activity-657.txt",
+            "",
+            Some("/webdav/renamed-657.txt"),
+        ),
+    ] {
+        let mut request = test::TestRequest::default()
+            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .uri(path)
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(payload);
+        if let Some(destination) = destination {
+            request = request.insert_header(("Destination", destination));
+        }
+        let response = test::call_service(&app, request.to_request()).await;
+        assert!(
+            response.status().is_success(),
+            "{method}: {}",
+            response.status()
+        );
+    }
+    use aster_drive_model::entities::workspace_activity;
+    use sea_orm::QueryOrder;
+    let records = workspace_activity::Entity::find()
+        .order_by_asc(workspace_activity::Column::Id)
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(records.len(), 3);
+    assert!(
+        records
+            .iter()
+            .all(|r| r.source == "webdav" && r.actor_name == "testuser")
+    );
+    assert_eq!(records[0].action, "file_upload");
+    assert_eq!(records[1].action, "file_edit");
+    assert_eq!(records[2].action, "file_move");
+    assert_eq!(records[2].entity_name, "renamed-657.txt");
+    let f = file_repo::find_by_id(state.writer_db(), records[2].entity_id)
+        .await
+        .unwrap();
+    assert_eq!(f.modified_by_username.as_deref(), Some("testuser"));
+}

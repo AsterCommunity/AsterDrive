@@ -168,6 +168,8 @@ pub(super) async fn persist_temp_store(
                     txn,
                     WriteFileRecordFromTempParams {
                         scope,
+                        activity_source: operation_context.activity_source(),
+                        activity_action: operation_context.content_action(),
                         folder_id,
                         filename: &filename,
                         mime: &mime,

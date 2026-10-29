@@ -21,12 +21,38 @@ pub async fn flush(state: &impl SharedRuntimeState) -> crate::errors::Result<()>
         })
 }
 
+fn is_workspace_mutation(action: AuditAction) -> bool {
+    matches!(
+        action,
+        AuditAction::FileCreate
+            | AuditAction::FileCopy
+            | AuditAction::FileMove
+            | AuditAction::FileRename
+            | AuditAction::FileEdit
+            | AuditAction::FileUpload
+            | AuditAction::FileDelete
+            | AuditAction::FileRestore
+            | AuditAction::FileVersionRestore
+            | AuditAction::FolderCreate
+            | AuditAction::FolderCopy
+            | AuditAction::FolderMove
+            | AuditAction::FolderRename
+            | AuditAction::FolderDelete
+            | AuditAction::FolderRestore
+            | AuditAction::FolderIconChange
+            | AuditAction::TagAttach
+            | AuditAction::TagDetach
+            | AuditAction::PropertySet
+            | AuditAction::PropertyDelete
+    )
+}
+
 pub fn should_record<S: SharedRuntimeState>(state: &S, action: AuditAction) -> bool {
-    state.runtime_config().should_record_audit_action(action)
+    !is_workspace_mutation(action) && state.runtime_config().should_record_audit_action(action)
 }
 
 pub fn should_record_with_config(runtime_config: &RuntimeConfig, action: AuditAction) -> bool {
-    runtime_config.should_record_audit_action(action)
+    !is_workspace_mutation(action) && runtime_config.should_record_audit_action(action)
 }
 
 #[derive(Debug, Clone, Copy)]

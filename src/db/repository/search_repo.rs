@@ -111,6 +111,10 @@ pub struct FileSearchItem {
     pub owner_user_id: Option<i64>,
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
+    pub modified_by_user_id: Option<i64>,
+    pub modified_by_username: Option<String>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub modified_at: Option<DateTimeUtc>,
     pub mime_type: String,
     pub extension: String,
     pub compound_extension: Option<String>,
@@ -341,6 +345,9 @@ async fn search_files_in_scope<C: ConnectionTrait>(
         .column(file::Column::OwnerUserId)
         .column(file::Column::CreatedByUserId)
         .column(file::Column::CreatedByUsername)
+        .column(file::Column::ModifiedByUserId)
+        .column(file::Column::ModifiedByUsername)
+        .column(file::Column::ModifiedAt)
         .column(file::Column::MimeType)
         .column(file::Column::Extension)
         .column(file::Column::CompoundExtension)

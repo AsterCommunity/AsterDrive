@@ -130,6 +130,7 @@ impl PreparedEmptyFile {
                     &self.filename,
                     blob,
                     Utc::now(),
+                    aster_drive_model::types::AuditAction::FileCreate,
                 )
                 .await
             }

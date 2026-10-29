@@ -138,6 +138,12 @@ pub(crate) async fn batch_transfer_between_scopes(
     target_folder_id: Option<i64>,
     mode: BatchTransferMode,
 ) -> Result<BatchResult> {
+    let activity = crate::services::workspace::activity::ActivityContext::actor(
+        state.writer_db(),
+        dest_scope.actor_user_id(),
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
     let mut result = BatchResult::new();
     let mut created_file_ids_by_source = HashMap::new();
     let mut created_folder_ids_by_source = HashMap::new();
@@ -221,6 +227,7 @@ pub(crate) async fn batch_transfer_between_scopes(
             dest_scope,
             &file_copy_specs,
             target_folder_id,
+            Some(&activity),
         )
         .await?;
         let created_files_by_name: HashMap<&str, i64> = created_files
@@ -255,6 +262,7 @@ pub(crate) async fn batch_transfer_between_scopes(
         return Ok(result);
     }
 
+    let activity = &activity;
     let mut folder_copy_results =
         stream::iter(normalized_folder_ids.iter().copied().enumerate().map(
             |(index, id)| async move {
@@ -264,6 +272,7 @@ pub(crate) async fn batch_transfer_between_scopes(
                     dest_scope,
                     id,
                     target_folder_id,
+                    Some(activity),
                 )
                 .await;
                 (index, id, copy_result)
@@ -288,8 +297,14 @@ pub(crate) async fn batch_transfer_between_scopes(
     }
 
     if matches!(mode, BatchTransferMode::Move) && result.failed == 0 {
-        let deleted =
-            super::delete::batch_delete_in_scope(state, source_scope, file_ids, folder_ids).await?;
+        let deleted = super::delete::batch_delete_in_scope(
+            state,
+            source_scope,
+            file_ids,
+            folder_ids,
+            Some(activity),
+        )
+        .await?;
         if deleted.failed > 0 {
             let (cleanup_file_ids, cleanup_folder_ids) = destination_cleanup_targets(
                 &deleted.errors,
@@ -307,6 +322,7 @@ pub(crate) async fn batch_transfer_between_scopes(
                     dest_scope,
                     &cleanup_file_ids,
                     &cleanup_folder_ids,
+                    Some(activity),
                 )
                 .await
                 .map_err(|error| error.to_string())

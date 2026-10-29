@@ -6,7 +6,7 @@ use actix_web::http::{StatusCode, header};
 use actix_web::test;
 use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
 use aster_drive::services::events::storage_change::StorageChangeKind;
-use aster_drive_model::entities::{audit_log, file, file_blob};
+use aster_drive_model::entities::{file, file_blob, workspace_activity};
 use aster_drive_model::types::AuditAction;
 use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
@@ -1807,9 +1807,9 @@ async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
     aster_drive::services::ops::audit::flush(&state)
         .await
         .unwrap();
-    let audit_count_after_first = audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
-        .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
+    let audit_count_after_first = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::Action.eq(AuditAction::FileCreate.as_str()))
+        .filter(workspace_activity::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
         .count(state.writer_db())
         .await
         .expect("file-create audit count should query successfully");
@@ -1822,9 +1822,9 @@ async fn test_create_empty_file_idempotency_header_replays_and_rejects_drift() {
     aster_drive::services::ops::audit::flush(&state)
         .await
         .unwrap();
-    let audit_count_after_replay = audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FileCreate))
-        .filter(audit_log::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
+    let audit_count_after_replay = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::Action.eq(AuditAction::FileCreate.as_str()))
+        .filter(workspace_activity::Column::EntityId.eq(first["data"]["id"].as_i64().unwrap()))
         .count(state.writer_db())
         .await
         .expect("file-create audit count should query successfully");

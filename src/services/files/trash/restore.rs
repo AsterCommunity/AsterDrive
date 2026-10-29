@@ -10,7 +10,9 @@ use crate::runtime::StorageChangeRuntimeState;
 use crate::services::files::folder::FolderTreeMutationDispatch;
 use crate::services::task::types::FolderTreeMutationOperation;
 use crate::services::{
-    events::storage_change, files::folder as folder_ops, workspace::storage::WorkspaceStorageScope,
+    events::storage_change,
+    files::folder as folder_ops,
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use aster_drive_model::entities::{file, folder};
 
@@ -37,20 +39,39 @@ async fn restore_file_in_scope(
         }
     }
 
-    if restore_to_root {
-        let txn = transaction::begin(state.writer_db()).await?;
-        let file_name = file.name.clone();
-        let mut active: file::ActiveModel = file.into();
-        active.folder_id = Set(None);
-        active.deleted_at = Set(None);
-        active
-            .update(&txn)
-            .await
-            .map_err(|err| file_repo::map_name_db_err(err, &file_name))?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    let current = file_repo::lock_by_id(&txn, id).await?;
+    storage::ensure_file_scope(&current, scope)?;
+    if current.deleted_at.is_none() {
         transaction::commit(txn).await?;
-    } else {
-        file_repo::restore(state.writer_db(), id).await?;
+        return Ok(());
     }
+    let before = current.clone();
+    let file_name = current.name.clone();
+    let mut active: file::ActiveModel = current.into();
+    if restore_to_root {
+        active.folder_id = Set(None);
+    }
+    active.deleted_at = Set(None);
+    let mut after = active
+        .update(&txn)
+        .await
+        .map_err(|e| file_repo::map_name_db_err(e, &file_name))?;
+    let ctx = crate::services::workspace::activity::ActivityContext::actor(
+        &txn,
+        scope.actor_user_id(),
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
+    crate::services::workspace::activity::file_changed(
+        &txn,
+        &ctx,
+        &before,
+        &mut after,
+        aster_drive_model::types::AuditAction::FileRestore,
+    )
+    .await?;
+    transaction::commit(txn).await?;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
@@ -100,16 +121,60 @@ async fn restore_folder_in_scope(
     }
 
     let txn = transaction::begin(state.writer_db()).await?;
+    let root_before = folder.clone();
     let mut active: folder::ActiveModel = folder.into();
     let folder_name = active.name.clone().take().unwrap_or_default();
     if restore_to_root {
         active.parent_id = Set(None);
     }
     active.deleted_at = Set(None);
-    active
+    let mut restored_root = active
         .update(&txn)
         .await
         .map_err(|err| folder_repo::map_name_db_err(err, &folder_name))?;
+    let ctx = crate::services::workspace::activity::ActivityContext::actor(
+        &txn,
+        scope.actor_user_id(),
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
+    crate::services::workspace::activity::folder_changed(
+        &txn,
+        &ctx,
+        &root_before,
+        &mut restored_root,
+        aster_drive_model::types::AuditAction::FolderRestore,
+    )
+    .await?;
+    for before in &files {
+        if before.deleted_at.is_some() {
+            let mut after = before.clone();
+            after.deleted_at = None;
+            crate::services::workspace::activity::file_changed(
+                &txn,
+                &ctx,
+                before,
+                &mut after,
+                aster_drive_model::types::AuditAction::FileRestore,
+            )
+            .await?;
+        }
+    }
+    for id in &child_folder_ids {
+        let before = folder_repo::find_by_id(&txn, *id).await?;
+        if before.deleted_at.is_some() {
+            let mut after = before.clone();
+            after.deleted_at = None;
+            crate::services::workspace::activity::folder_changed(
+                &txn,
+                &ctx,
+                &before,
+                &mut after,
+                aster_drive_model::types::AuditAction::FolderRestore,
+            )
+            .await?;
+        }
+    }
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
     file_repo::restore_many(&txn, &file_ids).await?;
     folder_repo::restore_many(&txn, &child_folder_ids).await?;

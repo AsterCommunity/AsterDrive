@@ -119,16 +119,40 @@ pub async fn set(
         ));
     }
 
-    property_repo::upsert(
-        state.writer_db(),
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    let scope = crate::services::workspace::storage::WorkspaceStorageScope::Personal { user_id };
+    let before = crate::services::workspace::activity::ResourceSnapshot::lock(
+        &txn,
+        scope,
         entity_type,
         entity_id,
-        namespace,
-        name,
-        value,
     )
-    .await
-    .map(Into::into)
+    .await?;
+    let current = property_repo::find_by_key(&txn, entity_type, entity_id, namespace, name).await?;
+    if let Some(current) = current.filter(|current| current.value.as_deref() == value) {
+        aster_forge_db::transaction::commit(txn).await?;
+        return Ok(current.into());
+    }
+    let property =
+        property_repo::upsert(&txn, entity_type, entity_id, namespace, name, value).await?;
+    let ctx = crate::services::workspace::activity::ActivityContext::actor(
+        &txn,
+        user_id,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
+    before
+        .record(
+            &txn,
+            &ctx,
+            crate::services::workspace::activity::ActivityChange::with_details(
+                aster_drive_model::types::AuditAction::PropertySet,
+                serde_json::json!({"namespace":namespace,"property_name":name}),
+            ),
+        )
+        .await?;
+    aster_forge_db::transaction::commit(txn).await?;
+    Ok(property.into())
 }
 
 /// 删除单个属性
@@ -144,7 +168,38 @@ pub async fn delete(
 
     ensure_user_namespace_mutable(namespace)?;
 
-    property_repo::delete_prop(state.writer_db(), entity_type, entity_id, namespace, name).await?;
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    let scope = crate::services::workspace::storage::WorkspaceStorageScope::Personal { user_id };
+    let before = crate::services::workspace::activity::ResourceSnapshot::lock(
+        &txn,
+        scope,
+        entity_type,
+        entity_id,
+    )
+    .await?;
+    if property_repo::find_by_key(&txn, entity_type, entity_id, namespace, name)
+        .await?
+        .is_some()
+    {
+        property_repo::delete_prop(&txn, entity_type, entity_id, namespace, name).await?;
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
+            &txn,
+            user_id,
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await?;
+        before
+            .record(
+                &txn,
+                &ctx,
+                crate::services::workspace::activity::ActivityChange::with_details(
+                    aster_drive_model::types::AuditAction::PropertyDelete,
+                    serde_json::json!({"namespace":namespace,"property_name":name}),
+                ),
+            )
+            .await?;
+    }
+    aster_forge_db::transaction::commit(txn).await?;
     tracing::debug!(
         entity_type = ?entity_type,
         entity_id,

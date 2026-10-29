@@ -315,28 +315,6 @@ pub(crate) async fn set_icon_in_scope_with_audit(
     )
 }
 
-pub(super) fn folder_icon_audit_details(
-    previous: &FolderIcon,
-    next: &FolderIcon,
-) -> serde_json::Value {
-    fn fields(icon: &FolderIcon) -> (&'static str, Option<&str>) {
-        match icon {
-            FolderIcon::Default {} => ("default", None),
-            FolderIcon::Builtin { key } => ("builtin", Some(key.as_str())),
-            FolderIcon::Emoji { .. } => ("emoji", None),
-        }
-    }
-
-    let (previous_kind, previous_key) = fields(previous);
-    let (kind, key) = fields(next);
-    json!({
-        "previous_kind": previous_kind,
-        "previous_key": previous_key,
-        "kind": kind,
-        "key": key,
-    })
-}
-
 pub(crate) async fn copy_folder_in_scope_with_audit(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,

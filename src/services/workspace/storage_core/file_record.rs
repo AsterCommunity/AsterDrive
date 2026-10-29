@@ -16,6 +16,8 @@ enum NewFileNameMode {
 
 struct CreateFileFromBlobParams<'a> {
     scope: WorkspaceStorageScope,
+    activity_source: crate::services::workspace::activity::ActivitySource,
+    creation_action: aster_drive_model::types::AuditAction,
     folder_id: Option<i64>,
     filename: &'a str,
     blob: &'a file_blob::Model,
@@ -31,6 +33,8 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
 ) -> Result<file::Model> {
     let CreateFileFromBlobParams {
         scope,
+        activity_source,
+        creation_action,
         folder_id,
         filename,
         blob,
@@ -114,6 +118,13 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
                     crate::db::repository::revision_repo::RevisionReason::Create,
                 )
                 .await?;
+                crate::services::workspace::activity::file_created(
+                    db,
+                    &created,
+                    creation_action,
+                    activity_source,
+                )
+                .await?;
                 return Ok(created);
             }
             Err(err) if file_repo::is_name_conflict_db_err(&err) => {
@@ -145,11 +156,14 @@ pub(crate) async fn create_new_file_from_blob<C: ConnectionTrait>(
     filename: &str,
     blob: &file_blob::Model,
     now: chrono::DateTime<Utc>,
+    creation_action: aster_drive_model::types::AuditAction,
 ) -> Result<file::Model> {
     create_file_from_blob_with_name_mode(
         db,
         CreateFileFromBlobParams {
+            creation_action,
             scope,
+            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             folder_id,
             filename,
             blob,
@@ -174,7 +188,9 @@ pub(crate) async fn create_new_file_from_blob_with_actor_username<C: ConnectionT
     create_file_from_blob_with_name_mode(
         db,
         CreateFileFromBlobParams {
+            creation_action: aster_drive_model::types::AuditAction::FileUpload,
             scope,
+            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             folder_id,
             filename,
             blob,
@@ -198,7 +214,9 @@ pub(crate) async fn create_exact_file_from_blob<C: ConnectionTrait>(
     create_file_from_blob_with_name_mode(
         db,
         CreateFileFromBlobParams {
+            creation_action: aster_drive_model::types::AuditAction::FileCreate,
             scope,
+            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             folder_id,
             filename,
             blob,
@@ -213,6 +231,7 @@ pub(crate) async fn create_exact_file_from_blob<C: ConnectionTrait>(
 
 pub(crate) struct CreateFileFromBlobWithMimeParams<'a> {
     pub scope: WorkspaceStorageScope,
+    pub activity_source: crate::services::workspace::activity::ActivitySource,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub mime_type: &'a str,
@@ -228,6 +247,7 @@ pub(crate) async fn create_file_from_blob_with_mime<C: ConnectionTrait>(
 ) -> Result<file::Model> {
     let CreateFileFromBlobWithMimeParams {
         scope,
+        activity_source,
         folder_id,
         filename,
         mime_type,
@@ -239,7 +259,9 @@ pub(crate) async fn create_file_from_blob_with_mime<C: ConnectionTrait>(
     create_file_from_blob_with_name_mode(
         db,
         CreateFileFromBlobParams {
+            creation_action: aster_drive_model::types::AuditAction::FileUpload,
             scope,
+            activity_source,
             folder_id,
             filename,
             blob,

@@ -204,7 +204,15 @@ pub(crate) async fn update_in_scope_with_audit(
         audit::AuditAction::FileRename
     };
     let previous_file = get_info_in_scope(state, scope, file_id).await?;
-    let file = update_in_scope(state, scope, file_id, name, folder_id).await?;
+    let file = update_in_scope(
+        state,
+        scope,
+        file_id,
+        name,
+        folder_id,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
     let details = audit_transfer_details_for_models(state, scope, &previous_file, &file).await;
     audit::log_with_details(
         state,
