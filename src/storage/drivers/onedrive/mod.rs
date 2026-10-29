@@ -1,5 +1,6 @@
 //! Microsoft Graph OneDrive / SharePoint storage driver building blocks.
 
+mod browser_upload;
 mod client;
 mod error;
 mod paths;
@@ -84,6 +85,10 @@ fn graph_simple_upload_too_large_error() -> StorageError {
 
 pub fn microsoft_graph_upload_capabilities() -> ProviderResumableUploadCapabilities {
     ProviderResumableUploadCapabilities {
+        browser_upload_protocol: Some(aster_drive_storage::BrowserUploadProtocol {
+            id: "asterdrive.microsoft_graph.resumable".into(),
+            version: 1,
+        }),
         provider: "microsoft_graph",
         session_label: "Microsoft Graph upload session",
         min_fragment_size: GRAPH_UPLOAD_FRAGMENT_ALIGNMENT,
@@ -644,6 +649,10 @@ impl StreamUploadDriver for OneDriveDriver {
 impl ProviderResumableUploadDriver for OneDriveDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         microsoft_graph_upload_capabilities()
+    }
+
+    fn browser_upload(&self) -> Option<&dyn aster_drive_storage::BrowserUploadDriver> {
+        Some(self)
     }
 
     async fn create_upload_session(
@@ -1396,6 +1405,16 @@ mod tests {
         let capabilities = provider_resumable.provider_resumable_upload_capabilities();
 
         assert_eq!(capabilities.provider, "microsoft_graph");
+        assert_eq!(
+            provider_resumable.browser_upload().unwrap().protocol(),
+            capabilities.browser_upload_protocol.clone().unwrap()
+        );
+        let projected: aster_drive_storage::connector_descriptor::StorageConnectorProviderResumableUploadCapabilities =
+            capabilities.clone().into();
+        assert_eq!(
+            projected.browser_upload_protocol,
+            capabilities.browser_upload_protocol
+        );
         assert_eq!(capabilities.session_label, "Microsoft Graph upload session");
         assert_eq!(
             capabilities.min_fragment_size,

@@ -16,3 +16,5 @@ pub mod s3_config;
 mod s3_vendor;
 pub mod sftp;
 pub mod tencent_cos;
+
+pub(crate) mod browser_resumable;

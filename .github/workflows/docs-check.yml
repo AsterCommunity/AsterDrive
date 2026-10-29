@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - '.nvmrc'
       - 'docs/**'
       - 'developer-docs/**'
       - '.config/nextest.toml'
@@ -15,6 +16,7 @@ on:
       - '.github/workflows/docs-check.yml'
   pull_request:
     paths:
+      - '.nvmrc'
       - 'docs/**'
       - 'developer-docs/**'
       - '.config/nextest.toml'
@@ -59,6 +61,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -88,6 +95,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: docs-openapi-v1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

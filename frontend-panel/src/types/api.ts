@@ -600,3 +600,10 @@ export type UploadTransport = components["schemas"]["UploadTransport"];
 export type UploadProgressResponse =
 	components["schemas"]["UploadProgressResponse"];
 export type UploadSessionStatus = components["schemas"]["UploadSessionStatus"];
+
+export type BrowserUploadStep = components["schemas"]["BrowserUploadStep"];
+export type BrowserUploadInstruction =
+	components["schemas"]["BrowserUploadInstruction"];
+export type BrowserUploadObservation =
+	components["schemas"]["BrowserUploadObservation"];
+export type BrowserUploadReport = components["schemas"]["BrowserUploadReport"];

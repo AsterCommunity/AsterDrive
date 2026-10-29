@@ -5,12 +5,14 @@ on:
     branches:
       - master
     paths:
+      - '.nvmrc'
       - '**/Cargo.toml'
       - '**/Cargo.lock'
       - '.cargo/audit.toml'
       - '.github/workflows/audit.yml'
   pull_request:
     paths:
+      - '.nvmrc'
       - '**/Cargo.toml'
       - '**/Cargo.lock'
       - '.cargo/audit.toml'
@@ -45,6 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

@@ -627,6 +627,7 @@ mod tests {
             &self,
         ) -> extensions::ProviderResumableUploadCapabilities {
             extensions::ProviderResumableUploadCapabilities {
+                browser_upload_protocol: None,
                 provider: "test_provider",
                 session_label: "test upload session",
                 min_fragment_size: 1,

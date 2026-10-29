@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Google Drive storage backend** — Administrators can authorize an encrypted Google OAuth application and use a folder, shared drive, or appDataFolder as an AsterDrive blob pool, with an optional relative base path created beneath the selected root on writes. Existing blobs and unfinished uploads prevent pool relocation. Uploads support bounded server relay and browser-direct resumable transfer; account quota observation uses Google's cross-service usage and reports unavailable shared-drive bounds honestly. Downloads and Range reads retain the current AsterDrive filename through server relay. Administrator OAuth tokens stay on the server; only browser-direct uploads receive a temporary capability URL for their own session.
+- **Google Drive storage backend** — Administrators can authorize an encrypted Google OAuth application and use a folder, shared drive, or appDataFolder as an AsterDrive blob pool, with an optional relative base path created beneath the selected root on writes. Existing blobs and unfinished uploads prevent pool relocation. Uploads support bounded server relay and backend-coordinated browser-direct resumable transfer; account quota observation uses Google's cross-service usage and reports unavailable shared-drive bounds honestly. Downloads and Range reads retain the current AsterDrive filename through server relay. Administrator OAuth tokens stay on the server; only browser-direct uploads receive a temporary capability URL for their own session.
+- **Extensible browser upload coordination** — Resumable drivers own response parsing and generate bounded HTTP instructions; the frontend executes uploads without provider-specific parsers. Protocol snapshots, private state and request IDs survive reloads, with authoritative recovery after lost responses and guarded updates during cancellation or concurrent coordination. Existing OneDrive and Google Drive sessions remain recoverable. The matching latest frontend is required; standalone `upload_url` and `next_expected_ranges` response fields are removed.
+
+### Changed
+
+- **Node.js build toolchain** — Local development and CI select Node.js 26.13.0 from `.nvmrc`; the Docker frontend build pins the same patch and checks its binary version. Frontend and documentation packages require Node.js >=26.13.0 <27.
 
 ### Fixed
 

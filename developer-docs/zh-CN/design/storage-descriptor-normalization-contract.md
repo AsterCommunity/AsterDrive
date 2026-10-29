@@ -26,6 +26,10 @@
 - action 返回的结构化 `output` 只允许按 descriptor 的 `output_fields` 临时展示；未声明字段、类型不匹配字段和其他 action 的结果一律忽略。输出不写回 policy config，也不跨 action 或对话框会话保存。
 - delegated credential 的状态文案、语义色、说明、需要管理员关注的提示、净化后的原因映射、生命周期标签、重新授权文案和 redirect URI 辅助信息都由 `credential_management` 描述。共享面板不得按 OneDrive、Microsoft Graph 或其他 provider ID 分支，也不得直接展示 wire `status_reason`。
 
+## 浏览器上传协议
+
+Provider resumable 浏览器上传使用[后端协调契约](./browser-upload-coordination.md)。`browser_upload_protocol` 是 driver-owned 协议标识与版本，descriptor 复用运行时定义；前端不将它解释成 parser kind，不按 provider ID 或 URL 推断响应格式。
+
 ## 文档事实投影
 
 - 内置 connector 的身份、展示名称、`deployment_scope`、`credential_mode`、`capabilities` 和 `upload_workflows` 仍由运行时 descriptor/localization 唯一拥有，文档层不建立平行 capability 类型。

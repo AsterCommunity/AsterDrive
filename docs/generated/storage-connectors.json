@@ -431,6 +431,10 @@
         "presigned_upload": false,
         "frontend_direct_provider_resumable_upload": true,
         "provider_resumable_upload_capabilities": {
+          "browser_upload_protocol": {
+            "id": "asterdrive.microsoft_graph.resumable",
+            "version": 1
+          },
           "provider": "microsoft_graph",
           "session_label": "Microsoft Graph upload session",
           "min_fragment_size": 327680,
@@ -486,6 +490,10 @@
         "presigned_upload": false,
         "frontend_direct_provider_resumable_upload": true,
         "provider_resumable_upload_capabilities": {
+          "browser_upload_protocol": {
+            "id": "asterdrive.google_drive.resumable",
+            "version": 1
+          },
           "provider": "google_drive",
           "session_label": "Google Drive resumable upload",
           "min_fragment_size": 262144,

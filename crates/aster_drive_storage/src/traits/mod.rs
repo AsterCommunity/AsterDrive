@@ -1,5 +1,7 @@
 //! Storage driver trait contracts.
 
+pub mod browser_upload;
+pub use browser_upload::*;
 pub mod driver;
 pub mod extensions;
 pub mod multipart;

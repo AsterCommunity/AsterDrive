@@ -169,6 +169,7 @@ impl StorageDriver for MockCleanupDriver {
 impl ProviderResumableUploadDriver for MockCleanupDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         ProviderResumableUploadCapabilities {
+            browser_upload_protocol: None,
             provider: "mock",
             session_label: "mock session",
             min_fragment_size: 1,

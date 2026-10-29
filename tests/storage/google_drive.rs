@@ -124,6 +124,10 @@ async fn google_drive_api_descriptor_and_rejected_creation_keep_management_bound
 
 #[derive(Default)]
 struct GoogleSessionProbe {
+    protocol_version: std::sync::atomic::AtomicU32,
+    pause: std::sync::atomic::AtomicBool,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
     object_size: std::sync::Mutex<Option<u64>>,
     offset: std::sync::atomic::AtomicU64,
     total: u64,
@@ -187,6 +191,7 @@ impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
         &self,
     ) -> aster_drive_storage::ProviderResumableUploadCapabilities {
         aster_drive_storage::ProviderResumableUploadCapabilities {
+            browser_upload_protocol: Some(aster_drive_storage::BrowserUploadDriver::protocol(self)),
             provider: "google_drive",
             session_label: "Google Drive resumable upload",
             min_fragment_size: 256 * 1024,
@@ -199,6 +204,9 @@ impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
             abort_supported: true,
             status_query_supported: true,
         }
+    }
+    fn browser_upload(&self) -> Option<&dyn aster_drive_storage::BrowserUploadDriver> {
+        Some(self)
     }
     async fn create_upload_session(
         &self,
@@ -331,8 +339,13 @@ async fn google_drive_dual_upload_strategies_encrypt_sessions_and_only_direct_re
         assert_eq!(progress.provider_resumable.is_some(), direct);
         if direct {
             assert_eq!(
-                progress.provider_resumable.unwrap().next_expected_ranges,
-                [format!("{}-", 256 * 1024)]
+                progress
+                    .provider_resumable
+                    .unwrap()
+                    .browser_upload
+                    .unwrap()
+                    .confirmed_offset,
+                256 * 1024
             );
         }
         upload::cancel_upload(&state, &id, user).await.unwrap();
@@ -501,6 +514,241 @@ async fn google_drive_permanent_purge_deletes_provider_object_before_discarding_
     assert!(driver.deletes.load(std::sync::atomic::Ordering::SeqCst) > 0);
     assert!(
         aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), record.blob_id)
+            .await
+            .is_err()
+    );
+}
+
+// A third, deliberately different wire protocol proves the coordination layer is extensible.
+#[async_trait::async_trait]
+impl aster_drive_storage::BrowserUploadDriver for GoogleSessionProbe {
+    fn protocol(&self) -> aster_drive_storage::BrowserUploadProtocol {
+        aster_drive_storage::BrowserUploadProtocol {
+            id: "test.plugin.upload".into(),
+            version: self
+                .protocol_version
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .max(7),
+        }
+    }
+    async fn advance(
+        &self,
+        context: aster_drive_storage::BrowserUploadContext<'_>,
+        private_state: Value,
+        receipt: Option<aster_drive_storage::BrowserUploadReceipt<'_>>,
+    ) -> aster_drive_storage::Result<aster_drive_storage::BrowserUploadTransition> {
+        use aster_drive_storage::*;
+        if self.pause.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
+        let offset = self.offset.load(std::sync::atomic::Ordering::SeqCst);
+        if let Some(receipt) = receipt {
+            // This plugin uses a custom response header with PATCH, not either built-in format.
+            if receipt.observation.status == 299 {
+                assert_eq!(
+                    receipt
+                        .observation
+                        .headers
+                        .get("x-test-accepted")
+                        .map(String::as_str),
+                    Some("plugin-receipt")
+                );
+                assert!(private_state.get("round").is_some());
+            }
+        }
+        let request = (offset < context.total_size).then(|| BrowserUploadRequest {
+            url: context.upload_url.into(),
+            method: BrowserUploadMethod::Patch,
+            headers: std::collections::BTreeMap::from([("X-Test-Protocol".into(), "seven".into())]),
+            body: Some(BrowserUploadRange {
+                start: offset,
+                end: (offset + context.fragment_size).min(context.total_size),
+            }),
+            response_headers: vec!["x-test-accepted".into()],
+        });
+        Ok(BrowserUploadTransition {
+            confirmed_offset: offset,
+            provider_completed: offset == context.total_size,
+            request,
+            private_state: json!({"round":private_state["round"].as_u64().unwrap_or(0)+1}),
+        })
+    }
+}
+
+#[actix_web::test]
+async fn browser_coordination_supports_a_third_protocol_partial_progress_restore_and_replayed_reports()
+ {
+    use aster_drive::services::files::upload::{self, BrowserUploadReport};
+    use aster_drive_storage::BrowserUploadObservation;
+    use std::{collections::BTreeMap, sync::atomic::Ordering};
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 8).await;
+    let init = upload::init_upload(&state, user, "plugin.bin", 8, None, None)
+        .await
+        .unwrap();
+    let init_step = init.provider_resumable.unwrap().browser_upload.unwrap();
+    assert_eq!(init_step.protocol.id, "test.plugin.upload");
+    assert_eq!(init_step.protocol.version, 7);
+    let id = init.upload_id.unwrap();
+    let step = upload::coordinate_browser_upload(
+        &state,
+        &id,
+        user,
+        BrowserUploadReport {
+            request_id: None,
+            observation: None,
+        },
+    )
+    .await
+    .unwrap();
+    let instruction = step.instruction.unwrap();
+    assert_eq!(
+        instruction.request.method,
+        aster_drive_storage::BrowserUploadMethod::Patch
+    );
+    assert_eq!(instruction.request.body.unwrap().start, 0);
+    driver.offset.store(2, Ordering::SeqCst);
+    let report = BrowserUploadReport {
+        request_id: Some(instruction.request_id),
+        observation: Some(BrowserUploadObservation {
+            status: 299,
+            headers: BTreeMap::from([
+                ("X-Test-Accepted".into(), "plugin-receipt".into()),
+                ("X-Unrequested".into(), "ignored".into()),
+            ]),
+            body: "opaque plugin body".into(),
+            body_truncated: false,
+        }),
+    };
+    let next = upload::coordinate_browser_upload(&state, &id, user, report.clone())
+        .await
+        .unwrap();
+    assert_eq!(next.confirmed_offset, 2);
+    assert!(!next.provider_completed);
+    // A response-loss retry of an old ID reconciles, rather than applying its observation twice.
+    let replay = upload::coordinate_browser_upload(&state, &id, user, report)
+        .await
+        .unwrap();
+    assert_eq!(replay.confirmed_offset, 2);
+    let restored = upload::list_recoverable_sessions(&state, user, None)
+        .await
+        .unwrap();
+    let restored = restored.iter().find(|s| s.upload_id == id).unwrap();
+    assert!(
+        restored.chunks_on_disk.is_empty(),
+        "partially received chunk cannot be skipped"
+    );
+    assert_eq!(
+        restored
+            .provider_resumable
+            .as_ref()
+            .unwrap()
+            .browser_upload
+            .as_ref()
+            .unwrap()
+            .confirmed_offset,
+        2
+    );
+    driver.offset.store(8, Ordering::SeqCst);
+    let done = upload::coordinate_browser_upload(
+        &state,
+        &id,
+        user,
+        BrowserUploadReport {
+            request_id: None,
+            observation: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(done.provider_completed);
+    assert!(done.instruction.is_none());
+    // Browser/provider completion is insufficient to publish a missing object.
+    assert!(
+        upload::complete_upload(&state, &id, user, None)
+            .await
+            .is_err()
+    );
+}
+
+#[actix_web::test]
+async fn browser_coordination_checks_owner_scope_expiry_terminal_status_and_report_bounds() {
+    use aster_drive::services::files::upload::{self, BrowserUploadReport};
+    use sea_orm::{ActiveModelTrait, Set};
+    let (state, user, _) = google_upload_fixture("frontend_direct", 8).await;
+    let id = upload::init_upload(&state, user, "file.bin", 8, None, None)
+        .await
+        .unwrap()
+        .upload_id
+        .unwrap();
+    let report = || BrowserUploadReport {
+        request_id: None,
+        observation: None,
+    };
+    assert!(
+        upload::coordinate_browser_upload(&state, &id, user + 1, report())
+            .await
+            .is_err()
+    );
+    assert!(
+        upload::coordinate_browser_upload_for_team(&state, 999, &id, user, report())
+            .await
+            .is_err()
+    );
+    let mut row: aster_drive_model::entities::upload_session::ActiveModel =
+        aster_drive::db::repository::upload_session_repo::find_by_id(state.writer_db(), &id)
+            .await
+            .unwrap()
+            .into();
+    row.expires_at = Set(chrono::Utc::now() - chrono::Duration::seconds(1));
+    row.update(state.writer_db()).await.unwrap();
+    let error = upload::coordinate_browser_upload(&state, &id, user, report())
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.api_error_code(),
+        aster_drive::api::api_error_code::ApiErrorCode::UploadSessionExpired
+    );
+}
+
+#[actix_web::test]
+async fn browser_protocol_snapshots_reject_unknown_versions_and_cancellation_wins_inflight_coordination()
+ {
+    use aster_drive::services::files::upload::{self, BrowserUploadReport};
+    use std::sync::atomic::Ordering;
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 8).await;
+    let id = upload::init_upload(&state, user, "file.bin", 8, None, None)
+        .await
+        .unwrap()
+        .upload_id
+        .unwrap();
+    let report = || BrowserUploadReport {
+        request_id: None,
+        observation: None,
+    };
+    driver.protocol_version.store(8, Ordering::SeqCst);
+    let error = upload::coordinate_browser_upload(&state, &id, user, report())
+        .await
+        .err()
+        .unwrap();
+    assert!(error.message().contains("protocol is unsupported"));
+    driver.protocol_version.store(7, Ordering::SeqCst);
+    driver.pause.store(true, Ordering::SeqCst);
+    let (result, ()) = tokio::join!(
+        upload::coordinate_browser_upload(&state, &id, user, report()),
+        async {
+            driver.entered.notified().await;
+            upload::cancel_upload(&state, &id, user).await.unwrap();
+            driver.release.notify_one();
+        },
+    );
+    assert!(
+        result.is_err(),
+        "no instruction can be issued after cancellation deleted the session"
+    );
+    assert!(
+        aster_drive::db::repository::upload_session_repo::find_by_id(state.writer_db(), &id)
             .await
             .is_err()
     );

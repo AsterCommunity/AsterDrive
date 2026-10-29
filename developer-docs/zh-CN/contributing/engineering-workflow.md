@@ -4,6 +4,10 @@
 
 开始前先读[项目契约](../architecture/project-contract.md)，再根据[任务路由](./task-routing.md)选择本次真正需要的代码、文档和验证入口。
 
+## 本地 Node 工具链
+
+前端、文档、仓库自动化和 Docker 前端构建统一使用 Node.js **26.13.0**，本地与 CI 的版本入口是仓库根目录 `.nvmrc`。执行 `nvm install`、`nvm use` 后再运行 Bun 脚本；Bun 仍负责依赖安装和脚本编排，Node 用于脚本及构建工具。两个 package 的 `engines.node` 要求 `>=26.13.0 <27`。升级时同时修改 `.nvmrc`、Dockerfile 的精确镜像标签与版本断言、package engines，并验证生成 SDK、前端和文档构建。
+
 ## 1. 固定当前任务的证据边界
 
 开始时确认：

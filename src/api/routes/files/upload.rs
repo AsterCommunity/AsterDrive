@@ -575,3 +575,53 @@ pub(crate) async fn team_presign_parts(
     .await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(urls)))
 }
+
+#[aster_forge_api_docs_macros::path(
+    post, path = "/api/v1/files/upload/{upload_id}/provider-step", tag = "files",
+    operation_id = "coordinate_browser_upload",
+    params(("upload_id" = String, Path, description = "Upload session ID")),
+    request_body = upload::BrowserUploadReport,
+    responses((status = 200, description = "Backend-coordinated browser upload step", body = inline(ApiResponse<upload::BrowserUploadStep>))),
+    security(("bearer" = [])),
+)]
+pub async fn coordinate_browser_upload(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<UploadIdPath>,
+    body: web::Json<upload::BrowserUploadReport>,
+) -> Result<HttpResponse> {
+    let step = upload::coordinate_browser_upload(
+        state.get_ref(),
+        &path.upload_id,
+        claims.user_id,
+        body.into_inner(),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(crate::api::response::success(step)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    post, path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/provider-step", tag = "teams",
+    operation_id = "coordinate_team_browser_upload",
+    params(("team_id" = i64, Path, description = "Team ID"), ("upload_id" = String, Path, description = "Upload session ID")),
+    request_body = upload::BrowserUploadReport,
+    responses((status = 200, description = "Backend-coordinated team upload step", body = inline(ApiResponse<upload::BrowserUploadStep>))),
+    security(("bearer" = [])),
+)]
+pub(crate) async fn team_coordinate_browser_upload(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<(i64, String)>,
+    body: web::Json<upload::BrowserUploadReport>,
+) -> Result<HttpResponse> {
+    let (team_id, upload_id) = path.into_inner();
+    let step = upload::coordinate_browser_upload_for_team(
+        state.get_ref(),
+        team_id,
+        &upload_id,
+        claims.user_id,
+        body.into_inner(),
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(crate::api::response::success(step)))
+}

@@ -863,6 +863,8 @@ pub struct StorageConnectorObjectMultipartUploadCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorProviderResumableUploadCapabilities {
+    /// Backend-coordinated browser execution protocol; opaque to the frontend.
+    pub browser_upload_protocol: Option<crate::BrowserUploadProtocol>,
     /// Provider 标识，例如 `microsoft_graph`。
     pub provider: String,
     /// 面向 UI/诊断的 session 名称，例如 `Microsoft Graph upload session`。
@@ -3047,6 +3049,27 @@ pub fn storage_connector_ui_descriptor(
         edit_context_key: input.edit_context_key.to_string(),
         base_path_empty_display: input.base_path_empty_display.to_string(),
         base_path_placeholder: input.base_path_placeholder.to_string(),
+    }
+}
+
+impl From<crate::ProviderResumableUploadCapabilities>
+    for StorageConnectorProviderResumableUploadCapabilities
+{
+    fn from(value: crate::ProviderResumableUploadCapabilities) -> Self {
+        Self {
+            browser_upload_protocol: value.browser_upload_protocol,
+            provider: value.provider.into(),
+            session_label: value.session_label.into(),
+            min_fragment_size: value.min_fragment_size,
+            default_fragment_size: value.default_fragment_size,
+            max_fragment_size: value.max_fragment_size,
+            fragment_alignment: value.fragment_alignment,
+            max_simple_upload_size: value.max_simple_upload_size,
+            frontend_direct_upload: value.frontend_direct_upload,
+            implicit_completion: value.implicit_completion,
+            abort_supported: value.abort_supported,
+            status_query_supported: value.status_query_supported,
+        }
     }
 }
 

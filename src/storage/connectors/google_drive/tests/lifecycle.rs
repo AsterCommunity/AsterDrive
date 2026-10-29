@@ -32,6 +32,30 @@ async fn runtime_factory_requires_authorization_and_reloads_revocation() {
         .unwrap()
         .provider_resumable_upload_capabilities();
     assert_eq!(resumable.provider, "google_drive");
+    let descriptor = context
+        .registry
+        .connectors()
+        .require_policy(&context.policy)
+        .unwrap()
+        .descriptor();
+    assert_eq!(
+        descriptor
+            .upload_workflows
+            .provider_resumable_upload_capabilities
+            .unwrap()
+            .browser_upload_protocol,
+        resumable.browser_upload_protocol
+    );
+    assert_eq!(
+        driver
+            .extensions()
+            .provider_resumable
+            .unwrap()
+            .browser_upload()
+            .unwrap()
+            .protocol(),
+        resumable.browser_upload_protocol.clone().unwrap()
+    );
     assert!(
         resumable.frontend_direct_upload
             && resumable.abort_supported

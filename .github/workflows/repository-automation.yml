@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
     paths:
+      - '.nvmrc'
       - '.github/workflows/**'
       - '.github/aster-automation.json'
       - 'scripts/github/**'
@@ -11,6 +12,7 @@ on:
   pull_request:
     branches: [master, develop]
     paths:
+      - '.nvmrc'
       - '.github/workflows/**'
       - '.github/aster-automation.json'
       - 'scripts/github/**'
@@ -35,7 +37,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 24
+          node-version-file: .nvmrc
 
       - name: Validate repository automation configuration
         uses: AsterCommunity/aster-automation@db8baab15da6858a67a6c7b1bea7dd1040fa954e # v0.1.0 candidate

@@ -5,6 +5,7 @@ pub(crate) mod provider;
 pub(crate) mod scope;
 pub(crate) mod shared;
 
+pub(crate) mod browser;
 mod progress;
 pub(crate) mod responses;
 

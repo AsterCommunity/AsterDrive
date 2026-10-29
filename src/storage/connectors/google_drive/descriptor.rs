@@ -11,7 +11,7 @@ impl GoogleDriveConnector {
                 StorageConnectorUiDescriptorInput {
                     label_key: "driver_type_google_drive",
                     description_key: "policy_wizard_google_drive_storage_desc",
-                    badge_rgb: StorageConnectorBadgeRgb::new(66, 133, 244),
+                    badge_rgb: StorageConnectorBadgeRgb::new(52, 168, 83),
                     helper_key: "policy_wizard_google_drive_helper",
                     config_step_title_key: "policy_wizard_step_google_drive_title",
                     config_step_description_key: "policy_wizard_step_google_drive_desc",
@@ -67,19 +67,8 @@ impl GoogleDriveConnector {
                 presigned_upload: false,
                 frontend_direct_provider_resumable_upload: true,
                 provider_resumable_upload_capabilities: Some(
-                    aster_drive_storage::connector_descriptor::StorageConnectorProviderResumableUploadCapabilities {
-                        provider: "google_drive".into(),
-                        session_label: "Google Drive resumable upload".into(),
-                        min_fragment_size: 256 * 1024,
-                        default_fragment_size: 8 * 1024 * 1024,
-                        max_fragment_size: 8 * 1024 * 1024,
-                        fragment_alignment: 256 * 1024,
-                        max_simple_upload_size: Some(5 * 1024 * 1024),
-                        frontend_direct_upload: true,
-                        implicit_completion: true,
-                        abort_supported: true,
-                        status_query_supported: true,
-                    },
+                    crate::storage::drivers::google_drive::google_drive_upload_capabilities()
+                        .into(),
                 ),
             },
             fields: GoogleDriveConnectorConfigV1::descriptor_fields(),

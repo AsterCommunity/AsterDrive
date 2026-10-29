@@ -196,3 +196,113 @@ async fn truncated_download_body_returns_a_retryable_error_instead_of_partial_by
     assert!(!error.to_string().contains("administrator-secret-token"));
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn browser_coordinator_reconciles_invisible_ranges_lost_responses_and_final_response_loss() {
+    use aster_drive_storage::{
+        BrowserUploadContext, BrowserUploadDriver, BrowserUploadObservation, BrowserUploadReceipt,
+    };
+    // The browser cannot distinguish an absent Range from a CORS-hidden Range.
+    for status in [0, 308, 416, 503] {
+        let peer = HttpFixture::new([HttpReply::text(308, "").header("range", "bytes=0-2")]).await;
+        let driver = driver(&peer);
+        let protocol = driver.protocol();
+        let url = format!("{}?upload_id=private-session", driver.upload);
+        let context = || BrowserUploadContext {
+            protocol: &protocol,
+            upload_url: &url,
+            storage_path: "files/key",
+            total_size: 6,
+            fragment_size: 6,
+        };
+        let request = crate::storage::drivers::browser_resumable::transition(
+            context(),
+            0,
+            false,
+            vec!["range".into()],
+        )
+        .unwrap()
+        .request
+        .unwrap();
+        let observation = BrowserUploadObservation {
+            status,
+            headers: BTreeMap::new(),
+            body: String::new(),
+            body_truncated: false,
+        };
+        let next = driver
+            .advance(
+                context(),
+                serde_json::Value::Null,
+                Some(BrowserUploadReceipt {
+                    request: &request,
+                    observation: &observation,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(next.confirmed_offset, 3);
+        assert!(!next.provider_completed);
+        assert_eq!(next.request.unwrap().body.unwrap().start, 3);
+        let requests = peer.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].headers["content-range"], "bytes */*");
+        peer.stop().await;
+    }
+    let peer = HttpFixture::new([HttpReply::text(200, "{\"id\":\"owned\"}")]).await;
+    let driver = driver(&peer);
+    let protocol = driver.protocol();
+    let url = format!("{}?upload_id=private-session", driver.upload);
+    let result = driver
+        .advance(
+            BrowserUploadContext {
+                protocol: &protocol,
+                upload_url: &url,
+                storage_path: "files/key",
+                total_size: 6,
+                fragment_size: 6,
+            },
+            serde_json::Value::Null,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.confirmed_offset, 6);
+    assert!(result.provider_completed);
+    assert!(result.request.is_none());
+    peer.stop().await;
+}
+
+#[tokio::test]
+async fn browser_expired_session_requires_an_object_of_the_expected_size() {
+    use aster_drive_storage::{BrowserUploadContext, BrowserUploadDriver};
+    for size in ["3", "6"] {
+        let peer = HttpFixture::new([
+            HttpReply::text(404, "expired"),
+            HttpReply::json(200, json!({"files":[{"id":"owned","size":size}]})),
+        ])
+        .await;
+        let driver = driver(&peer);
+        let protocol = driver.protocol();
+        let url = format!("{}?upload_id=private-session", driver.upload);
+        let result = driver
+            .advance(
+                BrowserUploadContext {
+                    protocol: &protocol,
+                    upload_url: &url,
+                    storage_path: "files/key",
+                    total_size: 6,
+                    fragment_size: 6,
+                },
+                serde_json::Value::Null,
+                None,
+            )
+            .await;
+        if size == "6" {
+            assert!(result.unwrap().provider_completed);
+        } else {
+            assert!(result.is_err());
+        }
+        peer.stop().await;
+    }
+}

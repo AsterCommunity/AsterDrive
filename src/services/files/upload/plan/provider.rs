@@ -64,6 +64,23 @@ pub(super) async fn init_provider_resumable_upload(
         ));
     }
     validate_provider_fragment_capabilities(&capabilities)?;
+    if strategy == ProviderResumableUploadStrategy::FrontendDirect {
+        if ctx.total_size <= 0 || ctx.total_size > 9_007_199_254_740_991 {
+            return Err(AsterError::validation_error(
+                "browser upload size exceeds the safe integer range",
+            ));
+        }
+        let browser = provider.browser_upload().ok_or_else(|| {
+            AsterError::validation_error(
+                "storage driver does not support coordinated browser uploads",
+            )
+        })?;
+        if capabilities.browser_upload_protocol.as_ref() != Some(&browser.protocol()) {
+            return Err(AsterError::validation_error(
+                "browser upload protocol capability is inconsistent",
+            ));
+        }
+    }
     let chunk_size = numbers::usize_to_i64(
         capabilities.default_fragment_size,
         "provider resumable fragment size",
@@ -94,6 +111,7 @@ pub(super) async fn init_provider_resumable_upload(
         let secret = ProviderSessionSecret {
             provider: capabilities.provider.to_string(),
             upload_url: provider_session.upload_url.clone(),
+            browser: capabilities.browser_upload_protocol.clone().map(super::super::session::browser::BrowserSession::new),
         };
         let ciphertext = match encrypt_provider_session(state, &upload_id, &secret) {
             Ok(ciphertext) => ciphertext,
@@ -199,6 +217,7 @@ pub(super) async fn init_provider_resumable_upload(
             total_chunks,
             session_kind,
             provider_session,
+            secret.browser.as_ref().map(|value| value.step()),
         )))
     })
     .await?;
@@ -206,6 +225,10 @@ pub(super) async fn init_provider_resumable_upload(
     Ok(Some(response))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "response assembly keeps the transport fields explicit"
+)]
 fn provider_upload_response(
     strategy: ProviderResumableUploadStrategy,
     mode: UploadTransport,
@@ -214,6 +237,7 @@ fn provider_upload_response(
     total_chunks: i32,
     session_kind: UploadSessionKind,
     provider_session: aster_drive_storage::ProviderResumableUploadSession,
+    browser_upload: Option<super::super::session::browser::BrowserUploadStep>,
 ) -> InitUploadResponse {
     InitUploadResponse {
         mode,
@@ -224,9 +248,8 @@ fn provider_upload_response(
         presigned_require_etag: None,
         provider_resumable: (strategy == ProviderResumableUploadStrategy::FrontendDirect)
             .then_some(ProviderResumableUploadResponse {
-                upload_url: provider_session.upload_url,
+                browser_upload,
                 expires_at: provider_session.expires_at,
-                next_expected_ranges: provider_session.next_expected_ranges,
             }),
         upload_scheduling: crate::services::files::upload::session::kind::scheduling_for_kind(
             session_kind,
@@ -305,6 +328,7 @@ mod tests {
                 expires_at: None,
                 next_expected_ranges: vec!["0-".to_string()],
             },
+            None,
         );
 
         assert!(response.provider_resumable.is_none());
@@ -408,6 +432,7 @@ mod tests {
 
     fn capabilities() -> ProviderResumableUploadCapabilities {
         ProviderResumableUploadCapabilities {
+            browser_upload_protocol: None,
             provider: "test",
             session_label: "test session",
             min_fragment_size: 320 * 1024,

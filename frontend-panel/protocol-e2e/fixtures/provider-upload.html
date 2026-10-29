@@ -3,18 +3,29 @@
   <head><meta charset="UTF-8"><title>Provider upload protocol fixture</title></head>
   <body>
     <script type="module">
+      import { runBrowserUpload } from "/src/services/browserUploadResource.ts";
       import { createUploadService } from "/src/services/uploadService.ts";
 
       const service = createUploadService({ kind: "personal" });
       window.uploadFragment = async (url, start, total, content) => {
         try {
-          const offset = await service.providerResumableUpload(url, new Blob([content]), start, total, {
-            onCreateXhr: (xhr) => { window.activeUpload = xhr; },
-          });
-          return { offset };
+          return await service.executeBrowserUpload({
+            request_id: "test-request", timeout_ms: 60000, response_body_limit: 65536,
+            request: { url, method: "PUT", headers: { "Content-Type": "application/octet-stream", "Content-Range": `bytes ${start}-${start + content.length - 1}/${total}` }, body: { start: 0, end: content.length }, response_headers: ["range"] },
+          }, new Blob([content]), { onCreateXhr: (xhr) => { window.activeUpload = xhr; } });
         } catch (error) {
           return { error: error.message, retryable: error.retryable, aborted: error.isAborted, status: error.status };
         }
+      };
+      window.runCoordinatedUpload = async (initial, controlUrl) => {
+        const adapter = { ...service, coordinateBrowserUpload: async (_id, report) => {
+          const response = await fetch(controlUrl, {method:"POST",credentials:"omit",headers:{"Content-Type":"application/json"},body:JSON.stringify(report)});
+          return response.json();
+        }};
+        await runBrowserUpload(adapter, "session", new File(["abcdefgh"], "plugin.bin"), initial, {
+          isAborted: () => false, onProgress: () => {},
+          execute: (instruction) => service.executeBrowserUpload(instruction, new Blob(["abcdefgh"])),
+        });
       };
     </script>
   </body>

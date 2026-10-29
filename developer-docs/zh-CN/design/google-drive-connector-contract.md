@@ -140,7 +140,7 @@ appDataFolder 的 `drive.appdata` 与普通空间的 `drive` scope 不同。切�
   发布前确认 EOF，短读 / 超读属于 precondition，底层 I/O 错误保持 transient。
 - 308 是未完成确认，按 `Range` 计算下一个 offset，不能假定已收到整片；拒绝畸形、溢出或超出已发字节的确认。
   流式 reader 不能任意 seek，整片未被确认时返回暂时失败并取消本次会话；可恢复分片入口把 provider offset 返回上层恢复。
-- 浏览器直传由通用 service adapter 解析 202 / JSON 与 308 / Range，runner 只消费确认 offset，
+- 浏览器直传遵循[后端协调契约](./browser-upload-coordination.md)，driver 解析 308 / Range 并生成下一条请求；前端只执行指令、回报响应并消费确认 offset，
   严格串行并按 provider 的实际位置恢复。Header 因 CORS 不可见、网络丢失或确认畸形时，经后端
   progress API 协调，不能盲目推进。后端 finalization 仍验证对象实际大小后才发布并扣配额。
 - `abort_attempt` 只取消当前 attempt 的会话，不能删除最终 `storage_path`。未发布对象回收归调用方。
