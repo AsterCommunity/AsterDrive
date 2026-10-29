@@ -998,9 +998,9 @@ fn built_in_connector_capacity_claims_match_runtime_probe_support() {
         LocalConnector::ID,
         OneDriveConnector::ID,
         RemoteConnector::ID,
+        super::google_drive::GoogleDriveConnector::ID,
     ];
     let capacity_unsupported = [
-        super::google_drive::GoogleDriveConnector::ID,
         S3Connector::ID,
         AlibabaOssConnector::ID,
         AzureBlobConnector::ID,

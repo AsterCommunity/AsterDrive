@@ -5,9 +5,7 @@ use sea_orm::{ActiveValue::Set, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::db::repository::{
-    policy_repo, storage_policy_authorization_flow_repo, storage_policy_connector_credential_repo,
-};
+use crate::db::repository::{policy_repo, storage_policy_authorization_flow_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageConnectorRuntimeState};
 use crate::services::ops::audit::{AuditContext, AuditRequestInfo};
@@ -292,25 +290,16 @@ pub(crate) async fn finish_authorization_callback(
         .begin()
         .await
         .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
-    crate::storage::connectors::persist_connector_credential_payload(
+    let credential = crate::storage::connectors::persist_authorization_callback(
         &txn,
         &state.config().auth.storage_credential_secret_key,
-        policy_id,
-        &descriptor.connector_id,
-        crate::storage::connectors::credential_schema_version(&descriptor)
-            .map_err(storage_authorization_callback_server_error)?,
-        &callback.credential_payload,
+        &policy,
+        &descriptor,
+        callback.credential_payload,
+        callback.expected_credential_revision,
     )
     .await
     .map_err(storage_authorization_callback_server_error)?;
-    let credential = storage_policy_connector_credential_repo::find_by_policy(&txn, policy_id)
-        .await
-        .map_err(storage_authorization_callback_server_error)?
-        .ok_or_else(|| {
-            storage_authorization_callback_server_error(AsterError::record_not_found(
-                "storage policy connector credential after authorization",
-            ))
-        })?;
     txn.commit()
         .await
         .map_err(|error| storage_authorization_callback_server_error(error.into()))?;

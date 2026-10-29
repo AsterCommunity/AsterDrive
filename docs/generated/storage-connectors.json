@@ -463,7 +463,7 @@
       "credential_mode": "oauth_delegated",
       "capabilities": {
         "efficient_range": true,
-        "capacity": false,
+        "capacity": true,
         "list": false,
         "presigned_download": false,
         "custom_download_base_url": false,
@@ -484,7 +484,7 @@
         "object_multipart_upload": false,
         "provider_resumable_upload": true,
         "presigned_upload": false,
-        "frontend_direct_provider_resumable_upload": false,
+        "frontend_direct_provider_resumable_upload": true,
         "provider_resumable_upload_capabilities": {
           "provider": "google_drive",
           "session_label": "Google Drive resumable upload",
@@ -493,7 +493,7 @@
           "max_fragment_size": 8388608,
           "fragment_alignment": 262144,
           "max_simple_upload_size": 5242880,
-          "frontend_direct_upload": false,
+          "frontend_direct_upload": true,
           "implicit_completion": true,
           "abort_supported": true,
           "status_query_supported": true

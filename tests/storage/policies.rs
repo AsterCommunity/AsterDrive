@@ -585,7 +585,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let body: Value = test::read_body_json(resp).await;
     let descriptors = body["data"].as_array().expect("descriptor list");
 
-    assert_eq!(descriptors.len(), 10);
+    assert_eq!(descriptors.len(), 11);
 
     let descriptor = |connector_id: &str| {
         descriptors
@@ -1649,9 +1649,9 @@ async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_singl
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 10);
-    assert_eq!(create.len(), 10);
-    assert_eq!(setup.len(), 10);
+    assert_eq!(manage.len(), 11);
+    assert_eq!(create.len(), 11);
+    assert_eq!(setup.len(), 11);
     assert!(
         setup
             .iter()
@@ -1677,13 +1677,13 @@ async fn test_cluster_storage_driver_catalog_includes_deployment_managed_local()
     let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
     let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
 
-    assert_eq!(manage.len(), 10);
+    assert_eq!(manage.len(), 11);
     assert!(
         manage
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.local")
     );
-    assert_eq!(create.len(), 10);
+    assert_eq!(create.len(), 11);
     assert!(
         create
             .iter()
@@ -1694,7 +1694,7 @@ async fn test_cluster_storage_driver_catalog_includes_deployment_managed_local()
             .iter()
             .any(|item| item["connector_id"] == "asterdrive.storage.onedrive")
     );
-    assert_eq!(setup.len(), 10);
+    assert_eq!(setup.len(), 11);
     assert!(
         setup
             .iter()
@@ -1755,7 +1755,7 @@ async fn test_storage_driver_localizations_are_admin_only_and_cacheable() {
     let resources = body["data"]["resources"]
         .as_array()
         .expect("connector localization resources");
-    assert_eq!(resources.len(), 10);
+    assert_eq!(resources.len(), 11);
     let local = resources
         .iter()
         .find(|resource| resource["connector_id"] == "asterdrive.storage.local")

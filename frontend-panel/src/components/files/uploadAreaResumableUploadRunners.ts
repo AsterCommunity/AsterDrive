@@ -10,6 +10,7 @@ import {
 	type CompletedPart,
 	type InitUploadResponse,
 	type PresignedUploadRequest,
+	providerResumeOffset,
 	type UploadProgressResponse,
 	UploadRequestError,
 	uploadService,
@@ -416,31 +417,39 @@ export function createResumableUploadRunners({
 		alreadyReceived: number[] = [],
 	) => {
 		if (!task.file) return;
-
 		const file = task.file;
 		const uploadId = init.upload_id as string;
 		const chunkSize = init.chunk_size as number;
 		const totalChunks = init.total_chunks as number;
 		const uploadUrl = init.provider_resumable?.upload_url;
-		if (!uploadUrl) {
-			throw new Error("missing provider resumable upload URL");
+		if (!uploadUrl || !Number.isSafeInteger(chunkSize) || chunkSize <= 0) {
+			throw new Error("invalid provider resumable upload configuration");
 		}
 		const completedSet = new Set(alreadyReceived);
+		let contiguousChunks = 0;
+		while (completedSet.has(contiguousChunks)) contiguousChunks += 1;
+		// TODO(#656): consume a normalized acknowledgement contract supplied by
+		// the backend; keep provider wire parsing in the service adapter.
+		let confirmedOffset = providerResumeOffset(
+			init.provider_resumable?.next_expected_ranges,
+			file.size,
+			Math.min(contiguousChunks * chunkSize, file.size),
+		);
 		const queue = Array.from(
 			{ length: totalChunks },
 			(_, index) => index,
 		).filter((chunkNumber) => !completedSet.has(chunkNumber));
-		const getChunkSize = (chunkNumber: number) => {
-			const start = chunkNumber * chunkSize;
-			return Math.max(0, Math.min(chunkSize, file.size - start));
-		};
+		const getChunkSize = (chunkNumber: number) =>
+			Math.max(0, Math.min(chunkSize, file.size - chunkNumber * chunkSize));
 
 		await runResumableTransfer({
-			concurrency: resolveChunkConcurrency(init, 1),
+			// Provider sessions have one global offset. Parallel fragment writes
+			// cannot safely reconcile a partial acknowledgement or lost response.
+			concurrency: 1,
 			completeUpload: () => completeWithRetry(uploadId),
 			initialCompleted: completedSet.size,
 			initialCompletedBytes: [...completedSet].reduce(
-				(total, chunkNumber) => total + getChunkSize(chunkNumber),
+				(total, number) => total + getChunkSize(number),
 				0,
 			),
 			items: queue,
@@ -452,39 +461,84 @@ export function createResumableUploadRunners({
 			totalBytes: file.size,
 			uploadId,
 			uploadItem: async (chunkNumber, reportProgress) => {
-				const start = chunkNumber * chunkSize;
-				const end = Math.min(start + chunkSize, file.size);
-				const blob = file.slice(start, end);
-
-				await runRetryableUploadOperation({
-					run: async () => {
-						try {
-							await withTrackedMultipartRequest(task.id, () =>
-								withTrackedUploadRequest(
-									uploadRequestRef,
-									task.id,
-									(onCreateXhr) =>
-										uploadService.providerResumableUpload(
-											uploadUrl,
-											blob,
-											start,
-											file.size,
-											{ onCreateXhr, onProgress: reportProgress },
-										),
-								),
-							);
-						} catch (error) {
-							if (
-								error instanceof UploadRequestError &&
-								(error.retryable || error.status === 416)
-							) {
-								const progress = await uploadService.getProgress(uploadId);
-								if (progress.chunks_on_disk.includes(chunkNumber)) return;
+				const logicalStart = chunkNumber * chunkSize;
+				const logicalEnd = Math.min(logicalStart + chunkSize, file.size);
+				let fragments = 0;
+				while (confirmedOffset < logicalEnd) {
+					if (++fragments > 32)
+						throw new UploadRequestError(
+							"provider acknowledged too many partial fragments",
+							{ retryable: true },
+						);
+					await runRetryableUploadOperation({
+						run: async () => {
+							if (abortFlagsRef.current.get(task.id))
+								throw new UploadRequestError("upload aborted", {
+									isAborted: true,
+								});
+							// Start at the provider's actual byte offset, including
+							// a partial logical chunk restored after page reload.
+							// A fresh full fragment can straddle a logical chunk;
+							// later queue entries already covered by it are skipped.
+							const start = confirmedOffset;
+							const end = Math.min(start + chunkSize, file.size);
+							const blob = file.slice(start, end);
+							try {
+								const next = await withTrackedMultipartRequest(task.id, () =>
+									withTrackedUploadRequest(
+										uploadRequestRef,
+										task.id,
+										(onCreateXhr) =>
+											uploadService.providerResumableUpload(
+												uploadUrl,
+												blob,
+												start,
+												file.size,
+												{
+													onCreateXhr,
+													onProgress: (loaded) =>
+														reportProgress(start - logicalStart + loaded),
+												},
+											),
+									),
+								);
+								if (
+									!Number.isSafeInteger(next) ||
+									next <= start ||
+									next > end
+								) {
+									throw new UploadRequestError(
+										"provider upload did not advance",
+										{ retryable: true },
+									);
+								}
+								confirmedOffset = next;
+								reportProgress(confirmedOffset - logicalStart);
+							} catch (error) {
+								if (
+									error instanceof UploadRequestError &&
+									!error.isAborted &&
+									(error.retryable || error.status === 416)
+								) {
+									const progress = await uploadService.getProgress(uploadId);
+									if (abortFlagsRef.current.get(task.id))
+										throw new UploadRequestError("upload aborted", {
+											isAborted: true,
+										});
+									confirmedOffset = providerResumeOffset(
+										progress.provider_resumable?.next_expected_ranges,
+										file.size,
+										progress.chunks_on_disk.includes(chunkNumber)
+											? logicalEnd
+											: start,
+									);
+									if (confirmedOffset >= logicalEnd) return;
+								}
+								throw error;
 							}
-							throw error;
-						}
-					},
-				});
+						},
+					});
+				}
 			},
 			uploadingPatch: {
 				mode: "provider_resumable",

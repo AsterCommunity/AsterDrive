@@ -24,6 +24,7 @@
 		"test:coverage": "vitest run --coverage",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test",
+		"test:e2e:provider-upload": "playwright test --config playwright.provider-upload.config.ts",
 		"test:e2e:asterdrive": "playwright test e2e",
 		"test:e2e:headed": "playwright test --headed",
 		"test:e2e:ui": "playwright test --ui"

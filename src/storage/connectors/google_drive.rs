@@ -1,21 +1,26 @@
+//! Google Drive management-plane adapter.
+//!
+//! This connector owns policy fields, delegated OAuth flows, encrypted
+//! credentials and driver construction. Object HTTP, lookup, streaming and
+//! resumable-upload behavior live under `storage::drivers::google_drive`.
 use crate::db::repository::storage_policy_connector_credential_repo as repo;
 use crate::services::storage_policy::credential::crypto;
 use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::Utc;
-use provider::GoogleTokenProvider;
+use provider::{CredentialUse, GoogleTokenProvider};
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use crate::errors::{AsterError, Result, storage_driver_error};
-use crate::storage::drivers::google_drive::{
-    GoogleDriveDriver, GoogleDriveTokenProvider, http_client,
-};
+use crate::storage::drivers::google_drive::client::http_client;
+use crate::storage::drivers::google_drive::{GoogleDriveDriver, GoogleDriveTokenProvider};
 use aster_drive_model::entities::{storage_policy, storage_policy_connector_credential};
 use aster_drive_model::types::{
-    StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
+    ProviderResumableUploadStrategy, StorageCredentialKind, StorageCredentialProvider,
+    StorageCredentialStatus,
 };
 use aster_drive_storage::StorageConnectorFieldDefaultValue;
 use aster_drive_storage::connector_descriptor::{
@@ -38,6 +43,9 @@ use super::{
     StorageCredentialValidationOutcome,
 };
 
+mod descriptor;
+mod oauth;
+use oauth::authorization_url;
 mod localization;
 mod provider;
 #[cfg(test)]
@@ -47,7 +55,33 @@ const GOOGLE_AUTH: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN: &str = "https://oauth2.googleapis.com/token";
 const AUTH_TTL: u64 = 600;
 
+fn default_upload_strategy() -> ProviderResumableUploadStrategy {
+    ProviderResumableUploadStrategy::ServerRelay
+}
+
 pub struct GoogleDriveConnector;
+
+/// Serializes only into the connector's encrypted payload or token request.
+/// The schema macro derives Debug for application inputs, so the secret field
+/// itself must redact Debug rather than relying on the enclosing payload.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct GoogleDriveClientSecret(String);
+impl std::fmt::Debug for GoogleDriveClientSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+impl From<&str> for GoogleDriveClientSecret {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+impl GoogleDriveClientSecret {
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
 
 aster_drive_storage::storage_connector_schema! {
     pub struct GoogleDriveConnectorConfigV1 {
@@ -75,10 +109,24 @@ aster_drive_storage::storage_connector_schema! {
             let mut field = storage_connector_field("app_data_folder", StorageConnectorFieldScope::ConnectorConfig, StorageConnectorFieldKind::Boolean, false, false);
             field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false)); field
         },
+        #[serde(default = "default_upload_strategy")]
+        pub provider_resumable_upload_strategy: ProviderResumableUploadStrategy => {
+            let mut field = aster_drive_storage::storage_connector_select_field(
+                "provider_resumable_upload_strategy", StorageConnectorFieldScope::ConnectorConfig, true,
+                vec![
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "server_relay", label_key: "provider_resumable_upload_strategy_server_relay", description_key: Some("provider_resumable_upload_strategy_server_relay_desc") },
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "frontend_direct", label_key: "provider_resumable_upload_strategy_frontend_direct", description_key: Some("provider_resumable_upload_strategy_frontend_direct_desc") },
+                ],
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("server_relay".into())); field
+        },
+        #[serde(default = "super::common::default_capacity_probe_timeout_secs")]
+        pub capacity_probe_timeout_secs: u64 => super::common::capacity_probe_timeout_field(),
         }
         credentials authorization_application GoogleDriveAuthorizationApplicationV1 {
             pub client_id: String => storage_connector_field("client_id", StorageConnectorFieldScope::AuthorizationApplication, StorageConnectorFieldKind::Text, true, false),
-            pub client_secret: String => storage_connector_field("client_secret", StorageConnectorFieldScope::AuthorizationApplication, StorageConnectorFieldKind::Secret, true, true),
+            #[serde(default)]
+            pub client_secret: GoogleDriveClientSecret => storage_connector_field("client_secret", StorageConnectorFieldScope::AuthorizationApplication, StorageConnectorFieldKind::Secret, true, true),
         }
     }
 }
@@ -162,104 +210,16 @@ impl GoogleDriveConnector {
     fn decode_config(policy: &storage_policy::Model) -> Result<GoogleDriveConnectorConfigV1> {
         super::common::decode_typed_policy_config(policy, Self::ID, 1).map(|(c, _)| c)
     }
-    fn descriptor_definition() -> StorageConnectorDescriptor {
-        StorageConnectorDescriptor {
-            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
-            label: "Google Drive".into(),
-            description: "Administrator-managed Google Drive storage backend".into(),
-            ui: aster_drive_storage::connector_descriptor::storage_connector_ui_descriptor(
-                StorageConnectorUiDescriptorInput {
-                    label_key: "driver_type_google_drive",
-                    description_key: "policy_wizard_google_drive_storage_desc",
-                    badge_rgb: StorageConnectorBadgeRgb::new(66, 133, 244),
-                    helper_key: "policy_wizard_google_drive_helper",
-                    config_step_title_key: "policy_wizard_step_google_drive_title",
-                    config_step_description_key: "policy_wizard_step_google_drive_desc",
-                    edit_context_key: "policy_edit_context_google_drive_desc",
-                    base_path_empty_display: "core:root",
-                    base_path_placeholder: "folder id",
-                },
-            ),
-            credential_mode: GoogleDriveConnectorConfigV1::credential_mode(),
-            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-            supports_initial_setup: false,
-            requires_authorization: true,
-            authorization_provider: Some("google_drive".into()),
-            credential_management: Some(StorageConnectorCredentialManagementDescriptor {
-                title_key: "google_drive_credential_title".into(),
-                loading_key: "google_drive_credential_loading".into(),
-                status_presentations: credential_status_presentations(),
-                reauthorize_action_key: Some("google_drive_reauthorize_action".into()),
-                authorized_at_key: Some("google_drive_authorized_at".into()),
-                refreshed_at_key: Some("google_drive_refreshed_at".into()),
-                validated_at_key: Some("google_drive_validated_at".into()),
-                redirect_uri_key: Some("google_drive_redirect_uri".into()),
-                redirect_uri_help_key: Some("google_drive_redirect_uri_help".into()),
-                redirect_uri_copy_key: Some("google_drive_copy_redirect_uri".into()),
-                save_before_authorize_key: Some("google_drive_save_before_authorize".into()),
-                authorization_started_key: Some("google_drive_authorization_started".into()),
-                save_before_validate_key: Some("google_drive_save_before_validate".into()),
-                validation_success_key: Some("google_drive_validation_success".into()),
-                validation_success_detail_key: None,
-                created_authorize_next_key: None,
-            }),
-            capabilities: StorageConnectorCapabilities {
-                efficient_range: true,
-                capacity: false,
-                list: false,
-                presigned_download: false,
-                custom_download_base_url: false,
-                storage_native_thumbnail: false,
-                storage_native_media_metadata: false,
-                remote_node_binding: false,
-                object_storage_transfer_strategy: false,
-                object_naming: StorageConnectorObjectNamingMode::OpaqueUuid,
-            },
-            upload_workflows: StorageConnectorUploadWorkflows {
-                simple_upload: true,
-                simple_upload_capabilities: server_relay_simple_upload_capabilities(Some(
-                    5 * 1024 * 1024,
-                )),
-                stream_upload: true,
-                object_multipart_upload: false,
-                object_multipart_upload_capabilities: None,
-                provider_resumable_upload: true,
-                presigned_upload: false,
-                frontend_direct_provider_resumable_upload: false,
-                provider_resumable_upload_capabilities: Some(
-                    aster_drive_storage::connector_descriptor::StorageConnectorProviderResumableUploadCapabilities {
-                        provider: "google_drive".into(),
-                        session_label: "Google Drive resumable upload".into(),
-                        min_fragment_size: 256 * 1024,
-                        default_fragment_size: 8 * 1024 * 1024,
-                        max_fragment_size: 8 * 1024 * 1024,
-                        fragment_alignment: 256 * 1024,
-                        max_simple_upload_size: Some(5 * 1024 * 1024),
-                        frontend_direct_upload: false,
-                        implicit_completion: true,
-                        abort_supported: true,
-                        status_query_supported: true,
-                    },
-                ),
-            },
-            fields: GoogleDriveConnectorConfigV1::descriptor_fields(),
-            config_schema_version: 1,
-            credential_schema_version: Some(1),
-            actions: vec![
-                start_authorization_action_descriptor(),
-                validate_credential_action_descriptor(),
-                saved_connection_test_action_descriptor(true),
-            ],
-            promotions: Vec::new(),
-            related_issues: vec![128],
-        }
-    }
 }
 
 #[async_trait]
 impl StorageConnector for GoogleDriveConnector {
     fn icon(&self) -> Option<StorageConnectorIcon> {
-        None
+        Some(StorageConnectorIcon {
+            bytes: include_bytes!("assets/google_drive.svg"),
+            content_type: "image/svg+xml",
+            revision: "1",
+        })
     }
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
@@ -308,12 +268,10 @@ impl StorageConnector for GoogleDriveConnector {
     fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
         let c: GoogleDriveAuthorizationApplicationV1 =
             super::common::decode_authorization_application(input, Self::ID)?;
-        super::common::validate_required_credential_field(&c.client_id, "client_id", Self::ID)?;
-        super::common::validate_required_credential_field(
-            &c.client_secret,
-            "client_secret",
-            Self::ID,
-        )
+        // An edit can omit the secret. Creation and application replacement
+        // enforce complete credentials after the saved payload has been loaded
+        // inside persist_credential's transaction.
+        super::common::validate_required_credential_field(&c.client_id, "client_id", Self::ID)
     }
     async fn persist_credential(
         &self,
@@ -331,14 +289,15 @@ impl StorageConnector for GoogleDriveConnector {
             .map(|row| decode(key, row))
             .transpose()?;
         application.client_id = application.client_id.trim().into();
-        application.client_secret = application.client_secret.trim().into();
-        if application.client_secret.is_empty() {
+        application.client_secret = application.client_secret.as_str().trim().into();
+        if application.client_secret.as_str().is_empty() {
             application.client_secret = existing
                 .as_ref()
+                .filter(|p| p.application.client_id == application.client_id)
                 .map(|p| p.application.client_secret.clone())
                 .unwrap_or_default();
         }
-        if application.client_id.is_empty() || application.client_secret.is_empty() {
+        if application.client_id.is_empty() || application.client_secret.as_str().is_empty() {
             return Err(AsterError::validation_error(
                 "Google OAuth client ID and secret are required",
             ));
@@ -402,7 +361,8 @@ impl StorageConnector for GoogleDriveConnector {
             config.root_folder_id,
             config.shared_drive_id,
             config.app_data_folder,
-        )))
+            std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
+        )?))
     }
     async fn start_authorization(
         &self,
@@ -470,7 +430,7 @@ impl StorageConnector for GoogleDriveConnector {
         StorageConnectorAuthorizationCallback,
         super::StorageConnectorAuthorizationError,
     > {
-        self.complete_authorization(context, policy, flow, code, now)
+        self.complete_authorization(context, policy, flow, code, now, GOOGLE_TOKEN)
             .await
             .map_err(|e| {
                 super::StorageConnectorAuthorizationError::new(
@@ -502,7 +462,8 @@ impl StorageConnector for GoogleDriveConnector {
                     config.auth.storage_credential_secret_key.clone(),
                     credential.policy_id,
                     payload,
-                ),
+                    CredentialUse::Runtime,
+                )?,
             },
         )))
     }
@@ -574,29 +535,57 @@ impl StorageConnector for GoogleDriveConnector {
         credential: &storage_policy_connector_credential::Model,
     ) -> Result<StorageCredentialValidationOutcome> {
         let payload = decode(&_config.auth.storage_credential_secret_key, credential)?;
+        let application = payload.application.clone();
+        let authorized_at = payload
+            .authorization
+            .as_ref()
+            .and_then(|auth| auth.authorized_at);
         let token_provider = GoogleTokenProvider::new(
             Some(_db.clone()),
             _config.auth.storage_credential_secret_key.clone(),
             _policy.id,
             payload,
-        );
+            CredentialUse::Validation,
+        )?;
         let config = Self::decode_config(_policy)?;
         let driver = GoogleDriveDriver::new(
             token_provider,
             config.root_folder_id,
             config.shared_drive_id,
             config.app_data_folder,
-        );
+            std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
+        )?;
         let (root_item_id, root_item_name) = driver.validate_root().await?;
         // Token resolution can refresh the encrypted row. Never write the old tokens back.
         let current = repo::find_by_policy(_db, _policy.id)
             .await?
             .ok_or_else(|| AsterError::record_not_found("Google Drive credential"))?;
         let mut payload = decode(&_config.auth.storage_credential_secret_key, &current)?;
+        if payload.application != application
+            || payload
+                .authorization
+                .as_ref()
+                .and_then(|auth| auth.authorized_at)
+                != authorized_at
+        {
+            return Err(storage_driver_error(
+                StorageErrorKind::Transient,
+                "Google Drive authorization changed during validation; retry",
+            ));
+        }
         let auth = payload
             .authorization
             .as_mut()
             .ok_or_else(|| AsterError::validation_error("Google Drive is not authorized"))?;
+        if matches!(
+            auth.status,
+            StorageCredentialStatus::Revoked | StorageCredentialStatus::ReauthRequired
+        ) {
+            return Err(storage_driver_error(
+                StorageErrorKind::Transient,
+                "Google Drive authorization was revoked during validation; retry",
+            ));
+        }
         auth.status = StorageCredentialStatus::Authorized;
         auth.status_reason = None;
         auth.last_validated_at = Some(Utc::now());
@@ -609,10 +598,10 @@ impl StorageConnector for GoogleDriveConnector {
     }
     fn upload_transport(
         &self,
-        _policy: &storage_policy::Model,
+        policy: &storage_policy::Model,
     ) -> Result<StorageConnectorUploadTransport> {
         Ok(StorageConnectorUploadTransport::ProviderResumable(
-            aster_drive_model::types::ProviderResumableUploadStrategy::ServerRelay,
+            Self::decode_config(policy)?.provider_resumable_upload_strategy,
         ))
     }
     async fn cleanup_snapshot_for_policy(
@@ -676,207 +665,17 @@ impl StorageConnector for GoogleDriveConnector {
         })?;
         let config = Self::decode_config(policy)?;
         Ok(Arc::new(GoogleDriveDriver::new(
-            GoogleTokenProvider::new(None, key.clone(), policy.id, payload),
+            GoogleTokenProvider::new(
+                None,
+                key.clone(),
+                policy.id,
+                payload,
+                CredentialUse::Runtime,
+            )?,
             config.root_folder_id,
             config.shared_drive_id,
             config.app_data_folder,
-        )))
+            std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
+        )?))
     }
-}
-
-fn authorization_url(
-    client_id: &str,
-    redirect_uri: &str,
-    scope: &str,
-    state: &str,
-    challenge: &str,
-) -> Result<String> {
-    reqwest::Url::parse_with_params(
-        GOOGLE_AUTH,
-        [
-            ("client_id", client_id),
-            ("redirect_uri", redirect_uri),
-            ("response_type", "code"),
-            ("access_type", "offline"),
-            ("prompt", "consent"),
-            ("scope", scope),
-            ("state", state),
-            ("code_challenge", challenge),
-            ("code_challenge_method", "S256"),
-        ],
-    )
-    .map(|u| u.to_string())
-    .map_err(|_| AsterError::validation_error("invalid Google OAuth parameters"))
-}
-impl GoogleDriveConnector {
-    async fn complete_authorization(
-        &self,
-        context: &super::StorageConnectorContext<'_>,
-        policy: &storage_policy::Model,
-        flow: &aster_drive_model::entities::storage_policy_authorization_flow::Model,
-        code: &str,
-        now: chrono::DateTime<Utc>,
-    ) -> Result<StorageConnectorAuthorizationCallback> {
-        if flow.provider != StorageCredentialProvider::GoogleDrive
-            || flow.policy_id != Some(policy.id)
-        {
-            return Err(AsterError::validation_error(
-                "Google OAuth flow does not belong to this policy",
-            ));
-        }
-        let f: GoogleDriveFlowContext = serde_json::from_str(&flow.context)
-            .map_err(|_| AsterError::database_operation("invalid Google OAuth flow context"))?;
-        let key = &context.config().auth.storage_credential_secret_key;
-        let plaintext = crypto::decrypt_token(
-            key,
-            flow_aad(policy.id, &flow.state_hash).as_bytes(),
-            &f.application_ciphertext,
-        )?;
-        let app: GoogleDriveAuthorizationApplicationV1 =
-            serde_json::from_str(&plaintext).map_err(|_| {
-                AsterError::database_operation("invalid Google OAuth application context")
-            })?;
-        let verifier = flow
-            .pkce_verifier
-            .as_deref()
-            .ok_or_else(|| AsterError::validation_error("Google OAuth PKCE verifier is missing"))?;
-        let response = http_client()
-            .post(GOOGLE_TOKEN)
-            .form(&[
-                ("code", code),
-                ("client_id", app.client_id.as_str()),
-                ("client_secret", app.client_secret.as_str()),
-                ("redirect_uri", flow.redirect_uri.as_str()),
-                ("code_verifier", verifier),
-                ("grant_type", "authorization_code"),
-            ])
-            .send()
-            .await
-            .map_err(|_| {
-                storage_driver_error(
-                    StorageErrorKind::Transient,
-                    "Google OAuth token endpoint is unavailable",
-                )
-            })?;
-        if !response.status().is_success() {
-            return Err(storage_driver_error(
-                StorageErrorKind::Auth,
-                "Google OAuth token exchange failed",
-            ));
-        }
-        let token: provider::TokenResponse = response
-            .json()
-            .await
-            .map_err(|_| AsterError::database_operation("invalid Google OAuth token response"))?;
-        token.validate()?;
-        let current = repo::find_by_policy(context.writer_db(), policy.id)
-            .await?
-            .ok_or_else(|| AsterError::record_not_found("Google Drive credential"))?;
-        if current.revision != f.credential_revision
-            || scope(&Self::decode_config(policy)?) != f.scope
-        {
-            return Err(AsterError::validation_error(
-                "Google Drive configuration changed during authorization; restart authorization",
-            ));
-        }
-        let expires_at = token.expires_at(now);
-        let scopes: Vec<String> = token
-            .scope
-            .as_deref()
-            .unwrap_or(&f.scope)
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect();
-        if !scopes.contains(&f.scope) {
-            return Err(storage_driver_error(
-                StorageErrorKind::Permission,
-                "Google OAuth did not grant the requested Drive scope",
-            ));
-        }
-        let refresh_token = token
-            .refresh_token
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Auth,
-                    "Google OAuth did not return an offline refresh token; reauthorize",
-                )
-            })?;
-        let payload = GoogleDriveCredentialV1 {
-            application: app,
-            authorization: Some(GoogleDriveAuthorizationV1 {
-                access_token: token.access_token,
-                refresh_token: Some(refresh_token),
-                scopes,
-                status: StorageCredentialStatus::Authorized,
-                status_reason: None,
-                expires_at,
-                authorized_at: Some(now),
-                last_refreshed_at: None,
-                last_validated_at: None,
-            }),
-        };
-        Ok(StorageConnectorAuthorizationCallback {
-            credential_payload: encode(&payload)?,
-            audit: audit(),
-        })
-    }
-}
-
-fn credential_status_presentations()
--> std::collections::BTreeMap<String, StorageConnectorCredentialStatusPresentation> {
-    [
-        (
-            "missing",
-            "google_drive_credential_status_missing",
-            StorageConnectorCredentialStatusTone::Neutral,
-            None,
-        ),
-        (
-            "authorized",
-            "google_drive_credential_status_authorized",
-            StorageConnectorCredentialStatusTone::Success,
-            None,
-        ),
-        (
-            "reauth_required",
-            "google_drive_credential_status_reauth_required",
-            StorageConnectorCredentialStatusTone::Warning,
-            Some("google_drive_reauth_help"),
-        ),
-        (
-            "permission_denied",
-            "google_drive_credential_status_permission_denied",
-            StorageConnectorCredentialStatusTone::Danger,
-            Some("google_drive_permission_help"),
-        ),
-        (
-            "revoked",
-            "google_drive_credential_status_revoked",
-            StorageConnectorCredentialStatusTone::Danger,
-            Some("google_drive_reauth_help"),
-        ),
-        (
-            "invalid",
-            "google_drive_credential_status_invalid",
-            StorageConnectorCredentialStatusTone::Danger,
-            Some("google_drive_invalid_help"),
-        ),
-    ]
-    .into_iter()
-    .map(|(status, label, tone, description)| {
-        (
-            status.into(),
-            StorageConnectorCredentialStatusPresentation {
-                label_key: label.into(),
-                tone,
-                description_key: description.map(Into::into),
-                attention_title_key: None,
-                attention_guidance_key: None,
-                reason_rules: Vec::new(),
-                reason_fallback_key: description.map(Into::into),
-            },
-        )
-    })
-    .collect()
 }

@@ -568,9 +568,10 @@ describe("uploadService", () => {
 
 		xhr.upload.onprogress?.({ lengthComputable: true, loaded: 3, total: 5 });
 		xhr.status = 202;
+		xhr.responseText = JSON.stringify({ nextExpectedRanges: ["15-"] });
 		xhr.onload?.();
 
-		await expect(promise).resolves.toBeUndefined();
+		await expect(promise).resolves.toBe(15);
 		expect(progress).toHaveBeenCalledWith(3, 5);
 		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
 		expect(xhr.method).toBe("PUT");
@@ -590,23 +591,26 @@ describe("uploadService", () => {
 			"https://provider.example/upload-session",
 			new Blob(["part-1"]),
 			0,
-			11,
+			12,
 		);
 		const intermediateXhr = MockXMLHttpRequest.instances[0];
 		intermediateXhr.status = 202;
+		intermediateXhr.responseText = JSON.stringify({
+			nextExpectedRanges: ["6-"],
+		});
 		intermediateXhr.onload?.();
-		await expect(intermediate).resolves.toBeUndefined();
+		await expect(intermediate).resolves.toBe(6);
 
 		const final = uploadService.providerResumableUpload(
 			"https://provider.example/upload-session",
 			new Blob(["part-2"]),
 			6,
-			11,
+			12,
 		);
 		const finalXhr = MockXMLHttpRequest.instances[1];
 		finalXhr.status = 201;
 		finalXhr.onload?.();
-		await expect(final).resolves.toBeUndefined();
+		await expect(final).resolves.toBe(12);
 	});
 
 	it("marks provider range conflicts and transient failures as retryable", async () => {
@@ -699,6 +703,108 @@ describe("uploadService", () => {
 			retryable: false,
 			status: 0,
 		});
+	});
+
+	it("normalizes full and partial Range acknowledgements", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		for (const [range, next] of [
+			["bytes=0-3", 4],
+			["bytes=0-1", 2],
+		] as const) {
+			const promise = uploadService.providerResumableUpload(
+				"https://provider.example/session",
+				new Blob(["abcd"]),
+				0,
+				8,
+			);
+			const xhr =
+				MockXMLHttpRequest.instances[MockXMLHttpRequest.instances.length - 1];
+			xhr.status = 308;
+			xhr.responseHeaders.Range = range;
+			xhr.onload?.();
+			await expect(promise).resolves.toBe(next);
+			expect(xhr.withCredentials).toBe(false);
+		}
+	});
+
+	it("reads JSON nextExpectedRanges from a partial 202 acknowledgement", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const promise = uploadService.providerResumableUpload(
+			"https://provider.example/session",
+			new Blob(["abcd"]),
+			0,
+			8,
+		);
+		const xhr =
+			MockXMLHttpRequest.instances[MockXMLHttpRequest.instances.length - 1];
+		xhr.status = 202;
+		xhr.responseText = JSON.stringify({ nextExpectedRanges: ["2-"] });
+		xhr.onload?.();
+		await expect(promise).resolves.toBe(2);
+	});
+
+	it("requires reconciliation for hidden malformed or impossible Range headers", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		for (const range of [
+			undefined,
+			"bytes=1-3",
+			"bytes=0--1",
+			"bytes=0-7",
+			"bytes=0-9007199254740992",
+			"unparseable",
+		]) {
+			const promise = uploadService.providerResumableUpload(
+				"https://provider.example/session",
+				new Blob(["abcd"]),
+				0,
+				8,
+			);
+			const xhr =
+				MockXMLHttpRequest.instances[MockXMLHttpRequest.instances.length - 1];
+			xhr.status = 308;
+			if (range !== undefined) xhr.responseHeaders.Range = range;
+			xhr.onload?.();
+			await expect(promise).rejects.toMatchObject({
+				status: 308,
+				retryable: true,
+			});
+		}
+	});
+
+	it("rejects unsafe upload bounds before XHR and validates resume ranges", async () => {
+		const { uploadService, providerResumeOffset } = await import(
+			"@/services/uploadService"
+		);
+		for (const [start, total] of [
+			[-1, 8],
+			[0, 3],
+			[Number.NaN, 8],
+			[Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+			[0, Number.POSITIVE_INFINITY],
+		]) {
+			await expect(
+				uploadService.providerResumableUpload(
+					"https://provider.example/session",
+					new Blob(["abcd"]),
+					start,
+					total,
+				),
+			).rejects.toMatchObject({ retryable: false });
+		}
+		expect(MockXMLHttpRequest.instances).toHaveLength(0);
+		expect(providerResumeOffset(["4-", "2-3"], 8, 0)).toBe(2);
+		expect(providerResumeOffset([], 8, 0)).toBe(8);
+		for (const ranges of [
+			["bad"],
+			["-1-"],
+			["8-"],
+			["3-2"],
+			["1-8"],
+			["9007199254740992-"],
+		])
+			expect(() => providerResumeOffset(ranges, 8, 0)).toThrow(
+				"invalid provider resume offset",
+			);
 	});
 
 	it("applies provider-required presigned PUT headers", async () => {

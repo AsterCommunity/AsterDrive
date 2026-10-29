@@ -1154,6 +1154,7 @@ impl StorageConnector for OneDriveConnector {
                 &client_secret,
             )?;
         let flow_context = oauth::MicrosoftGraphFlowContext {
+            credential_revision: Some(credential.revision),
             cloud: application.cloud,
             tenant: tenant.clone(),
             client_id: client_id.clone(),
@@ -1186,7 +1187,9 @@ impl StorageConnector for OneDriveConnector {
         StorageConnectorAuthorizationCallback,
         StorageConnectorAuthorizationError,
     > {
-        if flow.provider != StorageCredentialProvider::MicrosoftGraph {
+        if flow.provider != StorageCredentialProvider::MicrosoftGraph
+            || flow.policy_id != Some(policy.id)
+        {
             return Err(StorageConnectorAuthorizationError::new(
                 StorageAuthorizationFailureReason::UnsupportedProvider,
                 AsterError::unsupported_driver(format!(
@@ -1204,6 +1207,39 @@ impl StorageConnector for OneDriveConnector {
                     )),
                 )
             })?;
+        let expected_revision = flow_context.credential_revision.ok_or_else(|| {
+            StorageConnectorAuthorizationError::new(StorageAuthorizationFailureReason::InvalidState,
+                AsterError::validation_error("OneDrive authorization predates credential revision protection; restart authorization"))
+        })?;
+        // The encrypted flow intentionally snapshots the old app secret. That
+        // makes this flow usable even after an administrator changes the saved
+        // application, so consuming state alone cannot protect the newer row.
+        // Reject stale flows before spending the one-time code; retain the same
+        // revision for the final CAS after token exchange and drive discovery.
+        // This is Drive's writer/concurrency invariant, not an OAuth wire field:
+        // developer-docs/zh-CN/architecture/project-contract.md.
+        let current = storage_policy_connector_credential_repo::find_by_policy(
+            _context.writer_db(),
+            policy.id,
+        )
+        .await
+        .map_err(|error| {
+            StorageConnectorAuthorizationError::new(
+                StorageAuthorizationFailureReason::ServerError,
+                error,
+            )
+        })?;
+        if current
+            .as_ref()
+            .is_none_or(|row| row.revision != expected_revision || row.connector_id != Self::ID)
+        {
+            return Err(StorageConnectorAuthorizationError::new(
+                StorageAuthorizationFailureReason::InvalidState,
+                AsterError::validation_error(
+                    "OneDrive credential changed during authorization; restart authorization",
+                ),
+            ));
+        }
         let pkce_verifier = flow.pkce_verifier.as_deref().ok_or_else(|| {
             StorageConnectorAuthorizationError::new(
                 StorageAuthorizationFailureReason::ServerError,
@@ -1321,6 +1357,7 @@ impl StorageConnector for OneDriveConnector {
             )
         })?;
         Ok(StorageConnectorAuthorizationCallback {
+            expected_credential_revision: expected_revision,
             credential_payload,
             audit: microsoft_graph_authorization_audit(flow_context.cloud, &flow_context.tenant),
         })
@@ -1833,6 +1870,8 @@ mod tests {
     use super::*;
     use aster_drive_storage::StoragePolicyBehaviorConfig;
     use sea_orm::{ActiveModelTrait, IntoActiveModel};
+
+    mod authorization;
 
     const KEY: &str = "onedrive-connector-test-key-32bytes";
 

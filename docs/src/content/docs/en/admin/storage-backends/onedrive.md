@@ -142,6 +142,8 @@ In the `Microsoft Graph credential` panel, click `Authorize`.
 
 Authorization uses the saved Microsoft application settings and does not read an unsaved Client ID or Client Secret from the page. After authorization succeeds, the browser returns to the AsterDrive admin console and shows the result.
 
+If the application or storage configuration changes, or the credential is deleted during authorization, the stale callback is rejected to protect the newer state. Start authorization again. Unfinished authorization pages opened before the upgrade must also restart; existing saved authorizations remain valid.
+
 AsterDrive securely stores the information needed for later OneDrive access and renews authorization when needed. If Microsoft revokes access or the credential expires, the policy page prompts the administrator to authorize again.
 
 :::tip[Temporary cleanup after policy deletion]

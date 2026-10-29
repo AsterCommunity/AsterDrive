@@ -446,6 +446,9 @@ pub(crate) trait StorageConnector: Send + Sync {
     /// Finish a connector-owned authorization flow after core has consumed the
     /// one-time state row. `code` and the opaque flow context are passed to the
     /// connector; core only persists the returned connector payload.
+    /// Every delegated connector must capture the saved application revision
+    /// at start and return `expected_credential_revision`, so the final write
+    /// retains that precondition after provider I/O.
     async fn finish_authorization(
         &self,
         _context: &StorageConnectorContext<'_>,

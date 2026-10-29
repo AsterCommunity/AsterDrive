@@ -1,6 +1,9 @@
+use super::client::http_client;
 use super::*;
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
 use std::{collections::BTreeMap, io::Cursor, sync::Mutex};
+
+mod boundaries;
 
 #[derive(Debug)]
 struct Token;
@@ -32,7 +35,9 @@ impl Server {
             Some("pool".into()),
             Some("shared".into()),
             false,
-        );
+            std::time::Duration::from_secs(10),
+        )
+        .unwrap();
         driver.api = format!("{}/drive/v3", self.base);
         driver.upload = format!("{}/upload/drive/v3/files", self.base);
         driver
@@ -114,14 +119,18 @@ async fn spawn() -> Server {
             assert!(query["q"].contains("'pool' in parents"));
             assert_eq!(query["supportsAllDrives"], "true");
             assert_eq!(query["driveId"], "shared");
-            let files = if s.data.is_some() && !s.deleted {
+            let mut files = if let Some(data) = &s.data
+                && !s.deleted
+            {
                 vec![
-                    serde_json::json!({"id":"owned", "size":s.data.as_ref().unwrap().len().to_string(), "mimeType":"application/octet-stream"});
-                    if s.duplicates { 2 } else { 1 }
+                    serde_json::json!({"id":"owned", "size":data.len().to_string(), "mimeType":"application/octet-stream"}),
                 ]
             } else {
                 vec![]
             };
+            if s.duplicates && !files.is_empty() {
+                files.push(serde_json::json!({"id":"other-owned","size":"1"}));
+            }
             return HttpResponse::Ok().json(serde_json::json!({"files":files}));
         }
         if req.method() == "DELETE" {
@@ -179,7 +188,14 @@ async fn spawn() -> Server {
 }
 #[test]
 fn query_and_session_boundaries_keep_objects_and_credentials_private() {
-    let driver = GoogleDriveDriver::new(Arc::new(Token), Some("pool".into()), None, false);
+    let driver = GoogleDriveDriver::new(
+        Arc::new(Token),
+        Some("pool".into()),
+        None,
+        false,
+        std::time::Duration::from_secs(10),
+    )
+    .unwrap();
     assert!(
         driver
             .object_query("a'\\b")
@@ -235,19 +251,20 @@ async fn blob_lifecycle_uses_app_properties_ranges_and_owned_id() {
         driver.get("files/key").await.unwrap_err().kind(),
         StorageErrorKind::NotFound
     );
-    let s = server.state.lock().unwrap();
-    assert_eq!(
-        s.requests
-            .iter()
-            .filter(|r| r.0 == "DELETE" && r.1.contains("/files/owned"))
-            .count(),
-        1
-    );
-    assert_eq!(
-        s.metadata.as_ref().unwrap()["appProperties"][APP_KEY],
-        "files/key"
-    );
-    drop(s);
+    {
+        let s = server.state.lock().unwrap();
+        assert_eq!(
+            s.requests
+                .iter()
+                .filter(|r| r.0 == "DELETE" && r.1.contains("/files/owned"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            s.metadata.as_ref().unwrap()["appProperties"][APP_KEY],
+            "files/key"
+        );
+    }
     server.stop().await;
 }
 #[tokio::test]
@@ -263,21 +280,22 @@ async fn large_reader_uses_bounded_fragments_and_confirms_acknowledgements() {
         )
         .await
         .unwrap();
-    let s = server.state.lock().unwrap();
-    let puts: Vec<_> = s.requests.iter().filter(|r| r.0 == "PUT").collect();
-    assert_eq!(
-        puts.iter().map(|r| r.3).collect::<Vec<_>>(),
-        [CHUNK, CHUNK, 13]
-    );
-    assert_eq!(
-        puts[1].2["content-range"],
-        format!("bytes {}-{}/{size}", CHUNK, CHUNK * 2 - 1)
-    );
-    assert_eq!(
-        s.requests.iter().find(|r| r.0 == "POST").unwrap().2["x-upload-content-length"],
-        size.to_string()
-    );
-    drop(s);
+    {
+        let s = server.state.lock().unwrap();
+        let puts: Vec<_> = s.requests.iter().filter(|r| r.0 == "PUT").collect();
+        assert_eq!(
+            puts.iter().map(|r| r.3).collect::<Vec<_>>(),
+            [CHUNK, CHUNK, 13]
+        );
+        assert_eq!(
+            puts[1].2["content-range"],
+            format!("bytes {}-{}/{size}", CHUNK, CHUNK * 2 - 1)
+        );
+        assert_eq!(
+            s.requests.iter().find(|r| r.0 == "POST").unwrap().2["x-upload-content-length"],
+            size.to_string()
+        );
+    }
     server.stop().await;
 }
 #[tokio::test]
@@ -321,6 +339,42 @@ async fn duplicate_owned_keys_fail_closed_before_delete() {
     assert!(!server.state.lock().unwrap().deleted);
     server.stop().await;
 }
+#[tokio::test]
+async fn abort_attempt_without_provider_session_never_deletes_existing_object() {
+    let server = spawn().await;
+    let driver = server.driver();
+    driver.put("files/key", b"existing").await.unwrap();
+    let attempt = StreamUploadAttempt::new("files/key", 3).unwrap();
+    assert_eq!(
+        driver.abort_attempt(&attempt).await.unwrap(),
+        StreamUploadCleanup::NotRequired
+    );
+    assert_eq!(driver.get("files/key").await.unwrap(), b"existing");
+    assert!(!server.state.lock().unwrap().deleted);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn abort_attempt_cancels_session_without_deleting_existing_object() {
+    let server = spawn().await;
+    let driver = server.driver();
+    driver.put("files/key", b"existing").await.unwrap();
+    let session = driver.create_upload_session("files/key").await.unwrap();
+    let attempt = StreamUploadAttempt::new("files/key", 3).unwrap();
+    attempt.set_provider_session(session.upload_url);
+    assert_eq!(
+        driver.abort_attempt(&attempt).await.unwrap(),
+        StreamUploadCleanup::Cleaned
+    );
+    assert_eq!(driver.get("files/key").await.unwrap(), b"existing");
+    {
+        let state = server.state.lock().unwrap();
+        assert_eq!(state.aborts, 1);
+        assert!(!state.deleted);
+    }
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn resumable_status_and_final_fragment_follow_generic_contract() {
     let server = spawn().await;
@@ -383,6 +437,7 @@ async fn provider_errors_are_typed_and_do_not_echo_provider_secrets() {
         (400, StorageErrorKind::Misconfigured),
     ] {
         let response = http_client()
+            .unwrap()
             .get(format!("{}/error/{status}", server.base))
             .send()
             .await
