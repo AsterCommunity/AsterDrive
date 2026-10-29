@@ -220,6 +220,7 @@ impl StorageDriver for MockProviderDriver {
 impl ProviderResumableUploadDriver for MockProviderDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         ProviderResumableUploadCapabilities {
+            browser_upload_protocol: None,
             provider: "mock_graph",
             session_label: "mock upload session",
             min_fragment_size: 1,
@@ -406,6 +407,7 @@ impl Fixture {
             state.as_ref(),
             &upload_id,
             &ProviderSessionSecret {
+                browser: None,
                 provider: "mock_graph".to_string(),
                 upload_url: upload_url.clone(),
             },

@@ -509,6 +509,30 @@ pub async fn find_expired_completed_paginated<C: ConnectionTrait>(
     query.all(db).await.map_err(AsterError::from)
 }
 
+/// Atomically replace protocol state only while the same live upload is still writable.
+pub async fn compare_exchange_provider_session<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    previous: &str,
+    next: &str,
+) -> Result<bool> {
+    let now = chrono::Utc::now();
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::ProviderSessionCiphertext,
+            Expr::value(next),
+        )
+        .col_expr(upload_session::Column::UpdatedAt, Expr::value(now))
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::SessionKind.eq(UploadSessionKind::ProviderDirectResumable))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Uploading))
+        .filter(upload_session::Column::ExpiresAt.gt(now))
+        .filter(upload_session::Column::ProviderSessionCiphertext.eq(previous))
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected == 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,6 +584,63 @@ mod tests {
             expires_at: now + Duration::hours(1),
             updated_at: now,
         }
+    }
+
+    #[tokio::test]
+    async fn browser_protocol_state_cas_rejects_replay_terminal_expired_and_deleted_sessions() {
+        let db = build_test_db().await;
+        let mut row = session("browser", UploadSessionStatus::Uploading);
+        row.session_kind = UploadSessionKind::ProviderDirectResumable;
+        row.provider_session_ciphertext = Some("revision-zero".into());
+        row.into_active_model().insert(&db).await.unwrap();
+        let (a, b) = tokio::join!(
+            compare_exchange_provider_session(&db, "browser", "revision-zero", "revision-one"),
+            compare_exchange_provider_session(&db, "browser", "revision-zero", "revision-two"),
+        );
+        assert_ne!(
+            a.unwrap(),
+            b.unwrap(),
+            "exactly one concurrent update may win"
+        );
+        let current = find_by_id(&db, "browser")
+            .await
+            .unwrap()
+            .provider_session_ciphertext
+            .unwrap();
+        assert!(
+            !compare_exchange_provider_session(&db, "browser", "revision-zero", "replayed")
+                .await
+                .unwrap()
+        );
+        let mut active = find_by_id(&db, "browser")
+            .await
+            .unwrap()
+            .into_active_model();
+        active.status = sea_orm::Set(UploadSessionStatus::Completed);
+        active.update(&db).await.unwrap();
+        assert!(
+            !compare_exchange_provider_session(&db, "browser", &current, "after-complete")
+                .await
+                .unwrap()
+        );
+        let mut active = find_by_id(&db, "browser")
+            .await
+            .unwrap()
+            .into_active_model();
+        active.status = sea_orm::Set(UploadSessionStatus::Uploading);
+        active.expires_at = sea_orm::Set(Utc::now() - Duration::seconds(1));
+        active.update(&db).await.unwrap();
+        assert!(
+            !compare_exchange_provider_session(&db, "browser", &current, "expired")
+                .await
+                .unwrap()
+        );
+        delete(&db, "browser").await.unwrap();
+        assert!(
+            !compare_exchange_provider_session(&db, "browser", &current, "cancelled")
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]

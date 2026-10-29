@@ -21,14 +21,13 @@ use crate::services::files::upload::session::responses::{
     RecoverableUploadSessionResponse, UploadProgressResponse,
 };
 use crate::services::files::upload::session::scope::{
-    load_upload_session, load_upload_session_for_read, personal_scope, team_scope,
+    load_upload_session, personal_scope, team_scope,
 };
 use crate::services::files::upload::session::shared::expected_chunk_size_for_upload;
 use crate::services::workspace::storage;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use aster_drive_storage::PresignedUploadRequest;
-use aster_drive_storage::StorageErrorKind;
 use futures::{StreamExt, stream};
 
 const RECOVERABLE_UPLOAD_SESSIONS_LIMIT: u64 = 100;
@@ -97,51 +96,38 @@ async fn get_progress_impl(
         }
         UploadSessionKind::ProviderDirectResumable => {
             let secret = decrypt_provider_session(state, &session)?;
-            let policy = state
-                .policy_snapshot()
-                .get_policy_or_err(session.policy_id)?;
-            let driver = state.driver_registry().get_driver(&policy)?;
-            let provider = driver.extensions().provider_resumable.ok_or_else(|| {
-                upload_assembly_error_with_code(
-                    ApiErrorCode::UploadSessionCorrupted,
-                    "provider resumable driver is unavailable",
+            let step = if session.status == UploadSessionStatus::Uploading {
+                Some(
+                    super::browser::advance_session(
+                        state,
+                        &session,
+                        &super::browser::BrowserUploadReport {
+                            request_id: None,
+                            observation: None,
+                        },
+                    )
+                    .await?,
                 )
-            })?;
-            match provider.query_upload_session(&secret.upload_url).await {
-                Ok(status) => {
-                    let chunks = provider_completed_chunks(
-                        &status.next_expected_ranges,
-                        session.chunk_size,
-                        session.total_chunks,
-                    );
-                    (
-                        chunks,
-                        Some(ProviderResumableUploadResponse {
-                            upload_url: secret.upload_url,
-                            expires_at: status.expires_at,
-                            next_expected_ranges: status.next_expected_ranges,
-                        }),
-                    )
-                }
-                Err(error) if error.kind() == StorageErrorKind::NotFound => {
-                    let committed = match session.object_temp_key.as_deref() {
-                        Some(temp_key) => driver.exists(temp_key).await?,
-                        None => false,
-                    };
-                    if !committed {
-                        return Err(error.into());
-                    }
-                    (
-                        (0..session.total_chunks).collect(),
-                        Some(ProviderResumableUploadResponse {
-                            upload_url: secret.upload_url,
-                            expires_at: Some(session.expires_at),
-                            next_expected_ranges: Vec::new(),
-                        }),
-                    )
-                }
-                Err(error) => return Err(error.into()),
-            }
+            } else {
+                secret.browser.as_ref().map(|value| value.step())
+            };
+            let offset = step.as_ref().map(|s| s.confirmed_offset).unwrap_or(0);
+            let completed = step.as_ref().is_some_and(|s| s.provider_completed);
+            // Only whole logical chunks are complete; a partially acknowledged chunk must resume.
+            let count = if completed {
+                session.total_chunks
+            } else {
+                i32::try_from(offset / u64::try_from(session.chunk_size).unwrap_or(1).max(1))
+                    .unwrap_or(0)
+                    .min(session.total_chunks)
+            };
+            (
+                (0..count).collect(),
+                Some(ProviderResumableUploadResponse {
+                    expires_at: Some(session.expires_at),
+                    browser_upload: step,
+                }),
+            )
         }
     };
 
@@ -256,63 +242,6 @@ async fn recoverable_session_response(
     })
 }
 
-fn provider_completed_chunks(ranges: &[String], chunk_size: i64, total_chunks: i32) -> Vec<i32> {
-    let Some(first) = ranges.first() else {
-        return Vec::new();
-    };
-    let start = first
-        .split('-')
-        .next()
-        .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or(0);
-    if start <= 0 || chunk_size <= 0 || total_chunks <= 0 {
-        return Vec::new();
-    }
-    let count = start
-        .checked_add(chunk_size - 1)
-        .and_then(|value| value.checked_div(chunk_size))
-        .unwrap_or(i64::MAX)
-        .min(i64::from(total_chunks));
-    (0..count)
-        .filter_map(|value| i32::try_from(value).ok())
-        .collect()
-}
-
-#[cfg(test)]
-mod provider_progress_tests {
-    use super::provider_completed_chunks;
-
-    #[test]
-    fn provider_ranges_translate_expected_offset_to_completed_chunks() {
-        assert_eq!(
-            provider_completed_chunks(&["20971520-".to_string()], 10 * 1024 * 1024, 4),
-            vec![0, 1]
-        );
-        assert_eq!(
-            provider_completed_chunks(&["10485760-".to_string()], 10 * 1024 * 1024, 4),
-            vec![0]
-        );
-    }
-
-    #[test]
-    fn provider_ranges_reject_empty_invalid_and_non_positive_inputs() {
-        assert!(provider_completed_chunks(&[], 10, 4).is_empty());
-        assert!(provider_completed_chunks(&["0-".to_string()], 10, 4).is_empty());
-        assert!(provider_completed_chunks(&["invalid".to_string()], 10, 4).is_empty());
-        assert!(provider_completed_chunks(&["10-".to_string()], 0, 4).is_empty());
-        assert!(provider_completed_chunks(&["10-".to_string()], 10, 0).is_empty());
-    }
-
-    #[test]
-    fn provider_ranges_are_clamped_to_session_and_overflow_is_bounded() {
-        assert_eq!(
-            provider_completed_chunks(&["999999999-".to_string()], 10, 3),
-            vec![0, 1, 2]
-        );
-        assert!(provider_completed_chunks(&[i64::MAX.to_string()], 10, 3).len() <= 3);
-    }
-}
-
 async fn list_recoverable_sessions_impl(
     state: &PrimaryAppState,
     user_id: i64,
@@ -320,7 +249,7 @@ async fn list_recoverable_sessions_impl(
     frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
     let sessions = upload_session_repo::find_recoverable_by_owner(
-        state.reader_db(),
+        state.writer_db(),
         user_id,
         team_id,
         frontend_client_id,
@@ -341,7 +270,7 @@ pub async fn get_progress(
     upload_id: &str,
     user_id: i64,
 ) -> Result<UploadProgressResponse> {
-    let session = load_upload_session_for_read(state, personal_scope(user_id), upload_id).await?;
+    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
     get_progress_impl(state, session).await
 }
 
@@ -359,8 +288,7 @@ pub async fn get_progress_for_team(
     upload_id: &str,
     user_id: i64,
 ) -> Result<UploadProgressResponse> {
-    let session =
-        load_upload_session_for_read(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
     get_progress_impl(state, session).await
 }
 

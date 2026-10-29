@@ -87,3 +87,5 @@ pub use traits::{
     StorageDriverExtensions, StreamUploadAttempt, StreamUploadCleanup, StreamUploadDriver,
     UploadedMultipartPart, checked_upload_size, exact_size_error_kind,
 };
+
+pub use traits::browser_upload::*;

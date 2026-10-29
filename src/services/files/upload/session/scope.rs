@@ -2,7 +2,7 @@
 
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::upload_session;
 use sea_orm::ConnectionTrait;
@@ -67,12 +67,4 @@ pub(crate) async fn load_upload_session(
     upload_id: &str,
 ) -> Result<upload_session::Model> {
     load_upload_session_with_db(state, state.writer_db(), scope, upload_id).await
-}
-
-pub(crate) async fn load_upload_session_for_read(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    upload_id: &str,
-) -> Result<upload_session::Model> {
-    load_upload_session_with_db(state, state.reader_db(), scope, upload_id).await
 }

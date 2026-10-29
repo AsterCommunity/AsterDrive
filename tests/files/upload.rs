@@ -541,6 +541,7 @@ impl ProviderResumableUploadDriver for UploadDataPlaneProbe {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         self.provider_calls.fetch_add(1, Ordering::SeqCst);
         ProviderResumableUploadCapabilities {
+            browser_upload_protocol: None,
             provider: "test",
             session_label: "test",
             min_fragment_size: 1,

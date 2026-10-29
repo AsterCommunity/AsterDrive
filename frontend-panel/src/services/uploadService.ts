@@ -1,3 +1,4 @@
+import { isAxiosError } from "axios";
 import { config } from "@/config/app";
 import { logger } from "@/lib/logger";
 import { getUploadFrontendClientId } from "@/lib/uploadClientId";
@@ -11,6 +12,10 @@ import type {
 	ApiErrorCode,
 	ApiErrorInfo,
 	ApiResponse,
+	BrowserUploadInstruction,
+	BrowserUploadObservation,
+	BrowserUploadReport,
+	BrowserUploadStep,
 	ChunkUploadResponse,
 	CompletedPart,
 	FileInfo,
@@ -453,190 +458,134 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			});
 		},
 
-		providerResumableUpload: (
-			uploadUrl: string,
-			data: Blob,
-			start: number,
-			totalSize: number,
-			options: ProviderResumableUploadOptions = {},
-		): Promise<number> => {
-			return new Promise((resolve, reject) => {
-				if (data.size === 0) {
-					reject(
-						new UploadRequestError("provider upload chunk cannot be empty", {
-							retryable: false,
-						}),
-					);
-					return;
-				}
-				const endExclusive = start + data.size;
+		coordinateBrowserUpload: async (
+			uploadId: string,
+			report: BrowserUploadReport = {},
+		) => {
+			try {
+				return await api.post<BrowserUploadStep>(
+					buildUploadPath(workspace, `/files/upload/${uploadId}/provider-step`),
+					report,
+				);
+			} catch (error) {
 				if (
-					!Number.isSafeInteger(start) ||
-					!Number.isSafeInteger(totalSize) ||
-					start < 0 ||
-					totalSize <= 0 ||
-					!Number.isSafeInteger(endExclusive) ||
-					endExclusive > totalSize
+					isAxiosError(error) &&
+					(["ERR_NETWORK", "ECONNABORTED", "ETIMEDOUT"].includes(
+						error.code ?? "",
+					) ||
+						(error.response && isRetryableHttpStatus(error.response.status)))
 				) {
-					reject(
-						new UploadRequestError("invalid provider upload byte range", {
-							retryable: false,
-						}),
+					throw new UploadRequestError(
+						"browser upload coordination temporarily unavailable",
+						{ retryable: true, status: error.response?.status },
 					);
+				}
+				throw error;
+			}
+		},
+
+		executeBrowserUpload: (
+			instruction: BrowserUploadInstruction,
+			file: Blob,
+			options: ProviderResumableUploadOptions = {},
+		): Promise<BrowserUploadObservation> =>
+			new Promise((resolve, reject) => {
+				const request = instruction.request;
+				const range = request.body;
+				const url = new URL(request.url, location.href);
+				const forbiddenHeader = (name: string) =>
+					/^(authorization|proxy-authorization|cookie2?|host|origin|referer|content-length|connection|transfer-encoding|accept-encoding|x-csrf-token|set-cookie|sec-.*|proxy-.*|access-control-.*)$/i.test(
+						name,
+					);
+				if (
+					!["http:", "https:"].includes(url.protocol) ||
+					url.origin === location.origin ||
+					url.username ||
+					url.password ||
+					url.hash ||
+					!["GET", "PUT", "POST", "PATCH", "DELETE"].includes(request.method) ||
+					!Number.isSafeInteger(file.size) ||
+					!Number.isSafeInteger(instruction.response_body_limit) ||
+					instruction.response_body_limit <= 0 ||
+					instruction.response_body_limit > 65536 ||
+					!Number.isSafeInteger(instruction.timeout_ms) ||
+					instruction.timeout_ms <= 0 ||
+					instruction.timeout_ms > 60000 ||
+					Object.keys(request.headers).some(forbiddenHeader) ||
+					request.response_headers.some(forbiddenHeader) ||
+					(range &&
+						(!Number.isSafeInteger(range.start) ||
+							!Number.isSafeInteger(range.end) ||
+							range.start < 0 ||
+							range.end <= range.start ||
+							range.end > file.size ||
+							request.method === "GET"))
+				) {
+					reject(new UploadRequestError("invalid browser upload instruction"));
 					return;
 				}
 				const xhr = new XMLHttpRequest();
-				options.onCreateXhr?.(xhr);
-				xhr.open("PUT", uploadUrl);
+				xhr.open(request.method, url.href);
 				xhr.withCredentials = false;
-				xhr.setRequestHeader("Content-Type", "application/octet-stream");
-				const end = start + data.size - 1;
-				xhr.setRequestHeader(
-					"Content-Range",
-					`bytes ${start}-${end}/${totalSize}`,
-				);
-
-				if (options.onProgress) {
-					xhr.upload.onprogress = (event) => {
-						if (event.lengthComputable) {
-							options.onProgress?.(event.loaded, event.total);
+				xhr.timeout = instruction.timeout_ms;
+				for (const [name, value] of Object.entries(request.headers))
+					xhr.setRequestHeader(name, value);
+				let settled = false;
+				const observe = (networkFailure = false, oversized = false) => {
+					if (settled) return;
+					settled = true;
+					const headers: Record<string, string> = {};
+					if (!networkFailure)
+						for (const name of request.response_headers) {
+							const value = xhr.getResponseHeader(name);
+							if (value !== null) headers[name.toLowerCase()] = value;
 						}
-					};
-				}
-
-				xhr.onload = () => {
-					// TODO(#656): select acknowledgement parsing from the backend's
-					// versioned protocol declaration, including init/resume snapshots.
-					// Graph documents 202 + nextExpectedRanges and 200/201 completion:
-					// https://learn.microsoft.com/en-us/graph/api/driveitem-createuploadsession
-					// Drive documents 308 + Range and warns against assuming receipt:
-					// https://developers.google.com/workspace/drive/api/guides/manage-uploads
-					if (xhr.status >= 200 && xhr.status < 300) {
-						if (xhr.status === 202) {
-							try {
-								const body = JSON.parse(xhr.responseText) as {
-									nextExpectedRanges?: unknown;
-								};
-								if (
-									Array.isArray(body.nextExpectedRanges) &&
-									body.nextExpectedRanges.every(
-										(value) => typeof value === "string",
-									)
-								) {
-									const next = providerResumeOffset(
-										body.nextExpectedRanges,
-										totalSize,
-										endExclusive,
-									);
-									if (next > endExclusive)
-										throw new Error("acknowledged unsent bytes");
-									if (next >= totalSize)
-										throw new Error("incomplete response claims completion");
-									resolve(next);
-									return;
-								}
-								throw new Error("missing provider acknowledgement");
-							} catch {
-								reject(
-									new UploadRequestError(
-										"provider acknowledgement requires server reconciliation",
-										{ status: xhr.status, retryable: true },
-									),
-								);
-								return;
-							}
-						}
-						if (endExclusive !== totalSize) {
-							reject(
-								new UploadRequestError(
-									"provider completed before the final fragment",
-									{ status: xhr.status, retryable: true },
-								),
-							);
-							return;
-						}
-						resolve(endExclusive);
-						return;
-					}
-					// Google uses 308 Resume Incomplete, not a redirect. Range is
-					// an acknowledgement, not a suggestion to advance by bytes sent.
-					// If CORS hides Range, reconcile with the authenticated backend;
-					// never assume that the remote provider accepted the whole body.
-					if (xhr.status === 308) {
-						const range = xhr.getResponseHeader("Range");
-						const match = range?.match(/^bytes=0-(\d+)$/);
-						const nextOffset = match ? Number(match[1]) + 1 : Number.NaN;
-						if (
-							Number.isSafeInteger(nextOffset) &&
-							nextOffset >= 0 &&
-							nextOffset <= endExclusive &&
-							nextOffset < totalSize
-						) {
-							resolve(nextOffset);
-						} else {
-							reject(
-								new UploadRequestError(
-									"provider acknowledgement requires server reconciliation",
-									{ status: 308, retryable: true },
-								),
-							);
-						}
-						return;
-					}
-					reject(
-						new UploadRequestError(
-							parseApiMessage(xhr.responseText) ??
-								`Provider upload failed: ${xhr.status}`,
-							{
-								status: xhr.status,
-								retryable:
-									xhr.status === 416 || isRetryableHttpStatus(xhr.status),
-							},
-						),
+					const bytes = new TextEncoder().encode(
+						networkFailure ? "" : xhr.responseText,
 					);
+					const truncated =
+						oversized || bytes.length > instruction.response_body_limit;
+					const body = truncated
+						? new TextDecoder().decode(
+								bytes.slice(
+									0,
+									Math.max(0, instruction.response_body_limit - 3),
+								),
+							)
+						: networkFailure
+							? ""
+							: xhr.responseText;
+					resolve({
+						status: networkFailure ? 0 : xhr.status,
+						headers,
+						body,
+						body_truncated: truncated,
+					});
 				};
-				xhr.onerror = () =>
-					reject(new UploadRequestError("network error", { retryable: true }));
-				xhr.onabort = () =>
-					reject(
-						new UploadRequestError("upload aborted", {
-							isAborted: true,
-							retryable: false,
-							status: xhr.status,
-						}),
-					);
-				xhr.send(data);
-			});
-		},
+				xhr.onload = () => observe();
+				xhr.onerror = () => observe(true);
+				xhr.ontimeout = () => observe(true);
+				xhr.onprogress = (event) => {
+					if (event.loaded > instruction.response_body_limit) {
+						observe(true, true);
+						xhr.abort();
+					}
+				};
+				xhr.onabort = () => {
+					if (settled) return;
+					settled = true;
+					reject(new UploadRequestError("upload aborted", { isAborted: true }));
+				};
+				xhr.upload.onprogress = (event) => {
+					if (event.lengthComputable)
+						options.onProgress?.(event.loaded, event.total);
+				};
+				options.onCreateXhr?.(xhr);
+				// An onCreateXhr cancellation can happen before send().
+				if (!settled)
+					xhr.send(range ? file.slice(range.start, range.end) : null);
+			}),
 	};
 }
 
 export const uploadService = bindWorkspaceService(createUploadService);
-
-/** Normalize nextExpectedRanges from the provider or our progress API. */
-export function providerResumeOffset(
-	ranges: string[] | undefined,
-	total: number,
-	fallback: number,
-): number {
-	if (!ranges) return fallback;
-	if (ranges.length === 0) return total;
-	const starts = ranges.map((range) => {
-		const match = /^(\d+)-(\d*)$/.exec(range);
-		const value = match ? Number(match[1]) : Number.NaN;
-		const end = match?.[2] ? Number(match[2]) : undefined;
-		if (
-			!Number.isSafeInteger(value) ||
-			value < 0 ||
-			value >= total ||
-			(end !== undefined &&
-				(!Number.isSafeInteger(end) || end < value || end >= total))
-		) {
-			throw new UploadRequestError("invalid provider resume offset", {
-				retryable: false,
-			});
-		}
-		return value;
-	});
-	return Math.min(...starts);
-}

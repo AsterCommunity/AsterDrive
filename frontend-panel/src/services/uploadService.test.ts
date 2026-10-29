@@ -551,339 +551,152 @@ describe("uploadService", () => {
 		expect(xhr.requestHeaderCalls).toEqual([]);
 	});
 
-	it("uploads provider ranges without credentials or authorization headers", async () => {
-		setTestCookie("aster_csrf=csrf-token-should-not-leak; path=/");
+	function instruction() {
+		return {
+			request_id: "opaque-request-id",
+			timeout_ms: 60000,
+			response_body_limit: 65536,
+			request: {
+				url: "https://plugin.example/upload",
+				method: "PATCH" as const,
+				headers: { "X-Plugin-Protocol": "v7" },
+				body: { start: 2, end: 6 },
+				response_headers: ["X-Plugin-Ack"],
+			},
+		};
+	}
+	it("executes an opaque plugin instruction without cookies, CSRF, or provider interpretation", async () => {
+		setTestCookie("aster_csrf=must-not-leak; path=/");
 		const { uploadService } = await import("@/services/uploadService");
 		const progress = vi.fn();
-		const onCreateXhr = vi.fn();
-		const blob = new Blob(["hello"]);
-		const promise = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			blob,
-			10,
-			25,
-			{ onCreateXhr, onProgress: progress },
+		const pending = uploadService.executeBrowserUpload(
+			instruction(),
+			new Blob(["abcdefgh"]),
+			{ onProgress: progress },
 		);
 		const xhr = MockXMLHttpRequest.instances[0];
-
-		xhr.upload.onprogress?.({ lengthComputable: true, loaded: 3, total: 5 });
-		xhr.status = 202;
-		xhr.responseText = JSON.stringify({ nextExpectedRanges: ["15-"] });
+		xhr.upload.onprogress?.({ lengthComputable: true, loaded: 2, total: 4 });
+		xhr.status = 299;
+		xhr.responseText = "plugin-specific-payload";
+		xhr.responseHeaders["X-Plugin-Ack"] = "accepted";
 		xhr.onload?.();
-
-		await expect(promise).resolves.toBe(15);
-		expect(progress).toHaveBeenCalledWith(3, 5);
-		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
-		expect(xhr.method).toBe("PUT");
-		expect(xhr.url).toBe("https://provider.example/upload-session");
+		await expect(pending).resolves.toEqual({
+			status: 299,
+			headers: { "x-plugin-ack": "accepted" },
+			body: "plugin-specific-payload",
+			body_truncated: false,
+		});
+		expect(xhr.method).toBe("PATCH");
 		expect(xhr.withCredentials).toBe(false);
-		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
-		expect(xhr.headers["Content-Range"]).toBe("bytes 10-14/25");
-		expect(xhr.headers.Authorization).toBeUndefined();
-		expect(xhr.headers["X-CSRF-Token"]).toBeUndefined();
-		expect(xhr.sentBody).toBe(blob);
+		expect(xhr.requestHeaderCalls).toEqual([["X-Plugin-Protocol", "v7"]]);
+		expect(xhr.sentBody?.size).toBe(4);
+		expect(progress).toHaveBeenCalledWith(2, 4);
 	});
-
-	it("accepts both intermediate and final provider upload responses", async () => {
+	it.each([202, 308, 200, 201, 204, 403, 416, 503])(
+		"reports status %i verbatim to the backend",
+		async (status) => {
+			const { uploadService } = await import("@/services/uploadService");
+			const pending = uploadService.executeBrowserUpload(
+				instruction(),
+				new Blob(["abcdefgh"]),
+			);
+			const xhr = MockXMLHttpRequest.instances[0];
+			xhr.status = status;
+			xhr.onload?.();
+			await expect(pending).resolves.toMatchObject({ status, headers: {} });
+		},
+	);
+	it("reports network failure as unknown and treats cancellation as terminal", async () => {
 		const { uploadService } = await import("@/services/uploadService");
-
-		const intermediate = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			new Blob(["part-1"]),
-			0,
-			12,
+		const failed = uploadService.executeBrowserUpload(
+			instruction(),
+			new Blob(["abcdefgh"]),
 		);
-		const intermediateXhr = MockXMLHttpRequest.instances[0];
-		intermediateXhr.status = 202;
-		intermediateXhr.responseText = JSON.stringify({
-			nextExpectedRanges: ["6-"],
-		});
-		intermediateXhr.onload?.();
-		await expect(intermediate).resolves.toBe(6);
-
-		const final = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			new Blob(["part-2"]),
-			6,
-			12,
+		MockXMLHttpRequest.instances[0].onerror?.();
+		await expect(failed).resolves.toMatchObject({ status: 0 });
+		const aborted = uploadService.executeBrowserUpload(
+			instruction(),
+			new Blob(["abcdefgh"]),
 		);
-		const finalXhr = MockXMLHttpRequest.instances[1];
-		finalXhr.status = 201;
-		finalXhr.onload?.();
-		await expect(final).resolves.toBe(12);
-	});
-
-	it("marks provider range conflicts and transient failures as retryable", async () => {
-		const { uploadService } = await import("@/services/uploadService");
-
-		const rangeConflict = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			new Blob(["part"]),
-			0,
-			4,
-		);
-		const rangeXhr = MockXMLHttpRequest.instances[0];
-		rangeXhr.status = 416;
-		rangeXhr.onload?.();
-		await expect(rangeConflict).rejects.toMatchObject({
-			status: 416,
-			retryable: true,
-		});
-
-		const serverFailure = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			new Blob(["part"]),
-			0,
-			4,
-		);
-		const serverXhr = MockXMLHttpRequest.instances[1];
-		serverXhr.status = 503;
-		serverXhr.onload?.();
-		await expect(serverFailure).rejects.toMatchObject({
-			status: 503,
-			retryable: true,
-		});
-
-		const forbidden = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			new Blob(["part"]),
-			0,
-			4,
-		);
-		const forbiddenXhr = MockXMLHttpRequest.instances[2];
-		forbiddenXhr.status = 403;
-		forbiddenXhr.onload?.();
-		await expect(forbidden).rejects.toMatchObject({
-			status: 403,
-			retryable: false,
-		});
-	});
-
-	it("rejects empty provider chunks before creating a network request", async () => {
-		const { UploadRequestError, uploadService } = await import(
-			"@/services/uploadService"
-		);
-
-		await expect(
-			uploadService.providerResumableUpload(
-				"https://provider.example/upload-session",
-				new Blob(),
-				0,
-				0,
-			),
-		).rejects.toBeInstanceOf(UploadRequestError);
-		await expect(
-			uploadService.providerResumableUpload(
-				"https://provider.example/upload-session",
-				new Blob(),
-				0,
-				0,
-			),
-		).rejects.toMatchObject({
-			message: "provider upload chunk cannot be empty",
-			retryable: false,
-		});
-		expect(MockXMLHttpRequest.instances).toHaveLength(0);
-	});
-
-	it("reports an aborted provider request as a terminal upload error", async () => {
-		const { uploadService } = await import("@/services/uploadService");
-		const promise = uploadService.providerResumableUpload(
-			"https://provider.example/upload-session",
-			new Blob(["part"]),
-			0,
-			4,
-		);
-		const xhr = MockXMLHttpRequest.instances[0];
-
-		xhr.abort();
-
-		await expect(promise).rejects.toMatchObject({
+		MockXMLHttpRequest.instances[1].abort();
+		await expect(aborted).rejects.toMatchObject({
 			isAborted: true,
 			retryable: false,
-			status: 0,
 		});
 	});
-
-	it("normalizes full and partial Range acknowledgements", async () => {
+	it("caps response bodies by UTF-8 bytes", async () => {
 		const { uploadService } = await import("@/services/uploadService");
-		for (const [range, next] of [
-			["bytes=0-3", 4],
-			["bytes=0-1", 2],
-		] as const) {
-			const promise = uploadService.providerResumableUpload(
-				"https://provider.example/session",
-				new Blob(["abcd"]),
-				0,
-				8,
-			);
-			const xhr =
-				MockXMLHttpRequest.instances[MockXMLHttpRequest.instances.length - 1];
-			xhr.status = 308;
-			xhr.responseHeaders.Range = range;
-			xhr.onload?.();
-			await expect(promise).resolves.toBe(next);
-			expect(xhr.withCredentials).toBe(false);
-		}
-	});
-
-	it("reads JSON nextExpectedRanges from a partial 202 acknowledgement", async () => {
-		const { uploadService } = await import("@/services/uploadService");
-		const promise = uploadService.providerResumableUpload(
-			"https://provider.example/session",
-			new Blob(["abcd"]),
-			0,
-			8,
+		const command = { ...instruction(), response_body_limit: 8 };
+		const pending = uploadService.executeBrowserUpload(
+			command,
+			new Blob(["abcdefgh"]),
 		);
-		const xhr =
-			MockXMLHttpRequest.instances[MockXMLHttpRequest.instances.length - 1];
+		const xhr = MockXMLHttpRequest.instances[0];
 		xhr.status = 202;
-		xhr.responseText = JSON.stringify({ nextExpectedRanges: ["2-"] });
+		xhr.responseText = "猫".repeat(100);
 		xhr.onload?.();
-		await expect(promise).resolves.toBe(2);
+		const result = await pending;
+		expect(result.body_truncated).toBe(true);
+		expect(new TextEncoder().encode(result.body).length).toBeLessThanOrEqual(8);
 	});
-
 	it.each([
-		["unsent bytes", { nextExpectedRanges: ["5-"] }, 8],
-		["completion in a 202", { nextExpectedRanges: [] }, 4],
-		["missing ranges", {}, 8],
-		["wrong range shape", { nextExpectedRanges: "4-" }, 8],
-		["non-string range", { nextExpectedRanges: [4] }, 8],
-		["null body", null, 8],
-	])("reconciles a 202 response with %s", async (_label, body, total) => {
+		"Authorization",
+		"Cookie",
+		"X-CSRF-Token",
+		"Content-Length",
+		"Sec-Fetch-Site",
+	])("rejects forbidden header %s before creating XHR", async (name) => {
 		const { uploadService } = await import("@/services/uploadService");
-		const uploading = uploadService.providerResumableUpload(
-			"https://provider.example/session",
-			new Blob(["abcd"]),
-			0,
-			total,
-		);
-		const xhr = MockXMLHttpRequest.instances.at(-1) as MockXMLHttpRequest;
-		xhr.status = 202;
-		xhr.responseText = JSON.stringify(body);
-		xhr.onload?.();
-		await expect(uploading).rejects.toMatchObject({
-			retryable: true,
-			status: 202,
-		});
-	});
-
-	it("reconciles malformed JSON and premature successful completion", async () => {
-		const { uploadService } = await import("@/services/uploadService");
-		for (const [status, body] of [
-			[202, "not JSON"],
-			[200, "{}"],
-			[201, "{}"],
-		] as const) {
-			const uploading = uploadService.providerResumableUpload(
-				"https://provider.example/session",
-				new Blob(["abcd"]),
-				0,
-				8,
-			);
-			const xhr = MockXMLHttpRequest.instances.at(-1) as MockXMLHttpRequest;
-			xhr.status = status;
-			xhr.responseText = body;
-			xhr.onload?.();
-			await expect(uploading).rejects.toMatchObject({
-				retryable: true,
-				status,
-			});
-		}
-	});
-
-	it("keeps missing progress ranges at the supplied offset and rejects unsafe range ends", async () => {
-		const { providerResumeOffset } = await import("@/services/uploadService");
-		expect(providerResumeOffset(undefined, 8, 4)).toBe(4);
-		expect(() => providerResumeOffset(["1-9007199254740992"], 8, 0)).toThrow(
-			"invalid provider resume offset",
-		);
-	});
-
-	it("requires reconciliation for hidden malformed or impossible Range headers", async () => {
-		const { uploadService } = await import("@/services/uploadService");
-		for (const range of [
-			undefined,
-			"bytes=1-3",
-			"bytes=0--1",
-			"bytes=0-7",
-			"bytes=0-9007199254740992",
-			"unparseable",
-		]) {
-			const promise = uploadService.providerResumableUpload(
-				"https://provider.example/session",
-				new Blob(["abcd"]),
-				0,
-				8,
-			);
-			const xhr =
-				MockXMLHttpRequest.instances[MockXMLHttpRequest.instances.length - 1];
-			xhr.status = 308;
-			if (range !== undefined) xhr.responseHeaders.Range = range;
-			xhr.onload?.();
-			await expect(promise).rejects.toMatchObject({
-				status: 308,
-				retryable: true,
-			});
-		}
-	});
-
-	it("rejects unsafe upload bounds before XHR and validates resume ranges", async () => {
-		const { uploadService, providerResumeOffset } = await import(
-			"@/services/uploadService"
-		);
-		for (const [start, total] of [
-			[-1, 8],
-			[0, 3],
-			[Number.NaN, 8],
-			[Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
-			[0, Number.POSITIVE_INFINITY],
-			[0, 0],
-			[0.5, 8],
-		]) {
-			await expect(
-				uploadService.providerResumableUpload(
-					"https://provider.example/session",
-					new Blob(["abcd"]),
-					start,
-					total,
-				),
-			).rejects.toMatchObject({ retryable: false });
-		}
+		const command = instruction();
+		command.request.headers = {
+			[name]: "secret",
+		} as typeof command.request.headers;
+		await expect(
+			uploadService.executeBrowserUpload(command, new Blob(["abcdefgh"])),
+		).rejects.toThrow("invalid browser upload instruction");
 		expect(MockXMLHttpRequest.instances).toHaveLength(0);
-		expect(providerResumeOffset(["4-", "2-3"], 8, 0)).toBe(2);
-		expect(providerResumeOffset([], 8, 0)).toBe(8);
-		for (const ranges of [
-			["bad"],
-			["-1-"],
-			["8-"],
-			["3-2"],
-			["1-8"],
-			["9007199254740992-"],
-		])
-			expect(() => providerResumeOffset(ranges, 8, 0)).toThrow(
-				"invalid provider resume offset",
-			);
 	});
-
-	it("requires final success rather than 308 to acknowledge all bytes", async () => {
-		const { uploadService } = await import("@/services/uploadService");
-		const uploading = uploadService.providerResumableUpload(
-			"https://provider.example/session",
-			new Blob(["abcd"]),
-			0,
-			4,
+	it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN])(
+		"rejects unsafe file offsets %s",
+		async (start) => {
+			const { uploadService } = await import("@/services/uploadService");
+			const command = instruction();
+			command.request.body.start = start;
+			await expect(
+				uploadService.executeBrowserUpload(command, new Blob(["abcdefgh"])),
+			).rejects.toThrow("invalid browser upload instruction");
+			expect(MockXMLHttpRequest.instances).toHaveLength(0);
+		},
+	);
+	it("uses the authenticated workspace API for coordination", async () => {
+		const { createUploadService } = await import("@/services/uploadService");
+		await createUploadService({
+			kind: "team",
+			teamId: 42,
+		}).coordinateBrowserUpload("session", {});
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/teams/42/files/upload/session/provider-step",
+			{},
 		);
-		const xhr = MockXMLHttpRequest.instances.at(-1) as MockXMLHttpRequest;
-		xhr.status = 308;
-		xhr.responseHeaders.Range = "bytes=0-3";
-		xhr.onload?.();
-		await expect(uploading).rejects.toMatchObject({
-			retryable: true,
-			status: 308,
-		});
 	});
 
+	it("refuses same-origin XHR because withCredentials=false cannot omit its cookies", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const command = instruction();
+		command.request.url = `${location.origin}/capability`;
+		await expect(
+			uploadService.executeBrowserUpload(command, new Blob(["abcdefgh"])),
+		).rejects.toThrow("invalid browser upload instruction");
+		expect(MockXMLHttpRequest.instances).toHaveLength(0);
+	});
+	it("normalizes lost backend connections into retryable coordination failures", async () => {
+		const { AxiosError } = await import("axios");
+		const { uploadService } = await import("@/services/uploadService");
+		mockState.post.mockRejectedValueOnce(new AxiosError("lost", "ERR_NETWORK"));
+		await expect(
+			uploadService.coordinateBrowserUpload("session", {}),
+		).rejects.toMatchObject({ retryable: true });
+	});
 	it("applies provider-required presigned PUT headers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 

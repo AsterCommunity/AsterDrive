@@ -22,8 +22,9 @@ pub use self::mutations::{
 };
 pub use self::upload::{
     ChunkPath, CompleteUploadReq, CompletedPartReq, FileQuery, InitUploadReq, PresignPartsReq,
-    UploadIdPath, cancel_upload, complete_upload, get_upload_progress, init_upload_session,
-    list_recoverable_upload_sessions, presign_parts, upload_chunk, upload_stream_body,
+    UploadIdPath, cancel_upload, complete_upload, coordinate_browser_upload, get_upload_progress,
+    init_upload_session, list_recoverable_upload_sessions, presign_parts, upload_chunk,
+    upload_stream_body,
 };
 pub use self::versions::{delete_version, list_versions, restore_version};
 // DTO types that need explicit import (not re-exported from submodules)
@@ -40,9 +41,9 @@ pub(crate) use self::mutations::{
     team_set_lock, team_update_content,
 };
 pub(crate) use self::upload::{
-    team_cancel_upload, team_complete_upload, team_get_upload_progress, team_init_upload_session,
-    team_list_recoverable_upload_sessions, team_presign_parts, team_upload_chunk,
-    team_upload_stream_body,
+    team_cancel_upload, team_complete_upload, team_coordinate_browser_upload,
+    team_get_upload_progress, team_init_upload_session, team_list_recoverable_upload_sessions,
+    team_presign_parts, team_upload_chunk, team_upload_stream_body,
 };
 pub(crate) use self::versions::{team_delete_version, team_list_versions, team_restore_version};
 
@@ -82,6 +83,10 @@ pub fn routes(
         .route(
             "/upload/{upload_id}/presign-parts",
             web::post().to(presign_parts),
+        )
+        .route(
+            "/upload/{upload_id}/provider-step",
+            web::post().to(coordinate_browser_upload),
         )
         // Web app upload progress polling and recovery.
         .route("/upload/{upload_id}", web::get().to(get_upload_progress))
@@ -164,6 +169,10 @@ pub fn team_routes() -> actix_web::Scope {
         .route(
             "/upload/{upload_id}/presign-parts",
             web::post().to(team_presign_parts),
+        )
+        .route(
+            "/upload/{upload_id}/provider-step",
+            web::post().to(team_coordinate_browser_upload),
         )
         // Team upload progress polling and recovery.
         .route(

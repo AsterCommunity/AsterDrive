@@ -65,6 +65,11 @@ fn audit_details_with_data_plane(
     details
 }
 
+pub use session::browser::{
+    BrowserUploadReport, BrowserUploadStep, coordinate_browser_upload,
+    coordinate_browser_upload_for_team,
+};
+
 #[cfg(test)]
 mod tests {
     use super::{audit_details_with_data_plane, upload_status_conflict};

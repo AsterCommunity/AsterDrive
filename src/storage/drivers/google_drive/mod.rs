@@ -217,11 +217,14 @@ impl StorageDriver for GoogleDriveDriver {
     }
 }
 
+mod browser_upload;
 mod capacity;
 pub(crate) mod client;
 pub(crate) mod paths;
 mod upload;
 use client::{http_client, invalid, map_http, map_transport, transient};
+
+pub use upload::google_drive_upload_capabilities;
 
 #[cfg(test)]
 mod tests;

@@ -3,12 +3,14 @@ name: Frontend CI
 on:
   push:
     paths:
+      - '.nvmrc'
       - 'frontend-panel/**'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/frontend.yml'
     branches: [master]
   pull_request:
     paths:
+      - '.nvmrc'
       - 'frontend-panel/**'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/frontend.yml'
@@ -26,6 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

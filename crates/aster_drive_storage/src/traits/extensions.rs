@@ -352,8 +352,7 @@ pub enum StorageCapacityAssessment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResumableUploadCapabilities {
-    // TODO(#656): declare the browser fragment acknowledgement protocol here
-    // and project it consistently into descriptor + init/progress snapshots.
+    pub browser_upload_protocol: Option<crate::BrowserUploadProtocol>,
     /// Provider 标识，例如 `microsoft_graph`。
     pub provider: &'static str,
     /// 面向日志/诊断的 session 名称，例如 `upload_session`。
@@ -404,6 +403,11 @@ pub struct ProviderResumableUploadFragmentOutcome {
 #[async_trait]
 pub trait ProviderResumableUploadDriver: Send + Sync {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities;
+
+    /// Optional backend-coordinated browser transport; relay-only drivers need no implementation.
+    fn browser_upload(&self) -> Option<&dyn super::browser_upload::BrowserUploadDriver> {
+        None
+    }
 
     async fn create_upload_session(&self, path: &str) -> Result<ProviderResumableUploadSession>;
 

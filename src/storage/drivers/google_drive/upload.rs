@@ -260,20 +260,12 @@ impl StreamUploadDriver for GoogleDriveDriver {
 #[async_trait]
 impl ProviderResumableUploadDriver for GoogleDriveDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
-        ProviderResumableUploadCapabilities {
-            provider: "google_drive",
-            session_label: "Google Drive resumable upload",
-            min_fragment_size: ALIGNMENT,
-            default_fragment_size: CHUNK,
-            max_fragment_size: CHUNK,
-            fragment_alignment: ALIGNMENT,
-            max_simple_upload_size: Some(MAX_SIMPLE),
-            frontend_direct_upload: true,
-            implicit_completion: true,
-            abort_supported: true,
-            status_query_supported: true,
-        }
+        google_drive_upload_capabilities()
     }
+    fn browser_upload(&self) -> Option<&dyn aster_drive_storage::BrowserUploadDriver> {
+        Some(self)
+    }
+
     async fn create_upload_session(&self, path: &str) -> Result<ProviderResumableUploadSession> {
         Ok(ProviderResumableUploadSession {
             upload_url: self.create_session(path, None).await?,
@@ -291,7 +283,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
                     .header(CONTENT_RANGE, "bytes */*"),
             )
             .await?;
-        let next_expected_ranges = if response.status().is_success() {
+        let next_expected_ranges = if matches!(response.status().as_u16(), 200 | 201) {
             Vec::new()
         } else if response.status() == reqwest::StatusCode::PERMANENT_REDIRECT {
             vec![format!("{}-", next_offset(response.headers())?)]
@@ -361,4 +353,24 @@ fn map_reader_error(error: std::io::Error) -> StorageError {
         exact_size_error_kind(&error).unwrap_or(StorageErrorKind::Transient),
         "Google Drive upload reader failed or does not match the declared size",
     )
+}
+
+pub fn google_drive_upload_capabilities() -> ProviderResumableUploadCapabilities {
+    ProviderResumableUploadCapabilities {
+        browser_upload_protocol: Some(aster_drive_storage::BrowserUploadProtocol {
+            id: "asterdrive.google_drive.resumable".into(),
+            version: 1,
+        }),
+        provider: "google_drive",
+        session_label: "Google Drive resumable upload",
+        min_fragment_size: ALIGNMENT,
+        default_fragment_size: CHUNK,
+        max_fragment_size: CHUNK,
+        fragment_alignment: ALIGNMENT,
+        max_simple_upload_size: Some(MAX_SIMPLE),
+        frontend_direct_upload: true,
+        implicit_completion: true,
+        abort_supported: true,
+        status_query_supported: true,
+    }
 }

@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Google Drive 存储后端** — 管理员可通过加密保存的 Google OAuth 应用授权，将普通目录、共享盘或 appDataFolder 作为 AsterDrive blob 存储池，支持在所选根目录下配置相对基础路径并在写入时创建缺失目录；已有 blob 或未完成上传时禁止直接重新定位存储池。上传支持有界服务端中继与浏览器直传；账号容量按 Google 跨服务总用量观测，共享盘独立容量边界不可观测时明确返回不支持。下载与 Range 读取经服务端中继，使用当前 AsterDrive 文件名。管理员 OAuth token 留在后端，仅浏览器直传模式向上传 owner 返回其本次会话的临时能力地址。
+- **Google Drive 存储后端** — 管理员可通过加密保存的 Google OAuth 应用授权，将普通目录、共享盘或 appDataFolder 作为 AsterDrive blob 存储池，支持在所选根目录下配置相对基础路径并在写入时创建缺失目录；已有 blob 或未完成上传时禁止直接重新定位存储池。上传支持有界服务端中继与后端协调的浏览器可恢复直传；账号容量按 Google 跨服务总用量观测，共享盘独立容量边界不可观测时明确返回不支持。下载与 Range 读取经服务端中继，使用当前 AsterDrive 文件名。管理员 OAuth token 留在后端，仅浏览器直传模式向上传 owner 返回其本次会话的临时能力地址。
+- **可扩展的浏览器上传协调** — resumable driver 负责响应解析并生成受限 HTTP 指令，前端执行上传时无需维护 provider 专用解析器。协议快照、私有状态和请求 ID 可跨刷新保留，响应丢失时查询 provider 权威状态恢复，并通过条件更新防止取消与并发协调覆盖会话。已有 OneDrive 和 Google Drive 会话仍可恢复。新版本必须使用配套最新前端，响应移除独立的 `upload_url` 和 `next_expected_ranges` 字段。
+
+### Changed
+
+- **Node.js 构建工具链** — 本地开发与 CI 通过 `.nvmrc` 统一选择 Node.js 26.13.0；Docker 前端构建固定同一补丁版本并检查实际二进制版本。前端和文档 package 要求 Node.js >=26.13.0 <27。
 
 ### Fixed
 

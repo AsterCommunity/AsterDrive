@@ -1,5 +1,6 @@
 # Stage 1: Build frontend
-FROM node:24-alpine AS frontend
+FROM node:26.13.0-alpine AS frontend
+RUN test "$(node --version)" = "v26.13.0"
 
 RUN npm install -g bun@latest
 

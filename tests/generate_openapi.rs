@@ -260,3 +260,16 @@ fn storage_connector_action_openapi_exposes_plugin_owned_contracts() {
         true
     );
 }
+
+#[test]
+fn provider_resumable_responses_expose_only_coordinated_browser_state() {
+    let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    let properties =
+        value["components"]["schemas"]["ProviderResumableUploadResponse"]["properties"]
+            .as_object()
+            .unwrap();
+    assert!(properties.contains_key("browser_upload"));
+    assert!(properties.contains_key("expires_at"));
+    assert!(!properties.contains_key("upload_url"));
+    assert!(!properties.contains_key("next_expected_ranges"));
+}

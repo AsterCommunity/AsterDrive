@@ -3,6 +3,7 @@ name: Rust CI
 on:
   push:
     paths:
+      - '.nvmrc'
       - '**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -16,6 +17,7 @@ on:
     branches: [master]
   pull_request:
     paths:
+      - '.nvmrc'
       - '**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -104,7 +106,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: .nvmrc
 
       - name: Install frontend dependencies
         working-directory: frontend-panel
@@ -147,6 +149,11 @@ jobs:
 
       - name: Prepare coverage output directory
         run: mkdir -p coverage/rust
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

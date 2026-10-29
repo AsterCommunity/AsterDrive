@@ -2124,6 +2124,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/files/upload/{upload_id}/provider-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["coordinate_browser_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/files/upload/{upload_id}/{chunk_number}": {
         parameters: {
             query?: never;
@@ -3478,6 +3494,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["presign_team_upload_parts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{team_id}/files/upload/{upload_id}/provider-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["coordinate_team_browser_upload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5197,6 +5229,71 @@ export interface components {
          * @enum {string}
          */
         BrowserOpenMode: "single_click" | "double_click";
+        BrowserUploadInstruction: {
+            request: components["schemas"]["BrowserUploadRequest"];
+            request_id: string;
+            /** Format: int32 */
+            response_body_limit: number;
+            /** Format: int32 */
+            timeout_ms: number;
+        };
+        /** @enum {string} */
+        BrowserUploadMethod: "GET" | "PUT" | "POST" | "PATCH" | "DELETE";
+        /** @description Untrusted browser observation. Status zero means the browser could not observe a response. */
+        BrowserUploadObservation: {
+            body: string;
+            body_truncated: boolean;
+            headers: {
+                [key: string]: string;
+            };
+            /** Format: int32 */
+            status: number;
+        };
+        /** @description Opaque driver-owned protocol identity. Versions are interpreted by the driver, not the browser. */
+        BrowserUploadProtocol: {
+            id: string;
+            /** Format: int32 */
+            version: number;
+        };
+        /** @description Half-open file range [start, end). None means an empty request body. */
+        BrowserUploadRange: {
+            /** Format: int64 */
+            end: number;
+            /** Format: int64 */
+            start: number;
+        };
+        BrowserUploadReport: {
+            observation?: components["schemas"]["BrowserUploadObservation"] | null;
+            request_id?: string | null;
+        };
+        /** @description A capability URL, never an administrator credential. Do not log this value. */
+        BrowserUploadRequest: {
+            body?: components["schemas"]["BrowserUploadRange"] | null;
+            headers: {
+                [key: string]: string;
+            };
+            method: components["schemas"]["BrowserUploadMethod"];
+            /** @description Only these response headers may be reported to the driver. */
+            response_headers: string[];
+            url: string;
+        };
+        BrowserUploadStep: {
+            /** Format: int64 */
+            confirmed_offset: number;
+            /**
+             * Format: int32
+             * @description Version of the finite browser executor, independent from driver protocol versions.
+             */
+            executor_version: number;
+            instruction?: components["schemas"]["BrowserUploadInstruction"] | null;
+            /**
+             * Format: int64
+             * @description Increments only when driver state or confirmed progress advances, not for a fresh request ID.
+             */
+            progress_revision: number;
+            protocol: components["schemas"]["BrowserUploadProtocol"];
+            provider_completed: boolean;
+        };
         /** @description Change the authenticated user's password. */
         ChangePasswordReq: {
             current_password: string;
@@ -7419,9 +7516,8 @@ export interface components {
          */
         ProviderDownloadStrategy: "server_relay" | "frontend_direct";
         ProviderResumableUploadResponse: {
+            browser_upload?: components["schemas"]["BrowserUploadStep"] | null;
             expires_at?: string | null;
-            next_expected_ranges: string[];
-            upload_url: string;
         };
         /**
          * @description Provider-native resumable upload transfer strategy.
@@ -8514,6 +8610,7 @@ export interface components {
         StorageConnectorProviderResumableUploadCapabilities: {
             /** @description 当前实现是否向上层暴露 provider-native abort。 */
             abort_supported: boolean;
+            browser_upload_protocol?: components["schemas"]["BrowserUploadProtocol"] | null;
             /** @description 后端默认使用的分片大小。 */
             default_fragment_size: number;
             /** @description 分片边界对齐要求。 */
@@ -18807,6 +18904,54 @@ export interface operations {
             };
         };
     };
+    coordinate_browser_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Upload session ID */
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserUploadReport"];
+            };
+        };
+        responses: {
+            /** @description Backend-coordinated browser upload step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            confirmed_offset: number;
+                            /**
+                             * Format: int32
+                             * @description Version of the finite browser executor, independent from driver protocol versions.
+                             */
+                            executor_version: number;
+                            instruction?: components["schemas"]["BrowserUploadInstruction"] | null;
+                            /**
+                             * Format: int64
+                             * @description Increments only when driver state or confirmed progress advances, not for a fresh request ID.
+                             */
+                            progress_revision: number;
+                            protocol: components["schemas"]["BrowserUploadProtocol"];
+                            provider_completed: boolean;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
     upload_chunk: {
         parameters: {
             query?: never;
@@ -24864,6 +25009,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    coordinate_team_browser_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Team ID */
+                team_id: number;
+                /** @description Upload session ID */
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserUploadReport"];
+            };
+        };
+        responses: {
+            /** @description Backend-coordinated team upload step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            confirmed_offset: number;
+                            /**
+                             * Format: int32
+                             * @description Version of the finite browser executor, independent from driver protocol versions.
+                             */
+                            executor_version: number;
+                            instruction?: components["schemas"]["BrowserUploadInstruction"] | null;
+                            /**
+                             * Format: int64
+                             * @description Increments only when driver state or confirmed progress advances, not for a fresh request ID.
+                             */
+                            progress_revision: number;
+                            protocol: components["schemas"]["BrowserUploadProtocol"];
+                            provider_completed: boolean;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
             };
         };
     };
