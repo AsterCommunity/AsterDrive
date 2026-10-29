@@ -76,8 +76,9 @@ export async function runBrowserUpload(
 			}
 		}
 	};
-	if (!step.instruction && !step.provider_completed)
-		step = await coordinate({});
+	// Persisted instructions can be stale after a lost response. Reconcile once
+	// at the beginning of every transfer, before sending any file bytes.
+	if (!step.provider_completed) step = await coordinate({});
 	const firstRange = step.instruction?.request.body;
 	const fragmentBudget = firstRange
 		? firstRange.end - firstRange.start

@@ -157,10 +157,8 @@ appDataFolder 的 `drive.appdata` 与普通空间的 `drive` scope 不同。切�
 字段缺失或请求暂时失败属于不可确定，畸形 / 负数 / 溢出值不变成“容量充足”。
 探测复用网络缓存、并发合并和可配置 timeout 预算，不新增轮询任务或全局状态。
 
-现有 capability 尚未描述浏览器如何解析确认响应。本次暂时在通用前端支持两种已知格式，
-在 runtime capability、init/progress DTO 和解析处保留 `TODO(#656)`。
-[#656](https://github.com/AsterCommunity/AsterDrive/issues/656) 单独设计后端声明及会话快照，
-不在本次增加 provider 白名单、任意脚本或通用表达式解释器。
+浏览器响应解析由 driver 拥有，runtime capability 通过 `browser_upload_protocol` 声明协议标识与版本，
+见[后端协调契约](./browser-upload-coordination.md)。前端不按 provider 白名单解析，也不运行脚本或表达式解释器。
 
 ## 验证矩阵
 

@@ -317,6 +317,10 @@ describe("backend coordinated provider upload", () => {
 				max_chunk_concurrency: 1,
 			},
 		};
+		coordinateBrowserUpload.mockImplementationOnce(
+			async () => init.provider_resumable?.browser_upload,
+		);
+
 		return {
 			context,
 			task,

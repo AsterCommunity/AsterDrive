@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BrowserUploadInstruction } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => {
@@ -57,11 +58,14 @@ class MockXMLHttpRequest {
 	onabort?: () => void;
 	onerror?: () => void;
 	onload?: () => void;
+	ontimeout?: () => void;
+	onprogress?: (event: { loaded: number }) => void;
+	timeout = 0;
 	responseHeaders: Record<string, string> = {};
 	responseText = "";
 	responseURL = "";
 	requestHeaderCalls: Array<[name: string, value: string]> = [];
-	sentBody?: Blob | File;
+	sentBody?: Blob | File | null;
 	status = 0;
 	statusText = "";
 	upload: {
@@ -88,7 +92,7 @@ class MockXMLHttpRequest {
 		this.headers[name] = value;
 	}
 
-	send(body: Blob | File) {
+	send(body: Blob | File | null) {
 		this.sentBody = body;
 	}
 
@@ -551,7 +555,7 @@ describe("uploadService", () => {
 		expect(xhr.requestHeaderCalls).toEqual([]);
 	});
 
-	function instruction() {
+	function instruction(): BrowserUploadInstruction {
 		return {
 			request_id: "opaque-request-id",
 			timeout_ms: 60000,
@@ -697,6 +701,191 @@ describe("uploadService", () => {
 			uploadService.coordinateBrowserUpload("session", {}),
 		).rejects.toMatchObject({ retryable: true });
 	});
+
+	it.each(["ECONNABORTED", "ETIMEDOUT"])(
+		"coordinates retryable backend transport failure %s",
+		async (code) => {
+			const { AxiosError } = await import("axios");
+			const { uploadService } = await import("@/services/uploadService");
+			mockState.post.mockRejectedValueOnce(new AxiosError("timeout", code));
+			await expect(
+				uploadService.coordinateBrowserUpload("session"),
+			).rejects.toMatchObject({ retryable: true, status: undefined });
+		},
+	);
+	it.each([408, 429, 500, 503])(
+		"normalizes backend HTTP %s into a retryable error",
+		async (status) => {
+			const { AxiosError } = await import("axios");
+			const { uploadService } = await import("@/services/uploadService");
+			mockState.post.mockRejectedValueOnce(
+				Object.assign(new AxiosError("server response"), {
+					response: { status },
+				}),
+			);
+			await expect(
+				uploadService.coordinateBrowserUpload("session"),
+			).rejects.toMatchObject({ retryable: true, status });
+		},
+	);
+	it.each([undefined, 403])(
+		"preserves unclassified and terminal Axios failures (%s)",
+		async (status) => {
+			const { AxiosError } = await import("axios");
+			const { uploadService } = await import("@/services/uploadService");
+			const error = Object.assign(new AxiosError("terminal"), {
+				response: status === undefined ? undefined : { status },
+			});
+			mockState.post.mockRejectedValueOnce(error);
+			await expect(
+				uploadService.coordinateBrowserUpload("session"),
+			).rejects.toBe(error);
+		},
+	);
+	it("preserves authenticated API validation errors without making them retryable", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const error = new Error("upload session expired");
+		mockState.post.mockRejectedValueOnce(error);
+		await expect(uploadService.coordinateBrowserUpload("session")).rejects.toBe(
+			error,
+		);
+	});
+	it("reports timeout as unknown and ignores late completion or abort events", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.executeBrowserUpload(
+			instruction(),
+			new Blob(["abcdefgh"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		expect(xhr.timeout).toBe(60000);
+		xhr.ontimeout?.();
+		xhr.status = 201;
+		xhr.responseText = "late";
+		xhr.onload?.();
+		xhr.abort();
+		await expect(pending).resolves.toEqual({
+			status: 0,
+			headers: {},
+			body: "",
+			body_truncated: false,
+		});
+	});
+	it("aborts responses exceeding the download budget while retaining a reconciliation observation", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.executeBrowserUpload(
+			{ ...instruction(), response_body_limit: 8 },
+			new Blob(["abcdefgh"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		const abort = vi.spyOn(xhr, "abort");
+		xhr.onprogress?.({ loaded: 8 });
+		expect(abort).not.toHaveBeenCalled();
+		xhr.onprogress?.({ loaded: 9 });
+		expect(abort).toHaveBeenCalledOnce();
+		xhr.onload?.();
+		await expect(pending).resolves.toEqual({
+			status: 0,
+			headers: {},
+			body: "",
+			body_truncated: true,
+		});
+	});
+	it("does not send file bytes if cancellation fires while the XHR is registered", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.executeBrowserUpload(
+			instruction(),
+			new Blob(["abcdefgh"]),
+			{ onCreateXhr: (xhr) => xhr.abort() },
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		expect(xhr.sentBody).toBeUndefined();
+		xhr.onerror?.();
+		await expect(pending).rejects.toMatchObject({
+			isAborted: true,
+			retryable: false,
+		});
+	});
+	it("sends empty-body control requests and ignores noncomputable upload progress", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const command = instruction();
+		command.request.body = null;
+		command.request.method = "GET";
+		command.request.headers = {};
+		const progress = vi.fn();
+		const pending = uploadService.executeBrowserUpload(
+			command,
+			new Blob(["abcdefgh"]),
+			{ onProgress: progress },
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		expect(xhr.sentBody).toBeNull();
+		xhr.upload.onprogress?.({ lengthComputable: false, loaded: 2, total: 8 });
+		expect(progress).not.toHaveBeenCalled();
+		xhr.status = 200;
+		xhr.onload?.();
+		await expect(pending).resolves.toMatchObject({ status: 200 });
+	});
+	it.each([
+		(command: BrowserUploadInstruction) => {
+			command.request.url = "file:///tmp/file";
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.url = "https://user@plugin.example/upload";
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.url = "https://:secret@plugin.example/upload";
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.url += "#fragment";
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.method = "TRACE" as typeof command.request.method;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.response_body_limit = 0;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.response_body_limit = 65537;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.response_body_limit = 1.5;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.timeout_ms = 0;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.timeout_ms = 60001;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.timeout_ms = 1.5;
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.response_headers = ["Set-Cookie"];
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.body = { start: 0, end: 0 };
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.body = { start: 0, end: 9 };
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.body = { start: 0, end: 1.5 };
+		},
+		(command: BrowserUploadInstruction) => {
+			command.request.method = "GET";
+		},
+	])(
+		"rejects unsafe execution metadata before creating a network request",
+		async (mutate) => {
+			const { uploadService } = await import("@/services/uploadService");
+			const command = instruction();
+			mutate(command);
+			await expect(
+				uploadService.executeBrowserUpload(command, new Blob(["abcdefgh"])),
+			).rejects.toThrow("invalid browser upload instruction");
+			expect(MockXMLHttpRequest.instances).toHaveLength(0);
+		},
+	);
 	it("applies provider-required presigned PUT headers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 

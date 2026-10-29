@@ -63,7 +63,15 @@ test.beforeAll(async () => {
 			coordinatedReports.push(JSON.parse(Buffer.concat(chunks).toString()));
 			response
 				.writeHead(200, { "Content-Type": "application/json" })
-				.end(JSON.stringify(pluginStep(coordinatedReports.length * 4)));
+				.end(
+					JSON.stringify(
+						pluginStep(
+							coordinatedReports.filter(
+								(report) => (report as { request_id?: string }).request_id,
+							).length * 4,
+						),
+					),
+				);
 			return;
 		}
 		if (path.includes("plugin")) {
@@ -180,8 +188,9 @@ test("an unknown plugin protocol runs through real CORS requests and backend coo
 		{ initial: pluginStep(0), controlUrl: `${origin}/coordinate` },
 	);
 	const reports = coordinatedReports;
-	expect(reports).toHaveLength(2);
-	expect(reports[0]).toMatchObject({
+	expect(reports).toHaveLength(3);
+	expect(reports[0]).toEqual({});
+	expect(reports[1]).toMatchObject({
 		request_id: "id-0",
 		observation: {
 			status: 299,

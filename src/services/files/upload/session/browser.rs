@@ -203,6 +203,7 @@ fn validate_transition(value: &BrowserUploadTransition, previous: u64, total: u6
 }
 
 /// Legacy sessions predate snapshots. Only the two historically shipped protocols can be inferred.
+/// TODO(v0.8.0): remove legacy protocol inference; persisted sessions must carry a snapshot.
 fn legacy_protocol(provider: &str) -> Result<BrowserUploadProtocol> {
     let id = match provider {
         "microsoft_graph" => "asterdrive.microsoft_graph.resumable",
@@ -217,6 +218,24 @@ fn legacy_protocol(provider: &str) -> Result<BrowserUploadProtocol> {
         id: id.into(),
         version: 1,
     })
+}
+
+/// TODO(v0.8.0): remove the legacy fallback here and read only the persisted browser snapshot.
+/// Unknown legacy sessions have no executable step; they remain visible in the
+/// recovery list and fail individually when the owner attempts to resume them.
+pub(crate) fn stored_step(
+    secret: &super::provider::ProviderSessionSecret,
+) -> Option<BrowserUploadStep> {
+    secret
+        .browser
+        .as_ref()
+        .map(BrowserSession::step)
+        .or_else(|| {
+            legacy_protocol(&secret.provider)
+                .ok()
+                .map(BrowserSession::new)
+                .map(|value| value.step())
+        })
 }
 
 pub(crate) async fn advance_session(
@@ -355,7 +374,7 @@ pub(crate) async fn coordinate_for_scope(
     upload_id: &str,
     report: BrowserUploadReport,
 ) -> Result<BrowserUploadStep> {
-    let session = load_upload_session(state, scope, upload_id).await?;
+    let session = load_upload_session(state, state.writer_db(), scope, upload_id).await?;
     advance_session(state, &session, &report).await
 }
 
@@ -408,6 +427,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn stored_steps_do_not_guess_unknown_legacy_protocols_or_replace_snapshots() {
+        let mut secret: super::super::provider::ProviderSessionSecret = serde_json::from_value(
+            serde_json::json!({"provider":"google_drive","upload_url":"https://upload.invalid"}),
+        )
+        .unwrap();
+        let legacy = stored_step(&secret).unwrap();
+        assert_eq!(legacy.protocol.id, "asterdrive.google_drive.resumable");
+        assert!(legacy.instruction.is_none());
+        secret.provider = "unknown_old_provider".into();
+        assert!(stored_step(&secret).is_none());
+        secret.browser = Some(BrowserSession::new(BrowserUploadProtocol {
+            id: "plugin.new".into(),
+            version: 9,
+        }));
+        let snapshot = stored_step(&secret).unwrap();
+        assert_eq!(snapshot.protocol.id, "plugin.new");
+        assert_eq!(snapshot.protocol.version, 9);
+    }
     #[test]
     fn persisted_snapshots_preserve_opaque_protocol_state_and_decode_old_sessions() {
         let legacy: super::super::provider::ProviderSessionSecret = serde_json::from_value(

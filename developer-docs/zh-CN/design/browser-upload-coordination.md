@@ -17,6 +17,8 @@ Provider resumable 浏览器直传使用后端协议状态机。扩展协议由 
 
 新会话在加密的 `provider_session_ciphertext` 内保存协议快照、私有 JSON 状态、连续确认 offset、provider completion 和待执行指令。这里的 JSON 是不透明数据，不是表达式、模板或脚本。
 
+进度与恢复列表沿用 reader 数据连接，对 provider direct resumable 会话只读取已保存快照，不访问 provider、不写库、不更换待执行指令的 request ID。开始或恢复传输时，前端先显式发送一次空 report，获取 provider 权威进度和新指令；不直接重发快照中的旧指令。未知协议或 provider 查询失败只影响该会话的协调，不会因为枚举它而阻止其他会话恢复。
+
 `POST /files/upload/{upload_id}/provider-step`（团队路径具有相同后缀）接受：
 
 - 无 request ID 和 observation：由 driver 查询 provider 权威状态，恢复到下一步。
@@ -56,7 +58,7 @@ Capability URL、私有协议状态和观察结果不得记录到日志、错误
 
 旧持久化会话没有协议快照时，仅后端可以将历史 `microsoft_graph` / `google_drive` 映射到各自 v1；未知 provider 拒绝恢复。新会话始终保存快照，策略或 driver 升级不能替换它。未知协议版本由 driver 保守拒绝，升级需要保留旧实现或明确要求重启会话。
 
-已有持久化会话与旧前端兼容是不同边界。删除历史会话推断需要所有升级前会话已完成或超过最长 24 小时存活期，并覆盖滚动部署期间旧实例最后创建的会话。
+已有持久化会话与旧前端兼容是不同边界。**v0.8.0 删除 `legacy_protocol` 和 `stored_step` 中的历史会话推断分支，之后只接受持久化协议快照。** 删除前应确保升级前会话已完成或超过最长 24 小时存活期，并覆盖滚动部署期间旧实例最后创建的会话。
 
 ## 验证
 

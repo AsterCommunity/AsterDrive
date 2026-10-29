@@ -36,7 +36,10 @@ fn ensure_team_upload_session_scope(session: &upload_session::Model, team_id: i6
     Ok(())
 }
 
-async fn load_upload_session_with_db<C: ConnectionTrait>(
+/// Load and validate session ownership using the caller's explicit database connection.
+/// Read-only snapshots use the reader; coordination, cancellation and publication
+/// use the writer so stale data cannot decide a state transition.
+pub(crate) async fn load_upload_session<C: ConnectionTrait>(
     state: &PrimaryAppState,
     db: &C,
     scope: WorkspaceStorageScope,
@@ -59,12 +62,4 @@ async fn load_upload_session_with_db<C: ConnectionTrait>(
         ensure_personal_upload_session_scope(&session)?;
     }
     Ok(session)
-}
-
-pub(crate) async fn load_upload_session(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    upload_id: &str,
-) -> Result<upload_session::Model> {
-    load_upload_session_with_db(state, state.writer_db(), scope, upload_id).await
 }

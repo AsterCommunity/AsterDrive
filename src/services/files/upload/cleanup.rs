@@ -508,7 +508,8 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
 }
 
 pub async fn cancel_upload(state: &PrimaryAppState, upload_id: &str, user_id: i64) -> Result<()> {
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     let mode = upload_session_mode_label_for_cancel(&session);
     cancel_upload_impl(state, session)
         .await
@@ -522,7 +523,13 @@ pub async fn cancel_upload_for_team(
     upload_id: &str,
     user_id: i64,
 ) -> Result<()> {
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.writer_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     let mode = upload_session_mode_label_for_cancel(&session);
     cancel_upload_impl(state, session)
         .await

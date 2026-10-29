@@ -125,6 +125,7 @@ async fn google_drive_api_descriptor_and_rejected_creation_keep_management_bound
 #[derive(Default)]
 struct GoogleSessionProbe {
     protocol_version: std::sync::atomic::AtomicU32,
+    advance_calls: std::sync::atomic::AtomicUsize,
     pause: std::sync::atomic::AtomicBool,
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
@@ -335,6 +336,19 @@ async fn google_drive_dual_upload_strategies_encrypt_sessions_and_only_direct_re
         driver
             .offset
             .store(256 * 1024, std::sync::atomic::Ordering::SeqCst);
+        if direct {
+            upload::coordinate_browser_upload(
+                &state,
+                &id,
+                user,
+                upload::BrowserUploadReport {
+                    request_id: None,
+                    observation: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
         let progress = upload::get_progress(&state, &id, user).await.unwrap();
         assert_eq!(progress.provider_resumable.is_some(), direct);
         if direct {
@@ -538,6 +552,8 @@ impl aster_drive_storage::BrowserUploadDriver for GoogleSessionProbe {
         receipt: Option<aster_drive_storage::BrowserUploadReceipt<'_>>,
     ) -> aster_drive_storage::Result<aster_drive_storage::BrowserUploadTransition> {
         use aster_drive_storage::*;
+        self.advance_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.pause.swap(false, std::sync::atomic::Ordering::SeqCst) {
             self.entered.notify_one();
             self.release.notified().await;
@@ -752,4 +768,142 @@ async fn browser_protocol_snapshots_reject_unknown_versions_and_cancellation_win
             .await
             .is_err()
     );
+}
+
+#[actix_web::test]
+async fn browser_progress_reads_preserve_pending_request_and_never_call_the_provider() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload::{self, BrowserUploadReport};
+    use std::sync::atomic::Ordering;
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 8).await;
+    let id = upload::init_upload(&state, user, "read-only.bin", 8, None, None)
+        .await
+        .unwrap()
+        .upload_id
+        .unwrap();
+    let issued = upload::coordinate_browser_upload(
+        &state,
+        &id,
+        user,
+        BrowserUploadReport {
+            request_id: None,
+            observation: None,
+        },
+    )
+    .await
+    .unwrap();
+    let before = upload_session_repo::find_by_id(state.writer_db(), &id)
+        .await
+        .unwrap();
+    let calls = driver.advance_calls.load(Ordering::SeqCst);
+    driver.offset.store(2, Ordering::SeqCst);
+    let progress = upload::get_progress(&state, &id, user).await.unwrap();
+    let list = upload::list_recoverable_sessions(&state, user, None)
+        .await
+        .unwrap();
+    let after = upload_session_repo::find_by_id(state.writer_db(), &id)
+        .await
+        .unwrap();
+    assert_eq!(
+        driver.advance_calls.load(Ordering::SeqCst),
+        calls,
+        "GET progress/recovery list must not query provider or advance its protocol"
+    );
+    assert_eq!(
+        before, after,
+        "read APIs must not rewrite ciphertext or updated_at"
+    );
+    let stored = progress.provider_resumable.unwrap().browser_upload.unwrap();
+    assert_eq!(
+        stored.confirmed_offset, 0,
+        "reads return persisted state, not uncommitted provider progress"
+    );
+    assert_eq!(
+        stored.instruction.unwrap().request_id,
+        issued.instruction.unwrap().request_id
+    );
+    let listed = list
+        .iter()
+        .find(|s| s.upload_id == id)
+        .unwrap()
+        .provider_resumable
+        .as_ref()
+        .unwrap()
+        .browser_upload
+        .as_ref()
+        .unwrap();
+    assert_eq!(listed.confirmed_offset, 0);
+}
+
+#[actix_web::test]
+async fn browser_progress_reads_do_not_invalidate_an_inflight_coordinator() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload::{self, BrowserUploadReport};
+    use std::sync::atomic::Ordering;
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 8).await;
+    let id = upload::init_upload(&state, user, "concurrent-read.bin", 8, None, None)
+        .await
+        .unwrap()
+        .upload_id
+        .unwrap();
+    let before = upload_session_repo::find_by_id(state.writer_db(), &id)
+        .await
+        .unwrap();
+    driver.pause.store(true, Ordering::SeqCst);
+    let (coordinated, (progress, list, after_read)) = tokio::join!(
+        upload::coordinate_browser_upload(
+            &state,
+            &id,
+            user,
+            BrowserUploadReport {
+                request_id: None,
+                observation: None
+            }
+        ),
+        async {
+            driver.entered.notified().await;
+            let progress = upload::get_progress(&state, &id, user).await;
+            let list = upload::list_recoverable_sessions(&state, user, None).await;
+            let row = upload_session_repo::find_by_id(state.writer_db(), &id)
+                .await
+                .unwrap();
+            driver.release.notify_one();
+            (progress, list, row)
+        },
+    );
+    assert!(
+        coordinated.is_ok(),
+        "readers must not create a CAS conflict for the in-flight coordinator"
+    );
+    assert!(progress.is_ok());
+    assert!(list.is_ok());
+    assert_eq!(driver.advance_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(before, after_read);
+}
+
+#[actix_web::test]
+async fn browser_progress_reads_keep_an_unsupported_session_from_blocking_other_recoveries() {
+    use aster_drive::services::files::upload;
+    use std::sync::atomic::Ordering;
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 8).await;
+    let old = upload::init_upload(&state, user, "old-version.bin", 8, None, None)
+        .await
+        .unwrap()
+        .upload_id
+        .unwrap();
+    driver.protocol_version.store(8, Ordering::SeqCst);
+    let current = upload::init_upload(&state, user, "current-version.bin", 8, None, None)
+        .await
+        .unwrap()
+        .upload_id
+        .unwrap();
+    let sessions = upload::list_recoverable_sessions(&state, user, None).await;
+    assert!(
+        sessions.is_ok(),
+        "an unsupported protocol must not fail the entire recovery list"
+    );
+    let sessions = sessions.unwrap();
+    assert!(sessions.iter().any(|s| s.upload_id == old));
+    assert!(sessions.iter().any(|s| s.upload_id == current));
+    assert_eq!(driver.advance_calls.load(Ordering::SeqCst), 0);
 }

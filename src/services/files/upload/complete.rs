@@ -224,7 +224,8 @@ pub async fn complete_upload(
     parts: Option<Vec<(i32, String)>>,
 ) -> Result<FileInfo> {
     let load_started_at = Instant::now();
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     tracing::debug!(
         upload_id,
         user_id,
@@ -245,7 +246,7 @@ pub async fn complete_upload_with_audit(
 ) -> Result<FileInfo> {
     let scope = personal_scope(user_id);
     let load_started_at = Instant::now();
-    let session = load_upload_session(state, scope, upload_id).await?;
+    let session = load_upload_session(state, state.writer_db(), scope, upload_id).await?;
     tracing::debug!(
         upload_id,
         user_id,
@@ -277,7 +278,13 @@ pub async fn complete_upload_for_team(
     parts: Option<Vec<(i32, String)>>,
 ) -> Result<FileInfo> {
     let load_started_at = Instant::now();
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.writer_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     tracing::debug!(
         upload_id,
         team_id,
@@ -300,7 +307,7 @@ pub async fn complete_upload_for_team_with_audit(
 ) -> Result<FileInfo> {
     let scope = team_scope(team_id, user_id);
     let load_started_at = Instant::now();
-    let session = load_upload_session(state, scope, upload_id).await?;
+    let session = load_upload_session(state, state.writer_db(), scope, upload_id).await?;
     tracing::debug!(
         upload_id,
         team_id,

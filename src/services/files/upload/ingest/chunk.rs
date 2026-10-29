@@ -939,7 +939,8 @@ pub async fn upload_chunk(
     user_id: i64,
     data: &[u8],
 ) -> Result<ChunkUploadResponse> {
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     run_upload_stage_operation(
         state,
         &session,
@@ -961,7 +962,8 @@ pub async fn upload_chunk_bytes(
     user_id: i64,
     data: Bytes,
 ) -> Result<ChunkUploadResponse> {
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     run_upload_stage_operation(
         state,
         &session,
@@ -977,7 +979,8 @@ pub async fn upload_chunk_payload(
     user_id: i64,
     payload: actix_web::web::Payload,
 ) -> Result<ChunkUploadResponse> {
-    let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
+    let session =
+        load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     run_upload_stage_operation(
         state,
         &session,
@@ -994,7 +997,13 @@ pub async fn upload_chunk_for_team(
     user_id: i64,
     data: &[u8],
 ) -> Result<ChunkUploadResponse> {
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.writer_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     run_upload_stage_operation(
         state,
         &session,
@@ -1016,7 +1025,13 @@ pub async fn upload_chunk_bytes_for_team(
     user_id: i64,
     data: Bytes,
 ) -> Result<ChunkUploadResponse> {
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.writer_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     run_upload_stage_operation(
         state,
         &session,
@@ -1033,7 +1048,13 @@ pub async fn upload_chunk_payload_for_team(
     user_id: i64,
     payload: actix_web::web::Payload,
 ) -> Result<ChunkUploadResponse> {
-    let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
+    let session = load_upload_session(
+        state,
+        state.writer_db(),
+        team_scope(team_id, user_id),
+        upload_id,
+    )
+    .await?;
     run_upload_stage_operation(
         state,
         &session,
