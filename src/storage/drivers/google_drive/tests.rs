@@ -4,6 +4,7 @@ use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
 use std::{collections::BTreeMap, io::Cursor, sync::Mutex};
 
 mod boundaries;
+mod recovery;
 
 #[derive(Debug)]
 struct Token;

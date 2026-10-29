@@ -280,6 +280,34 @@ async fn missing_rotation_fields_preserve_existing_refresh_token_and_scopes() {
 }
 
 #[tokio::test]
+async fn refreshed_scopes_replace_the_old_projection_and_survive_provider_recreation() {
+    let (db, id) = database().await;
+    let payload = save(&db, id).await;
+    let mut response = token();
+    response["scope"] = json!("https://www.googleapis.com/auth/drive.appdata openid");
+    let peer = HttpFixture::new([HttpReply::json(200, response)]).await;
+    new_provider(&db, id, payload, &peer)
+        .access_token()
+        .await
+        .unwrap();
+    let stored =
+        super::super::decode(KEY, &repo::find_by_policy(&db, id).await.unwrap().unwrap()).unwrap();
+    assert_eq!(
+        stored.authorization.as_ref().unwrap().scopes,
+        ["https://www.googleapis.com/auth/drive.appdata", "openid"]
+    );
+    assert_eq!(
+        new_provider(&db, id, stored, &peer)
+            .access_token()
+            .await
+            .unwrap(),
+        "rotated-access"
+    );
+    assert_eq!(peer.requests().len(), 1);
+    peer.stop().await;
+}
+
+#[tokio::test]
 async fn malformed_success_responses_do_not_replace_or_invalidate_saved_tokens() {
     for response in [
         HttpReply::text(200, "not json private-secret"),

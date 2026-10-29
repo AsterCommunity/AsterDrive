@@ -286,13 +286,91 @@ describe("provider resumable byte reconciliation", () => {
 			context,
 			task,
 			init,
-			run: () =>
+			run: (alreadyReceived: number[] = []) =>
 				createResumableUploadRunners(context).runProviderResumableUpload(
 					task,
 					init,
+					alreadyReceived,
 				),
 		};
 	}
+	it.each([0, -1, 0.5, Number.NaN])(
+		"rejects invalid chunk size %s before uploading",
+		async (size) => {
+			const fixture = setup();
+			fixture.init.chunk_size = size;
+			await expect(fixture.run()).rejects.toThrow(
+				"invalid provider resumable upload configuration",
+			);
+			expect(providerResumableUpload).not.toHaveBeenCalled();
+			expect(completeUpload).not.toHaveBeenCalled();
+		},
+	);
+	it("requires an upload URL and leaves a task without a file untouched", async () => {
+		const fixture = setup();
+		fixture.init.provider_resumable = undefined;
+		await expect(fixture.run()).rejects.toThrow(
+			"invalid provider resumable upload configuration",
+		);
+		fixture.task.file = null;
+		await fixture.run();
+		expect(providerResumableUpload).not.toHaveBeenCalled();
+		expect(completeUpload).not.toHaveBeenCalled();
+	});
+	it("uses persisted contiguous chunks when byte ranges are absent", async () => {
+		const fixture = setup();
+		if (fixture.init.provider_resumable)
+			fixture.init.provider_resumable.next_expected_ranges = undefined;
+		providerResumableUpload.mockImplementation(
+			async (_url, _blob, _start, _total, options) => {
+				options.onProgress(2, 4);
+				return 8;
+			},
+		);
+		await fixture.run([0]);
+		expect(providerResumableUpload.mock.calls.map((call) => call[2])).toEqual([
+			4,
+		]);
+		expect(fixture.context.patchTaskThrottled).toHaveBeenCalledWith(
+			fixture.task.id,
+			expect.objectContaining({ uploadedBytes: 6 }),
+		);
+		expect(completeUpload).toHaveBeenCalledOnce();
+	});
+	it("bounds partial acknowledgements even when every response advances", async () => {
+		const fixture = setup();
+		fixture.task.file = new File([new Uint8Array(128)], "file.bin");
+		fixture.task.totalBytes = 128;
+		fixture.init.chunk_size = 64;
+		providerResumableUpload.mockImplementation(
+			async (_url, _blob, start) => start + 1,
+		);
+		await fixture.run();
+		expect(providerResumableUpload).toHaveBeenCalledTimes(32);
+		expect(completeUpload).not.toHaveBeenCalled();
+		expect(removeSession).not.toHaveBeenCalled();
+		expect(fixture.context.markTaskFailed).toHaveBeenCalledWith(
+			fixture.task.id,
+			expect.objectContaining({
+				message: "provider acknowledged too many partial fragments",
+				retryable: true,
+			}),
+		);
+	});
+	it("does not reconcile terminal or cancelled provider errors", async () => {
+		const { UploadRequestError } = await import("@/services/uploadService");
+		for (const error of [
+			new Error("client failed"),
+			new UploadRequestError("permission denied", { status: 403 }),
+			new UploadRequestError("cancelled", { isAborted: true }),
+		]) {
+			const fixture = setup();
+			providerResumableUpload.mockRejectedValueOnce(error);
+			await fixture.run();
+			expect(getProgress).not.toHaveBeenCalled();
+			expect(completeUpload).not.toHaveBeenCalled();
+		}
+	});
 	it("resumes partial acknowledgements across logical chunk boundaries", async () => {
 		const fixture = setup();
 		providerResumableUpload
@@ -368,6 +446,72 @@ describe("provider resumable byte reconciliation", () => {
 			fixture.task.id,
 			expect.objectContaining({ status: "cancelled" }),
 		);
+	});
+	it("stops before sending a retry when cancelled during backoff", async () => {
+		vi.useFakeTimers();
+		try {
+			const { UploadRequestError } = await import("@/services/uploadService");
+			const fixture = setup();
+			providerResumableUpload.mockRejectedValueOnce(
+				new UploadRequestError("lost response", { retryable: true }),
+			);
+			getProgress.mockImplementation(async () => {
+				setTimeout(
+					() =>
+						fixture.context.abortFlagsRef.current.set(fixture.task.id, true),
+					0,
+				);
+				return {
+					chunks_on_disk: [],
+					provider_resumable: { next_expected_ranges: ["0-"] },
+				};
+			});
+			const running = fixture.run();
+			await vi.runAllTimersAsync();
+			await running;
+			expect(providerResumableUpload).toHaveBeenCalledOnce();
+			expect(getProgress).toHaveBeenCalledOnce();
+			expect(completeUpload).not.toHaveBeenCalled();
+			expect(fixture.context.patchTask).toHaveBeenLastCalledWith(
+				fixture.task.id,
+				expect.objectContaining({ status: "cancelled" }),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+	it.each([Number.NaN, 5])(
+		"reconciles invalid fragment offset %s before publishing",
+		async (next) => {
+			const fixture = setup();
+			providerResumableUpload.mockResolvedValueOnce(next);
+			getProgress.mockResolvedValue({
+				chunks_on_disk: [0, 1],
+				provider_resumable: { next_expected_ranges: [] },
+			});
+			await fixture.run();
+			expect(getProgress).toHaveBeenCalledOnce();
+			expect(providerResumableUpload).toHaveBeenCalledOnce();
+			expect(completeUpload).toHaveBeenCalledOnce();
+		},
+	);
+	it("reconciles range conflicts using persisted chunks when wire ranges are absent", async () => {
+		const { UploadRequestError } = await import("@/services/uploadService");
+		const fixture = setup();
+		providerResumableUpload
+			.mockRejectedValueOnce(
+				new UploadRequestError("range conflict", {
+					status: 416,
+					retryable: false,
+				}),
+			)
+			.mockResolvedValueOnce(8);
+		getProgress.mockResolvedValue({ chunks_on_disk: [0] });
+		await fixture.run();
+		expect(providerResumableUpload.mock.calls.map((call) => call[2])).toEqual([
+			0, 4,
+		]);
+		expect(completeUpload).toHaveBeenCalledOnce();
 	});
 	it("retries from the provider-confirmed offset after a lost response", async () => {
 		vi.useFakeTimers();
