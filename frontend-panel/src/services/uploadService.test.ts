@@ -743,6 +743,63 @@ describe("uploadService", () => {
 		await expect(promise).resolves.toBe(2);
 	});
 
+	it.each([
+		["unsent bytes", { nextExpectedRanges: ["5-"] }, 8],
+		["completion in a 202", { nextExpectedRanges: [] }, 4],
+		["missing ranges", {}, 8],
+		["wrong range shape", { nextExpectedRanges: "4-" }, 8],
+		["non-string range", { nextExpectedRanges: [4] }, 8],
+		["null body", null, 8],
+	])("reconciles a 202 response with %s", async (_label, body, total) => {
+		const { uploadService } = await import("@/services/uploadService");
+		const uploading = uploadService.providerResumableUpload(
+			"https://provider.example/session",
+			new Blob(["abcd"]),
+			0,
+			total,
+		);
+		const xhr = MockXMLHttpRequest.instances.at(-1) as MockXMLHttpRequest;
+		xhr.status = 202;
+		xhr.responseText = JSON.stringify(body);
+		xhr.onload?.();
+		await expect(uploading).rejects.toMatchObject({
+			retryable: true,
+			status: 202,
+		});
+	});
+
+	it("reconciles malformed JSON and premature successful completion", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		for (const [status, body] of [
+			[202, "not JSON"],
+			[200, "{}"],
+			[201, "{}"],
+		] as const) {
+			const uploading = uploadService.providerResumableUpload(
+				"https://provider.example/session",
+				new Blob(["abcd"]),
+				0,
+				8,
+			);
+			const xhr = MockXMLHttpRequest.instances.at(-1) as MockXMLHttpRequest;
+			xhr.status = status;
+			xhr.responseText = body;
+			xhr.onload?.();
+			await expect(uploading).rejects.toMatchObject({
+				retryable: true,
+				status,
+			});
+		}
+	});
+
+	it("keeps missing progress ranges at the supplied offset and rejects unsafe range ends", async () => {
+		const { providerResumeOffset } = await import("@/services/uploadService");
+		expect(providerResumeOffset(undefined, 8, 4)).toBe(4);
+		expect(() => providerResumeOffset(["1-9007199254740992"], 8, 0)).toThrow(
+			"invalid provider resume offset",
+		);
+	});
+
 	it("requires reconciliation for hidden malformed or impossible Range headers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 		for (const range of [
@@ -781,6 +838,8 @@ describe("uploadService", () => {
 			[Number.NaN, 8],
 			[Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
 			[0, Number.POSITIVE_INFINITY],
+			[0, 0],
+			[0.5, 8],
 		]) {
 			await expect(
 				uploadService.providerResumableUpload(
@@ -805,6 +864,24 @@ describe("uploadService", () => {
 			expect(() => providerResumeOffset(ranges, 8, 0)).toThrow(
 				"invalid provider resume offset",
 			);
+	});
+
+	it("requires final success rather than 308 to acknowledge all bytes", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const uploading = uploadService.providerResumableUpload(
+			"https://provider.example/session",
+			new Blob(["abcd"]),
+			0,
+			4,
+		);
+		const xhr = MockXMLHttpRequest.instances.at(-1) as MockXMLHttpRequest;
+		xhr.status = 308;
+		xhr.responseHeaders.Range = "bytes=0-3";
+		xhr.onload?.();
+		await expect(uploading).rejects.toMatchObject({
+			retryable: true,
+			status: 308,
+		});
 	});
 
 	it("applies provider-required presigned PUT headers", async () => {

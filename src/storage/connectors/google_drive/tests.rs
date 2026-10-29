@@ -4,6 +4,8 @@ use aster_drive_storage::{ConnectorId, StoragePolicyBehaviorConfig};
 
 mod acceptance;
 mod boundaries;
+mod callback_service;
+mod lifecycle;
 
 /// Reuse the real connector context and encrypted repository in management
 /// tests, so direct trait calls do not accidentally bypass registry validation.

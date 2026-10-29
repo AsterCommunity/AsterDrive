@@ -100,6 +100,39 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn callback_reports_writer_failure_without_attempting_token_exchange() {
+    let fixture = Fixture::new().await;
+    let flow = fixture.flow().await;
+    // Drop the authoritative table after the flow snapshot is captured. A DB
+    // failure must stay a server error, not become an invalid-state response.
+    sea_orm::ConnectionTrait::execute_unprepared(
+        &fixture.db,
+        "DROP TABLE storage_policy_connector_credentials",
+    )
+    .await
+    .unwrap();
+    let error = OneDriveConnector
+        .finish_authorization(
+            &fixture.context(),
+            &fixture.policy,
+            &flow,
+            "unused-code",
+            chrono::Utc::now(),
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.reason(),
+        crate::storage::connectors::StorageAuthorizationFailureReason::ServerError
+    );
+    assert!(matches!(
+        error.into_source(),
+        crate::errors::AsterError::DatabaseOperation(_)
+    ));
+}
+
+#[tokio::test]
 async fn authorization_start_captures_the_saved_revision_without_secret_leaks() {
     let fixture = Fixture::new().await;
     let flow = fixture.flow().await;

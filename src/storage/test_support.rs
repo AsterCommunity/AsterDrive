@@ -10,6 +10,35 @@ use std::{
 };
 use tokio::sync::Notify;
 
+#[tokio::test]
+async fn exhausted_http_fixture_rejects_and_records_unexpected_requests() {
+    let peer = HttpFixture::new([HttpReply::text(200, "expected")]).await;
+    let client = reqwest::Client::new();
+    assert_eq!(
+        client
+            .get(&peer.base)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        200
+    );
+    let unexpected = client
+        .get(format!("{}/unexpected", peer.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unexpected.status().as_u16(), 500);
+    assert_eq!(
+        unexpected.text().await.unwrap(),
+        "unexpected storage mock request"
+    );
+    assert_eq!(peer.requests().len(), 2);
+    assert_eq!(peer.requests()[1].path, "/unexpected");
+    peer.stop().await;
+}
+
 #[derive(Default)]
 pub(crate) struct ResponseGate {
     pub entered: Notify,

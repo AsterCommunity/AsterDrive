@@ -226,6 +226,48 @@ async fn concurrent_creation_ambiguity_and_missing_confirmation_stop_before_obje
 }
 
 #[tokio::test]
+async fn malformed_created_folder_is_never_used_or_deleted() {
+    for created in [
+        json!({"id":"","mimeType":"application/vnd.google-apps.folder"}),
+        json!({"id":"bad","mimeType":"application/octet-stream"}),
+    ] {
+        let peer = HttpFixture::new([list(vec![]), HttpReply::json(200, created)]).await;
+        let error = driver(&peer, false, false, "AsterDrive")
+            .put("files/key", b"data")
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Transient);
+        let requests = peer.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].method, "POST");
+        assert_eq!(requests[1].path, "/drive/v3/files");
+        peer.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn root_validation_reports_existing_base_folder_in_both_spaces() {
+    for appdata in [false, true] {
+        let first = if appdata {
+            list(vec![])
+        } else {
+            HttpReply::json(
+                200,
+                json!({"id":"pool","mimeType":"application/vnd.google-apps.folder","capabilities":{"canAddChildren":true}}),
+            )
+        };
+        let peer = HttpFixture::new([first, list(vec![folder("base-id")])]).await;
+        let driver = driver(&peer, appdata, false, "AsterDrive");
+        assert_eq!(
+            driver.validate_root().await.unwrap(),
+            ("base-id".into(), Some("AsterDrive".into()))
+        );
+        assert!(peer.requests().iter().all(|r| r.method == "GET"));
+        peer.stop().await;
+    }
+}
+
+#[tokio::test]
 async fn quoted_names_are_escaped_once_in_queries_and_preserved_in_creation_json() {
     let peer = HttpFixture::new([
         list(vec![]),

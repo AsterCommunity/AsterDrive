@@ -166,6 +166,67 @@ fn token() -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn exchange_rejects_authenticated_but_malformed_application_snapshot_and_disconnects() {
+    let context = TestContext::new(json!({}), Some(payload())).await;
+    let mut flow = flow(&context).await;
+    let mut saved: GoogleDriveFlowContext = serde_json::from_str(&flow.context).unwrap();
+    saved.application_ciphertext = crypto::encrypt_token(
+        KEY,
+        flow_aad(context.policy.id, &flow.state_hash).as_bytes(),
+        "{not-json",
+    )
+    .unwrap();
+    flow.context = serde_json::to_string(&saved).unwrap();
+    let peer = HttpFixture::new([]).await;
+    let endpoint = format!("{}/token", peer.base);
+    let error = GoogleDriveConnector
+        .complete_authorization(
+            &context.context(),
+            &context.policy,
+            &flow,
+            "code",
+            Utc::now(),
+            &endpoint,
+        )
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(error, AsterError::DatabaseOperation(_)));
+    assert!(peer.requests().is_empty());
+    peer.stop().await;
+    // An unreachable token endpoint must not invalidate a previously saved grant.
+    let valid_flow = self::flow(&context).await;
+    let before = repo::find_by_policy(&context.db, context.policy.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let error = GoogleDriveConnector
+        .complete_authorization(
+            &context.context(),
+            &context.policy,
+            &valid_flow,
+            "code",
+            Utc::now(),
+            &endpoint,
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Transient)
+    );
+    assert_eq!(
+        repo::find_by_policy(&context.db, context.policy.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .ciphertext,
+        before.ciphertext
+    );
+}
+
+#[tokio::test]
 async fn real_flow_exchange_binds_pkce_scope_and_application_before_final_cas_persistence() {
     for appdata in [false, true] {
         let context = TestContext::new(json!({"app_data_folder":appdata}), Some(payload())).await;
