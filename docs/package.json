@@ -11,22 +11,23 @@
     "developer-docs:build": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro build --config astro.developer.config.mts"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.3",
-    "@astrojs/starlight": "^0.41.7",
-    "astro": "^7.2.0",
-    "sharp": "^0.35.3",
-    "starlight-announcement": "^1.1.0",
+    "@astrojs/markdown-remark": "^7.3.5",
+    "@astrojs/sitemap": "^3.7.4",
+    "@astrojs/starlight": "^0.42.7",
+    "astro": "^7.4.4",
+    "sharp": "^0.35.5",
+    "starlight-announcement": "^2.0.0",
     "starlight-copy-button": "github:dionysuzx/starlight-copy-button#d570fcab6824127f80076eb419f39fb4fbd9de09",
-    "starlight-links-validator": "^0.25.2",
-    "starlight-llms-txt": "^0.11.0",
-    "starlight-openapi": "^0.26.0",
-    "starlight-scroll-to-top": "^1.0.1"
+    "starlight-links-validator": "^0.27.0",
+    "starlight-llms-txt": "^0.12.0",
+    "starlight-openapi": "^0.27.0",
+    "starlight-scroll-to-top": "^2.0.0"
   },
   "devDependencies": {
     "@beoe/rehype-mermaid": "^0.4.2",
-    "astro-vtbot": "^3.0.1",
-    "mermaid": "^11.16.1",
-    "playwright": "^1.62.1"
+    "astro-vtbot": "^3.1.0",
+    "mermaid": "^12.2.0",
+    "playwright": "^1.64.1"
   },
   "license": "MIT OR Apache-2.0"
 }
