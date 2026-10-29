@@ -174,6 +174,18 @@ pub(crate) trait StorageConnector: Send + Sync {
         Ok(())
     }
 
+    /// Enforce connector-owned update invariants inside the policy write
+    /// transaction. Location-based providers can protect existing blobs and
+    /// in-flight sessions without teaching policy services provider field names.
+    async fn validate_policy_update(
+        &self,
+        _db: &DatabaseTransaction,
+        _existing: &storage_policy::Model,
+        _candidate: &ConnectorConfigEnvelope,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn validate_connector_config(
         &self,
         config: &ConnectorConfigEnvelope,

@@ -44,6 +44,8 @@ pub struct GoogleDriveDriver {
     root_folder_id: Option<String>,
     shared_drive_id: Option<String>,
     app_data_folder: bool,
+    base_path: String,
+    folder_resolution: Arc<tokio::sync::Mutex<()>>,
     capacity_probe_timeout: Duration,
     api: String,
     upload: String,
@@ -54,6 +56,7 @@ impl std::fmt::Debug for GoogleDriveDriver {
             .field("root_folder_id", &self.root_folder_id)
             .field("shared_drive_id", &self.shared_drive_id)
             .field("app_data_folder", &self.app_data_folder)
+            .field("base_path", &self.base_path)
             .finish_non_exhaustive()
     }
 }
@@ -65,6 +68,7 @@ impl GoogleDriveDriver {
         root_folder_id: Option<String>,
         shared_drive_id: Option<String>,
         app_data_folder: bool,
+        base_path: String,
         capacity_probe_timeout: Duration,
     ) -> Result<Self> {
         if app_data_folder && (root_folder_id.is_some() || shared_drive_id.is_some()) {
@@ -79,6 +83,8 @@ impl GoogleDriveDriver {
             root_folder_id,
             shared_drive_id,
             app_data_folder,
+            base_path: paths::normalize_base_path(&base_path)?,
+            folder_resolution: Arc::new(tokio::sync::Mutex::new(())),
             capacity_probe_timeout,
             api: API.into(),
             upload: UPLOAD.into(),
@@ -213,6 +219,7 @@ impl StorageDriver for GoogleDriveDriver {
 
 mod capacity;
 pub(crate) mod client;
+pub(crate) mod paths;
 mod upload;
 use client::{http_client, invalid, map_http, map_transport, transient};
 

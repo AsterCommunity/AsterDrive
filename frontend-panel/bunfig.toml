@@ -1,0 +1,4 @@
+# 依赖安装冷静期：发布不满 24 小时的 npm 版本一律不装（供应链防护）。
+# 需要豁免时用 install.minimumReleaseAgeExcludes，见 bunfig 官方文档。
+[install]
+minimumReleaseAge = 86400

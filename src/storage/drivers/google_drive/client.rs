@@ -24,7 +24,7 @@ pub(super) struct FileInfo {
     pub(super) size: Option<String>,
     #[serde(rename = "mimeType")]
     pub(super) mime_type: Option<String>,
-    name: Option<String>,
+    pub(super) name: Option<String>,
     #[serde(rename = "driveId")]
     drive_id: Option<String>,
     capabilities: Option<FolderCapabilities>,
@@ -49,7 +49,7 @@ pub(super) fn invalid(message: &str) -> StorageError {
 pub(super) fn transient(message: &str) -> StorageError {
     storage_driver_error(StorageErrorKind::Transient, message)
 }
-fn escape_query(value: &str) -> String {
+pub(super) fn escape_query(value: &str) -> String {
     // Drive q has its own escaping rules, separate from URL query encoding.
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
@@ -80,16 +80,33 @@ impl GoogleDriveDriver {
             .await
             .map_err(|_| transient("invalid Google Drive JSON response"))
     }
-    pub(super) fn object_query(&self, path: &str) -> Result<String> {
+    pub(super) fn object_query(&self, path: &str, parent: &str) -> Result<String> {
         validate_path(path)?;
         Ok(format!(
             "appProperties has {{ key='{APP_KEY}' and value='{}' }} and trashed=false and '{}' in parents",
             escape_query(path),
-            escape_query(self.root())
+            escape_query(parent)
         ))
     }
     pub(super) async fn find(&self, path: &str) -> Result<Option<FileInfo>> {
-        let query = self.object_query(path)?;
+        validate_path(path)?;
+        let Some(parent) = self.resolve_base_folder(false).await? else {
+            return Ok(None);
+        };
+        self.find_unique(
+            &self.object_query(path, &parent)?,
+            "multiple Google Drive objects have the same AsterDrive key",
+        )
+        .await
+    }
+
+    /// One bounded uniqueness check shared by logical keys and path components.
+    /// Only the caller decides whether a proven missing resource may be created.
+    pub(super) async fn find_unique(
+        &self,
+        query: &str,
+        ambiguity: &'static str,
+    ) -> Result<Option<FileInfo>> {
         let mut found: Option<FileInfo> = None;
         let mut page_token: Option<String> = None;
         // files.list may return short or empty pages. A token is continuation,
@@ -99,10 +116,10 @@ impl GoogleDriveDriver {
         // MAX_LOOKUP_PAGES is our request budget, not a Google pagination limit.
         for _ in 0..MAX_LOOKUP_PAGES {
             let mut request = self.http.get(format!("{}/files", self.api)).query(&[
-                ("q", query.clone()),
+                ("q", query.to_owned()),
                 (
                     "fields",
-                    "nextPageToken,incompleteSearch,files(id,size,mimeType)".into(),
+                    "nextPageToken,incompleteSearch,files(id,size,mimeType,name)".into(),
                 ),
                 ("pageSize", "2".into()),
                 (
@@ -137,7 +154,7 @@ impl GoogleDriveDriver {
                 {
                     return Err(storage_driver_error(
                         StorageErrorKind::Misconfigured,
-                        "multiple Google Drive objects have the same AsterDrive key",
+                        ambiguity,
                     ));
                 }
                 found = Some(info);
@@ -174,6 +191,11 @@ impl GoogleDriveDriver {
                     .await?,
                 )
                 .await?;
+            if !self.base_path.is_empty()
+                && let Some(id) = self.resolve_base_folder(false).await?
+            {
+                return Ok((id, self.base_path.rsplit('/').next().map(str::to_owned)));
+            }
             return Ok(("appDataFolder".into(), Some("Application data".into())));
         }
         let info: FileInfo = self
@@ -209,6 +231,11 @@ impl GoogleDriveDriver {
                 StorageErrorKind::Permission,
                 "Google Drive folder is not writable",
             ));
+        }
+        if !self.base_path.is_empty()
+            && let Some(id) = self.resolve_base_folder(false).await?
+        {
+            return Ok((id, self.base_path.rsplit('/').next().map(str::to_owned)));
         }
         Ok((info.id, info.name))
     }

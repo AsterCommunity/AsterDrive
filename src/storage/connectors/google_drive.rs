@@ -86,6 +86,14 @@ impl GoogleDriveClientSecret {
 aster_drive_storage::storage_connector_schema! {
     pub struct GoogleDriveConnectorConfigV1 {
         config {
+        #[serde(default)]
+        pub base_path: String => {
+            let mut field = storage_connector_field("base_path", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false);
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.help_key = Some("google_drive_base_path_desc".into());
+            field
+        },
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub root_folder_id: Option<String> => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
             name: "root_folder_id", scope: StorageConnectorFieldScope::ConnectorConfig,
@@ -107,7 +115,8 @@ aster_drive_storage::storage_connector_schema! {
         #[serde(default)]
         pub app_data_folder: bool => {
             let mut field = storage_connector_field("app_data_folder", StorageConnectorFieldScope::ConnectorConfig, StorageConnectorFieldKind::Boolean, false, false);
-            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false)); field
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field.help_key = Some("google_drive_app_data_folder_desc".into()); field
         },
         #[serde(default = "default_upload_strategy")]
         pub provider_resumable_upload_strategy: ProviderResumableUploadStrategy => {
@@ -242,6 +251,8 @@ impl StorageConnector for GoogleDriveConnector {
         .map_err(|e| AsterError::validation_error(e.to_string()))?;
         let mut c: GoogleDriveConnectorConfigV1 =
             super::common::decode_normalized_connector_config(&n)?;
+        c.base_path =
+            crate::storage::drivers::google_drive::paths::normalize_base_path(&c.base_path)?;
         for value in [&mut c.root_folder_id, &mut c.shared_drive_id] {
             *value = value
                 .take()
@@ -272,6 +283,50 @@ impl StorageConnector for GoogleDriveConnector {
         // enforce complete credentials after the saved payload has been loaded
         // inside persist_credential's transaction.
         super::common::validate_required_credential_field(&c.client_id, "client_id", Self::ID)
+    }
+    async fn validate_policy_update(
+        &self,
+        db: &sea_orm::DatabaseTransaction,
+        existing: &storage_policy::Model,
+        candidate: &aster_drive_storage::ConnectorConfigEnvelope,
+    ) -> Result<()> {
+        let current = crate::db::repository::policy_repo::lock_by_id(db, existing.id).await?;
+        if current.storage_config != existing.storage_config {
+            return Err(AsterError::conflict(
+                "Google Drive policy changed concurrently; retry",
+            ));
+        }
+        let old = Self::decode_config(&current)?;
+        let new: GoogleDriveConnectorConfigV1 =
+            super::common::decode_normalized_connector_config(candidate)?;
+        if (
+            old.root_folder_id,
+            old.shared_drive_id,
+            old.app_data_folder,
+            old.base_path,
+        ) != (
+            new.root_folder_id,
+            new.shared_drive_id,
+            new.app_data_folder,
+            new.base_path,
+        ) && (crate::db::repository::file_repo::count_blobs_by_policy(db, existing.id).await?
+            > 0
+            || crate::db::repository::upload_session_repo::count_unfinished_by_policy(
+                db,
+                existing.id,
+            )
+            .await?
+                > 0)
+        {
+            // Logical keys alone do not retain the old Google space/parent. A
+            // location edit could make cleanup falsely conclude "not found"
+            // and drop the last DB reference to the original remote object.
+            // Use migration into a separate policy instead of silent retargeting.
+            return Err(AsterError::validation_error(
+                "Google Drive storage location cannot change while blobs or unfinished uploads exist; create a new policy and migrate existing data",
+            ));
+        }
+        Ok(())
     }
     async fn persist_credential(
         &self,
@@ -361,6 +416,7 @@ impl StorageConnector for GoogleDriveConnector {
             config.root_folder_id,
             config.shared_drive_id,
             config.app_data_folder,
+            config.base_path,
             std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
         )?))
     }
@@ -553,6 +609,7 @@ impl StorageConnector for GoogleDriveConnector {
             config.root_folder_id,
             config.shared_drive_id,
             config.app_data_folder,
+            config.base_path,
             std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
         )?;
         let (root_item_id, root_item_name) = driver.validate_root().await?;
@@ -675,6 +732,7 @@ impl StorageConnector for GoogleDriveConnector {
             config.root_folder_id,
             config.shared_drive_id,
             config.app_data_folder,
+            config.base_path,
             std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
         )?))
     }

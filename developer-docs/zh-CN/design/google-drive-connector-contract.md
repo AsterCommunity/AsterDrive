@@ -12,6 +12,7 @@ Google Drive 是管理员托管的 blob 存储池，不是普通用户的外部�
 | `connectors/google_drive/oauth.rs` | policy / state / PKCE 绑定、授权码交换、scope 与离线授权检查 |
 | `connectors/google_drive/provider.rs` | writer 权威凭据读取、单实例刷新合并、跨实例 revision CAS、净化后的状态与审计 |
 | `src/storage/drivers/google_drive/client.rs` | Google HTTP、存储池验证、appProperties 查询、对象定位和错误映射 |
+| `drivers/google_drive/paths.rs` | 相对基础路径的逐级目录定位、写入创建及重名保护 |
 | `drivers/google_drive/upload.rs` | 有界上传、resumable 会话、Range 确认、取消与 attempt 清理 |
 | `drivers/google_drive/capacity.rs` | 账号 / 组织池化配额解释、共享盘与无限容量的保守分类 |
 | `drivers/google_drive/mod.rs` | `StorageDriver` 对象读写与扩展能力装配；不访问产品数据库 |
@@ -61,6 +62,44 @@ Google `thumbnailLink` 是短期链接，私有文件读取需要凭据且官方
 [`drivers/google_drive`](https://github.com/OpenListTeam/OpenList/tree/fb692b54d74210fcdb770ac8e82848be06990e75/drivers/google_drive)。
 OpenList 提供了 POST / PATCH、服务端分片和共享盘参数的实现参考；其用户目录浏览、重试和
 日志策略不替代 AsterDrive 的不可变 blob、凭据并发、错误脱敏和上传完成契约。
+
+## 基础路径与位置变更
+
+`base_path` 默认空，规范化首尾斜杠和重复分隔符，作为配置 root / shared drive / appDataFolder
+之下的相对真实目录。它不修改 blob 的逻辑 key，也不把 `files/...` 展开成目录树。
+最多 32 个组件、总长 1024 UTF-8 字节、单组件 255 字节是项目请求预算；拒绝点路径、
+反斜杠、控制字符和 URL。目录 API 依据 [folder guide](https://developers.google.com/workspace/drive/api/guides/folder)。
+
+读取 / 下载 / metadata / 删除不创建目录；写入逐级查找并创建缺失目录，然后重新确认。
+查找必须包含 parent / space / shared-drive 范围；同名文件、快捷方式和重复目录都拒绝，
+不通过 mimeType 过滤把一个同名非目录偷偷忽略。跨 Primary 的 create-by-name 不原子，
+创建后查到多个 ID 或无法确认新 ID 时保守失败，不递归删除可能属于他人的目录。
+一次创建失败留下的空目录可以由后续请求复用；底层 Google 名称唯一性不由本地 mutex 保证。
+
+`validate_policy_update` 是 connector-owned 事务校验入口。Google 在 policy 行锁下检查
+root / shared drive / appDataFolder / base path 是否变化，有 blob 或未完成上传时拒绝。
+失败和过期会话仍可能持有待清理对象，不能只统计未到期活跃会话。传输策略和探测 timeout
+不改变位置，仍可更新。迁移到新位置必须创建新策略并迁移已有数据。
+
+定位变更保护的实际触发：旧版本允许将普通目录策略切到 appDataFolder，此后清理旧 blob
+会在新空间查询，收到“未找到”后正常丢弃 DB 行，旧空间对象却可能遗留。单纯重试 GC 不能
+恢复已丢失的旧位置；禁止有数据时原地换池，不能靠放宽删除范围搜索整个管理员 Drive 补救。
+
+## 七天有效期与 scope 切换
+
+外部应用发布状态为 Testing、请求 Drive scope 时，Google 签发的 refresh token 七天后到期；
+持续自动刷新 access token 不能延长该期限。正式应用使用相同 token endpoint 和
+`grant_type=refresh_token`，不受这条特定七天期限约束，但用户撤销、六个月未使用、
+活跃 token 数量限制、限时授权或管理员策略仍可能使其失效。
+[官方失效条件](https://developers.google.com/identity/protocols/oauth2#expiration)。
+
+当前只记录 access token 的 expires_at，不伪造 refresh token 第七天精确截止值，也没有
+提前提醒任务。下一次需要刷新时，invalid_grant 进入 ReauthRequired，文件保留且必须管理员
+重新授权。应用从 Testing 改为正式后应重新授权，不假设旧 token 自动延长。
+
+appDataFolder 的 `drive.appdata` 与普通空间的 `drive` scope 不同。切换后保存配置不会给
+旧 token 增加权限，需要重新授权；这类 403 与 refresh token 七天失效的 invalid_grant 不同。
+字段 descriptor help 和中英文教程都必须提示这一点。
 
 ## 凭据与授权边界
 

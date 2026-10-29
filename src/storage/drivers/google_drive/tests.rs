@@ -35,6 +35,7 @@ impl Server {
             Some("pool".into()),
             Some("shared".into()),
             false,
+            String::new(),
             std::time::Duration::from_secs(10),
         )
         .unwrap();
@@ -193,18 +194,23 @@ fn query_and_session_boundaries_keep_objects_and_credentials_private() {
         Some("pool".into()),
         None,
         false,
+        String::new(),
         std::time::Duration::from_secs(10),
     )
     .unwrap();
     assert!(
         driver
-            .object_query("a'\\b")
+            .object_query("a'\\b", driver.root())
             .unwrap()
             .contains("value='a\\'\\\\b'")
     );
-    assert!(driver.object_query(&"x".repeat(124)).is_err());
-    assert!(driver.object_query("").is_err());
-    assert!(driver.object_query("files/a\nb").is_err());
+    assert!(
+        driver
+            .object_query(&"x".repeat(124), driver.root())
+            .is_err()
+    );
+    assert!(driver.object_query("", driver.root()).is_err());
+    assert!(driver.object_query("files/a\nb", driver.root()).is_err());
     for url in [
         "https://attacker.test/upload/drive/v3/files?upload_id=x",
         "http://www.googleapis.com/upload/drive/v3/files?upload_id=x",

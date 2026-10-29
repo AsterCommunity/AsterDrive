@@ -35,6 +35,12 @@ Google Drive 需要先保存应用再打开浏览器授权，不能作为系统�
 
 Google 对外部应用 Testing 状态签发的 Drive refresh token 通常设置七天有效期。长期运行前应按 Google 的要求完成应用发布以及所需的验证；组织管理员还可能限制第三方应用和 Drive scope。
 
+Testing 与正式发布应用使用相同的 token 刷新接口和 `grant_type=refresh_token`。区别是 Google 对 refresh token 的生命周期限制：外部 Testing 应用的 Drive 授权有七天期限，持续自动刷新 access token 也不能绕过；正式发布应用不受这条七天规则约束，但也不保证永久有效。
+
+长期运行的 Testing 应用可能表现为“前几天正常，一周后上传、下载、缩略图或后台回收开始要求重新授权”。AsterDrive 在下一次需要刷新 token 时收到 `invalid_grant`，将该策略的凭据保存为“需要重新授权”；不删除文件，也不影响用户本地登录或其他存储策略。当前没有在第七天定时提醒，界面的 access token 到期时间也不是 refresh token 的七天期限。
+
+正式应用的 refresh token 仍可能因用户撤销访问、六个月未使用、签发数量上限导致旧 token 失效、用户选择的限时授权或组织限制而失效。切换到正式发布后，建议重新授权取得新凭据，不要假设原先 Testing 签发的 token 会自动延长。
+
 客户端 secret、管理员账号授权和 Google 应用发布状态是不同事项。更换 secret 不能修复被撤销的用户授权，重新授权也不能修复错误的客户端 secret。
 
 ### 授权范围
@@ -54,6 +60,7 @@ Google 对外部应用 Testing 状态签发的 Drive refresh token 通常设置�
 | --- | --- |
 | OAuth 客户端 ID | Google Web application 客户端的 ID |
 | OAuth 客户端密钥 | 同一个客户端的 secret；首次创建必须提供 |
+| 基础路径 | 根目录内的相对子目录，例如 `AsterDrive/blobs`；留空直接使用根目录 |
 | 根目录 ID | 专用目录 URL 中的 ID；留空使用账号根目录或所选共享盘根目录 |
 | 共享盘 ID | 使用 Google Workspace shared drive 时填写 |
 | 使用 appDataFolder | 使用应用私有的隐藏数据空间，不能同时填写上面两个 ID |
@@ -74,6 +81,14 @@ https://drive.example.com/api/v1/admin/policies/storage-authorization/callback
 
 ## 3. 选择存储池
 
+### 根目录与基础路径的关系
+
+“根目录 ID”选择 Google 真实目录，“基础路径”选择它下面的相对子目录。例如根目录 ID 指向 `TeamStorage`，基础路径为 `AsterDrive/blobs`，对象就写入 `TeamStorage/AsterDrive/blobs`。留空保持旧策略的落点。
+
+基础路径支持多级目录和中文名称。写入时逐层创建缺失目录；查询、下载和删除不创建目录。相同名字对应多个 Google 对象、路径组件是文件或快捷方式时会报错，不随意挑选。不要使用 `..`、反斜杠或完整 URL。
+
+基础路径也可用于共享盘和 appDataFolder；内部 `files/...` 逻辑对象键不会继续展开为目录树。账号配额观测仍是整个账号或组织池，不是基础路径目录的独享容量。
+
 ### 普通目录
 
 例如目录 URL 是 `https://drive.google.com/drive/folders/FOLDER_ID`，根目录 ID 填写 `FOLDER_ID`，不要填写完整 URL。
@@ -90,10 +105,14 @@ https://drive.example.com/api/v1/admin/policies/storage-authorization/callback
 
 这个空间按应用隔离，使用 `drive.appdata` scope。它不在普通 Google Drive 文件界面中显示，也不能按普通 Drive 文件分享、跨空间移动或移入回收站。
 
-启用时不要填写根目录 ID 和共享盘 ID。删除 AsterDrive 文件仍由 AsterDrive 的回收流程管理，不需要通过 Google 网页回收站操作。
+启用时不要填写根目录 ID 和共享盘 ID。**每次切换 appDataFolder 开关后，都必须保存并重新授权**：普通空间需要 `drive` scope，隐藏空间需要 `drive.appdata`，只保存开关不会给旧 token 增加权限。没有重新授权时可能返回 Google HTTP 403；重新完成同意后再做凭据验证和上传测试。这个 scope 问题与 Testing 七天到期是不同原因。
+
+删除 AsterDrive 文件仍由 AsterDrive 的回收流程管理，不需要通过 Google 网页回收站操作。
 
 :::caution[已有文件后不要直接切换存储池或账号]
-对象依赖原来的应用、Google 账号和存储位置。更换后旧文件可能无法定位。搬迁数据应使用 AsterDrive 存储迁移，不要直接修改数据库中的对象键。
+对象依赖原来的应用、Google 账号和存储位置。策略还有 blob 或未完成上传（包括等待清理的失败或过期会话）时，后端会拒绝修改根目录、共享盘、appDataFolder 和基础路径。搬迁数据应新建策略并使用 AsterDrive 存储迁移，不要通过重新定位旧策略来“搬家”。上传传输策略和容量超时仍可修改。
+
+旧版本允许切换存储池时，切换后再永久删除可能只查到新空间中的“对象不存在”，旧空间对象因此遗留。单纯等待回收任务不会把它移动到正确空间；先核对原存储位置和对象身份，避免手动误删其他引用。
 :::
 
 ## 4. 完成管理员授权和验证
@@ -203,6 +222,7 @@ AsterDrive 在 Google 对象的应用属性中保存逻辑键，查询和删除�
 | 授权页拒绝访问 | 是否加入测试用户、应用发布状态、Google Workspace 第三方应用限制 |
 | 需要重新授权 | refresh token 是否过期或撤销、Testing 七天有效期、是否取得离线授权 |
 | OAuth 应用配置无效 | client ID 与 secret 是否属于同一 Web application；修正并保存后重新授权 |
+| 开启 appDataFolder 后 403 | 保存后是否重新授权，是否获得 `drive.appdata`；不要先归因于 Testing 到期 |
 | 目录或共享盘权限不足 | 目标 ID、共享盘归属、管理员角色；修复后运行凭据验证和连接测试 |
 | 上传中的 308 | 正常的未完成确认；只有无法确认进度或网络请求失败时才需要排查 |
 | 浏览器直传失败 | 用户设备到 Google 的网络、CORS 预检、扩展或企业代理；必要时选择中继 |
@@ -212,6 +232,7 @@ AsterDrive 在 Google 对象的应用属性中保存逻辑键，查询和删除�
 
 ## 官方参考
 
+- [Refresh token 有效期与失效原因](https://developers.google.com/identity/protocols/oauth2#expiration)
 - [Google OAuth Web Server](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Drive resumable upload](https://developers.google.com/workspace/drive/api/guides/manage-uploads)
 - [appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata)

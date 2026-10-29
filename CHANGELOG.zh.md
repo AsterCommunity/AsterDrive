@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Google Drive 存储后端** — 管理员可通过加密保存的 Google OAuth 应用授权，将普通目录、共享盘或 appDataFolder 作为 AsterDrive blob 存储池。上传支持有界服务端中继与浏览器直传；账号容量按 Google 跨服务总用量观测，共享盘独立容量边界不可观测时明确返回不支持。下载与 Range 读取经服务端中继，使用当前 AsterDrive 文件名。管理员 OAuth token 留在后端，仅浏览器直传模式向上传 owner 返回其本次会话的临时能力地址。
+- **Google Drive 存储后端** — 管理员可通过加密保存的 Google OAuth 应用授权，将普通目录、共享盘或 appDataFolder 作为 AsterDrive blob 存储池，支持在所选根目录下配置相对基础路径并在写入时创建缺失目录；已有 blob 或未完成上传时禁止直接重新定位存储池。上传支持有界服务端中继与浏览器直传；账号容量按 Google 跨服务总用量观测，共享盘独立容量边界不可观测时明确返回不支持。下载与 Range 读取经服务端中继，使用当前 AsterDrive 文件名。管理员 OAuth token 留在后端，仅浏览器直传模式向上传 owner 返回其本次会话的临时能力地址。
 
 ### Fixed
 

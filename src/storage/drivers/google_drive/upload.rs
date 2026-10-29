@@ -6,14 +6,23 @@ impl GoogleDriveDriver {
     pub(super) async fn create_session(&self, path: &str, size: Option<u64>) -> Result<String> {
         validate_path(path)?;
         // Reuse the app-owned file on retry; never replace an unmarked file.
-        let existing = self.find(path).await?;
+        let parent = self
+            .resolve_base_folder(true)
+            .await?
+            .ok_or_else(|| transient("Google Drive base folder resolution failed"))?;
+        let existing = self
+            .find_unique(
+                &self.object_query(path, &parent)?,
+                "multiple Google Drive objects have the same AsterDrive key",
+            )
+            .await?;
         let mut metadata = serde_json::json!({"name": path.rsplit('/').next().unwrap_or("blob"),
             "mimeType": "application/octet-stream", "appProperties": { (APP_KEY): path }});
         let mut request = if let Some(info) = existing {
             self.http
                 .patch(format!("{}/{}", self.upload, urlencoding::encode(&info.id)))
         } else {
-            metadata["parents"] = serde_json::json!([self.root()]);
+            metadata["parents"] = serde_json::json!([parent]);
             self.http.post(&self.upload)
         };
         request = request

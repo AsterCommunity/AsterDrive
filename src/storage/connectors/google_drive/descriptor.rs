@@ -17,7 +17,7 @@ impl GoogleDriveConnector {
                     config_step_description_key: "policy_wizard_step_google_drive_desc",
                     edit_context_key: "policy_edit_context_google_drive_desc",
                     base_path_empty_display: "core:root",
-                    base_path_placeholder: "folder id",
+                    base_path_placeholder: "AsterDrive/blobs",
                 },
             ),
             credential_mode: GoogleDriveConnectorConfigV1::credential_mode(),

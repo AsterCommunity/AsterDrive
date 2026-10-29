@@ -35,6 +35,12 @@ This is administrator-consented delegated OAuth. A service account JSON file, an
 
 Drive refresh tokens issued to external applications in Testing typically expire after seven days. For long-running deployments, complete Google's publication and any required verification. Organization administrators can also restrict third-party applications and Drive scopes.
 
+Testing and production applications use the same token endpoint and `grant_type=refresh_token`. The difference is Google's refresh-token lifetime policy: the seven-day limit applies to external Testing applications requesting Drive scopes, and repeatedly refreshing access tokens does not bypass it. Production applications are not subject to that specific limit, but their refresh tokens are not guaranteed permanent.
+
+A long-running Testing deployment can work for several days and then require reauthorization for uploads, downloads, thumbnails, or cleanup. On the next refresh attempt, `invalid_grant` makes AsterDrive persist a reauthorization-required credential status. Files are retained; local user login and unrelated storage policies are unaffected. There is no seventh-day scheduled reminder, and the displayed access-token expiry is not the refresh token's seven-day deadline.
+
+Production refresh tokens can still become invalid after user revocation, six months of disuse, issuance limits invalidating old tokens, time-limited grants, or organization restrictions. After publishing an application, authorize again to obtain fresh credentials; do not assume an older Testing token is automatically extended.
+
 Application secrets, account authorization, and publication status are separate concerns. Changing the secret does not repair a revoked grant; reauthorization does not repair an incorrect client secret.
 
 ### Requested scopes
@@ -54,6 +60,7 @@ Open `Admin → Storage Policies → New Policy` and select **Google Drive**.
 | --- | --- |
 | OAuth client ID | The Google Web application client's ID |
 | OAuth client secret | The same client's secret; required for initial creation |
+| Base path | Relative subfolders beneath the selected root, such as `AsterDrive/blobs`; empty uses the root directly |
 | Root folder ID | The folder ID from its URL; empty uses the account or selected shared-drive root |
 | Shared drive ID | A Google Workspace shared drive, when applicable |
 | Use appDataFolder | Hidden application data storage; cannot be combined with either ID |
@@ -74,6 +81,14 @@ When editing, omitting or leaving the secret empty preserves the saved secret fo
 
 ## 3. Choose the storage pool
 
+### Root folder and base path
+
+The root folder ID selects a real Google folder; the base path selects relative subfolders beneath it. If the root is `TeamStorage` and the base path is `AsterDrive/blobs`, objects are stored in `TeamStorage/AsterDrive/blobs`. An empty base path retains the existing policy location.
+
+Multilevel and Unicode folder names are supported. Missing folders are created only on writes. Reads, downloads, and deletes never create directories. Ambiguous names, files, and shortcuts in the path fail closed. Do not enter `..`, backslashes, or a full URL.
+
+Base paths also work in shared drives and appDataFolder. Internal `files/...` blob keys remain application metadata rather than an additional directory tree. Quota observations still describe the account/organization pool, not dedicated capacity for these folders.
+
 ### Regular folder
 
 For `https://drive.google.com/drive/folders/FOLDER_ID`, enter `FOLDER_ID`, not the full URL.
@@ -90,10 +105,14 @@ The administrator needs access, permission to add files, and permission to delet
 
 This hidden space is isolated by application and uses the `drive.appdata` scope. It is not available in the normal Drive file UI and cannot be shared, moved across spaces, or trashed as ordinary Drive content.
 
-Enable it with both IDs empty. AsterDrive manages file deletion and cleanup; there is no need to manipulate a Google web trash folder.
+Enable it with both IDs empty. **Save and reauthorize after every appDataFolder toggle**: normal space requires `drive`, while hidden application data requires `drive.appdata`. Saving the setting does not add permissions to the old token. Missing reauthorization can cause a Google HTTP 403; consent again before credential validation and upload testing. This scope mismatch is separate from Testing's seven-day expiry.
+
+AsterDrive manages file deletion and cleanup; there is no need to manipulate a Google web trash folder.
 
 :::caution[Do not switch an existing pool or account casually]
-Existing objects depend on the original application, Google account, and location. Changing these can make old files inaccessible. Move data through AsterDrive storage migration; do not edit blob keys in the database.
+Objects depend on the original application, Google account, and location. While blobs or unfinished uploads exist, the backend rejects changes to the root folder, shared drive, appDataFolder, and base path. Failed and expired sessions awaiting cleanup also count. Create a new policy and migrate data instead of retargeting an existing pool. Upload transfer strategy and probe timeout remain editable.
+
+Older versions allowed pool changes. A subsequent purge could find no object in the new space while leaving the original object in the old space. Waiting for maintenance cannot recover the old location automatically. Reconcile the original pool and object identity before considering manual deletion.
 :::
 
 ## 4. Authorize and validate
@@ -203,6 +222,7 @@ Do not manually move, delete, or alter application metadata on these objects. Ve
 | Consent screen denies access | Test-user membership, publication state, Workspace application restrictions |
 | Reauthorization required | Refresh-token expiry/revocation, Testing's seven-day lifetime, offline grant |
 | Invalid OAuth application | Client ID and secret belong to the same Web application; save repairs and reauthorize |
+| 403 after enabling appDataFolder | Whether you saved and reauthorized for `drive.appdata`; do not assume Testing expiry |
 | Folder/shared-drive permission denied | IDs, drive membership, administrator role; validate and test after repairs |
 | 308 during upload | Normal incomplete acknowledgement; investigate only when progress cannot be reconciled or requests fail |
 | Browser-direct upload fails | Client-to-Google networking, CORS preflight, browser extensions, enterprise proxies; use relay if needed |
@@ -212,6 +232,7 @@ Do not manually move, delete, or alter application metadata on these objects. Ve
 
 ## Official references
 
+- [Refresh-token expiry and invalidation](https://developers.google.com/identity/protocols/oauth2#expiration)
 - [Google OAuth Web Server](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Drive resumable upload](https://developers.google.com/workspace/drive/api/guides/manage-uploads)
 - [appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata)

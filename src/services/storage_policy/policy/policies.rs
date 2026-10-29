@@ -601,6 +601,10 @@ pub async fn update(
     }
 
     let existing_is_default = existing.is_default;
+    connectors
+        .require_policy(&existing)?
+        .validate_policy_update(&txn, &existing, &connector_config)
+        .await?;
     let mut active: storage_policy::ActiveModel = existing.into();
     if let Some(v) = name {
         active.name = Set(v);
