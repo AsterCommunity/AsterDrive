@@ -24,6 +24,7 @@ const RechartsTrendPlot = lazy(async () => {
 		YAxis,
 	} = await import("recharts");
 
+	// biome-ignore lint/correctness/noComponentHookFactories: Module-level React.lazy caches this loader's result, so the component identity stays stable across renders. https://react.dev/reference/react/lazy
 	function LoadedRechartsTrendPlot({
 		series,
 		trendData,

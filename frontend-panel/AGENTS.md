@@ -27,12 +27,16 @@ bun run generate-api     # 从 OpenAPI spec 生成 TypeScript SDK
 ## 关键约定
 
 ### TypeScript 规则
+
 - `erasableSyntaxOnly: true` — **禁止 TS enum**，用 `as const` 对象
 - `verbatimModuleSyntax: true` — 类型导入必须用 `import type`
 - TypeScript 7 原生 `tsc` 做增量类型检查，biome (非 eslint) 做 lint
 - biome 用 tab 缩进，double quote
 
+`src/**/*.test.ts(x)` 使用 Vitest 和同步的 jest-dom DOM matcher，Biome 仅在这些单测文件中关闭 `noPlaywrightMissingAwait`，避免把 `toHaveClass` / `toHaveAttribute` 误判成 Playwright 异步断言。`e2e/` 和 `protocol-e2e/` 保留该规则，Playwright 断言必须 `await` 或返回其 Promise。
+
 ### API SDK 自动生成
+
 - 后端跑 `cargo nextest run --profile ci --features openapi --test generate_openapi` → 生成 `generated/openapi.json`
 - 前端跑 `bun run generate-api` → 生成 `src/services/api.generated.ts`
 - 所有后端 schema 类型从 `@/types/api.ts` re-export
@@ -40,17 +44,20 @@ bun run generate-api     # 从 OpenAPI spec 生成 TypeScript SDK
 - `api.generated.ts` 在 biome 忽略列表中，不要手动修改
 
 ### 类型导入示例
+
 ```typescript
 import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 ```
 
 ### API 调用
+
 - 统一通过 `src/services/http.ts` 的 `api` 对象
 - `api.get/post/patch/put/delete` 自动 unwrap `ApiResponse<T>` 并处理错误码
 - 401 自动 refresh token（拦截器处理）
 - 所有请求带 `withCredentials: true`（HttpOnly cookie 认证）
 
 ### 前端服务层治理
+
 - 前端 service / resource / store 层按“调用远程服务的后端”标准设计。组件不得直接推断远程资源的认证、缓存、重试、刷新、一致性策略。
 - 组件只负责展示和交互，不在组件里判断 `/api`、`/pv`、外链、presigned URL、credentials、`If-None-Match`、fallback、SSE/上传刷新竞态等底层策略。
 - `src/services/*` 是远程 API adapter，负责封装接口调用和生成类型适配；不要在 service 中混入 UI 状态、toast、组件级 fallback 或跨 store 协调逻辑。
@@ -62,17 +69,20 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 - 这类服务层 / 资源层 / 协调层改动必须补单元测试，覆盖认证策略、缓存 key、ETag、fallback、关闭/切换文件时的 stale promise、SSE 与本地刷新竞态等边界。
 
 ### 存储策略能力
+
 - 存储策略 UI 的连接测试、字段显示、上传工作流、授权入口、远端节点绑定、S3 传输策略、存储原生处理、driver action 可用性等能力判断，必须优先来自后端 storage connector descriptor 的 `capabilities`、`fields`、`upload_workflows`、`actions`、`connection_tests` 等元数据。
 - 不要在前端新增 `driver_type === "s3" || driver_type === "azure_blob" || ...` 这类白名单/矩阵来推断能力。已有临时兜底也只能用于 descriptor 缺失时的保守兼容，不能扩大成新的事实来源。
 - 存储策略表单的连接字段、字段标签、credential mode、endpoint 协议、是否允许裸 host、测试 payload 和 create/update payload，都必须从 descriptor 字段和后端 schema 派生；不要在 `storage-policy-dialog`、`descriptorPredicates`、`connectionNormalization` 或页面测试 fixture 里硬编码 S3/Azure/COS/SFTP/Remote/OneDrive 的字段矩阵。
 - descriptor 缺失时，如果必须根据表单内容做兼容判断，只能使用字段是否存在、用户是否实际填写了相关字段、URL scheme 这类局部信号；不要把 S3/Azure/COS/Remote/OneDrive 的能力关系重新硬编码回前端。
 
 ### 组件库
+
 - shadcn/ui (Base UI 底层)，用 `render` prop 而非 `asChild`
 - 用 `@/components/ui/` 下的组件
 - 安装新组件用 `bunx shadcn@latest add <component>`
 
 ### 路由结构
+
 ```text
 /login          — LoginPage (LoginGuard)
 /               — FileBrowserPage (ProtectedRoute)
@@ -81,6 +91,7 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 ```
 
 ### 状态管理
+
 - authStore — 登录/登出/token 状态
 - fileStore — 文件/文件夹列表 + 导航
 
@@ -114,6 +125,7 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 - `useSelectionShortcuts` — 批量选择快捷键
 
 ### 前端目录
+
 ```text
 src/
 ├── components/
@@ -156,6 +168,7 @@ src/
 ```
 
 ## 错误码域
+
 - 0: 成功
 - 1000: 通用
 - 2000: 认证
@@ -167,6 +180,7 @@ src/
 ## i18n 国际化
 
 ### Namespace 分层
+
 ```text
 src/i18n/locales/{zh,en}/
 ├── core/            # [初始加载] 通用 UI：按钮、表头、状态、主题/语言、确认弹窗
@@ -186,6 +200,7 @@ src/i18n/locales/{zh,en}/
 体量较大的 namespace 按子类拆成目录内多个 JSON，但运行时仍合并成同一个 flat namespace。也就是说调用侧继续使用 `t("files:upload_success")`、`t("admin:overview_total_users")`，不要把 key 改成深层路径。
 
 ### 命名约定
+
 - **core** 是默认 NS（`defaultNS: "core"`），`t("key")` 无需前缀
 - 其他 NS 用显式前缀：`t("admin:key")`、`t("webdav:key")`、`t("share:key")` 等
 - key 名保留原前缀以自文档化：`webdav_endpoint`、`settings_theme_light_desc`、`my_shares_title`
@@ -193,17 +208,20 @@ src/i18n/locales/{zh,en}/
 - 大 namespace 新增翻译时放到对应子类文件，并同步 `src/i18n/index.ts` 的 `SPLIT_NAMESPACE_PARTS` 顺序；未拆的小 namespace 才继续使用单个 `{namespace}.json`
 
 ### 加载策略
+
 - 初始加载：core、files、auth、validation、errors、offline、share、tasks（首屏和常驻入口必需）
 - 延迟加载：admin、webdav、settings、search（按需加载）
 - 切换语言时，先确保初始 NS 加载完成，再异步加载延迟 NS
 
 ### 新增翻译的判断规则
+
 - 全局通用（按钮、状态词、表头）→ `core.json`
 - 仅文件浏览器用 → `files.json`
 - 仅管理后台用 → `admin.json`
 - 新页面专属 → 新建独立 NS（加入 `DEFERRED_NAMESPACES`）
 
 ## UI / UX 约定
+
 - 后台页面优先做得**宽一点、松一点、大气一点**，不要为了塞信息把内容挤成小卡片或密集按钮墙
 - 优先用“**左侧概览 + 右侧主内容**”或“**清晰分区的大面板**”组织详情页，而不是把所有字段平均切成几个小块
 - 列表页要**整洁、克制**：字段分层明确，常看信息直接展示，低频操作收进详情面板或二级交互
@@ -223,6 +241,7 @@ src/i18n/locales/{zh,en}/
 - 侧栏树节点、设置表格、管理表格等若出现左右贴边或根节点/首行未撑满整行，优先检查并复用上述常量，不要单页手搓额外 padding
 
 ### Flex 滚动链完整性
+
 - **ScrollArea / `overflow-auto` 要求从视口根到滚动容器的每一层 flex 容器链不断裂**
 - 每个中间层必须同时有 `flex flex-col`（成为 flex column 容器）和 `min-h-0 flex-1`（在父 flex 中受约束并占满剩余空间）
 - 如果某一层只写了 `min-h-0 flex-1` 但漏了 `flex flex-col`，它就不是 flex 容器，子元素的 `flex-1` 失效，高度不受约束，滚动容器会被内容撑大
@@ -230,6 +249,7 @@ src/i18n/locales/{zh,en}/
 - **新增包裹容器时（section / AdminSurface / ContextMenuTrigger 等）务必检查是否需要 `flex flex-col`**
 
 ### Base UI DropdownMenuItem + SVG 颜色问题
+
 - `DropdownMenuItem`（Base UI `Menu.Item`）用 `data-highlighted=""` 属性表示 hover，不是原生 CSS `:hover`
 - 基础样式包含 `[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4`，在 SVG 上创建了独立的 CSS 规则层
 - 这导致 `data-[highlighted]:text-destructive` 设置的父级 `color` 无法通过 `currentColor` 正确传播到 SVG 的 `fill`——SVG 不变色，只在 `data-highlighted` 移除时短暂闪红（`transition-colors` 回弹）
@@ -237,6 +257,7 @@ src/i18n/locales/{zh,en}/
 - **结论：需要 hover 变色的 SVG 图标场景，不要用 `DropdownMenuItem`，改用原生 `<button>` + CSS `:hover`，`currentColor` 继承天然生效**
 
 ### Base UI Select.Value 回显 raw value 的坑
+
 - `Select.Value` 在 **没有** 给 `Select.Root` 传 `items` 映射时，默认回显当前 `value` 本身，不一定会显示 `SelectItem` 里的 label
 - 如果 `value` 是策略 ID、策略组 ID、文件夹 ID、分页大小、枚举值等，trigger 里就会直接显示 `1` / `2` / `__all__` / `relay_stream` 这类 raw value
 - 这个坑会同时影响 dialog 和普通页面，不只是某一个表单；策略组选择、用户状态/角色筛选、WebDAV 根目录、分页大小、分享过期时间等都踩过

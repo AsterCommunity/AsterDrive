@@ -395,30 +395,63 @@ async fn ambiguous_or_incomplete_searches_cannot_mutate_any_object() {
 
 #[tokio::test]
 async fn root_validation_rejects_wrong_type_drive_and_permissions() {
-    for (body, kind) in [
+    for (configured_drive, body, kind) in [
         (
+            Some("shared"),
             json!({"id":"pool","mimeType":"application/octet-stream","capabilities":{"canAddChildren":true}}),
             StorageErrorKind::Misconfigured,
         ),
         (
+            Some("shared"),
             json!({"id":"pool","mimeType":"application/vnd.google-apps.folder","driveId":"other","capabilities":{"canAddChildren":true}}),
             StorageErrorKind::Misconfigured,
         ),
         (
+            None,
+            json!({"id":"pool","mimeType":"application/vnd.google-apps.folder","driveId":"shared","capabilities":{"canAddChildren":true}}),
+            StorageErrorKind::Misconfigured,
+        ),
+        (
+            Some("shared"),
+            json!({"id":"pool","mimeType":"application/vnd.google-apps.folder","capabilities":{"canAddChildren":true}}),
+            StorageErrorKind::Misconfigured,
+        ),
+        (
+            Some("shared"),
             json!({"id":"pool","mimeType":"application/vnd.google-apps.folder","driveId":"shared","capabilities":{"canAddChildren":false}}),
             StorageErrorKind::Permission,
         ),
         (
+            Some("shared"),
             json!({"id":"pool","mimeType":"application/vnd.google-apps.folder","driveId":"shared"}),
             StorageErrorKind::Permission,
         ),
     ] {
         let peer = HttpFixture::new([HttpReply::json(200, body)]).await;
-        assert_eq!(
-            driver(&peer).validate_root().await.unwrap_err().kind(),
-            kind
-        );
+        let mut driver = driver(&peer);
+        driver.shared_drive_id = configured_drive.map(str::to_owned);
+        assert_eq!(driver.validate_root().await.unwrap_err().kind(), kind);
+        assert_eq!(peer.requests().len(), 1);
         assert_eq!(peer.requests()[0].query["supportsAllDrives"], "true");
+        peer.stop().await;
+    }
+}
+
+#[tokio::test]
+async fn root_validation_accepts_matching_account_and_shared_drive_roots() {
+    for configured_drive in [None, Some("shared")] {
+        let peer = HttpFixture::new([HttpReply::json(
+            200,
+            json!({"id":"pool","name":"Pool","mimeType":"application/vnd.google-apps.folder","driveId":configured_drive,"capabilities":{"canAddChildren":true}}),
+        )])
+        .await;
+        let mut driver = driver(&peer);
+        driver.shared_drive_id = configured_drive.map(str::to_owned);
+        assert_eq!(
+            driver.validate_root().await.unwrap(),
+            ("pool".into(), Some("Pool".into()))
+        );
+        assert_eq!(peer.requests().len(), 1);
         peer.stop().await;
     }
 }

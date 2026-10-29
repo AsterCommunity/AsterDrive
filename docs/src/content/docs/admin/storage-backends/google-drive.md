@@ -79,6 +79,10 @@ https://drive.example.com/api/v1/admin/policies/storage-authorization/callback
 
 编辑策略时，客户端密钥留空会保留**同一客户端 ID** 的已保存密钥。更换客户端 ID 时，需要同时提供新 secret 并重新授权。
 
+:::caution[已有存储池应保留原 Google 应用]
+普通 Drive 对象上的私有 `appProperties` 只对原应用可见，appDataFolder 也按应用隔离。替换成另一 Google 应用后，即使同一账号重新授权，新应用也可能无法定位旧 blob，清理时还可能误认为对象已经不存在。已有数据的策略应保留原应用；需要更换应用时，先新建存储策略并通过 AsterDrive 迁移数据，保留旧应用直到迁移和清理完成。更新同一客户端的 secret 不等于更换应用。
+:::
+
 ## 3. 选择存储池
 
 ### 根目录与基础路径的关系
@@ -156,7 +160,7 @@ Google 的正常中间片确认是 `308 Resume Incomplete`，通过 `Range` 表�
 
 - 浏览器和 AsterDrive 后端都需要能访问相应的 Google 服务；只给服务器配置代理不能保证用户设备可以直传。
 - 浏览器需要允许对 Google 会话地址的跨域 PUT，以及 `Content-Type`、`Content-Range` 请求头。
-- Google 负责自身端点的 CORS 响应，AsterDrive 的反向代理不能替它补跨域头。
+- 直传请求直接发往 Google 会话地址，不经过 AsterDrive 反向代理；代理响应头不会影响这条请求的 Google CORS 响应。
 - `Range` 未暴露给浏览器时，客户端会请求后端协调进度；若预检本身被网络设备拦截，需修复浏览器到 Google 的连接或切回服务端中继。
 
 AsterDrive 不会向 Google 上传请求附加自己的登录 cookie 或 CSRF header。直传完成后仍需后端检查最终对象和大小，才能创建文件、计入配额并完成上传。
@@ -220,7 +224,7 @@ AsterDrive 在 Google 对象的应用属性中保存逻辑键，查询和删除�
 | --- | --- |
 | `redirect_uri_mismatch` | Google 中登记的回调是否与面板完全一致，代理是否生成了错误协议或域名 |
 | 授权页拒绝访问 | 是否加入测试用户、应用发布状态、Google Workspace 第三方应用限制 |
-| 需要重新授权 | refresh token 是否过期或撤销、Testing 七天有效期、是否取得离线授权 |
+| 需要重新授权 | refresh token 是否过期或撤销；外部应用是否处于 Testing 状态，且请求了超出基本用户信息的 scope（包括 Drive scope），从而受七天 refresh token 限制；是否取得离线授权 |
 | OAuth 应用配置无效 | client ID 与 secret 是否属于同一 Web application；修正并保存后重新授权 |
 | 开启 appDataFolder 后 403 | 保存后是否重新授权，是否获得 `drive.appdata`；不要先归因于 Testing 到期 |
 | 目录或共享盘权限不足 | 目标 ID、共享盘归属、管理员角色；修复后运行凭据验证和连接测试 |
@@ -236,5 +240,6 @@ AsterDrive 在 Google 对象的应用属性中保存逻辑键，查询和删除�
 - [Google OAuth Web Server](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Drive resumable upload](https://developers.google.com/workspace/drive/api/guides/manage-uploads)
 - [appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata)
+- [应用私有文件属性](https://developers.google.com/workspace/drive/api/guides/properties)
 - [账号或组织容量](https://developers.google.com/workspace/drive/api/reference/rest/v3/about)
 - [下载与导出](https://developers.google.com/workspace/drive/api/guides/manage-downloads)

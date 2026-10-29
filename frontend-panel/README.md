@@ -49,18 +49,18 @@ bun run format
 
 ## 当前页面
 
-| 路由 | 作用 |
-| --- | --- |
-| `/login` | 登录页 |
-| `/` | 文件浏览器 |
-| `/trash` | 回收站 |
-| `/settings/webdav` | WebDAV 账号管理 |
-| `/s/:token` | 公开分享页 |
-| `/admin/users` | 用户与用户策略管理 |
-| `/admin/policies` | 存储策略管理 |
-| `/admin/shares` | 全站分享管理 |
-| `/admin/locks` | 锁管理 |
-| `/admin/settings` | 运行时配置管理 |
+| 路由               | 作用               |
+| ------------------ | ------------------ |
+| `/login`           | 登录页             |
+| `/`                | 文件浏览器         |
+| `/trash`           | 回收站             |
+| `/settings/webdav` | WebDAV 账号管理    |
+| `/s/:token`        | 公开分享页         |
+| `/admin/users`     | 用户与用户策略管理 |
+| `/admin/policies`  | 存储策略管理       |
+| `/admin/shares`    | 全站分享管理       |
+| `/admin/locks`     | 锁管理             |
+| `/admin/settings`  | 运行时配置管理     |
 
 ## 已接入的核心能力
 
