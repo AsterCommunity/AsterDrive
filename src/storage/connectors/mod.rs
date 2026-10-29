@@ -13,6 +13,7 @@ mod alibaba_oss;
 mod azure_blob;
 mod common;
 mod contract;
+mod google_drive;
 mod huawei_obs;
 mod local;
 mod localization;
@@ -48,6 +49,7 @@ use alibaba_oss::AlibabaOssConnector;
 use azure_blob::AzureBlobConnector;
 pub(crate) use common::merge_saved_static_credential;
 pub use common::unsupported_multipart_error;
+use google_drive::GoogleDriveConnector;
 use huawei_obs::HuaweiObsConnector;
 pub(crate) use local::LocalConnector;
 pub use models::{
@@ -90,6 +92,7 @@ pub(crate) fn builtin_storage_connector_registry() -> Result<StorageConnectorReg
         Arc::new(TencentCosConnector),
         Arc::new(RemoteConnector),
         Arc::new(OneDriveConnector),
+        Arc::new(GoogleDriveConnector),
         Arc::new(QiniuConnector),
     ])
 }
