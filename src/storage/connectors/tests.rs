@@ -43,7 +43,7 @@ fn unified_registry_exposes_remote_target_scope_for_reusable_provider_connectors
         .collect::<HashSet<_>>();
     assert_eq!(
         ids.len(),
-        10,
+        11,
         "the built-in connector matrix must stay complete"
     );
     assert_eq!(
@@ -58,6 +58,7 @@ fn unified_registry_exposes_remote_target_scope_for_reusable_provider_connectors
             "asterdrive.storage.tencent_cos",
             "asterdrive.storage.remote",
             "asterdrive.storage.onedrive",
+            "asterdrive.storage.google_drive",
             "asterdrive.storage.qiniu",
         ]
         .into_iter()
@@ -327,10 +328,11 @@ fn registry_exposes_each_builtin_connector_once_in_stable_order() {
             TencentCosConnector::ID,
             RemoteConnector::ID,
             OneDriveConnector::ID,
+            super::google_drive::GoogleDriveConnector::ID,
             QiniuConnector::ID,
         ]
     );
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 10);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 11);
 }
 
 #[test]
@@ -998,6 +1000,7 @@ fn built_in_connector_capacity_claims_match_runtime_probe_support() {
         RemoteConnector::ID,
     ];
     let capacity_unsupported = [
+        super::google_drive::GoogleDriveConnector::ID,
         S3Connector::ID,
         AlibabaOssConnector::ID,
         AzureBlobConnector::ID,

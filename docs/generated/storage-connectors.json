@@ -446,6 +446,61 @@
       }
     },
     {
+      "connector_id": "asterdrive.storage.google_drive",
+      "display_name": {
+        "en": "Google Drive",
+        "zh": "Google Drive"
+      },
+      "documentation": {
+        "tutorial_slug": "google-drive",
+        "best_for": {
+          "en": "Administrator-managed Google Drive and shared drive blob pools",
+          "zh": "管理员托管的 Google Drive 与共享盘 blob 存储池"
+        }
+      },
+      "deployment_scope": "shared_across_primary_instances",
+      "supports_initial_setup": false,
+      "credential_mode": "oauth_delegated",
+      "capabilities": {
+        "efficient_range": true,
+        "capacity": false,
+        "list": false,
+        "presigned_download": false,
+        "custom_download_base_url": false,
+        "storage_native_thumbnail": false,
+        "storage_native_media_metadata": false,
+        "remote_node_binding": false,
+        "object_storage_transfer_strategy": false,
+        "object_naming": "opaque_uuid"
+      },
+      "upload_workflows": {
+        "simple_upload": true,
+        "simple_upload_capabilities": {
+          "server_side_relay": true,
+          "policy_limited": true,
+          "max_provider_single_request_size": 5242880
+        },
+        "stream_upload": true,
+        "object_multipart_upload": false,
+        "provider_resumable_upload": true,
+        "presigned_upload": false,
+        "frontend_direct_provider_resumable_upload": false,
+        "provider_resumable_upload_capabilities": {
+          "provider": "google_drive",
+          "session_label": "Google Drive resumable upload",
+          "min_fragment_size": 262144,
+          "default_fragment_size": 8388608,
+          "max_fragment_size": 8388608,
+          "fragment_alignment": 262144,
+          "max_simple_upload_size": 5242880,
+          "frontend_direct_upload": false,
+          "implicit_completion": true,
+          "abort_supported": true,
+          "status_query_supported": true
+        }
+      }
+    },
+    {
       "connector_id": "asterdrive.storage.qiniu",
       "display_name": {
         "en": "Qiniu Kodo",
