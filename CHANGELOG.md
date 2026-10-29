@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Google Drive storage backend** — Administrators can authorize an encrypted Google OAuth application and use a folder, shared drive, or appDataFolder as an AsterDrive blob pool. Uploads support bounded server relay and browser-direct resumable transfer; account quota observation uses Google's cross-service usage and reports unavailable shared-drive bounds honestly. Downloads and Range reads retain the current AsterDrive filename through server relay. Administrator OAuth tokens stay on the server; only browser-direct uploads receive a temporary capability URL for their own session.
+- **Google Drive storage backend** — Administrators can authorize an encrypted Google OAuth application and use a folder, shared drive, or appDataFolder as an AsterDrive blob pool, with an optional relative base path created beneath the selected root on writes. Existing blobs and unfinished uploads prevent pool relocation. Uploads support bounded server relay and browser-direct resumable transfer; account quota observation uses Google's cross-service usage and reports unavailable shared-drive bounds honestly. Downloads and Range reads retain the current AsterDrive filename through server relay. Administrator OAuth tokens stay on the server; only browser-direct uploads receive a temporary capability URL for their own session.
 
 ### Fixed
 

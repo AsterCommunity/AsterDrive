@@ -2,6 +2,16 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "google_drive_base_path_desc",
+        "Optional relative subfolders beneath the selected root, for example AsterDrive/blobs. Missing folders are created on write. Changing this after storing data makes the previous pool inaccessible; use storage migration.",
+        "所选根目录下的可选相对子目录，例如 AsterDrive/blobs。写入时创建缺失目录。已有数据后修改将无法定位旧存储池，请使用存储迁移。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "google_drive_app_data_folder_desc",
+        "Hidden application data uses a different OAuth scope. Save and reauthorize whenever you switch this setting; an existing normal-Drive token is not sufficient.",
+        "隐藏应用数据使用不同的 OAuth scope。切换此设置后必须保存并重新授权；已有普通 Drive token 不足以访问此空间。"
+    ),
+    aster_drive_storage::storage_connector_message!(
         "provider_resumable_upload_strategy",
         "Upload transfer",
         "上传传输策略"

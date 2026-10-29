@@ -377,3 +377,131 @@ async fn google_drive_browser_completion_cannot_publish_missing_or_wrong_sized_o
         }
     }
 }
+
+#[actix_web::test]
+async fn google_drive_location_changes_cannot_hide_blobs_or_unfinished_cleanup() {
+    use aster_drive::services::{files::upload, storage_policy::policy};
+    use sea_orm::{ActiveModelTrait, Set};
+    for kind in ["blob", "upload", "expired", "failed"] {
+        let (state, user, driver) = google_upload_fixture("frontend_direct", 4).await;
+        let init = upload::init_upload(&state, user, "retained.bin", 4, None, None)
+            .await
+            .unwrap();
+        let id = init.upload_id.unwrap();
+        let session =
+            aster_drive::db::repository::upload_session_repo::find_by_id(state.writer_db(), &id)
+                .await
+                .unwrap();
+        let policy_id = session.policy_id;
+        if kind == "blob" {
+            *driver.object_size.lock().unwrap() = Some(4);
+            driver.offset.store(4, std::sync::atomic::Ordering::SeqCst);
+            upload::complete_upload(&state, &id, user, None)
+                .await
+                .unwrap();
+        } else if kind == "expired" || kind == "failed" {
+            let mut active: aster_drive_model::entities::upload_session::ActiveModel =
+                session.into();
+            if kind == "failed" {
+                active.status = Set(aster_drive_model::types::UploadSessionStatus::Failed);
+            }
+            active.expires_at = Set(chrono::Utc::now() - chrono::Duration::minutes(1));
+            active.update(state.writer_db()).await.unwrap();
+        }
+        let original =
+            aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
+                .await
+                .unwrap();
+        for values in [
+            json!({"root_folder_id":"other"}),
+            json!({"shared_drive_id":"other"}),
+            json!({"app_data_folder":true}),
+            json!({"root_folder_id":"pool","base_path":"different"}),
+        ] {
+            let candidate=serde_json::from_value(json!({"format_version":1,"connector_id":"asterdrive.storage.google_drive","schema_version":1,"values":values})).unwrap();
+            let error = policy::update(
+                &state,
+                policy_id,
+                policy::UpdateStoragePolicyInput {
+                    name: Some("must roll back".into()),
+                    connector_config: Some(candidate),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("storage location cannot change"),
+                "{kind}: {error}"
+            );
+            let after =
+                aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
+                    .await
+                    .unwrap();
+            assert_eq!(after.storage_config, original.storage_config);
+            assert_eq!(after.name, original.name);
+        }
+        // Transport changes do not relocate existing objects and remain allowed.
+        let candidate=serde_json::from_value(json!({"format_version":1,"connector_id":"asterdrive.storage.google_drive","schema_version":1,"values":{"root_folder_id":"pool","provider_resumable_upload_strategy":"server_relay"}})).unwrap();
+        policy::update(
+            &state,
+            policy_id,
+            policy::UpdateStoragePolicyInput {
+                connector_config: Some(candidate),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+}
+
+#[actix_web::test]
+async fn google_drive_empty_policy_can_select_a_base_path_before_use() {
+    use aster_drive::services::storage_policy::policy;
+    let (state, _, _) = google_upload_fixture("frontend_direct", 4).await;
+    let original = aster_drive::db::repository::policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let candidate=serde_json::from_value(json!({"format_version":1,"connector_id":"asterdrive.storage.google_drive","schema_version":1,"values":{"root_folder_id":"pool","base_path":" /AsterDrive//blobs/ "}})).unwrap();
+    let updated = policy::update(
+        &state,
+        original.id,
+        policy::UpdateStoragePolicyInput {
+            connector_config: Some(candidate),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        updated.connector_config.values["base_path"],
+        "AsterDrive/blobs"
+    );
+}
+
+#[actix_web::test]
+async fn google_drive_permanent_purge_deletes_provider_object_before_discarding_blob_record() {
+    use aster_drive::services::files::{file, upload};
+    let (state, user, driver) = google_upload_fixture("frontend_direct", 4).await;
+    let init = upload::init_upload(&state, user, "purge.bin", 4, None, None)
+        .await
+        .unwrap();
+    *driver.object_size.lock().unwrap() = Some(4);
+    driver.offset.store(4, std::sync::atomic::Ordering::SeqCst);
+    let file = upload::complete_upload(&state, &init.upload_id.unwrap(), user, None)
+        .await
+        .unwrap();
+    let record = aster_drive::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
+        .await
+        .unwrap();
+    file::purge(&state, file.id, user).await.unwrap();
+    assert!(driver.object_size.lock().unwrap().is_none());
+    assert!(driver.deletes.load(std::sync::atomic::Ordering::SeqCst) > 0);
+    assert!(
+        aster_drive::db::repository::file_repo::find_blob_by_id(state.writer_db(), record.blob_id)
+            .await
+            .is_err()
+    );
+}

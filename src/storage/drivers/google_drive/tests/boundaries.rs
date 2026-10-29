@@ -9,6 +9,7 @@ fn driver(peer: &HttpFixture) -> GoogleDriveDriver {
         Some("pool".into()),
         Some("shared".into()),
         false,
+        String::new(),
         std::time::Duration::from_secs(10),
     )
     .unwrap();
@@ -455,6 +456,7 @@ async fn appdata_and_account_roots_use_their_own_spaces_and_parent_scope() {
             Some("pool".into()),
             None,
             true,
+            String::new(),
             std::time::Duration::from_secs(10)
         )
         .is_err()
@@ -468,15 +470,26 @@ fn logical_keys_enforce_utf8_bytes_and_session_urls_enforce_origin_and_shape() {
         None,
         None,
         false,
+        String::new(),
         std::time::Duration::from_secs(10),
     )
     .unwrap();
     let max = 124 - APP_KEY.len();
-    driver.object_query(&"x".repeat(max)).unwrap();
-    assert!(driver.object_query(&"x".repeat(max + 1)).is_err());
-    assert!(driver.object_query(&"猫".repeat(max / 3 + 1)).is_err());
+    driver
+        .object_query(&"x".repeat(max), driver.root())
+        .unwrap();
+    assert!(
+        driver
+            .object_query(&"x".repeat(max + 1), driver.root())
+            .is_err()
+    );
+    assert!(
+        driver
+            .object_query(&"猫".repeat(max / 3 + 1), driver.root())
+            .is_err()
+    );
     for path in ["", "a\0b", "a\rb", "a\nb", "a\tb"] {
-        assert!(driver.object_query(path).is_err());
+        assert!(driver.object_query(path, driver.root()).is_err());
     }
     for url in [
         "https://www.googleapis.com.evil.test/upload/drive/v3/files?upload_id=x",
@@ -822,9 +835,15 @@ async fn capacity_rejects_malformed_numbers_and_preserves_provider_error_kinds()
 
 #[test]
 fn capacity_probe_policy_uses_the_configured_network_budget() {
-    let driver =
-        GoogleDriveDriver::new(Arc::new(Token), None, None, false, Duration::from_secs(17))
-            .unwrap();
+    let driver = GoogleDriveDriver::new(
+        Arc::new(Token),
+        None,
+        None,
+        false,
+        String::new(),
+        Duration::from_secs(17),
+    )
+    .unwrap();
     let policy = driver.capacity_probe_policy();
     assert_eq!(policy.probe_timeout, Duration::from_secs(17));
     assert_eq!(policy.fresh_for, Duration::from_secs(30));

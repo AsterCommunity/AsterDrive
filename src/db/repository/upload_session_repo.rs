@@ -413,6 +413,17 @@ pub async fn count_active_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) 
         .map_err(AsterError::from)
 }
 
+/// Expired/failed sessions can still own provider objects awaiting cleanup.
+/// Location changes must wait for those records too, not only live uploads.
+pub async fn count_unfinished_by_policy<C: ConnectionTrait>(db: &C, policy_id: i64) -> Result<u64> {
+    UploadSession::find()
+        .filter(upload_session::Column::PolicyId.eq(policy_id))
+        .filter(upload_session::Column::Status.ne(UploadSessionStatus::Completed))
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_recoverable_by_owner<C: ConnectionTrait>(
     db: &C,
     user_id: i64,

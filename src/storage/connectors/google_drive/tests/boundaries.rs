@@ -624,3 +624,46 @@ fn upload_transfer_and_capacity_fields_are_descriptor_owned_and_backward_compati
                 && field.name != "provider_download_strategy")
     );
 }
+
+#[test]
+fn base_path_is_normalized_and_appdata_field_explains_reauthorization() {
+    let config = GoogleDriveConnector
+        .validate_connector_config(&test_support::connection_config(
+            GoogleDriveConnector::ID,
+            1,
+            json!({"base_path":" /AsterDrive//图片/ "}),
+        ))
+        .unwrap();
+    assert_eq!(config.values["base_path"], "AsterDrive/图片");
+    for path in ["a/../b", "a\\b", "x\ny", "a/./b", "a/ /b"] {
+        assert!(
+            GoogleDriveConnector
+                .validate_connector_config(&test_support::connection_config(
+                    GoogleDriveConnector::ID,
+                    1,
+                    json!({"base_path":path})
+                ))
+                .is_err()
+        );
+    }
+    let descriptor = GoogleDriveConnector.descriptor();
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "base_path"
+                && field.help_key.as_deref() == Some("google_drive_base_path_desc"))
+    );
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .any(|field| field.name == "app_data_folder"
+                && field.help_key.as_deref() == Some("google_drive_app_data_folder_desc"))
+    );
+    GoogleDriveConnector
+        .localization()
+        .unwrap()
+        .validate_message_ids(descriptor.localization_message_ids())
+        .unwrap();
+}
