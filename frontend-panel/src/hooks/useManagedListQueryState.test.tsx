@@ -85,6 +85,7 @@ const FACTORY_SCHEMA: ManagedListQuerySchema<FactoryQuery> = {
 };
 
 function createWrapper(initialEntry: string) {
+	// biome-ignore lint/correctness/noComponentHookFactories: Each renderHook setup creates one wrapper bound to its initial route; rerenders reuse that wrapper.
 	return function Wrapper({ children }: { children: ReactNode }) {
 		return (
 			<MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>

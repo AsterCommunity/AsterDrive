@@ -2,6 +2,22 @@
 //! <https://developers.google.com/identity/protocols/oauth2/web-server>
 use super::*;
 
+pub(super) fn authorization_error(
+    error: AsterError,
+) -> super::super::StorageConnectorAuthorizationError {
+    use super::super::{StorageAuthorizationFailureReason, StorageConnectorAuthorizationError};
+
+    // This is the callback stage, not the generic storage error category:
+    // validation rejects stale/invalid flows; only driver errors come from the
+    // exchange. Database/crypto failures must remain server failures.
+    let reason = match &error {
+        AsterError::ValidationError(_) => StorageAuthorizationFailureReason::InvalidState,
+        AsterError::StorageDriverError(_) => StorageAuthorizationFailureReason::TokenExchangeFailed,
+        _ => StorageAuthorizationFailureReason::ServerError,
+    };
+    StorageConnectorAuthorizationError::new(reason, error)
+}
+
 pub(super) fn authorization_url(
     client_id: &str,
     redirect_uri: &str,

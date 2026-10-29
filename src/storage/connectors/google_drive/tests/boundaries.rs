@@ -274,6 +274,64 @@ async fn invalid_flow_binding_and_changed_application_are_rejected_without_netwo
 }
 
 #[tokio::test]
+async fn finish_authorization_distinguishes_invalid_state_from_server_failures_before_exchange() {
+    use crate::storage::connectors::StorageAuthorizationFailureReason;
+
+    // Every case must fail locally, before the real Google endpoint is used.
+    for variant in 0..6 {
+        let context = TestContext::new(json!({}), Some(payload())).await;
+        let mut flow = flow(&context).await;
+        match variant {
+            0 => flow.provider = StorageCredentialProvider::MicrosoftGraph,
+            1 => flow.pkce_verifier = None,
+            2 => flow.pkce_verifier = Some("".into()),
+            3 => flow.state_hash = "tampered".into(),
+            4 => flow.context = "{".into(),
+            _ => repo::delete_by_policy(&context.db, context.policy.id)
+                .await
+                .unwrap(),
+        }
+        let error = GoogleDriveConnector
+            .finish_authorization(
+                &context.context(),
+                &context.policy,
+                &flow,
+                "code",
+                Utc::now(),
+            )
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.reason(),
+            if variant < 3 {
+                StorageAuthorizationFailureReason::InvalidState
+            } else {
+                StorageAuthorizationFailureReason::ServerError
+            },
+            "variant {variant}: {error}"
+        );
+    }
+}
+
+#[test]
+fn callback_error_stage_is_not_inferred_from_generic_storage_error_kinds() {
+    for error in [
+        AsterError::precondition_failed("precondition"),
+        AsterError::unsupported_driver("unsupported"),
+    ] {
+        assert!(error.storage_error_kind().is_some());
+        let code = error.code();
+        let mapped = oauth::authorization_error(error);
+        assert_eq!(
+            mapped.reason(),
+            crate::storage::connectors::StorageAuthorizationFailureReason::ServerError
+        );
+        assert_eq!(mapped.into_source().code(), code);
+    }
+}
+
+#[tokio::test]
 async fn exchange_rejects_missing_offline_grant_missing_scope_and_malformed_tokens() {
     for (response, kind) in [
         (
@@ -334,6 +392,10 @@ async fn exchange_rejects_missing_offline_grant_missing_scope_and_malformed_toke
             .err()
             .unwrap();
         assert_eq!(error.storage_error_kind(), Some(kind));
+        assert_eq!(
+            oauth::authorization_error(error.clone()).reason(),
+            crate::storage::connectors::StorageAuthorizationFailureReason::TokenExchangeFailed
+        );
         assert!(!error.to_string().contains("private-secret"));
         assert_eq!(
             repo::find_by_policy(&context.db, context.policy.id)

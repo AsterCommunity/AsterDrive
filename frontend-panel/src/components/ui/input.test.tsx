@@ -108,6 +108,7 @@ describe("Input", () => {
 	});
 
 	it("clamps the restored selection when the controlled value becomes shorter", async () => {
+		// biome-ignore lint/correctness/noComponentHookFactories: Created once by test setup, outside React rendering; controlled updates reuse the same component.
 		function ShorteningInput() {
 			const [value, setValue] = useState("abcdef");
 

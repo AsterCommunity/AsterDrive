@@ -59,6 +59,7 @@ describe("ActivationResendRequestPanel", () => {
 		const onSubmit = vi.fn();
 		const user = userEvent.setup();
 
+		// biome-ignore lint/correctness/noComponentHookFactories: Created once by test setup to capture per-test spies; state updates reuse the same component.
 		function TestPanel() {
 			const [email, setEmail] = useState("old@example.com");
 			const [emailError, setEmailError] = useState("");

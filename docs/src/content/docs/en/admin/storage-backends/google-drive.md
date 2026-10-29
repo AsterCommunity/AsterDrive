@@ -79,6 +79,10 @@ The scheme, hostname, port, and path must match. Production deployments should u
 
 When editing, omitting or leaving the secret empty preserves the saved secret for the **same client ID**. Changing the client ID requires a new secret and authorization.
 
+:::caution[Keep the original Google application for existing storage pools]
+Private `appProperties` on ordinary Drive objects are visible only to the original application; appDataFolder is also isolated by application. After switching to another Google application, even reauthorizing the same account may leave old blobs undiscoverable, and cleanup may incorrectly treat them as missing. Keep the original application for policies with existing data. To change applications, create a new storage policy and migrate through AsterDrive first; retain the old application until migration and cleanup finish. Rotating the same client's secret is different from replacing the application.
+:::
+
 ## 3. Choose the storage pool
 
 ### Root folder and base path
@@ -156,7 +160,7 @@ Google acknowledges ordinary intermediate fragments with `308 Resume Incomplete`
 
 - Both the browser and backend need the appropriate Google connectivity. A server-side proxy does not automatically give user devices direct Google access.
 - The browser must allow cross-origin PUT with `Content-Type` and `Content-Range`.
-- Google controls CORS on its own endpoints. AsterDrive's reverse proxy cannot add headers to Google's responses.
+- Direct uploads go straight to the Google session URL, bypassing AsterDrive's reverse proxy. Headers added by that proxy do not affect Google's CORS response for this request.
 - A hidden `Range` header triggers backend progress reconciliation. If the preflight itself is blocked, repair browser connectivity or use server relay.
 
 AsterDrive does not attach its login cookies or CSRF headers to provider upload requests. Browser success still requires backend object and size validation before file publication and quota accounting.
@@ -220,7 +224,7 @@ Do not manually move, delete, or alter application metadata on these objects. Ve
 | --- | --- |
 | `redirect_uri_mismatch` | Exact registered callback URL and the proxy-generated external scheme/hostname |
 | Consent screen denies access | Test-user membership, publication state, Workspace application restrictions |
-| Reauthorization required | Refresh-token expiry/revocation, Testing's seven-day lifetime, offline grant |
+| Reauthorization required | Refresh-token expiry/revocation; whether an external application is in Testing and requests scopes beyond basic profile information (including Drive scopes), triggering the seven-day refresh-token limit; offline grant |
 | Invalid OAuth application | Client ID and secret belong to the same Web application; save repairs and reauthorize |
 | 403 after enabling appDataFolder | Whether you saved and reauthorized for `drive.appdata`; do not assume Testing expiry |
 | Folder/shared-drive permission denied | IDs, drive membership, administrator role; validate and test after repairs |
@@ -236,5 +240,6 @@ Do not manually move, delete, or alter application metadata on these objects. Ve
 - [Google OAuth Web Server](https://developers.google.com/identity/protocols/oauth2/web-server)
 - [Drive resumable upload](https://developers.google.com/workspace/drive/api/guides/manage-uploads)
 - [appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata)
+- [Application-private file properties](https://developers.google.com/workspace/drive/api/guides/properties)
 - [Account/organization quota](https://developers.google.com/workspace/drive/api/reference/rest/v3/about)
 - [Download and export](https://developers.google.com/workspace/drive/api/guides/manage-downloads)

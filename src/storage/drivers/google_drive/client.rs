@@ -216,14 +216,14 @@ impl GoogleDriveDriver {
                 "Google Drive root must be a folder",
             ));
         }
-        if self
-            .shared_drive_id
-            .as_ref()
-            .is_some_and(|id| info.drive_id.as_ref() != Some(id))
-        {
+        // Google only populates driveId for shared-drive items. Require both
+        // directions to match so an omitted drive ID cannot make shared-drive
+        // lookups or capacity admission use the authenticated account's pool.
+        // https://developers.google.com/workspace/drive/api/reference/rest/v3/files#File
+        if self.shared_drive_id.as_ref() != info.drive_id.as_ref() {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                "Google Drive folder does not belong to the configured shared drive",
+                "Google Drive folder and configured shared drive do not match; set shared_drive_id for shared-drive folders",
             ));
         }
         if !info.capabilities.is_some_and(|c| c.can_add_children) {

@@ -488,12 +488,7 @@ impl StorageConnector for GoogleDriveConnector {
     > {
         self.complete_authorization(context, policy, flow, code, now, GOOGLE_TOKEN)
             .await
-            .map_err(|e| {
-                super::StorageConnectorAuthorizationError::new(
-                    super::StorageAuthorizationFailureReason::TokenExchangeFailed,
-                    e,
-                )
-            })
+            .map_err(oauth::authorization_error)
     }
     async fn load_runtime_credential(
         &self,
