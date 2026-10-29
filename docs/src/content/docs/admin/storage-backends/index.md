@@ -22,6 +22,7 @@ title: "存储后端"
 | 腾讯云 COS | `asterdrive.storage.tencent_cos` | Primary 间共享 | 腾讯云 COS 和按策略启用的 COS 数据万象 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) |
 | 远程节点 | `asterdrive.storage.remote` | Primary 间共享 | 由另一台 AsterDrive follower 节点保存对象 | [远程节点](/admin/storage-backends/remote-follower/) |
 | OneDrive | `asterdrive.storage.onedrive` | Primary 间共享 | Microsoft 365、OneDrive、SharePoint 和 group drive | [OneDrive](/admin/storage-backends/onedrive/) |
+| Google Drive | `asterdrive.storage.google_drive` | Primary 间共享 | 管理员托管的 Google Drive 与共享盘 blob 存储池 | [Google Drive](/admin/storage-backends/google-drive/) |
 | 七牛云 Kodo | `asterdrive.storage.qiniu` | Primary 间共享 | 带官方 endpoint 诊断的七牛云 Kodo S3 空间 | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:index:end -->
 

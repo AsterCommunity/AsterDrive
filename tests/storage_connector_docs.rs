@@ -68,6 +68,12 @@ const GENERATED_PAGES: &[GeneratedPage] = &[
 
 const PRESENTATIONS: &[ConnectorDocumentationPresentation] = &[
     ConnectorDocumentationPresentation {
+        connector_id: "asterdrive.storage.google_drive",
+        tutorial_slug: "google-drive",
+        best_for_en: "Administrator-managed Google Drive and shared drive blob pools",
+        best_for_zh: "管理员托管的 Google Drive 与共享盘 blob 存储池",
+    },
+    ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.local",
         tutorial_slug: "local",
         best_for_en: "Single machine, NAS, small teams, minimal dependencies",

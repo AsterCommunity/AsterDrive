@@ -249,7 +249,7 @@ parking_lot = "0.13"
 paste = "1.0.15"
 percent-encoding = "2.3"
 rand = { workspace = true }
-reqwest = { workspace = true, features = ["stream", "json"] }
+reqwest = { workspace = true, features = ["stream", "json", "form", "query"] }
 ring = "0.17"
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 sea-orm = { workspace = true, features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite"] }

@@ -21,6 +21,7 @@ title: "存储能力矩阵"
 | [腾讯云 COS](/admin/storage-backends/tencent-cos/) | Primary 间共享 | Presigned | 支持 | 不支持 | 缩略图 + 媒体元数据 | 静态密钥 |
 | [远程节点](/admin/storage-backends/remote-follower/) | Primary 间共享 | Presigned | 支持 | 支持 | 不支持 | 无 connector 凭据 |
 | [OneDrive](/admin/storage-backends/onedrive/) | Primary 间共享 | Provider direct | 支持 | 支持 | 不支持 | 委托 OAuth |
+| [Google Drive](/admin/storage-backends/google-drive/) | Primary 间共享 | 不支持 | 不支持 | 不支持 | 不支持 | 委托 OAuth |
 | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) | Primary 间共享 | Presigned | 支持 | 不支持 | 不支持 | 静态密钥 |
 <!-- storage-connectors:matrix:end -->
 

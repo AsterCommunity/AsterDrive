@@ -166,7 +166,10 @@ Draft test requests support optional `policy_id`. While editing a saved policy, 
 
 These endpoints currently mainly serve the OneDrive / Microsoft Graph connector:
 
-- `GET /admin/policies/storage-credential-providers` lists providers. `microsoft_graph` is currently supported; `google_drive` is reserved with `supported = false`.
+- `GET /admin/policies/storage-credential-providers` lists providers. Both `microsoft_graph` and `google_drive` are supported.
+
+Google Drive uses connector `asterdrive.storage.google_drive` (schema version 1). Its config accepts optional `root_folder_id`, `shared_drive_id`, and boolean `app_data_folder`; application data storage excludes both IDs. Credentials use `authorization_application` with `client_id` and `client_secret`. After saving the policy, use the generic authorization action for administrator OAuth. Tokens use the existing encrypted credential store and revision CAS refresh and are never returned to ordinary users. Uploads use server-relayed resumable sessions; downloads and Range requests go through AsterDrive. This is an administrator-managed storage backend, without user Google Drive import, browsing, or synchronization.
+
 - Creating or updating a OneDrive policy first saves Microsoft Graph app settings through `application_config.microsoft_graph`; client secrets are encrypted at rest.
 - `POST /admin/policies/{id}/storage-authorization/start` only needs the provider; the backend reuses saved application config to start authorization.
 - After successful authorization, the callback writes `storage_policy_credentials` and redirects to `/admin/policies?storage_authorization=success&policy_id=...`. The callback does not require an admin JWT because Microsoft Graph and similar providers return to it through the browser.

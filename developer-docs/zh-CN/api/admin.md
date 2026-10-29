@@ -185,7 +185,10 @@
 
 这组接口当前主要服务 OneDrive / Microsoft Graph connector：
 
-- `GET /admin/policies/storage-credential-providers` 会列出 provider。当前 `microsoft_graph` 可用，`google_drive` 只是预留且 `supported = false`
+- `GET /admin/policies/storage-credential-providers` 会列出 provider。`microsoft_graph` 和 `google_drive` 均可用
+
+Google Drive 使用 `asterdrive.storage.google_drive` connector（schema version 1）。连接配置为可选的 `root_folder_id`、`shared_drive_id` 和布尔值 `app_data_folder`；应用数据目录与前两个字段互斥。凭据使用 `authorization_application` 模式，包含 `client_id` 和 `client_secret`。保存策略后通过通用授权动作完成管理员 OAuth；token 使用现有加密凭据库和 revision CAS 刷新，不返回普通用户。上传固定使用服务端中继 resumable upload，下载与 Range 经过 AsterDrive。此功能是管理员托管的存储后端，不提供用户 Google Drive 导入、浏览或同步。
+
 - 创建或更新 OneDrive 策略时，先通过 `application_config.microsoft_graph` 保存 Microsoft Graph app 配置；client secret 会加密落库
 - `POST /admin/policies/{id}/storage-authorization/start` 只需要发送 provider，后端会复用已保存的 application config 发起授权
 - 授权成功后，回调入口会写入 `storage_policy_credentials` 并重定向到 `/admin/policies?storage_authorization=success&policy_id=...`；这条 callback 不要求管理员 JWT，因为它由 Microsoft Graph 等 provider 从浏览器跳回
