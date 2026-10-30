@@ -60,7 +60,7 @@ pub(crate) use copy::{
     copy_folder_tree_in_scope_with_user_properties,
 };
 pub(crate) use hierarchy::get_ancestors_in_scope;
-pub(crate) use listing::list_in_scope;
+pub(crate) use listing::{FolderListingResult, build_folder_contents, list_in_scope};
 pub(crate) use mutation::{
     FolderTreeDeletion, admin_set_policy, apply_locked_tree_deletion_on,
     build_authorized_folder_info, create_in_scope, delete_in_scope,
@@ -490,5 +490,3 @@ mod tests {
         assert!(error.message().contains("must be a JSON object"));
     }
 }
-
-pub(crate) use listing::{FolderListingResult, build_folder_contents};

@@ -23,7 +23,7 @@ async function beginAccess(
 test("admin inspects personal/team workspaces and downloads current/revision content through native browser", async ({
 	page: adminPage,
 	request,
-}) => {
+}, testInfo) => {
 	let page = adminPage;
 	await page.context().addInitScript(() => {
 		const isContentDownload = (url: string) =>
@@ -109,7 +109,9 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	await expect(
 		page.getByRole("navigation", { name: "User details" }),
 	).toHaveCount(0);
-	await page.screenshot({ path: "/private/tmp/admin-628-user-sidebar.png" });
+	await page.screenshot({
+		path: testInfo.outputPath("admin-628-user-sidebar.png"),
+	});
 	const opened = adminPage.context().waitForEvent("page");
 	await sidebar.getByRole("button", { name: "View workspace files" }).click();
 	page = await opened;
@@ -183,7 +185,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		}),
 	).toHaveCount(0);
 	await page.screenshot({
-		path: "/private/tmp/admin-628-workspace.png",
+		path: testInfo.outputPath("admin-628-workspace.png"),
 		animations: "disabled",
 	});
 
@@ -302,7 +304,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 			rows: node.querySelectorAll("tbody tr").length,
 		};
 	});
-	expect(exitSnapshot.title).toBe("Version History - " + name);
+	expect(exitSnapshot.title).toBe(`Version History - ${name}`);
 	expect(exitSnapshot.rows).toBeGreaterThan(0);
 	await expect(history).toBeHidden();
 	await expect(page).toHaveURL(/panel=info/);
@@ -333,7 +335,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		infoPanel.getByRole("button", { name: /Versions|Download/ }),
 	).toHaveCount(0);
 	await page.screenshot({
-		path: "/private/tmp/admin628-folder-details.png",
+		path: testInfo.outputPath("admin628-folder-details.png"),
 		animations: "disabled",
 	});
 	await infoPanel.getByRole("button", { name: "Close", exact: true }).click();
@@ -366,7 +368,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		).total,
 	).toBe(inspectionCount);
 	await page.screenshot({
-		path: "/private/tmp/admin628-target-trash.png",
+		path: testInfo.outputPath("admin628-target-trash.png"),
 		animations: "disabled",
 	});
 
@@ -379,21 +381,21 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		.filter({ hasText: String(detail.blob.id) })
 		.first()
 		.click();
-	await expect(page).toHaveURL(new RegExp("blobId=" + detail.blob.id));
+	await expect(page).toHaveURL(new RegExp(`blobId=${detail.blob.id}`));
 	await page.reload();
 	const blobDialog = page.getByRole("dialog");
 	await expect(
 		blobDialog.getByRole("heading", {
-			name: "Blob #" + detail.blob.id,
+			name: `Blob #${detail.blob.id}`,
 			exact: true,
 		}),
 	).toBeVisible();
 	await page.screenshot({
-		path: "/private/tmp/admin628-blob-uploader-horizontal.png",
+		path: testInfo.outputPath("admin628-blob-uploader-horizontal.png"),
 		animations: "disabled",
 	});
 	const reference = blobDialog.getByRole("link", {
-		name: new RegExp("v" + revision.version),
+		name: new RegExp(`v${revision.version}`),
 	});
 	const card = await reference.boundingBox();
 	if (!card) throw new Error("version reference missing");
@@ -409,7 +411,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		logicalDialog.getByRole("combobox", { name: "Access reason" }),
 	).toHaveCount(0);
 	const versionCard = logicalDialog.getByRole("link", {
-		name: new RegExp("^v" + revision.version),
+		name: new RegExp(`^v${revision.version}`),
 	});
 	const versionBounds = await versionCard.boundingBox();
 	if (!versionBounds) throw new Error("logical revision card missing");
@@ -420,7 +422,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		page.waitForEvent("download"),
 		logicalDialog
 			.getByRole("button", {
-				name: "Download revision v" + revision.version,
+				name: `Download revision v${revision.version}`,
 				exact: true,
 			})
 			.click(),
@@ -448,7 +450,9 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 			.filter({ hasText: "Support case 628" })
 			.first(),
 	).toContainText(`(#${me.id})`);
-	await page.screenshot({ path: "/private/tmp/admin-628-audit-readable.png" });
+	await page.screenshot({
+		path: testInfo.outputPath("admin-628-audit-readable.png"),
+	});
 	await page.addInitScript(() => localStorage.setItem("aster-language", "zh"));
 	await page.reload();
 	const localized = page
@@ -459,7 +463,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	await expect(localized).toContainText("已授权查看");
 	await expect(localized).toContainText(`(#${me.id})`);
 	await page.screenshot({
-		path: "/private/tmp/admin-628-audit-readable-zh.png",
+		path: testInfo.outputPath("admin-628-audit-readable-zh.png"),
 		animations: "disabled",
 	});
 });

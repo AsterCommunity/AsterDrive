@@ -1,4 +1,5 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -19,13 +20,13 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/hooks/useBlobUrl", () => ({
 	useBlobUrl: () => ({ blobUrl: null, error: null }),
 }));
-describe("scoped workspace sidebar", () => {
-	beforeEach(() => {
-		vi.resetAllMocks();
-		mocks.list.mockResolvedValue({
-			contents: { folders: [], folders_total: 0 },
-		});
+beforeEach(() => {
+	vi.resetAllMocks();
+	mocks.list.mockResolvedValue({
+		contents: { folders: [], folders_total: 0 },
 	});
+});
+describe("scoped workspace sidebar", () => {
 	it("never requests directory data before access exists", () => {
 		render(<AdminWorkspaceSidebar />);
 		expect(mocks.list).not.toHaveBeenCalled();
@@ -164,3 +165,109 @@ it("uses the shared user identity and initials fallback when the inspected user 
 		within(identity).getByRole("img", { name: "target-user" }),
 	).toHaveAttribute("src", "https://example.test/avatar.webp");
 });
+
+it("appends directory pages and collapses a loaded nested tree", async () => {
+	mocks.list.mockReset();
+	mocks.list.mockImplementation(async ({ folder_id, folder_offset }) => ({
+		contents: {
+			folders: folder_id
+				? [{ id: 11, name: "child" }]
+				: folder_offset
+					? [{ id: 10, name: "second" }]
+					: [{ id: 9, name: "first" }],
+			folders_total: folder_id ? 1 : 2,
+		},
+	}));
+	const navigate = vi.fn();
+	render(<AdminWorkspaceSidebar accessId="grant" onNavigate={navigate} />);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "admin:content_next_folders" }),
+	);
+	expect(
+		await screen.findByRole("button", { name: "second" }),
+	).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "first" })).toBeInTheDocument();
+	expect(mocks.list).toHaveBeenCalledWith(
+		expect.objectContaining({ folder_offset: 1, folder_id: undefined }),
+	);
+	const row = screen
+		.getByRole("button", { name: "first" })
+		.closest("[data-folder-tree-row]") as HTMLElement;
+	fireEvent.click(within(row).getByRole("button", { name: "expand_tree" }));
+	expect(
+		await screen.findByRole("button", { name: "child" }),
+	).toBeInTheDocument();
+	fireEvent.click(within(row).getByRole("button", { name: "collapse_tree" }));
+	await waitFor(() =>
+		expect(
+			screen.queryByRole("button", { name: "child" }),
+		).not.toBeInTheDocument(),
+	);
+	expect(navigate).not.toHaveBeenCalled();
+});
+
+it("shows tree access errors and permits ending an inspected team workspace", async () => {
+	const error = new Error("revoked");
+	mocks.list.mockRejectedValueOnce(error);
+	const end = vi.fn();
+	render(
+		<AdminWorkspaceSidebar
+			accessId="grant"
+			onNavigate={vi.fn()}
+			onEnd={end}
+			team={
+				{
+					id: 9,
+					name: "Support team",
+					storage_used: 1024,
+				} as import("@/types/api").AdminTeamInfo
+			}
+		/>,
+	);
+	expect(await screen.findByRole("alert")).toHaveTextContent(
+		"admin:content_workspace_unavailable",
+	);
+	expect(mocks.error).toHaveBeenCalledWith(error);
+	expect(screen.getByText("Support team")).toBeInTheDocument();
+	expect(screen.getByTestId("admin-workspace-identity")).toHaveTextContent(
+		"1.0 KB",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "content_access_exit" }));
+	expect(end).toHaveBeenCalledOnce();
+});
+
+it.each(["resolve", "reject"] as const)(
+	"ignores a previous access tree's late %s",
+	async (settlement) => {
+		let resolve!: (value: unknown) => void;
+		let reject!: (error: Error) => void;
+		mocks.error.mockClear();
+		mocks.list.mockReturnValueOnce(
+			new Promise((yes, no) => {
+				resolve = yes;
+				reject = no;
+			}),
+		);
+		const navigate = vi.fn();
+		const view = render(
+			<AdminWorkspaceSidebar accessId="old" onNavigate={navigate} />,
+		);
+		view.rerender(
+			<AdminWorkspaceSidebar accessId="new" onNavigate={navigate} />,
+		);
+		await waitFor(() =>
+			expect(mocks.list).toHaveBeenCalledWith(
+				expect.objectContaining({ access_id: "new" }),
+			),
+		);
+		await act(async () =>
+			settlement === "resolve"
+				? resolve({
+						contents: { folders: [{ id: 4, name: "stale" }], folders_total: 1 },
+					})
+				: reject(new Error("stale")),
+		);
+		expect(screen.queryByText("stale")).not.toBeInTheDocument();
+		expect(mocks.error).not.toHaveBeenCalled();
+	},
+);

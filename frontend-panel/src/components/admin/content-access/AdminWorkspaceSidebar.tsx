@@ -233,9 +233,14 @@ export function AdminWorkspaceSidebar({
 						</p>
 					) : null}
 					{onEnd ? (
-						<Button className="w-full" variant="outline" onClick={onEnd}>
-							{t("content_access_end")}
-						</Button>
+						<div className="space-y-2">
+							<Button className="w-full" variant="outline" onClick={onEnd}>
+								{t("content_access_exit")}
+							</Button>
+							<p className="text-xs text-muted-foreground">
+								{t("content_access_exit_hint")}
+							</p>
+						</div>
 					) : null}
 				</div>
 			}

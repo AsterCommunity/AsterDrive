@@ -1282,7 +1282,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				/>
 			</AdminPageShell>
 			{blobTargetUnavailable ? (
-				<p role="alert">{t("content_file_unavailable")}</p>
+				<p role="alert">{t("content_blob_unavailable")}</p>
 			) : null}
 			{fileTargetUnavailable ? (
 				<p role="alert">{t("content_file_unavailable")}</p>

@@ -455,3 +455,41 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(onPurge).toHaveBeenCalledTimes(1);
 	});
 });
+
+it.each([true, false])(
+	"routes read-only information and version callbacks without exposing writes (folder=%s)",
+	(isFolder) => {
+		const handlers = createHandlers();
+		const item = {
+			id: 7,
+			name: "read-only",
+			lock_state: { state: "unlocked" },
+		};
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder,
+			item,
+			readOnly: true,
+			selection: emptySelection(),
+		} as Parameters<typeof resolveFileBrowserItemMenuProps>[0]);
+		props.onInfo?.();
+		expect(handlers.onInfo).toHaveBeenCalledWith(
+			isFolder ? "folder" : "file",
+			7,
+		);
+		if (!isFolder) {
+			props.onVersions?.();
+			expect(handlers.onVersions).toHaveBeenCalledWith(7);
+		}
+		expect(props.onDelete).toBeUndefined();
+		const without = resolveFileBrowserItemMenuProps({
+			handlers: { ...handlers, onInfo: undefined, onVersions: undefined },
+			isFolder,
+			item,
+			readOnly: true,
+			selection: emptySelection(),
+		} as Parameters<typeof resolveFileBrowserItemMenuProps>[0]);
+		expect(without.onInfo).toBeUndefined();
+		expect(without.onVersions).toBeUndefined();
+	},
+);

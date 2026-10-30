@@ -332,3 +332,35 @@ describe("administrator content inspection presentation", () => {
 		).toBe("historical_reason · historical_result");
 	});
 });
+
+it("renders missing inspection reason/result and partial target identity without inventing evidence", () => {
+	const t = createMockTWithInterpolation({
+		"admin:audit_entity_type_user": "用户",
+		"admin:audit_presentation_admin_content_access": "{{reason}} · {{result}}",
+	});
+	expect(
+		formatAuditDetail(t, {
+			action: "admin_file_download",
+			presentation: { detail: { code: "admin_content_access", params: {} } },
+		}),
+	).toBe("— · —");
+	expect(
+		formatAuditTarget(t, {
+			entity_type: "user",
+			presentation: {
+				target: {
+					code: "user",
+					params: { display_identity: true, name: "snapshot-name" },
+				},
+			},
+		}),
+	).toBe("snapshot-name");
+	expect(
+		formatAuditTarget(t, {
+			entity_type: "user",
+			presentation: {
+				target: { code: "user", params: { display_identity: true } },
+			},
+		}),
+	).toBe("用户");
+});

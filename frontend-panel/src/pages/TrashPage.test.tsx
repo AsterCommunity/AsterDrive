@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileBrowserContextValue } from "@/components/files/FileBrowserContext";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
@@ -402,6 +402,10 @@ function emptyTrashContents() {
 	} as never;
 }
 
+function LocationProbe() {
+	return <p data-testid="trash-location">{useLocation().pathname}</p>;
+}
+
 describe("TrashPage", () => {
 	beforeEach(() => {
 		localStorage.clear();
@@ -434,6 +438,18 @@ describe("TrashPage", () => {
 		mockState.refreshUser.mockResolvedValue(undefined);
 		mockState.restoreFile.mockResolvedValue(undefined);
 		mockState.restoreFolder.mockResolvedValue(undefined);
+	});
+
+	it("navigates from the recycle bin breadcrumb back to the workspace root", async () => {
+		render(
+			<MemoryRouter initialEntries={["/trash"]}>
+				<LocationProbe />
+				<TrashPage />
+			</MemoryRouter>,
+		);
+		await screen.findByText("files:trash_empty_title:files:trash_empty_desc");
+		fireEvent.click(screen.getByText("files:root"));
+		expect(screen.getByTestId("trash-location")).toHaveTextContent(/^\/$/);
 	});
 
 	it("uses the stored grid preference and persists view mode changes", async () => {

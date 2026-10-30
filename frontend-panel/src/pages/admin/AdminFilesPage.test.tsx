@@ -1,6 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminFilesPage from "@/pages/admin/AdminFilesPage";
 import type {
@@ -587,8 +593,24 @@ function createBlobDetail(
 
 function LocationProbe() {
 	const location = useLocation();
-
-	return <div data-testid="location-search">{location.search}</div>;
+	const navigate = useNavigate();
+	return (
+		<>
+			<div data-testid="location-search">{location.search}</div>
+			<button
+				type="button"
+				onClick={() => navigate("?blobId=32&hash=retained")}
+			>
+				other-blob
+			</button>
+			<button
+				type="button"
+				onClick={() => navigate("?fileId=22&name=retained")}
+			>
+				other-file
+			</button>
+		</>
+	);
 }
 
 function renderPage(kind: "files" | "blobs", initialEntry = "/admin/files") {
@@ -600,28 +622,28 @@ function renderPage(kind: "files" | "blobs", initialEntry = "/admin/files") {
 	);
 }
 
-describe("AdminFilesPage", () => {
-	beforeEach(() => {
-		mockState.createBlobMaintenanceTask.mockReset();
-		mockState.getBlob.mockReset();
-		mockState.getFile.mockReset();
-		mockState.handleApiError.mockReset();
-		mockState.listBlobs.mockReset();
-		mockState.listFiles.mockReset();
+beforeEach(() => {
+	mockState.createBlobMaintenanceTask.mockReset();
+	mockState.getBlob.mockReset();
+	mockState.getFile.mockReset();
+	mockState.handleApiError.mockReset();
+	mockState.listBlobs.mockReset();
+	mockState.listFiles.mockReset();
 
-		mockState.createBlobMaintenanceTask.mockResolvedValue({ id: 9001 });
-		mockState.getBlob.mockResolvedValue(createBlobDetail());
-		mockState.getFile.mockResolvedValue(createFileDetail());
-		mockState.listBlobs.mockResolvedValue({
-			items: [createBlob()],
-			total: 1,
-		});
-		mockState.listFiles.mockResolvedValue({
-			items: [createFile()],
-			total: 1,
-		});
+	mockState.createBlobMaintenanceTask.mockResolvedValue({ id: 9001 });
+	mockState.getBlob.mockResolvedValue(createBlobDetail());
+	mockState.getFile.mockResolvedValue(createFileDetail());
+	mockState.listBlobs.mockResolvedValue({
+		items: [createBlob()],
+		total: 1,
 	});
+	mockState.listFiles.mockResolvedValue({
+		items: [createFile()],
+		total: 1,
+	});
+});
 
+describe("AdminFilesPage", () => {
 	it("lists files, syncs filters to the url, and opens file details", async () => {
 		renderPage("files", "/admin/files?name=report&deleted=live");
 
@@ -1323,4 +1345,128 @@ it("makes the version metadata and card padding part of the navigation link", as
 			"revisionId=44",
 		),
 	);
+});
+
+it("removes file and revision selectors on close while retaining list filters", async () => {
+	renderPage("files", "/admin/files?fileId=21&revisionId=44&name=report");
+	await screen.findByText("admin_file_versions");
+	fireEvent.click(screen.getByRole("button", { name: "close" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+			"fileId",
+		),
+	);
+	expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+		"revisionId",
+	);
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"name=report",
+	);
+	expect(screen.queryByText("admin_file_versions")).not.toBeInTheDocument();
+});
+
+it("shows blob URL lookup failure without offering raw content access", async () => {
+	const error = new Error("blob missing");
+	mockState.getBlob.mockRejectedValueOnce(error);
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	expect(await screen.findByRole("alert")).toHaveTextContent(
+		"content_blob_unavailable",
+	);
+	expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+	expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+	expect(
+		screen.queryByRole("button", { name: /download/ }),
+	).not.toBeInTheDocument();
+});
+
+it.each(["files", "blobs"] as const)(
+	"ignores late %s detail success and failure after changing URL selection",
+	async (kind) => {
+		const service = kind === "files" ? mockState.getFile : mockState.getBlob;
+		let resolve!: (value: unknown) => void;
+		let reject!: (error: Error) => void;
+		service
+			.mockReturnValueOnce(
+				new Promise((yes) => {
+					resolve = yes;
+				}),
+			)
+			.mockReturnValueOnce(
+				new Promise((_, no) => {
+					reject = no;
+				}),
+			)
+			.mockResolvedValueOnce(
+				kind === "files" ? createFileDetail() : createBlobDetail(),
+			);
+		const view = renderPage(
+			kind,
+			kind === "files"
+				? "/admin/files?fileId=21"
+				: "/admin/file-blobs?blobId=31",
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: kind === "files" ? "other-file" : "other-blob",
+			}),
+		);
+		await waitFor(() =>
+			expect(service).toHaveBeenCalledWith(kind === "files" ? 22 : 32),
+		);
+		await act(async () =>
+			resolve(
+				kind === "files"
+					? createFileDetail({ name: "stale-file" })
+					: createBlobDetail({ id: 999 }),
+			),
+		);
+		expect(screen.queryByText("stale-file")).not.toBeInTheDocument();
+		expect(screen.queryByText("Blob #999")).not.toBeInTheDocument();
+		view.unmount();
+		await act(async () => reject(new Error("stale failure")));
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	},
+);
+
+it("shows live/deleted and personal/team blob references and closes on a current-file link", async () => {
+	const base = createBlobDetail();
+	mockState.getBlob.mockResolvedValueOnce(
+		createBlobDetail({
+			files: [
+				base.files[0],
+				{
+					...base.files[0],
+					id: 22,
+					name: "team-deleted",
+					team_id: 9,
+					deleted_at: "2026-10-30T00:00:00Z",
+				},
+			],
+			file_versions: [
+				base.file_versions[0],
+				{
+					...base.file_versions[0],
+					id: 46,
+					team_id: 9,
+					is_current: true,
+					deleted_at: "2026-10-30T00:00:00Z",
+					file_name: "team-current",
+				},
+			],
+		}),
+	);
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	const team = await screen.findByRole("link", { name: /team-deleted/ });
+	expect(team).toHaveTextContent("content_team_owner");
+	expect(team).toHaveTextContent("content_deleted");
+	const current = screen.getByRole("link", { name: /team-current/ });
+	expect(current).toHaveTextContent("content_current");
+	expect(current).toHaveTextContent("content_deleted");
+	fireEvent.click(screen.getByRole("link", { name: /report.txt/ }));
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"fileId=21",
+		),
+	);
+	expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
 });

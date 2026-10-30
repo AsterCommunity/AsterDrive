@@ -219,15 +219,17 @@ export function AdminTeamDetailShell({
 									>
 										{t("team_danger_zone")}
 									</TabsTrigger>
-									<a
-										className="flex h-10 items-center gap-1 text-sm font-medium"
-										href={`/admin/teams/${team?.id}/files`}
-										target="_blank"
-										rel="noopener noreferrer"
-									>
-										{t("content_view_workspace")}
-										<Icon name="ArrowSquareOut" className="size-3" />
-									</a>
+									{team ? (
+										<a
+											className="flex h-10 items-center gap-1 text-sm font-medium"
+											href={`/admin/teams/${team.id}/files`}
+											target="_blank"
+											rel="noopener noreferrer"
+										>
+											{t("content_view_workspace")}
+											<Icon name="ArrowSquareOut" className="size-3" />
+										</a>
+									) : null}
 								</TabsList>
 							</div>
 
