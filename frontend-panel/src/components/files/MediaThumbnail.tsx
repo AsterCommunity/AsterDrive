@@ -26,7 +26,7 @@ export function MediaThumbnail({
 			<FileThumbnail
 				file={file}
 				size={size}
-				thumbnailPath={thumbnailPath ?? undefined}
+				thumbnailPath={thumbnailPath}
 				className={cn(
 					"overflow-hidden rounded-lg border border-border/55 bg-muted/35 shadow-xs dark:bg-muted/25 dark:shadow-none",
 					className,

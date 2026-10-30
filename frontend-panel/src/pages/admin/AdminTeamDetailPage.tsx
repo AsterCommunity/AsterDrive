@@ -19,7 +19,6 @@ function isAdminTeamDetailTab(
 	value: string | undefined,
 ): value is AdminTeamDetailTab {
 	return (
-		value === "files" ||
 		value === "overview" ||
 		value === "members" ||
 		value === "audit" ||
@@ -32,8 +31,6 @@ function getAdminTeamDetailSectionTitle(
 	t: ReturnType<typeof useTranslation>["t"],
 ) {
 	switch (section) {
-		case "files":
-			return t("admin:content_workspace");
 		case "members":
 			return t("settings:settings_team_members");
 		case "audit":

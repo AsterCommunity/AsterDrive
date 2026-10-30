@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { AdminWorkspaceBrowser } from "@/components/admin/content-access/AdminWorkspaceBrowser";
 import { UserDetailEditor } from "@/components/admin/UserDetailEditor";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
@@ -17,9 +16,8 @@ import type { UpdateUserRequest, UserInfo } from "@/types/api";
 export default function AdminUserDetailPage() {
 	const { t } = useTranslation("admin");
 	const navigate = useNavigate();
-	const { userId, section } = useParams<{
+	const { userId } = useParams<{
 		userId?: string;
-		section?: string;
 	}>();
 	const parsedUserId = Number(userId);
 	const isValidRoute = Number.isSafeInteger(parsedUserId) && parsedUserId > 0;
@@ -63,10 +61,6 @@ export default function AdminUserDetailPage() {
 		return updatedUser;
 	};
 
-	if (isValidRoute && section != null && section !== "files") {
-		return <Navigate to={`/admin/users/${parsedUserId}`} replace />;
-	}
-
 	if (!isValidRoute) {
 		return <Navigate to="/admin/users" replace />;
 	}
@@ -103,38 +97,18 @@ export default function AdminUserDetailPage() {
 						{t("core:loading")}
 					</div>
 				) : (
-					<div className="flex min-h-0 flex-1 flex-col gap-4">
-						<nav
-							className="flex gap-4 border-b pb-3"
-							aria-label={t("user_details")}
-						>
-							<Link
-								to={`/admin/users/${parsedUserId}`}
-								aria-current={section !== "files" ? "page" : undefined}
-							>
-								{t("user_details")}
-							</Link>
-							<Link
-								to={`/admin/users/${parsedUserId}/files`}
-								aria-current={section === "files" ? "page" : undefined}
-							>
-								{t("content_workspace")}
-							</Link>
-						</nav>
-						{section === "files" ? (
-							<AdminWorkspaceBrowser
-								scopeKind="personal"
-								targetId={parsedUserId}
-								targetLabel={getUserDisplayName(user)}
-							/>
-						) : (
-							<UserDetailEditor
-								onBack={backToList}
-								onUpdate={updateUser}
-								user={user}
-							/>
-						)}
-					</div>
+					<UserDetailEditor
+						onBack={backToList}
+						onUpdate={updateUser}
+						user={user}
+						onViewWorkspace={() =>
+							window.open(
+								`/admin/users/${parsedUserId}/files`,
+								"_blank",
+								"noopener,noreferrer",
+							)
+						}
+					/>
 				)}
 			</AdminPageShell>
 		</AdminLayout>

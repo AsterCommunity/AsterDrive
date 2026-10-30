@@ -406,3 +406,15 @@ describe("FileThumbnail", () => {
 		expect(screen.queryByTestId("file-type-icon")).not.toBeInTheDocument();
 	});
 });
+
+it("does not request a user thumbnail or support configuration when explicitly disabled", async () => {
+	mockState.thumbnailSupportStore.isLoaded = false;
+	mockState.thumbnailPath.mockClear();
+	mockState.thumbnailSupportStore.load.mockClear();
+	render(<FileThumbnail file={pngFile} thumbnailPath={null} />);
+	expect(mockState.thumbnailPath).not.toHaveBeenCalled();
+	expect(mockState.thumbnailSupportStore.load).not.toHaveBeenCalled();
+	expect(mockState.useBlobUrl).toHaveBeenLastCalledWith(null, {
+		lane: "thumbnail",
+	});
+});

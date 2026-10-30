@@ -31,3 +31,17 @@ describe("administrator content API", () => {
 		expect(url).not.toContain("target_id");
 	});
 });
+
+it("reads metadata and revision pages using the existing access id without another create request", async () => {
+	mocks.get
+		.mockResolvedValueOnce({ id: 42, name: "target.txt" })
+		.mockResolvedValueOnce([]);
+	await adminContentAccessService.getFile("context", 42);
+	await adminContentAccessService.listVersions("context", 42, 7);
+	expect(mocks.get).toHaveBeenCalledWith(
+		"/admin/content-access/files/42?access_id=context",
+	);
+	expect(mocks.get).toHaveBeenCalledWith(
+		"/admin/content-access/files/42/versions?access_id=context&after_sequence=7&limit=100",
+	);
+});

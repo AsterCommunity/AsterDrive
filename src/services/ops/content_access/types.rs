@@ -66,7 +66,6 @@ pub(super) struct AccessPayload {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct DownloadTarget {
-    pub is_historical: bool,
     pub file_id: i64,
     pub revision_id: i64,
 }

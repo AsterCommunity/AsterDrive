@@ -40,14 +40,19 @@ vi.mock("@/components/admin/UserDetailEditor", () => ({
 	UserDetailEditor: ({
 		onBack,
 		onUpdate,
+		onViewWorkspace,
 		user,
 	}: {
+		onViewWorkspace?: () => void;
 		onBack: () => void;
 		onUpdate: (id: number, data: UpdateUserRequest) => Promise<UserInfo>;
 		user: UserInfo;
 	}) => (
 		<div>
 			<span>{`editor:${user.username}:${user.role}`}</span>
+			<button type="button" onClick={onViewWorkspace}>
+				sidebar-workspace
+			</button>
 			<button type="button" onClick={onBack}>
 				back
 			</button>
@@ -187,12 +192,24 @@ describe("AdminUserDetailPage", () => {
 		);
 		expect(mockState.getUser).not.toHaveBeenCalled();
 	});
-	it("opens the URL-addressable personal workspace section instead of the profile editor", async () => {
-		mockState.section = "files";
+
+	it("opens an isolated workspace tab from the sidebar without navigating the admin detail", async () => {
+		const openTab = vi.spyOn(window, "open").mockReturnValue(null);
 		mockState.getUser.mockResolvedValue(user());
 		render(<AdminUserDetailPage />);
-		expect(await screen.findByText("workspace browser")).toBeInTheDocument();
-		expect(screen.queryByText(/editor:/)).not.toBeInTheDocument();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "sidebar-workspace" }),
+		);
+		expect(openTab).toHaveBeenCalledWith(
+			"/admin/users/11/files",
+			"_blank",
+			"noopener,noreferrer",
+		);
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		openTab.mockRestore();
+		expect(
+			screen.queryByRole("navigation", { name: "user_details" }),
+		).not.toBeInTheDocument();
 	});
 });
 

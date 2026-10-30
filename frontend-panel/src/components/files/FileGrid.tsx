@@ -89,6 +89,7 @@ const FolderGridCard = memo(function FolderGridCard({
 	onFolderOpen,
 	onMoveToFolder,
 }: FolderGridCardProps) {
+	const { contextMenusEnabled = false } = useFileBrowserContext();
 	const selected = useFileStore((s) => s.selectedFolderIds.has(folder.id));
 	const selectOnlyFolder = useFileStore((s) => s.selectOnlyFolder);
 	const toggleFolderSelection = useFileStore((s) => s.toggleFolderSelection);
@@ -98,9 +99,9 @@ const FolderGridCard = memo(function FolderGridCard({
 	);
 	const actionMenu = useMemo(() => {
 		// trashMode（trashSubtitle 存在）下 readOnly 也要保留恢复/删除菜单
-		if (readOnly && trashSubtitle == null) return null;
+		if (readOnly && trashSubtitle == null && !contextMenusEnabled) return null;
 		return <FileBrowserItemActionMenu item={folder} isFolder />;
-	}, [folder, readOnly, trashSubtitle]);
+	}, [folder, readOnly, trashSubtitle, contextMenusEnabled]);
 
 	const card = (
 		<FolderGridItem
@@ -143,7 +144,7 @@ const FolderGridCard = memo(function FolderGridCard({
 		/>
 	);
 
-	if (readOnly && !selectionEnabled) return card;
+	if (readOnly && !selectionEnabled && !contextMenusEnabled) return card;
 
 	return (
 		<FileBrowserItemContextMenu item={folder} isFolder>
@@ -158,7 +159,7 @@ interface FileGridCardProps extends BaseGridCardProps {
 	readOnly: boolean;
 	selectionEnabled: boolean;
 	selectionActive: boolean;
-	thumbnailPath?: string;
+	thumbnailPath?: string | null;
 	trashSubtitle?: string;
 	onFileClick: (file: FileListItem) => void;
 }
@@ -174,6 +175,7 @@ const FileGridCard = memo(function FileGridCard({
 	trashSubtitle,
 	onFileClick,
 }: FileGridCardProps) {
+	const { contextMenusEnabled = false } = useFileBrowserContext();
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
 	const selectOnlyFile = useFileStore((s) => s.selectOnlyFile);
 	const toggleFileSelection = useFileStore((s) => s.toggleFileSelection);
@@ -222,7 +224,7 @@ const FileGridCard = memo(function FileGridCard({
 		/>
 	);
 
-	if (readOnly && !selectionEnabled) return card;
+	if (readOnly && !selectionEnabled && !contextMenusEnabled) return card;
 
 	return (
 		<FileBrowserItemContextMenu item={file} isFolder={false}>

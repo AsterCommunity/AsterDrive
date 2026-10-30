@@ -66,6 +66,9 @@ const AdminOverviewPage = lazyPage(
 	() => import("@/pages/admin/AdminOverviewPage"),
 );
 const AdminUsersPage = lazyPage(() => import("@/pages/admin/AdminUsersPage"));
+const AdminWorkspacePage = lazyPage(
+	() => import("@/pages/admin/AdminWorkspacePage"),
+);
 const AdminUserDetailPage = lazyPage(
 	() => import("@/pages/admin/AdminUserDetailPage"),
 );
@@ -294,9 +297,14 @@ export const router = createBrowserRouter([
 						path: "/admin/users/:userId",
 						element: <AdminUserDetailPage />,
 					},
+
 					{
-						path: "/admin/users/:userId/:section",
-						element: <AdminUserDetailPage />,
+						path: "/admin/users/:userId/files",
+						element: <AdminWorkspacePage />,
+					},
+					{
+						path: "/admin/teams/:teamId/files",
+						element: <AdminWorkspacePage />,
 					},
 					{ path: "/admin/teams", element: <AdminTeamsPage /> },
 					{ path: "/admin/teams/:teamId", element: <AdminTeamDetailPage /> },

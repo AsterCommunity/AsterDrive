@@ -10,17 +10,22 @@ import { uniqueName } from "./support/fixtures";
 import { apiJsonInPage } from "./support/network";
 import { expect, test } from "./support/test";
 
-async function beginAccess(page: import("@playwright/test").Page) {
+async function beginAccess(
+	page: import("@playwright/test").Page,
+	remark = "Support case 628",
+) {
+	await page.getByLabel("Remark (optional, up to 500 characters)").fill(remark);
 	await page.getByRole("combobox", { name: "Access reason" }).click();
 	await page.getByRole("option", { name: "User support", exact: true }).click();
 	await page.getByRole("button", { name: "Begin read-only access" }).click();
 }
 
 test("admin inspects personal/team workspaces and downloads current/revision content through native browser", async ({
-	page,
+	page: adminPage,
 	request,
 }) => {
-	await page.addInitScript(() => {
+	let page = adminPage;
+	await page.context().addInitScript(() => {
 		const isContentDownload = (url: string) =>
 			url.includes("/admin/content-access/") && url.includes("/download");
 		const fetch = window.fetch;
@@ -78,6 +83,24 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		"/api/v1/admin/config/admin_workspace_content_access_enabled",
 		{ method: "PUT", withCsrf: true, body: { value: "false" } },
 	);
+	await page.goto(`/admin/users/${me.id}`);
+	await resolveAdminSiteUrlPrompt(page);
+	const sidebar = page.locator("aside").filter({
+		has: page.getByRole("button", { name: "View workspace files" }),
+	});
+	await expect(
+		sidebar.getByRole("button", { name: "View workspace files" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("navigation", { name: "User details" }),
+	).toHaveCount(0);
+	await page.screenshot({ path: "/private/tmp/admin-628-user-sidebar.png" });
+	const opened = adminPage.context().waitForEvent("page");
+	await sidebar.getByRole("button", { name: "View workspace files" }).click();
+	page = await opened;
+	await page.waitForLoadState("domcontentloaded");
+	await expect(adminPage).toHaveURL(new RegExp(`/admin/users/${me.id}$`));
+	await expect(page).toHaveURL(new RegExp(`/admin/users/${me.id}/files`));
 	await page.goto(`/admin/users/${me.id}/files?folderId=${folder.id}`);
 	await resolveAdminSiteUrlPrompt(page);
 	await expect(
@@ -91,47 +114,79 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	);
 	await page.reload();
 	await beginAccess(page);
-	await expect(page.getByRole("link", { name, exact: true })).toBeVisible();
+	await page.getByRole("button", { name: "List View", exact: true }).click();
+	await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
+	await page.getByRole("button", { name: "Grid View", exact: true }).click();
+	await expect(
+		page.locator("[data-file-list-item]").filter({ hasText: name }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "List View", exact: true }).click();
 	await expect(
 		page.getByRole("button", {
 			name: /Upload|Rename|Delete|Share/,
 			exact: true,
 		}),
 	).toHaveCount(0);
-	await page.screenshot({ path: "/private/tmp/admin-628-workspace.png" });
+	await page.screenshot({
+		path: "/private/tmp/admin-628-workspace.png",
+		animations: "disabled",
+	});
 
+	await page
+		.getByRole("row")
+		.filter({ hasText: name })
+		.getByRole("button", { name: "More actions" })
+		.click();
+	await expect(
+		page.getByRole("menuitem", { name: /Rename|Delete|Share|Move|Copy|Lock/ }),
+	).toHaveCount(0);
 	const [download] = await Promise.all([
 		page.waitForEvent("download"),
-		page
-			.getByRole("button", { name: "Download current version", exact: true })
-			.click(),
+		page.getByRole("menuitem", { name: "Download", exact: true }).click(),
 	]);
 	expect(download.suggestedFilename()).toBe(name);
 	const saved = await download.path();
 	expect(saved).not.toBeNull();
 	expect(await readFile(saved as string)).toEqual(original);
-	await page.getByRole("link", { name, exact: true }).click();
-	const dialog = page.getByRole("dialog");
-	await expect(dialog).toBeVisible();
+	await page.getByRole("cell", { name, exact: true }).click();
+
+	await expect(
+		page.getByRole("complementary", { name: "Details" }),
+	).toBeVisible();
+	await expect(page).toHaveURL(
+		new RegExp(`/admin/users/${me.id}/files.*fileId=${file.id}`),
+	);
+	const inspectionCount = (
+		await apiJsonInPage<{ total: number }>(
+			page,
+			"/api/v1/admin/audit-logs?action=admin_workspace_inspect",
+		)
+	).total;
+	await page.getByRole("button", { name: "Versions", exact: true }).click();
+	const history = page.getByRole("dialog");
+	await expect(
+		history.getByRole("heading", { name: `Version History - ${name}` }),
+	).toBeVisible();
+	const [historical] = await Promise.all([
+		page.waitForEvent("download"),
+		history
+			.getByRole("button", { name: "Download revision v1", exact: true })
+			.click(),
+	]);
+	expect(await readFile((await historical.path()) as string)).toEqual(original);
+	expect(
+		(
+			await apiJsonInPage<{ total: number }>(
+				page,
+				"/api/v1/admin/audit-logs?action=admin_workspace_inspect",
+			)
+		).total,
+	).toBe(inspectionCount);
 	const detail = await apiJsonInPage<AdminFileDetail>(
 		page,
 		`/api/v1/admin/files/${file.id}`,
 	);
 	const revision = detail.versions[0];
-	expect(revision).toBeDefined();
-	await page.goto(`/admin/files?fileId=${file.id}&revisionId=${revision.id}`);
-	await expect(page.getByRole("dialog")).toBeVisible();
-	await page
-		.getByRole("button", { name: "Access and download content" })
-		.click();
-	await beginAccess(page);
-	const [historical] = await Promise.all([
-		page.waitForEvent("download"),
-		page
-			.getByRole("button", { name: `Download revision v${revision.version}` })
-			.click(),
-	]);
-	expect(await readFile((await historical.path()) as string)).toEqual(original);
 
 	// Blob observability hands off to the same logical revision URL.
 	await page.goto(
@@ -159,4 +214,26 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	await expect(
 		page.getByRole("button", { name: "Begin read-only access" }),
 	).toBeDisabled();
+	await page.goto("/admin/audit?action=admin_workspace_inspect");
+	await expect(
+		page
+			.getByRole("row")
+			.filter({ hasText: "User support" })
+			.filter({ hasText: "Support case 628" })
+			.first(),
+	).toContainText(`(#${me.id})`);
+	await page.screenshot({ path: "/private/tmp/admin-628-audit-readable.png" });
+	await page.addInitScript(() => localStorage.setItem("aster-language", "zh"));
+	await page.reload();
+	const localized = page
+		.getByRole("row")
+		.filter({ hasText: "原因 用户支持" })
+		.filter({ hasText: "备注：Support case 628" })
+		.first();
+	await expect(localized).toContainText("已授权查看");
+	await expect(localized).toContainText(`(#${me.id})`);
+	await page.screenshot({
+		path: "/private/tmp/admin-628-audit-readable-zh.png",
+		animations: "disabled",
+	});
 });

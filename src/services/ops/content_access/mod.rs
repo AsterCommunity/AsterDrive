@@ -5,7 +5,9 @@ mod workspace;
 
 pub use download::{download, init_download};
 pub use types::*;
-pub use workspace::{AdminWorkspaceContents, AdminWorkspaceQuery, list_workspace};
+pub use workspace::{
+    AdminWorkspaceContents, AdminWorkspaceQuery, get_file, list_versions, list_workspace,
+};
 
 use crate::{
     api::api_error_code::ApiErrorCode,
@@ -209,6 +211,11 @@ async fn record<C: sea_orm::ConnectionTrait>(
         AdminScopeKind::Team => (audit::AuditEntityType::Team, payload.target_id),
         AdminScopeKind::Personal => (audit::AuditEntityType::User, payload.target_id),
     };
+    // Snapshot target identity with the evidence; later account renames must not rewrite history.
+    let entity_name = match payload.scope_kind {
+        AdminScopeKind::Personal => user_repo::find_by_id(db, payload.target_id).await?.username,
+        AdminScopeKind::Team => team_repo::find_by_id(db, payload.target_id).await?.name,
+    };
     audit::log_required(
         db,
         audit::AuditLogInput {
@@ -216,7 +223,7 @@ async fn record<C: sea_orm::ConnectionTrait>(
             action,
             entity_type,
             entity_id: Some(entity_id),
-            entity_name: None,
+            entity_name: Some(&entity_name),
         },
         serde_json::json!({
             "scope_kind": payload.scope_kind, "target_id": payload.target_id,

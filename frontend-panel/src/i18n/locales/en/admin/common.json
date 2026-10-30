@@ -66,5 +66,15 @@
 	"content_first_files": "First files",
 	"content_next_files": "Next files",
 	"content_personal_owner": "Personal workspace #{{id}}",
-	"content_team_owner": "Team workspace #{{id}}"
+	"content_team_owner": "Team workspace #{{id}}",
+	"content_view_workspace": "View workspace files",
+	"content_view_mode": "File view",
+	"content_view_list": "List view",
+	"content_view_grid": "Grid view",
+	"content_audit_remark": "Remark: ",
+	"content_result_authorized": "Inspection authorized",
+	"content_result_initialized": "Download initialized",
+	"content_result_response_started": "Response started",
+	"content_result_failed": "Failed",
+	"content_workspace_read_only_short": "Administrator read-only access"
 }

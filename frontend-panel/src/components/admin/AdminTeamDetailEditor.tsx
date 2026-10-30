@@ -19,7 +19,6 @@ import type { AdminTeamDetailTab } from "@/components/admin/admin-team-detail/ty
 import { useAdminTeamDetailData } from "@/components/admin/admin-team-detail/useAdminTeamDetailData";
 import { useAdminTeamDetailScrollRestoration } from "@/components/admin/admin-team-detail/useAdminTeamDetailScrollRestoration";
 import { useAdminTeamDetailTabs } from "@/components/admin/admin-team-detail/useAdminTeamDetailTabs";
-import { AdminWorkspaceBrowser } from "@/components/admin/content-access/AdminWorkspaceBrowser";
 import { policyGroupRuleCount } from "@/components/admin/user-detail/types";
 import { handleApiError } from "@/hooks/useApiError";
 import type { SortOrder } from "@/lib/pagination";
@@ -623,15 +622,6 @@ export function AdminTeamDetailEditor({
 
 	return (
 		<AdminTeamDetailShell
-			filesSection={
-				team ? (
-					<AdminWorkspaceBrowser
-						scopeKind="team"
-						targetId={team.id}
-						targetLabel={team.name}
-					/>
-				) : null
-			}
 			auditSection={auditSection}
 			contentRef={contentRef}
 			currentPolicyGroupName={currentPolicyGroup?.name ?? null}

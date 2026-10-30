@@ -27,6 +27,10 @@ import type { FileVersion } from "@/types/api";
 
 interface VersionHistoryDialogProps {
 	open: boolean;
+	readOnlySource?: {
+		list: (fileId: number, afterSequence?: number) => Promise<FileVersionPage>;
+		download: (revisionId: number) => Promise<void>;
+	};
 	onOpenChange: (open: boolean) => void;
 	onOpenChangeComplete?: (open: boolean) => void;
 	fileId: number;
@@ -136,6 +140,7 @@ function versionHistoryReducer(
 }
 
 export function VersionHistoryDialog({
+	readOnlySource,
 	open,
 	onOpenChange,
 	onOpenChangeComplete,
@@ -169,7 +174,7 @@ export function VersionHistoryDialog({
 		const targetFileId = fileId;
 		try {
 			dispatch({ type: "load-more-start" });
-			const page = await fileService.listVersions(
+			const page = await (readOnlySource?.list ?? fileService.listVersions)(
 				targetFileId,
 				nextAfterSequence,
 			);
@@ -183,6 +188,7 @@ export function VersionHistoryDialog({
 	};
 
 	const handleRestore = async (versionId: number) => {
+		if (readOnlySource) return;
 		const generation = requestGeneration.current;
 		const targetFileId = fileId;
 		try {
@@ -214,6 +220,7 @@ export function VersionHistoryDialog({
 	};
 
 	const handleDelete = async (versionId: number) => {
+		if (readOnlySource) return;
 		const generation = requestGeneration.current;
 		const targetFileId = fileId;
 		try {
@@ -263,8 +270,7 @@ export function VersionHistoryDialog({
 		dispatch({ type: "close" });
 		if (open) {
 			dispatch({ type: "load-start" });
-			void fileService
-				.listVersions(fileId)
+			void (readOnlySource?.list ?? fileService.listVersions)(fileId)
 				.then((page) => {
 					if (requestGeneration.current === generation) {
 						dispatch({ type: "load-end", page });
@@ -282,7 +288,7 @@ export function VersionHistoryDialog({
 				requestGeneration.current += 1;
 			}
 		};
-	}, [fileId, open]);
+	}, [fileId, open, readOnlySource]);
 
 	return (
 		<Dialog
@@ -366,7 +372,26 @@ export function VersionHistoryDialog({
 										</TableCell>
 										<TableCell>
 											<div className="flex gap-1">
-												{v.current ? null : (
+												{readOnlySource ? (
+													<Button
+														variant="ghost"
+														size="icon"
+														className="size-7"
+														aria-label={t("admin:content_download_revision", {
+															version: v.version,
+														})}
+														title={t("admin:content_download_revision", {
+															version: v.version,
+														})}
+														onClick={() => {
+															void readOnlySource
+																.download(v.id)
+																.catch(handleApiError);
+														}}
+													>
+														<Icon name="Download" className="size-3.5" />
+													</Button>
+												) : v.current ? null : (
 													<>
 														<Button
 															variant="ghost"

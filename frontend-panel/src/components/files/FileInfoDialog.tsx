@@ -44,6 +44,8 @@ import { useMediaQuery } from "./file-info-dialog/useMediaQuery";
 
 interface FileInfoDialogProps {
 	open: boolean;
+	metadataOnly?: boolean;
+	actions?: ReactNode;
 	onOpenChange: (open: boolean) => void;
 	file?: FileInfo | FileListItem;
 	folder?: FolderInfo | FolderListItem;
@@ -279,12 +281,14 @@ function FileInfoDialogFrame({
 }
 
 function TagsSection({
+	readOnly = false,
 	entityId,
 	entityType,
 	initialTags,
 	name,
 	title,
 }: {
+	readOnly?: boolean;
 	entityId: number;
 	entityType: EntityType;
 	initialTags: TagSummary[];
@@ -312,15 +316,17 @@ function TagsSection({
 				<h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
 					{title}
 				</h3>
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					onClick={() => setManagerOpen(true)}
-				>
-					<Icon name="Tag" className="size-3.5" />
-					{t("tag_manage")}
-				</Button>
+				{!readOnly ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						onClick={() => setManagerOpen(true)}
+					>
+						<Icon name="Tag" className="size-3.5" />
+						{t("tag_manage")}
+					</Button>
+				) : null}
 			</div>
 			<TagChips
 				tags={tags}
@@ -329,11 +335,13 @@ function TagsSection({
 					<p className="text-sm text-muted-foreground">{t("tag_no_tags")}</p>
 				}
 			/>
-			<TagManagerDialog
-				open={managerOpen}
-				onOpenChange={setManagerOpen}
-				target={target}
-			/>
+			{!readOnly ? (
+				<TagManagerDialog
+					open={managerOpen}
+					onOpenChange={setManagerOpen}
+					target={target}
+				/>
+			) : null}
 		</section>
 	);
 }
@@ -367,6 +375,8 @@ function ResourceActivitySection({
 }
 
 export function FileInfoDialog({
+	metadataOnly = false,
+	actions,
 	open,
 	onOpenChange,
 	file,
@@ -387,6 +397,7 @@ export function FileInfoDialog({
 		isDesktop,
 	);
 	const data = useFileInfoDialogData({
+		enabled: !metadataOnly,
 		open,
 		renderedFile,
 		renderedFolder,
@@ -478,6 +489,7 @@ export function FileInfoDialog({
 	const tagsSection =
 		activeTarget && (renderedFile || renderedFolder) ? (
 			<TagsSection
+				readOnly={metadataOnly}
 				key={`${renderedFile ? "file" : "folder"}-${activeTarget.id}`}
 				entityId={activeTarget.id}
 				entityType={renderedFile ? "file" : "folder"}
@@ -496,6 +508,8 @@ export function FileInfoDialog({
 
 	const content = (
 		<FileInfoDialogContent
+			actions={actions}
+			thumbnailPath={metadataOnly ? null : undefined}
 			closeLabel={t("close")}
 			currentLocked={currentLocked}
 			isDesktop={isDesktop}
@@ -510,11 +524,13 @@ export function FileInfoDialog({
 			summarySubtitle={summarySubtitle}
 			tagsSection={tagsSection}
 			activitySection={
-				<ResourceActivitySection
-					key={`${open}:${workspaceKey(workspace)}:${renderedFile ? "file" : "folder"}:${renderedFile?.id ?? renderedFolder?.id}`}
-					target={activityTarget}
-					enabled={open}
-				/>
+				metadataOnly ? null : (
+					<ResourceActivitySection
+						key={`${open}:${workspaceKey(workspace)}:${renderedFile ? "file" : "folder"}:${renderedFile?.id ?? renderedFolder?.id}`}
+						target={activityTarget}
+						enabled={open}
+					/>
+				)
 			}
 			targetIcon={
 				renderedFile

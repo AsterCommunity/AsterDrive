@@ -1043,3 +1043,33 @@ describe("VersionHistoryDialog", () => {
 		expect(screen.getByText("version_empty")).toBeInTheDocument();
 	});
 });
+
+it("uses the supplied workspace source and offers direct downloads without restore/delete", async () => {
+	const list = vi.fn().mockResolvedValue(versionPage(versions));
+	const download = vi.fn().mockResolvedValue(undefined);
+	mockState.listVersions.mockClear();
+	render(
+		<VersionHistoryDialog
+			open
+			onOpenChange={vi.fn()}
+			fileId={8}
+			fileName="target.txt"
+			readOnlySource={{ list, download }}
+		/>,
+	);
+	await screen.findAllByText(`v${versions[0].version}`);
+	expect(list).toHaveBeenCalledWith(8);
+	expect(mockState.listVersions).not.toHaveBeenCalled();
+	expect(
+		screen.queryByRole("button", { name: "version_restore" }),
+	).not.toBeInTheDocument();
+	expect(
+		screen.queryByRole("button", { name: "version_delete" }),
+	).not.toBeInTheDocument();
+	fireEvent.click(
+		screen.getAllByRole("button", {
+			name: "admin:content_download_revision",
+		})[0],
+	);
+	await waitFor(() => expect(download).toHaveBeenCalledWith(versions[0].id));
+});

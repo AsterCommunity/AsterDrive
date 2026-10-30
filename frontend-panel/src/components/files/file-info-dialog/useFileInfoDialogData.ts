@@ -154,10 +154,12 @@ function mediaMetadataPendingRetryDelay(error: unknown) {
 }
 
 export function useFileInfoDialogData({
+	enabled = true,
 	open,
 	renderedFile,
 	renderedFolder,
 }: {
+	enabled?: boolean;
 	open: boolean;
 	renderedFile?: FileInfo | FileListItem;
 	renderedFolder?: FolderInfo | FolderListItem;
@@ -172,18 +174,19 @@ export function useFileInfoDialogData({
 		? mediaMetadataKindForFile(renderedFile)
 		: null;
 	const canRequestMediaMetadata =
+		enabled &&
 		mediaDataSupportLoaded &&
 		renderedFile != null &&
 		supportsMediaData(renderedFile, mediaDataSupport);
 
 	useEffect(() => {
-		if (!mediaDataSupportLoaded) {
+		if (enabled && !mediaDataSupportLoaded) {
 			void loadMediaDataSupport();
 		}
-	}, [loadMediaDataSupport, mediaDataSupportLoaded]);
+	}, [loadMediaDataSupport, mediaDataSupportLoaded, enabled]);
 
 	useEffect(() => {
-		if (!open || !renderedFile) {
+		if (!enabled || !open || !renderedFile) {
 			dispatch({ type: "resetFileDetails" });
 			return;
 		}
@@ -210,10 +213,10 @@ export function useFileInfoDialogData({
 		return () => {
 			cancelled = true;
 		};
-	}, [renderedFile, open]);
+	}, [renderedFile, open, enabled]);
 
 	useEffect(() => {
-		if (!open || !renderedFolder) {
+		if (!enabled || !open || !renderedFolder) {
 			dispatch({ type: "resetFolderDetails" });
 			return;
 		}
@@ -240,10 +243,10 @@ export function useFileInfoDialogData({
 		return () => {
 			cancelled = true;
 		};
-	}, [renderedFolder, open]);
+	}, [renderedFolder, open, enabled]);
 
 	useEffect(() => {
-		if (!open || !renderedFolder) {
+		if (!enabled || !open || !renderedFolder) {
 			dispatch({ type: "resetChildCount" });
 			return;
 		}
@@ -272,10 +275,11 @@ export function useFileInfoDialogData({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, renderedFolder]);
+	}, [open, renderedFolder, enabled]);
 
 	useEffect(() => {
 		if (
+			!enabled ||
 			!open ||
 			!renderedFile ||
 			!renderedMediaMetadataKind ||
@@ -324,7 +328,13 @@ export function useFileInfoDialogData({
 				window.clearTimeout(retryTimer);
 			}
 		};
-	}, [open, renderedFile, renderedMediaMetadataKind, canRequestMediaMetadata]);
+	}, [
+		open,
+		renderedFile,
+		renderedMediaMetadataKind,
+		canRequestMediaMetadata,
+		enabled,
+	]);
 
 	return {
 		...state,

@@ -1028,3 +1028,41 @@ describe("FileInfoDialog", () => {
 		expect(mockState.activityTarget.mock.lastCall?.[0]).toBe(target);
 	});
 });
+
+it("renders provided scoped metadata and read actions without ordinary resource or mutation entry points", () => {
+	mockState.getFile.mockClear();
+	mockState.getFolderInfo.mockClear();
+	mockState.getMediaMetadata.mockClear();
+	render(
+		<FileInfoDialog
+			open
+			metadataOnly
+			onOpenChange={vi.fn()}
+			actions={<button type="button">scoped-download</button>}
+			file={
+				{
+					id: 7,
+					name: "scoped.md",
+					mime_type: "text/markdown",
+					size: 10,
+					created_at: "2026-01-01T00:00:00Z",
+					updated_at: "2026-01-01T00:00:00Z",
+					storage_used: 10,
+					lock_state: { state: "unlocked" },
+					tags: [],
+				} as never
+			}
+		/>,
+	);
+	expect(
+		screen.getByRole("button", { name: "scoped-download" }),
+	).toBeInTheDocument();
+	expect(
+		screen.queryByRole("button", { name: "tag_manage" }),
+	).not.toBeInTheDocument();
+	expect(
+		screen.queryByRole("button", { name: "activity_view" }),
+	).not.toBeInTheDocument();
+	expect(mockState.getFile).not.toHaveBeenCalled();
+	expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
+});

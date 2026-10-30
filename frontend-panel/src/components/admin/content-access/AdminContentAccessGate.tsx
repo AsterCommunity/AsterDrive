@@ -21,10 +21,12 @@ export function AdminContentAccessGate({
 	scopeKind,
 	targetId,
 	children,
+	shell,
 }: {
 	scopeKind: AdminScopeKind;
 	targetId: number;
 	children: (accessId: string, end: () => void) => ReactNode;
+	shell?: (children: ReactNode) => ReactNode;
 }) {
 	const { t } = useTranslation("admin");
 	const reasonId = useId();
@@ -91,10 +93,11 @@ export function AdminContentAccessGate({
 		}
 	};
 	if (access) return <>{children(access.id, () => setAccess(null))}</>;
-	if (failed) return <p role="alert">{t("content_access_failed")}</p>;
-	if (enabled === null) return <p>{t("core:loading")}</p>;
-	if (!enabled) return <p>{t("content_access_disabled")}</p>;
-	return (
+	const wrap = shell ?? ((node) => node);
+	if (failed) return wrap(<p role="alert">{t("content_access_failed")}</p>);
+	if (enabled === null) return wrap(<p>{t("core:loading")}</p>);
+	if (!enabled) return wrap(<p>{t("content_access_disabled")}</p>);
+	return wrap(
 		<div className="space-y-4 rounded-lg border p-5">
 			<p className="text-sm text-muted-foreground">
 				{t("content_access_explanation")}
@@ -130,6 +133,6 @@ export function AdminContentAccessGate({
 			<Button disabled={!reason || busy} onClick={() => void begin()}>
 				{t("content_access_begin")}
 			</Button>
-		</div>
+		</div>,
 	);
 }

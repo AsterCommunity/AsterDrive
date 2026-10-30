@@ -452,3 +452,14 @@ mod tests {
         assert!(sql.as_str().contains("FOR UPDATE"), "{sql}");
     }
 }
+
+/// Batch identity lookup for bounded audit pages and exports, including archived teams.
+pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<team::Model>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(team::Entity::find()
+        .filter(team::Column::Id.is_in(ids.iter().copied()))
+        .all(db)
+        .await?)
+}

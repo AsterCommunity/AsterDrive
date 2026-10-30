@@ -71,6 +71,7 @@ type UserDetailDraftAction =
 
 interface UserDetailEditorBodyProps {
 	onBack: () => void;
+	onViewWorkspace?: () => void;
 	onRefreshPolicyGroups: () => Promise<void>;
 	onUpdate: (id: number, data: UpdateUserRequest) => Promise<UserInfo>;
 	policyGroups: StoragePolicyGroup[];
@@ -339,6 +340,7 @@ function userDetailDraftReducer(
 }
 
 export function UserDetailEditorBody({
+	onViewWorkspace,
 	onBack,
 	onRefreshPolicyGroups,
 	onUpdate,
@@ -530,6 +532,7 @@ export function UserDetailEditorBody({
 		>
 			<div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)]">
 				<UserDetailSidebar
+					onViewWorkspace={onViewWorkspace}
 					quota={quota}
 					usagePercentage={pct}
 					used={used}

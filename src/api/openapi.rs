@@ -16,6 +16,8 @@ use utoipa::{Modify, OpenApi};
     modifiers(&SecurityAddon),
     paths(
         crate::api::routes::admin::content_access::status,
+        crate::api::routes::admin::content_access::get_file,
+        crate::api::routes::admin::content_access::list_versions,
         crate::api::routes::admin::content_access::create,
         crate::api::routes::admin::content_access::workspace,
         crate::api::routes::admin::content_access::init_download,

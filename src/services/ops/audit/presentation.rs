@@ -81,10 +81,17 @@ pub fn build_audit_presentation(
         entity_name,
         parsed_details.as_ref(),
     ));
-    let target = match action {
+    let mut target = match action {
         AuditAction::ServerStart | AuditAction::ServerShutdown => Some(server_target()),
         _ => target_message(entity_type, entity_id, entity_name),
     };
+    if super::content_access_targets::is_content_access(action)
+        && let Some(target) = &mut target
+    {
+        target
+            .params
+            .insert("display_identity".to_string(), Value::Bool(true));
+    }
     let detail = detail_message(action, parsed_details.as_ref());
 
     Some(AuditPresentation {
@@ -178,6 +185,7 @@ fn detail_message(
                     "file_id",
                     "revision_id",
                     "reason",
+                    "remark",
                     "result",
                     "has_range",
                 ],

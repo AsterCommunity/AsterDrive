@@ -129,3 +129,43 @@ pub async fn list_workspace(
         deleted: query.deleted,
     })
 }
+
+/// Metadata and revisions remain within the same governed workspace context.
+pub async fn get_file(
+    state: &impl SharedRuntimeState,
+    claims: &Claims,
+    access_id: &str,
+    file_id: i64,
+) -> Result<crate::services::workspace::models::FileInfo> {
+    let payload = load(state, claims, access_id).await?;
+    if payload.download.is_some() {
+        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
+    }
+    let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+
+    crate::services::files::file::build_authorized_file_info(
+        state,
+        super::require_target(state, &payload).await?,
+        file,
+    )
+    .await
+}
+
+pub async fn list_versions(
+    state: &impl SharedRuntimeState,
+    claims: &Claims,
+    access_id: &str,
+    file_id: i64,
+    query: crate::services::workspace::models::FileVersionListQuery,
+) -> Result<Vec<crate::services::workspace::models::FileVersion>> {
+    let payload = load(state, claims, access_id).await?;
+    if payload.download.is_some() {
+        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
+    }
+    let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+    crate::services::workspace::scope::ensure_file_resource_scope(
+        &file,
+        super::require_target(state, &payload).await?,
+    )?;
+    crate::services::content::version::list_authorized_versions(state, file_id, query).await
+}

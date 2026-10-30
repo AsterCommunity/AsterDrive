@@ -96,11 +96,9 @@ pub async fn download(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = audit::AuditContext::from_request(&req, &claims);
     let outcome = content_access::download(
         state.get_ref(),
         &claims,
-        &ctx,
         &path,
         req.headers()
             .get("If-None-Match")
@@ -109,4 +107,46 @@ pub async fn download(
     )
     .await?;
     Ok(file::outcome_to_response(outcome))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ContentFileQuery {
+    pub access_id: String,
+}
+#[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/files/{id}", tag = "admin", operation_id = "admin_workspace_file",
+ params(("id" = i64, Path), ("access_id" = String, Query)),
+ responses((status = 200, body = inline(ApiResponse<crate::services::workspace::models::FileInfo>))), security(("bearer" = [])))]
+pub async fn get_file(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    query: web::Query<ContentFileQuery>,
+) -> Result<HttpResponse> {
+    let info = content_access::get_file(state.get_ref(), &claims, &query.access_id, *path).await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(crate::api::response::success(info)))
+}
+
+#[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/files/{id}/versions", tag = "admin", operation_id = "admin_workspace_versions",
+ params(("id" = i64, Path), ("access_id" = String, Query), ("after_sequence" = Option<i64>, Query), ("limit" = Option<u64>, Query)),
+ responses((status = 200, body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>))), security(("bearer" = [])))]
+pub async fn list_versions(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    access: web::Query<ContentFileQuery>,
+    query: web::Query<crate::services::workspace::models::FileVersionListQuery>,
+) -> Result<HttpResponse> {
+    let versions = content_access::list_versions(
+        state.get_ref(),
+        &claims,
+        &access.access_id,
+        *path,
+        query.into_inner(),
+    )
+    .await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(crate::api::response::success(versions)))
 }

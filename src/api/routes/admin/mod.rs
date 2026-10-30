@@ -312,6 +312,14 @@ pub fn routes(
                     )
                     .route("/content-access", web::post().to(content_access::create))
                     .route(
+                        "/content-access/files/{id}",
+                        web::get().to(content_access::get_file),
+                    )
+                    .route(
+                        "/content-access/files/{id}/versions",
+                        web::get().to(content_access::list_versions),
+                    )
+                    .route(
                         "/content-access/workspace",
                         web::get().to(content_access::workspace),
                     )

@@ -148,6 +148,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/content-access/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_workspace_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/content-access/files/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_workspace_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/content-access/status": {
         parameters: {
             query?: never;
@@ -10862,6 +10894,123 @@ export interface operations {
                             expires_at: string;
                             id: string;
                         };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    admin_workspace_file: {
+        parameters: {
+            query: {
+                access_id: string;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            blob_id: number;
+                            compound_extension?: string | null;
+                            created_at: string;
+                            created_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            created_by_user_id?: number | null;
+                            created_by_username: string;
+                            deleted_at?: string | null;
+                            extension: string;
+                            file_category: components["schemas"]["FileCategory"];
+                            /** Format: int64 */
+                            folder_id?: number | null;
+                            /** Format: int64 */
+                            id: number;
+                            lock_state: components["schemas"]["ResourceLockState"];
+                            mime_type: string;
+                            modified_at?: string | null;
+                            modified_by?: components["schemas"]["ActivityIdentity"] | null;
+                            /** Format: int64 */
+                            modified_by_user_id?: number | null;
+                            modified_by_username?: string | null;
+                            name: string;
+                            /** Format: int64 */
+                            owner_user_id?: number | null;
+                            /** Format: int64 */
+                            size: number;
+                            /**
+                             * Format: int64
+                             * @description Total quota bytes for the file detail view: current `size` plus all
+                             *     historical version sizes. `size` is only the current version size.
+                             */
+                            storage_used?: number | null;
+                            tags: components["schemas"]["TagSummary"][];
+                            /** Format: int64 */
+                            team_id?: number | null;
+                            updated_at: string;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    admin_workspace_versions: {
+        parameters: {
+            query: {
+                access_id: string;
+                after_sequence?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            blob_id?: number | null;
+                            comment?: string | null;
+                            created_at: string;
+                            creator_display_name?: string | null;
+                            /** Format: int64 */
+                            creator_user_id?: number | null;
+                            current: boolean;
+                            etag: string;
+                            /** Format: int64 */
+                            file_id: number;
+                            /** Format: int64 */
+                            id: number;
+                            mime_type?: string | null;
+                            public_id: string;
+                            reason: string;
+                            /** Format: int64 */
+                            size: number;
+                            /** Format: int64 */
+                            version: number;
+                        }[];
                         error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };

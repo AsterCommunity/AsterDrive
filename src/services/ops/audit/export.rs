@@ -376,7 +376,7 @@ pub async fn prepare_csv_export(
         if let Some(snapshot) = snapshot {
             let mut cursor = None;
             loop {
-                let models = audit_log_repo::find_export_page(
+                let mut models = audit_log_repo::find_export_page(
                     state.writer_db(),
                     &query,
                     snapshot,
@@ -397,6 +397,10 @@ pub async fn prepare_csv_export(
                     break;
                 }
 
+                super::content_access_targets::enrich(&state, &mut models).await.inspect_err(|_| {
+                    progress.failed = true;
+                    tracing::error!("audit content-access target lookup failed");
+                })?;
                 let parsed_details = parsed_details_for_batch(&models);
                 let usernames = usernames_for_batch(&state, &models, &parsed_details)
                     .await

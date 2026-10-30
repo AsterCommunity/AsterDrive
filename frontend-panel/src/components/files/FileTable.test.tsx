@@ -643,3 +643,19 @@ describe("FileTable", () => {
 		expect(screen.getByText("actions:report.pdf")).toBeInTheDocument();
 	});
 });
+
+it("sorts an isolated read-only browser without writing ordinary workspace preferences", () => {
+	const onSort = vi.fn();
+	const context =
+		mockState.browserContext as typeof mockState.browserContext & {
+			sorting?: { sortBy: "name"; sortOrder: "asc"; onSort: typeof onSort };
+		};
+	context.readOnly = true;
+	context.sorting = { sortBy: "name", sortOrder: "asc", onSort };
+	render(<FileTable />);
+	fireEvent.click(screen.getByText("translated:core:name"));
+	expect(onSort).toHaveBeenCalledWith("name", "desc");
+	expect(mockState.store.setSortBy).not.toHaveBeenCalled();
+	expect(mockState.store.setSortOrder).not.toHaveBeenCalled();
+	delete context.sorting;
+});

@@ -7,7 +7,6 @@ export const ADMIN_TEAM_DETAIL_AUDIT_PAGE_SIZE = 10;
 
 export const ADMIN_TEAM_DETAIL_TAB_INDEX: Record<AdminTeamDetailTab, number> = {
 	overview: 0,
-	files: 4,
 	members: 1,
 	audit: 2,
 	danger: 3,
@@ -20,7 +19,6 @@ export function isAdminTeamDetailTab(
 	value: string,
 ): value is AdminTeamDetailTab {
 	return (
-		value === "files" ||
 		value === "overview" ||
 		value === "members" ||
 		value === "audit" ||

@@ -125,6 +125,7 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 	onFolderOpen,
 	onMoveToFolder,
 }: FolderTableDataRowProps) {
+	const { contextMenusEnabled = false } = useFileBrowserContext();
 	const selected = useFileStore((s) => s.selectedFolderIds.has(folder.id));
 	const selectOnlyFolder = useFileStore((s) => s.selectOnlyFolder);
 	const toggleFolderSelection = useFileStore((s) => s.toggleFolderSelection);
@@ -236,14 +237,14 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 				className="w-12 pl-0 pr-3 text-right"
 				onClick={(e) => e.stopPropagation()}
 			>
-				{readOnly && !trashMeta ? null : (
+				{readOnly && !trashMeta && !contextMenusEnabled ? null : (
 					<FileBrowserItemActionMenu item={folder} isFolder />
 				)}
 			</TableCell>
 		</TableRow>
 	);
 
-	if (readOnly && !selectionEnabled) return row;
+	if (readOnly && !selectionEnabled && !contextMenusEnabled) return row;
 
 	return (
 		<FileBrowserItemContextMenu renderTrigger item={folder} isFolder>
@@ -257,7 +258,7 @@ interface FileTableDataRowProps extends BaseTableRowProps {
 	file: FileListItem;
 	readOnly: boolean;
 	selectionEnabled: boolean;
-	thumbnailPath?: string;
+	thumbnailPath?: string | null;
 	trashMeta?: FileBrowserTrashMeta;
 	onFileClick: (file: FileListItem) => void;
 }
@@ -273,6 +274,7 @@ const FileTableDataRow = memo(function FileTableDataRow({
 	trashMeta,
 	onFileClick,
 }: FileTableDataRowProps) {
+	const { contextMenusEnabled = false } = useFileBrowserContext();
 	const selected = useFileStore((s) => s.selectedFileIds.has(file.id));
 	const selectOnlyFile = useFileStore((s) => s.selectOnlyFile);
 	const toggleFileSelection = useFileStore((s) => s.toggleFileSelection);
@@ -366,7 +368,7 @@ const FileTableDataRow = memo(function FileTableDataRow({
 		</TableRow>
 	);
 
-	if (readOnly && !selectionEnabled) return row;
+	if (readOnly && !selectionEnabled && !contextMenusEnabled) return row;
 
 	return (
 		<FileBrowserItemContextMenu renderTrigger item={file} isFolder={false}>
@@ -390,6 +392,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		onFolderOpen,
 		onMoveToFolder,
 		readOnly = false,
+		sorting,
 		selectionEnabled = !readOnly,
 		trashMode = false,
 		showAttribution = true,
@@ -407,8 +410,8 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
 	const selectItems = useFileStore((s) => s.selectItems);
 	const clearSelection = useFileStore((s) => s.clearSelection);
-	const sortBy = useFileStore((s) => s.sortBy);
-	const sortOrder = useFileStore((s) => s.sortOrder);
+	const workspaceSortBy = useFileStore((s) => s.sortBy);
+	const workspaceSortOrder = useFileStore((s) => s.sortOrder);
 	const setSortBy = useFileStore((s) => s.setSortBy);
 	const setSortOrder = useFileStore((s) => s.setSortOrder);
 
@@ -419,7 +422,17 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		selectedFileIds.size + selectedFolderIds.size ===
 			files.length + folders.length;
 
+	const sortBy = sorting?.sortBy ?? workspaceSortBy;
+	const sortOrder = sorting?.sortOrder ?? workspaceSortOrder;
+	const canSort = !readOnly || sorting != null;
 	const handleSort = (col: SortBy) => {
+		if (sorting) {
+			sorting.onSort(
+				col,
+				sortBy === col && sortOrder === "asc" ? "desc" : "asc",
+			);
+			return;
+		}
 		if (sortBy === col) {
 			setSortOrder(sortOrder === "asc" ? "desc" : "asc");
 		} else {
@@ -587,12 +600,12 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 						</TableHead>
 					)}
 					<TableHead
-						className={cn(!readOnly && "cursor-pointer select-none")}
-						onClick={readOnly ? undefined : () => handleSort("name")}
+						className={cn(canSort && "cursor-pointer select-none")}
+						onClick={!canSort ? undefined : () => handleSort("name")}
 					>
 						<div className="flex items-center">
 							{t("core:name")}
-							{!readOnly && (
+							{canSort && (
 								<SortIcon column="name" current={sortBy} order={sortOrder} />
 							)}
 						</div>
@@ -606,27 +619,24 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 						</TableHead>
 					) : null}
 					<TableHead
-						className={cn(
-							"w-[100px]",
-							!readOnly && "cursor-pointer select-none",
-						)}
-						onClick={readOnly ? undefined : () => handleSort("size")}
+						className={cn("w-[100px]", canSort && "cursor-pointer select-none")}
+						onClick={!canSort ? undefined : () => handleSort("size")}
 					>
 						<div className="flex items-center">
 							{t("core:size")}
-							{!readOnly && (
+							{canSort && (
 								<SortIcon column="size" current={sortBy} order={sortOrder} />
 							)}
 						</div>
 					</TableHead>
 					{trashMode ? null : (
 						<TableHead
-							className={cn(!readOnly && "cursor-pointer select-none")}
-							onClick={readOnly ? undefined : () => handleSort("created_at")}
+							className={cn(canSort && "cursor-pointer select-none")}
+							onClick={!canSort ? undefined : () => handleSort("created_at")}
 						>
 							<div className="flex items-center">
 								{t("core:date")}
-								{!readOnly && (
+								{canSort && (
 									<SortIcon
 										column="created_at"
 										current={sortBy}

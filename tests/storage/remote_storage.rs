@@ -4530,11 +4530,6 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     let (claims, _) = local::authenticate_access_token(&consumer_state, &admin_token)
         .await
         .unwrap();
-    let ctx = aster_drive::services::ops::audit::AuditContext {
-        user_id: user.id,
-        ip_address: None,
-        user_agent: None,
-    };
     for revision_id in [
         None,
         Some(
@@ -4559,7 +4554,6 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         let full = aster_drive::services::ops::content_access::download(
             &consumer_state,
             &claims,
-            &ctx,
             grant_id,
             None,
             None,
@@ -4571,7 +4565,6 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         let partial = aster_drive::services::ops::content_access::download(
             &consumer_state,
             &claims,
-            &ctx,
             grant_id,
             None,
             Some(&range),

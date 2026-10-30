@@ -30,6 +30,16 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     id: i64,
 ) -> Result<FileInfo> {
     let file = get_info_in_scope(state, scope, id).await?;
+    build_authorized_file_info(state, scope.into(), file).await
+}
+
+/// Shared detail projection after transport-specific authorization, without impersonating an actor.
+pub(crate) async fn build_authorized_file_info(
+    state: &impl SharedRuntimeState,
+    scope: crate::services::workspace::scope::WorkspaceResourceScope,
+    file: file::Model,
+) -> Result<FileInfo> {
+    crate::services::workspace::scope::ensure_file_resource_scope(&file, scope)?;
     let version_bytes =
         revision_repo::sum_non_current_sizes_by_file_id(state.reader_db(), file.id).await?;
     let storage_used = file.size.checked_add(version_bytes).ok_or_else(|| {
@@ -38,13 +48,13 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
             file.id
         ))
     })?;
-    let tags = tag::load_entity_tag_map(state, scope.into(), &[file.id], &[])
+    let tags = tag::load_entity_tag_map(state, scope, &[file.id], &[])
         .await?
         .remove(&(aster_drive_model::types::EntityType::File, file.id))
         .unwrap_or_default();
     let lock_states = crate::services::files::lock::load_for_scope(
         state,
-        scope.into(),
+        scope,
         std::slice::from_ref(&file),
         &[],
     )

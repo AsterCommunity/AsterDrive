@@ -1,6 +1,7 @@
 import type {
 	DragEvent,
 	KeyboardEvent as ReactKeyboardEvent,
+	ReactNode,
 	PointerEvent as ReactPointerEvent,
 	Ref,
 } from "react";
@@ -12,6 +13,7 @@ import type { TeamInfo, UserInfo } from "@/types/api";
 export type SidebarResizeHandleElement = HTMLDivElement;
 
 export interface SidebarProps {
+	content?: ReactNode;
 	mobileOpen: boolean;
 	onMobileClose: () => void;
 	onTrashDrop?: (data: InternalDragData) => void | Promise<void>;

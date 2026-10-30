@@ -7,6 +7,7 @@ mod download;
 mod download_audit;
 mod lock;
 mod metadata;
+pub(crate) use metadata::build_authorized_file_info;
 mod resource_handle;
 mod thumbnail;
 mod transfer;

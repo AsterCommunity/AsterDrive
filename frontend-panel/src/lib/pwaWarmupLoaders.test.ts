@@ -43,6 +43,9 @@ vi.mock("@/pages/admin/AdminOverviewPage", () => ({
 	default: "AdminOverviewPage",
 }));
 vi.mock("@/pages/admin/AdminUsersPage", () => ({ default: "AdminUsersPage" }));
+vi.mock("@/pages/admin/AdminWorkspacePage", () => ({
+	default: "AdminWorkspacePage",
+}));
 vi.mock("@/pages/admin/AdminUserDetailPage", () => ({
 	default: "AdminUserDetailPage",
 }));
@@ -170,6 +173,7 @@ describe("pwaWarmupLoaders", () => {
 			"route:admin-overview",
 			"route:admin-users",
 			"route:admin-user-detail",
+			"route:admin-workspace",
 			"route:admin-user-invitations",
 			"route:admin-teams",
 			"route:admin-team-detail",

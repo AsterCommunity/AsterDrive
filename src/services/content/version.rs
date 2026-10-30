@@ -45,6 +45,15 @@ async fn list_versions_in_scope(
     query: FileVersionListQuery,
 ) -> Result<Vec<FileVersion>> {
     storage::verify_file_access_for_read(state, scope, file_id).await?;
+    list_authorized_versions(state, file_id, query).await
+}
+
+/// Revision projection after the caller has verified its own product access context.
+pub(crate) async fn list_authorized_versions(
+    state: &impl SharedRuntimeState,
+    file_id: i64,
+    query: FileVersionListQuery,
+) -> Result<Vec<FileVersion>> {
     // A successful restore must be visible to the immediate follow-up history refresh.
     // Version history includes the authoritative current-head projection, so replica lag is not
     // an acceptable source for this read.

@@ -118,7 +118,6 @@ async fn prepare(
     ensure_file_resource_scope(&file, require_target(state, payload).await?)?;
     let mut download_payload = payload.clone();
     download_payload.download = Some(DownloadTarget {
-        is_historical: revision_id.is_some(),
         file_id,
         revision_id: revision.id,
     });
@@ -190,7 +189,6 @@ async fn prepare(
 pub async fn download(
     state: &PrimaryAppState,
     claims: &Claims,
-    ctx: &audit::AuditContext,
     id: &str,
     if_none_match: Option<&str>,
     range: Option<&HeaderValue>,
@@ -218,24 +216,6 @@ pub async fn download(
         .await
     }
     .await;
-    let action = if target.is_historical {
-        audit::AuditAction::AdminRevisionDownload
-    } else {
-        audit::AuditAction::AdminFileDownload
-    };
-    record(
-        state.writer_db(),
-        ctx,
-        &payload,
-        action,
-        (Some(target.file_id), Some(target.revision_id)),
-        if result.is_ok() {
-            "response_started"
-        } else {
-            "failed"
-        },
-        range.is_some(),
-    )
-    .await?;
+    // Initialization already committed the required audit. Range retries are transport only.
     file::record_download_result(state, "admin", range.is_some(), async { result }).await
 }

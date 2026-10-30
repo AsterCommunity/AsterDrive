@@ -48,8 +48,9 @@ async fn query_models(
 
 async fn build_audit_entries(
     state: &impl SharedRuntimeState,
-    entries: Vec<audit_log::Model>,
+    mut entries: Vec<audit_log::Model>,
 ) -> Result<Vec<AuditLogEntry>> {
+    super::content_access_targets::enrich(state, &mut entries).await?;
     let user_ids: Vec<i64> = entries
         .iter()
         .map(|entry| entry.user_id)
@@ -184,7 +185,7 @@ pub async fn query_team_entries(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<TeamAuditEntryInfo>> {
-    let page = query_models(
+    let mut page = query_models(
         state,
         filters,
         limit,
@@ -193,6 +194,7 @@ pub async fn query_team_entries(
         SortOrder::Desc,
     )
     .await?;
+    super::content_access_targets::enrich(state, &mut page.items).await?;
     let mut user_ids = HashSet::new();
     for entry in &page.items {
         user_ids.insert(entry.user_id);

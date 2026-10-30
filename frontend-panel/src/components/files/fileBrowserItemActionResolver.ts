@@ -36,7 +36,7 @@ export interface FileBrowserItemActionHandlers {
 	onManageTags?: FileBrowserContextValue["onManageTags"];
 	onMove?: FileBrowserContextValue["onMove"];
 	onRename?: FileBrowserContextValue["onRename"];
-	onShare: (target: FileBrowserShareTarget) => void;
+	onShare?: (target: FileBrowserShareTarget) => void;
 	onToggleLock: FileBrowserContextValue["onToggleLock"];
 	onTrashPurge?: FileBrowserContextValue["onTrashPurge"];
 	onTrashRestore?: FileBrowserContextValue["onTrashRestore"];
@@ -154,7 +154,7 @@ function resolveWritableFolderMenuProps({
 		isLocked,
 		onOpen: () => handlers.onFolderOpen(item.id, item.name),
 		onPageShare: () =>
-			handlers.onShare({
+			handlers.onShare?.({
 				folderId: item.id,
 				name: item.name,
 				initialMode: "page",
@@ -184,7 +184,7 @@ function resolveWritableFolderMenuProps({
 			? () => handlers.onRename?.("folder", item.id, item.name)
 			: undefined,
 		onToggleLock: canToggleLock
-			? () => handlers.onToggleLock("folder", item.id, isLocked)
+			? () => handlers.onToggleLock?.("folder", item.id, isLocked)
 			: undefined,
 		onDelete: handlers.onDelete
 			? () => handlers.onDelete?.("folder", item.id)
@@ -205,6 +205,12 @@ function resolveReadOnlyFileMenuProps({
 		isLocked: false,
 		onOpen: () => (handlers.onFileOpen ?? handlers.onFileClick)(item),
 		onDownload: () => handlers.onDownload(item.id, item.name),
+		onVersions: handlers.onVersions
+			? () => handlers.onVersions?.(item.id)
+			: undefined,
+		onInfo: handlers.onInfo
+			? () => handlers.onInfo?.("file", item.id)
+			: undefined,
 	};
 }
 
@@ -235,13 +241,13 @@ function resolveWritableFileMenuProps({
 			? () => handlers.onArchiveCompress?.("file", item.id)
 			: undefined,
 		onPageShare: () =>
-			handlers.onShare({
+			handlers.onShare?.({
 				fileId: item.id,
 				name: item.name,
 				initialMode: "page",
 			}),
 		onDirectShare: () =>
-			handlers.onShare({
+			handlers.onShare?.({
 				fileId: item.id,
 				name: item.name,
 				initialMode: "direct",
@@ -262,7 +268,7 @@ function resolveWritableFileMenuProps({
 			? () => handlers.onRename?.("file", item.id, item.name)
 			: undefined,
 		onToggleLock: canToggleLock
-			? () => handlers.onToggleLock("file", item.id, isLocked)
+			? () => handlers.onToggleLock?.("file", item.id, isLocked)
 			: undefined,
 		onDelete: handlers.onDelete
 			? () => handlers.onDelete?.("file", item.id)

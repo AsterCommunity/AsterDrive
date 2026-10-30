@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useFileStore } from "@/stores/fileStore";
 import type { AdminWorkspaceContents } from "@/types/api";
 import { AdminWorkspaceBrowser } from "./AdminWorkspaceBrowser";
 
@@ -17,8 +18,12 @@ vi.mock("@/services/adminContentDownload", () => ({
 	startAdminContentDownload: mocks.download,
 }));
 vi.mock("@/hooks/useApiError", () => ({ handleApiError: mocks.error }));
-vi.mock("react-i18next", () => ({
-	useTranslation: () => ({ t: (key: string) => key }),
+vi.mock("react-i18next", async (importOriginal) => ({
+	...(await importOriginal<typeof import("react-i18next")>()),
+	useTranslation: () => ({
+		t: (key: string) => key,
+		i18n: { language: "en", t: (key: string) => key },
+	}),
 }));
 vi.mock("./AdminContentAccessGate", () => ({
 	AdminContentAccessGate: ({
@@ -51,7 +56,16 @@ const empty: AdminWorkspaceContents = {
 	deleted: false,
 };
 function Probe() {
-	return <p data-testid="url">{useLocation().search}</p>;
+	const navigate = useNavigate();
+	const location = useLocation();
+	return (
+		<>
+			<p data-testid="url">{location.search}</p>
+			<button type="button" onClick={() => navigate("/admin/users/7/files")}>
+				navigate-root
+			</button>
+		</>
+	);
 }
 function mount(
 	url = "/admin/users/7/files",
@@ -67,6 +81,7 @@ function mount(
 describe("administrator read-only workspace", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		useFileStore.getState().setViewMode("list");
 		mocks.list.mockResolvedValue(empty);
 	});
 	it("restores folder, deleted and pagination state from URL without creating mutation entry points", async () => {
@@ -89,7 +104,7 @@ describe("administrator read-only workspace", () => {
 		expect(
 			screen.queryByRole("button", { name: /upload|rename|delete|share/i }),
 		).not.toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "content_root" }));
+		fireEvent.click(screen.getByRole("button", { name: "navigate-root" }));
 		await waitFor(() =>
 			expect(mocks.list).toHaveBeenLastCalledWith(
 				expect.objectContaining({
@@ -114,13 +129,13 @@ describe("administrator read-only workspace", () => {
 						icon: { kind: "default" },
 						updated_at: "2026-10-30T00:00:00Z",
 						is_shared: false,
-						lock_state: { locked: false },
+						lock_state: { state: "unlocked" },
 					},
 				],
 			},
 		});
 		mount("/admin/teams/7/files", "team");
-		await screen.findByRole("button", { name: "nested" });
+		await screen.findByText("nested");
 		expect(mocks.list).toHaveBeenCalledWith(
 			expect.objectContaining({ access_id: "team:7" }),
 		);
@@ -132,7 +147,7 @@ describe("administrator read-only workspace", () => {
 				expect.objectContaining({ folder_offset: 50 }),
 			),
 		);
-		fireEvent.click(screen.getByRole("button", { name: "nested" }));
+		fireEvent.click(screen.getByText("nested"));
 		await waitFor(() =>
 			expect(mocks.list).toHaveBeenLastCalledWith(
 				expect.objectContaining({ folder_id: 19, folder_offset: 0 }),
@@ -147,7 +162,7 @@ describe("administrator read-only workspace", () => {
 			}),
 		);
 		mount("/admin/users/7/files?folderId=19");
-		fireEvent.click(screen.getByRole("button", { name: "content_root" }));
+		fireEvent.click(screen.getByRole("button", { name: "navigate-root" }));
 		await screen.findByText("content_empty");
 		release({
 			...empty,
@@ -166,3 +181,30 @@ describe("administrator read-only workspace", () => {
 		expect(screen.queryByRole("table")).not.toBeInTheDocument();
 	});
 });
+
+vi.mock("@/hooks/useBlobUrl", () => ({
+	useBlobUrl: () => ({ blobUrl: null, error: null, loading: false }),
+}));
+
+vi.mock("@/components/layout/AppLayout", () => ({
+	AppLayout: ({ children }: { children: ReactNode }) => <main>{children}</main>,
+}));
+vi.mock("./AdminWorkspaceSidebar", () => ({
+	AdminWorkspaceSidebar: () => null,
+}));
+
+vi.mock("@tanstack/react-virtual", () => ({
+	useVirtualizer: ({ count }: { count: number }) => ({
+		getVirtualItems: () =>
+			Array.from({ length: count }, (_, index) => ({
+				index,
+				key: index,
+				start: index * 52,
+				end: (index + 1) * 52,
+				size: 52,
+			})),
+		getTotalSize: () => count * 52,
+		measure: () => {},
+		scrollToIndex: () => {},
+	}),
+}));

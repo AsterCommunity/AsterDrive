@@ -12,6 +12,8 @@ const EMPTY_METADATA_ROWS: DetailRow[] = [];
 
 interface FileInfoDialogContentProps {
 	currentLocked: boolean;
+	actions?: React.ReactNode;
+	thumbnailPath?: string | null;
 	isDesktop: boolean;
 	isShared: boolean | null;
 	metadataRows?: DetailRow[];
@@ -85,6 +87,8 @@ function DetailList({ rows }: { rows: DetailRow[] }) {
 }
 
 export function FileInfoDialogContent({
+	actions,
+	thumbnailPath,
 	closeLabel,
 	currentLocked,
 	isDesktop,
@@ -110,6 +114,7 @@ export function FileInfoDialogContent({
 					<div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted/35 text-muted-foreground dark:bg-muted/20">
 						{targetIcon.type === "file" ? (
 							<MediaThumbnail
+								thumbnailPath={thumbnailPath}
 								file={targetIcon.file}
 								size="lg"
 								className="rounded-2xl"
@@ -160,6 +165,8 @@ export function FileInfoDialogContent({
 					) : null}
 				</div>
 			</Section>
+
+			{actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
 
 			<Section title={overviewTitle}>
 				<DetailList rows={overviewRows} />

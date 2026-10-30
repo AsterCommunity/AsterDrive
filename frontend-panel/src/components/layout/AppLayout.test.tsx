@@ -211,3 +211,16 @@ describe("AppLayout", () => {
 		);
 	});
 });
+
+it("does not load ordinary workspace teams or install global search in a scoped browser", () => {
+	mockState.ensureTeamsLoaded.mockClear();
+	render(
+		<AppLayout sidebarContent={<div>target sidebar</div>}>
+			Scoped files
+		</AppLayout>,
+	);
+	expect(mockState.ensureTeamsLoaded).not.toHaveBeenCalled();
+	expect(screen.queryByTestId("global-search-dialog")).not.toBeInTheDocument();
+	fireEvent.keyDown(document, { key: "/" });
+	expect(screen.queryByTestId("global-search-dialog")).not.toBeInTheDocument();
+});

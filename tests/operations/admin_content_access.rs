@@ -323,16 +323,16 @@ async fn download_current_revision_range_etag_and_init_snapshot_are_consistent()
         .all(state.writer_db())
         .await
         .unwrap();
-    assert!(
-        audits
-            .iter()
-            .any(|row| row.details.as_ref().unwrap().contains("\"has_range\":true"))
+    assert_eq!(
+        audits.len(),
+        3,
+        "only the three download initializations are audited"
     );
-    assert!(audits.iter().any(|row| {
+    assert!(audits.iter().all(|row| {
         row.details
-            .as_ref()
-            .unwrap()
-            .contains("\"result\":\"failed\"")
+            .as_deref()
+            .unwrap_or_default()
+            .contains("\"result\":\"initialized\"")
     }));
     // Ordinary user download auditing keeps its independent action.
     let response = test::call_service(
@@ -704,7 +704,7 @@ async fn expiration_disabled_switch_and_revoked_session_invalidate_existing_cont
 }
 
 #[actix_web::test]
-async fn download_audit_failure_withholds_init_urls_and_stream_body() {
+async fn audit_failure_withholds_new_init_but_does_not_reaudit_existing_transfers() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
@@ -747,13 +747,8 @@ async fn download_audit_failure_withholds_init_urls_and_stream_body() {
         grant_count
     );
     let response = test::call_service(&app, get(&token, &stream_uri(&init)).to_request()).await;
-    assert_eq!(response.status(), 403);
-    let body = test::read_body(response).await;
-    assert!(
-        !body
-            .windows(b"test content".len())
-            .any(|window| window == b"test content")
-    );
+    assert_eq!(response.status(), 200);
+    assert_eq!(test::read_body(response).await.as_ref(), b"test content");
 }
 
 #[actix_web::test]
@@ -844,6 +839,14 @@ async fn every_content_endpoint_requires_administrator_authentication_and_post_r
     admin_create_user!(app, admin, "reader", "reader@example.com", "password123");
     let (reader, _) = login_user!(app, "reader", "password123");
     for (method, uri) in [
+        (
+            actix_web::http::Method::GET,
+            "/api/v1/admin/content-access/files/1?access_id=unknown",
+        ),
+        (
+            actix_web::http::Method::GET,
+            "/api/v1/admin/content-access/files/1/versions?access_id=unknown",
+        ),
         (
             actix_web::http::Method::GET,
             "/api/v1/admin/content-access/status",
@@ -941,10 +944,222 @@ async fn missing_storage_object_fails_without_returning_a_content_body_and_is_au
         .all(state.writer_db())
         .await
         .unwrap();
-    assert!(audits.iter().any(|row| {
-        row.details
+    assert_eq!(audits.len(), 1);
+    assert!(
+        audits[0]
+            .details
             .as_deref()
             .unwrap_or_default()
-            .contains("\"result\":\"failed\"")
-    }));
+            .contains("\"result\":\"initialized\"")
+    );
+}
+
+#[actix_web::test]
+async fn audit_access_exposes_target_reason_and_remark_and_enriches_legacy_rows() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let uid = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let target_id = admin_create_user!(
+        app,
+        token,
+        "supporttarget",
+        "supporttarget@example.com",
+        "password123"
+    );
+    enable(&state).await;
+    let response = test::call_service(&app, post(&token, "/api/v1/admin/content-access", json!({"scope_kind":"personal", "target_id": target_id, "reason":"security_investigation", "remark":"用户报告缺少文件 <case-42>"})).to_request()).await;
+    assert_eq!(response.status(), 200);
+    let record = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq("admin_workspace_inspect"))
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.entity_name.as_deref(), Some("supporttarget"));
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            "/api/v1/admin/audit-logs?action=admin_workspace_inspect",
+        )
+        .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    let entry = &body["data"]["items"][0];
+    assert_eq!(
+        entry["presentation"]["target"]["params"]["name"],
+        "supporttarget"
+    );
+    assert_eq!(entry["presentation"]["target"]["params"]["id"], target_id);
+    assert_eq!(
+        entry["presentation"]["detail"]["params"]["reason"],
+        "security_investigation"
+    );
+    assert_eq!(
+        entry["presentation"]["detail"]["params"]["remark"],
+        "用户报告缺少文件 <case-42>"
+    );
+    // New evidence keeps the original name after a later rename.
+    let mut target = user_repo::find_by_id(state.writer_db(), target_id)
+        .await
+        .unwrap()
+        .into_active_model();
+    target.username = Set("renamedtarget".to_string());
+    target.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            "/api/v1/admin/audit-logs?action=admin_workspace_inspect",
+        )
+        .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["items"][0]["entity_name"], "supporttarget");
+    // Previously stored rows had no name; repair presentation at read time without rewriting history.
+    let mut legacy = record.into_active_model();
+    legacy.entity_name = Set(None);
+    legacy.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            "/api/v1/admin/audit-logs?action=admin_workspace_inspect",
+        )
+        .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["items"][0]["entity_name"], "renamedtarget");
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            "/api/v1/admin/audit-logs/export?action=admin_workspace_inspect",
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let csv = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
+    assert!(csv.contains("renamedtarget"));
+    assert!(csv.contains("security_investigation"));
+    assert!(csv.contains("用户报告缺少文件"));
+    // The actor is deliberately different from the audited workspace owner.
+    assert_ne!(uid, target_id);
+}
+
+#[actix_web::test]
+async fn workspace_file_and_revision_reads_reuse_access_without_reauthorization() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let uid = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let other_id = admin_create_user!(
+        app,
+        token,
+        "scopeowner",
+        "scopeowner@example.com",
+        "password123"
+    );
+    let (owner, _) = login_user!(app, "scopeowner", "password123");
+    let file_id = upload_test_file_named!(app, owner, "owned.txt");
+    let private_file = upload_test_file_named!(app, token, "admin-private.txt");
+    enable(&state).await;
+    let access = grant!(app, token, other_id);
+    aster_drive::services::files::file::update_content(
+        &state,
+        file_id,
+        other_id,
+        actix_web::web::Bytes::from_static(b"second content"),
+        None,
+    )
+    .await
+    .unwrap();
+    let uri = format!("/api/v1/admin/content-access/files/{file_id}");
+    let response = test::call_service(
+        &app,
+        get(&token, &format!("{uri}?access_id={access}")).to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["name"], "owned.txt");
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            &format!("{uri}/versions?access_id={access}&limit=1"),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"][0]["current"], true);
+    let sequence = body["data"][0]["version"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            &format!("{uri}/versions?access_id={access}&limit=1&after_sequence={sequence}"),
+        )
+        .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"][0]["current"], false);
+    assert!(body["data"][0]["etag"].is_string());
+    for suffix in ["", "/versions"] {
+        let response = test::call_service(
+            &app,
+            get(
+                &token,
+                &format!(
+                    "/api/v1/admin/content-access/files/{private_file}{suffix}?access_id={access}"
+                ),
+            )
+            .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 403);
+    }
+    let init = init_download!(app, token, access, file_id, None::<i64>);
+    let download_id = init["resource"]["request"]["url"]
+        .as_str()
+        .unwrap()
+        .split('/')
+        .rev()
+        .nth(1)
+        .unwrap();
+    for suffix in ["", "/versions"] {
+        let response = test::call_service(
+            &app,
+            get(&token, &format!("{uri}{suffix}?access_id={download_id}")).to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 403);
+    }
+    // No new workspace inspection is created by details/history navigation or transfer retries.
+    assert_eq!(
+        audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq("admin_workspace_inspect"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        1
+    );
+    assert_ne!(uid, other_id);
 }

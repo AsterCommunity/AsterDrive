@@ -99,7 +99,7 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(handlers.onInfo).toHaveBeenCalledWith("file", 7);
 	});
 
-	it("limits read-only file actions to open and download", () => {
+	it("limits read-only file actions to open, download and explicitly provided inspection", () => {
 		const handlers = createHandlers();
 		handlers.onFileOpen = undefined;
 		const file = {
@@ -122,7 +122,9 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(props.onDownload).toBeTypeOf("function");
 		expect(props.onArchiveCompress).toBeUndefined();
 		expect(props.onDelete).toBeUndefined();
-		expect(props.onVersions).toBeUndefined();
+		expect(props.onVersions).toBeDefined();
+		props.onVersions?.();
+		expect(handlers.onVersions).toHaveBeenCalledWith(file.id);
 		expect(props.isLocked).toBe(false);
 		expect(handlers.onFileClick).toHaveBeenCalledWith(file);
 		expect(handlers.onDownload).toHaveBeenCalledWith(7, "bundle.zip");
