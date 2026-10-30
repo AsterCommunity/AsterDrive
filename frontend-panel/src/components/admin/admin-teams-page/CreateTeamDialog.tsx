@@ -9,6 +9,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -45,7 +46,25 @@ interface CreateTeamDialogProps {
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-export function CreateTeamDialog({
+export function CreateTeamDialog(props: CreateTeamDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<CreateTeamDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function CreateTeamDialogContent({
 	form,
 	open,
 	policyGroupOptions,

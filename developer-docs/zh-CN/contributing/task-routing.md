@@ -54,6 +54,7 @@
 | 任务 | 先读 | 代码入口 | 最低验证 |
 | --- | --- | --- | --- |
 | 前端页面、组件或交互 | [`frontend-panel/AGENTS.md`](https://github.com/AsterCommunity/AsterDrive/blob/master/frontend-panel/AGENTS.md) | 相邻 page/component/hook/service/i18n | `bun run check`、focused Vitest；关键用户流程跑 Playwright |
+| 弹窗、详情面板、退出资源释放 | [前端弹窗生命周期](../design/frontend-dialog-lifecycle.md) | `components/ui/dialog-lifecycle.tsx`、业务内容组件及相关 resource hook | 显式退出完成/快速重开/stale mutation 单测；真实动画、嵌套焦点及移动端 Playwright |
 | API schema / generated client | [API 概览](../api/index.md) | Rust DTO/OpenAPI、`frontend-panel/generated/openapi.json`、generated service | OpenAPI export、`bun run generate-api`、检查生成 diff 和前端类型检查 |
 | Storage policy 前端 | [Descriptor 规范化](../design/storage-descriptor-normalization-contract.md) | storage policy fields/options/actions | descriptor 驱动字段、payload、连接测试和 transition coverage；不增加 driver 白名单矩阵 |
 

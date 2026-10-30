@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { useWebdavAccountDialogState } from "@/components/webdav/useWebdavAccountDialogState";
 import { WebdavAccountTable } from "@/components/webdav/WebdavAccountTable";
@@ -11,7 +12,6 @@ import { WebdavCredentialsDialog } from "@/components/webdav/WebdavCredentialsDi
 import { handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { usePendingId } from "@/hooks/usePendingId";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import { absoluteAppUrl } from "@/lib/publicSiteUrl";
@@ -62,13 +62,7 @@ export function TeamManageWebdavSection({
 		pendingId: togglingAccountId,
 		runWithPending: runWithTogglingAccount,
 	} = usePendingId<number>();
-	const {
-		retainedValue: recentCredentials,
-		handleOpenChangeComplete: handleCredentialsDialogOpenChangeComplete,
-	} = useRetainedDialogValue(
-		dialogState.showPassword,
-		dialogState.credentialsDialogOpen,
-	);
+	const recentCredentials = dialogState.showPassword;
 
 	const fetchFolders = useCallback(async () => {
 		try {
@@ -118,6 +112,15 @@ export function TeamManageWebdavSection({
 		[t],
 	);
 
+	const isCreateCurrent = useDialogActivity(
+		undefined,
+		dialogState.createDialogOpen,
+	);
+	const isTestCurrent = useDialogActivity(
+		recentCredentials,
+		dialogState.credentialsDialogOpen,
+	);
+
 	const handleCreate = async () => {
 		if (!dialogState.newUsername.trim()) {
 			toast.error(t("webdav:username_required"));
@@ -131,16 +134,17 @@ export function TeamManageWebdavSection({
 				password: dialogState.newPassword.trim() || undefined,
 				root_folder_id: dialogState.selectedFolderId ?? null,
 			});
-			dialogState.showCreatedCredentials({
-				username: result.username,
-				password: result.password,
-			});
+			if (isCreateCurrent())
+				dialogState.showCreatedCredentials({
+					username: result.username,
+					password: result.password,
+				});
 			toast.success(t("admin:webdav_account_created"));
 			void reload();
 		} catch (err) {
-			handleApiError(err);
+			if (isCreateCurrent()) handleApiError(err);
 		} finally {
-			dialogState.setCreating(false);
+			if (isCreateCurrent()) dialogState.setCreating(false);
 		}
 	};
 
@@ -176,13 +180,15 @@ export function TeamManageWebdavSection({
 				username: recentCredentials.username,
 				password: recentCredentials.password,
 			});
+			if (!isTestCurrent()) return;
 			dialogState.setTestResult(true);
 			toast.success(t("admin:connection_success"));
 		} catch {
+			if (!isTestCurrent()) return;
 			dialogState.setTestResult(false);
 			toast.error(t("admin:connection_test_failed"));
 		} finally {
-			dialogState.setTesting(false);
+			if (isTestCurrent()) dialogState.setTesting(false);
 		}
 	};
 
@@ -283,11 +289,6 @@ export function TeamManageWebdavSection({
 					dialogState.setCredentialsDialogOpen(open);
 					if (!open) {
 						dialogState.clearCredentials();
-					}
-				}}
-				onOpenChangeComplete={(open) => {
-					handleCredentialsDialogOpenChangeComplete(open);
-					if (!open) {
 						dialogState.setTestResult(null);
 					}
 				}}

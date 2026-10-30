@@ -7,6 +7,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,7 +43,27 @@ interface WebdavCreateAccountDialogProps {
 	usernamePlaceholder: string;
 }
 
-export function WebdavCreateAccountDialog({
+export function WebdavCreateAccountDialog(
+	props: WebdavCreateAccountDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<WebdavCreateAccountDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function WebdavCreateAccountDialogContent({
 	autoGenerateLabel,
 	createLabel,
 	createTitle,

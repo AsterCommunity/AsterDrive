@@ -438,7 +438,9 @@ describe("SecurityPasskeysSection", () => {
 		await waitFor(() =>
 			expect(mockState.authService.deletePasskey).toHaveBeenCalledWith(1),
 		);
-		expect(screen.queryByText("Tablet")).not.toBeInTheDocument();
+		await waitFor(() =>
+			expect(screen.queryByText("Tablet")).not.toBeInTheDocument(),
+		);
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"settings:settings_passkeys_deleted",
 		);

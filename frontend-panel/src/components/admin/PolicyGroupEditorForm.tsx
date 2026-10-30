@@ -20,6 +20,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
@@ -1238,36 +1239,46 @@ export function PolicyGroupEditorForm({
 			</div>
 
 			{/* 文件类别说明弹窗 */}
-			<Dialog open={categoriesHelpOpen} onOpenChange={setCategoriesHelpOpen}>
-				<DialogContent className="sm:max-w-lg">
-					<DialogHeader>
-						<DialogTitle>{t("policy_group_categories_help_title")}</DialogTitle>
-						<DialogDescription>
-							{t("policy_group_categories_help_intro")}
-						</DialogDescription>
-					</DialogHeader>
-					<div className="divide-y text-sm">
-						{FILE_CATEGORY_KEYS.map((category) => (
-							<div
-								key={category}
-								className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 py-2.5"
-							>
-								<div>
-									<code className="text-xs text-blue-600 dark:text-blue-300">
-										{category}
-									</code>
-									<span className="ml-1.5 text-muted-foreground">
-										{t(`policy_group_category_${category}`)}
-									</span>
-								</div>
-								<div className="text-muted-foreground">
-									{t(`policy_group_category_examples_${category}`)}
-								</div>
+			<DialogLifecycle
+				open={categoriesHelpOpen}
+				target={null}
+				onOpenChange={setCategoriesHelpOpen}
+			>
+				{({ active, onOpenChange }) => (
+					<Dialog open={active} onOpenChange={onOpenChange}>
+						<DialogContent className="sm:max-w-lg">
+							<DialogHeader>
+								<DialogTitle>
+									{t("policy_group_categories_help_title")}
+								</DialogTitle>
+								<DialogDescription>
+									{t("policy_group_categories_help_intro")}
+								</DialogDescription>
+							</DialogHeader>
+							<div className="divide-y text-sm">
+								{FILE_CATEGORY_KEYS.map((category) => (
+									<div
+										key={category}
+										className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 py-2.5"
+									>
+										<div>
+											<code className="text-xs text-blue-600 dark:text-blue-300">
+												{category}
+											</code>
+											<span className="ml-1.5 text-muted-foreground">
+												{t(`policy_group_category_${category}`)}
+											</span>
+										</div>
+										<div className="text-muted-foreground">
+											{t(`policy_group_category_examples_${category}`)}
+										</div>
+									</div>
+								))}
 							</div>
-						))}
-					</div>
-				</DialogContent>
-			</Dialog>
+						</DialogContent>
+					</Dialog>
+				)}
+			</DialogLifecycle>
 		</div>
 	);
 }

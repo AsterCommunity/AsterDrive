@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import {
+	useDialogActivity,
+	useDialogPresentation,
+} from "@/components/ui/dialog-lifecycle";
 import { config } from "@/config/app";
 import { shouldSendResourceCredentials } from "@/lib/apiUrl";
 import { logger } from "@/lib/logger";
@@ -605,6 +609,8 @@ export function useBlobUrl(
 	resource: ResourcePath | null,
 	options?: BlobUrlOptions,
 ) {
+	const isCurrent = useDialogActivity();
+	const active = useDialogPresentation()?.active ?? true;
 	const [blob, setBlob] = useState<Blob | null>(null);
 	const [blobUrl, setBlobUrl] = useState<string | null>(null);
 	const [error, setError] = useState(false);
@@ -645,13 +651,6 @@ export function useBlobUrl(
 			requestPath,
 		};
 
-		const unsubscribe = subscribeBlobUrlInvalidation(cacheKey, () => {
-			setBlob(null);
-			setBlobUrl(null);
-			setError(false);
-			setRetryCount((n) => n + 1);
-		});
-
 		const cached = blobUrlCache.get(cacheKey);
 		const cachedMatchesCanonical =
 			!canonicalEtag || cached?.etag === canonicalEtag;
@@ -665,23 +664,22 @@ export function useBlobUrl(
 		setLoading(cached?.objectUrl === undefined || !cachedMatchesCanonical);
 		acquireBlobUrl(effectiveResource, lane)
 			.then((nextBlobUrl) => {
-				if (cancelled) return;
+				if (cancelled || !isCurrent()) return;
 				setBlob(blobUrlCache.get(cacheKey)?.blob ?? null);
 				setBlobUrl(nextBlobUrl || null);
 			})
 			.catch(() => {
-				if (cancelled) return;
+				if (cancelled || !isCurrent()) return;
 				setBlob(null);
 				setError(true);
 			})
 			.finally(() => {
-				if (cancelled) return;
+				if (cancelled || !isCurrent()) return;
 				setLoading(false);
 			});
 
 		return () => {
 			cancelled = true;
-			unsubscribe();
 			releaseBlobUrl(cacheKey);
 		};
 	}, [
@@ -693,6 +691,16 @@ export function useBlobUrl(
 		retryCount,
 		shouldIncludeCredentials,
 	]);
+
+	useEffect(() => {
+		if (!active || !cacheKey) return;
+		return subscribeBlobUrlInvalidation(cacheKey, () => {
+			setBlob(null);
+			setBlobUrl(null);
+			setError(false);
+			setRetryCount((n) => n + 1);
+		});
+	}, [active, cacheKey]);
 
 	return { blob, blobUrl, error, loading, retry };
 }

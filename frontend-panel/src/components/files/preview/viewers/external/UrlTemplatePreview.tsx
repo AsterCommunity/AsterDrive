@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
+import { useDialogPresentation } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import type { PreviewLinkInfo } from "@/types/api";
 import {
@@ -81,6 +82,7 @@ export function UrlTemplatePreview({
 	optionKey,
 	rawConfig,
 }: UrlTemplatePreviewProps) {
+	const active = useDialogPresentation()?.active ?? true;
 	const { t } = useTranslation("files");
 	const [previewState, setPreviewState] =
 		useState<UrlTemplatePreviewState | null>(null);
@@ -90,6 +92,7 @@ export function UrlTemplatePreview({
 	);
 
 	useEffect(() => {
+		if (!active) return;
 		let cancelled = false;
 
 		void resolveUrlTemplateTarget(
@@ -112,6 +115,7 @@ export function UrlTemplatePreview({
 			cancelled = true;
 		};
 	}, [
+		active,
 		createExternalPreviewLink,
 		downloadPath,
 		file,

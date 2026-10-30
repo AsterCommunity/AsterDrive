@@ -9,6 +9,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
 import { useFileStore } from "@/stores/fileStore";
@@ -18,10 +22,29 @@ interface CreateFolderDialogProps {
 	onOpenChange: (open: boolean) => void;
 }
 
-export function CreateFolderDialog({
+export function CreateFolderDialog(props: CreateFolderDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<CreateFolderDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function CreateFolderDialogContent({
 	open,
 	onOpenChange,
 }: CreateFolderDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation("files");
 	const createFolder = useFileStore((s) => s.createFolder);
 	const [name, setName] = useState("");
@@ -37,13 +60,12 @@ export function CreateFolderDialog({
 		try {
 			await createFolder(trimmedName);
 			toast.success(t("create_folder_success"));
-			setName("");
 			onOpenChange(false);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 		} finally {
 			submittingRef.current = false;
-			setSubmitting(false);
+			if (isCurrent()) setSubmitting(false);
 		}
 	};
 

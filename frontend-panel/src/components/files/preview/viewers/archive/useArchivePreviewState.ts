@@ -1,4 +1,5 @@
 import { useEffect, useReducer } from "react";
+import { useDialogPresentation } from "@/components/ui/dialog-lifecycle";
 import { ApiPendingError, isRequestCanceled } from "@/services/http";
 import type {
 	ArchivePreviewAction,
@@ -108,6 +109,7 @@ function archivePreviewReducer(
 export function useArchivePreviewState(
 	loadManifest: ArchivePreviewLoadManifest | undefined,
 ) {
+	const active = useDialogPresentation()?.active ?? true;
 	const [state, dispatch] = useReducer(
 		archivePreviewReducer,
 		loadManifest,
@@ -116,6 +118,7 @@ export function useArchivePreviewState(
 	const { filenameEncoding, reloadKey } = state;
 
 	useEffect(() => {
+		if (!active) return;
 		void reloadKey;
 		if (!loadManifest) {
 			dispatch({ type: "manifestLoaderUnavailable" });
@@ -156,7 +159,7 @@ export function useArchivePreviewState(
 			}
 			controller.abort();
 		};
-	}, [filenameEncoding, loadManifest, reloadKey]);
+	}, [active, filenameEncoding, loadManifest, reloadKey]);
 
 	return [state, dispatch] as const;
 }

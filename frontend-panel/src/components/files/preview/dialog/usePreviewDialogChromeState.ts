@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { useDialogPresentation } from "@/components/ui/dialog-lifecycle";
 import type { OpenWithOption } from "../capabilities/types";
 import type { FilePreviewDialogUiAction } from "./filePreviewDialogState";
 
-const PREVIEW_DIALOG_OPEN_ANIMATION_MS = 120;
 // Matches Tailwind's md breakpoint boundary.
 const MOBILE_PREVIEW_MEDIA_QUERY = "(max-width: 767px)";
 
@@ -64,6 +64,7 @@ export function usePreviewDialogChromeState({
 	open,
 	showOpenMethodChooser,
 }: UsePreviewDialogChromeStateOptions) {
+	const phase = useDialogPresentation()?.phase;
 	const isMobilePreviewViewport = useMediaQuery(MOBILE_PREVIEW_MEDIA_QUERY);
 	const usesInnerScroll =
 		activeOption?.mode === "pdf" ||
@@ -93,14 +94,8 @@ export function usePreviewDialogChromeState({
 			return;
 		}
 
-		const timer = window.setTimeout(() => {
-			dispatch({ type: "disableAnimation" });
-		}, PREVIEW_DIALOG_OPEN_ANIMATION_MS);
-
-		return () => {
-			window.clearTimeout(timer);
-		};
-	}, [dispatch, isDialogAnimationEnabled, open, showOpenMethodChooser]);
+		if (phase === "open") dispatch({ type: "disableAnimation" });
+	}, [dispatch, isDialogAnimationEnabled, open, phase, showOpenMethodChooser]);
 
 	const dialogContentClassName = showOpenMethodChooser
 		? "flex max-h-[min(90vh,calc(100vh-2rem))] w-[min(96vw,32rem)] max-w-[min(96vw,32rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,32rem)]"

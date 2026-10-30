@@ -7,6 +7,10 @@ import {
 	ManagerDialogShell,
 } from "@/components/common/ManagerDialogShell";
 import { Button } from "@/components/ui/button";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
@@ -81,7 +85,36 @@ function canCreateTag(tags: TagInfo[], name: string) {
 	);
 }
 
-export function TagManagerDialog({
+export function TagManagerDialog(props: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	target: TagManagerTarget | null;
+}) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={
+				props.target?.mode === "entity"
+					? `${props.target.entityType}:${props.target.entityId}`
+					: props.target?.mode === "batch"
+						? `${props.target.fileIds.join(",")}:${props.target.folderIds.join(",")}`
+						: "none"
+			}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<TagManagerDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function TagManagerDialogContent({
 	open,
 	onOpenChange,
 	target,
@@ -98,6 +131,8 @@ export function TagManagerDialog({
 		() => new Map(),
 	);
 	const [query, setQuery] = useState("");
+	const isCurrent = useDialogActivity();
+	const isQueryCurrent = useDialogActivity(query);
 	const [loading, setLoading] = useState(false);
 	const [loadingMoreTags, setLoadingMoreTags] = useState(false);
 	const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -109,19 +144,6 @@ export function TagManagerDialog({
 		knownTagIdsRef.current = new Set(nextTags.map((tag) => tag.id));
 		setTags(sortTags(nextTags));
 	}, []);
-
-	const resetDialogState = useCallback(() => {
-		syncedTargetRef.current = null;
-		replaceTags([]);
-		setTagsTotal(0);
-		setEntityTags([]);
-		setBatchActions(new Map());
-		setQuery("");
-		setLoading(false);
-		setLoadingMoreTags(false);
-		setBusyKey(null);
-		setLibraryManagerOpen(false);
-	}, [replaceTags]);
 
 	const syncDraftState = (nextTarget: TagManagerTarget | null) => {
 		syncedTargetRef.current = nextTarget;
@@ -142,13 +164,6 @@ export function TagManagerDialog({
 	if (nextSyncedTarget !== syncedTarget) {
 		syncDraftState(nextSyncedTarget);
 	}
-
-	const handleOpenChangeComplete = useCallback(
-		(nextOpen: boolean) => {
-			if (!nextOpen) resetDialogState();
-		},
-		[resetDialogState],
-	);
 
 	useEffect(() => {
 		if (!open || !target) {
@@ -175,7 +190,7 @@ export function TagManagerDialog({
 				}
 			})
 			.catch((err) => {
-				if (!cancelled) handleApiError(err);
+				if (!cancelled && isCurrent()) handleApiError(err);
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -184,7 +199,7 @@ export function TagManagerDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, query, replaceTags, target]);
+	}, [open, query, replaceTags, target, isCurrent]);
 
 	const hasMoreTags = tags.length < tagsTotal;
 	const normalizedQuery = normalizeQuery(query);
@@ -249,6 +264,7 @@ export function TagManagerDialog({
 					...(query.trim() ? { q: query.trim() } : {}),
 				},
 			});
+			if (!isQueryCurrent()) return;
 			setTags((current) => {
 				const next = sortTags([...current, ...page.items]);
 				knownTagIdsRef.current = new Set(next.map((tag) => tag.id));
@@ -256,11 +272,11 @@ export function TagManagerDialog({
 			});
 			setTagsTotal(page.total);
 		} catch (err) {
-			handleApiError(err);
+			if (isQueryCurrent()) handleApiError(err);
 		} finally {
-			setLoadingMoreTags(false);
+			if (isQueryCurrent()) setLoadingMoreTags(false);
 		}
-	}, [hasMoreTags, loadingMoreTags, query, tags.length]);
+	}, [hasMoreTags, loadingMoreTags, query, tags.length, isQueryCurrent]);
 
 	const toggleEntityTag = (tag: TagInfo) => {
 		if (target?.mode !== "entity") return;
@@ -286,6 +302,7 @@ export function TagManagerDialog({
 	};
 
 	const handleLibraryTagUpdated = (tag: TagInfo) => {
+		if (!isCurrent()) return;
 		const summary = toSummary(tag);
 		knownTagIdsRef.current.add(tag.id);
 		setTags((current) =>
@@ -307,6 +324,7 @@ export function TagManagerDialog({
 	};
 
 	const handleLibraryTagDeleted = (tagId: number) => {
+		if (!isCurrent()) return;
 		knownTagIdsRef.current.delete(tagId);
 		setTags((current) => current.filter((tag) => tag.id !== tagId));
 		setTagsTotal((current) => Math.max(0, current - 1));
@@ -320,6 +338,7 @@ export function TagManagerDialog({
 	};
 
 	const handleLibraryTagCreated = (tag: TagInfo) => {
+		if (!isCurrent()) return;
 		if (knownTagIdsRef.current.has(tag.id)) return;
 
 		knownTagIdsRef.current.add(tag.id);
@@ -337,6 +356,7 @@ export function TagManagerDialog({
 				name,
 				color: safeTagColor(createPreviewColor),
 			});
+			if (!isCurrent()) return;
 			knownTagIdsRef.current.add(created.id);
 			setTags((current) => sortTags([...current, created]));
 			setTagsTotal((current) => current + 1);
@@ -353,9 +373,9 @@ export function TagManagerDialog({
 			}
 			toast.success(t("tag_created"));
 		} catch (err) {
-			handleApiError(err);
+			if (isCurrent()) handleApiError(err);
 		} finally {
-			setBusyKey(null);
+			if (isCurrent()) setBusyKey(null);
 		}
 	};
 
@@ -371,7 +391,7 @@ export function TagManagerDialog({
 					target.entityId,
 					nextTags.map((tag) => tag.id),
 				);
-				target.onTagsChange?.(nextTags);
+				if (isCurrent()) target.onTagsChange?.(nextTags);
 				await target.onChanged?.();
 				toast.success(t("tag_saved"));
 				onOpenChange(false);
@@ -395,9 +415,9 @@ export function TagManagerDialog({
 				onOpenChange(false);
 			}
 		} catch (err) {
-			handleApiError(err);
+			if (isCurrent()) handleApiError(err);
 		} finally {
-			setBusyKey(null);
+			if (isCurrent()) setBusyKey(null);
 		}
 	};
 
@@ -502,292 +522,289 @@ export function TagManagerDialog({
 	);
 
 	return (
-		<>
-			<ManagerDialogShell
-				open={open}
-				onOpenChange={onOpenChange}
-				onOpenChangeComplete={handleOpenChangeComplete}
-				title={title}
-				description={description}
-				controls={controls}
-				footer={footer}
-				className="sm:h-[min(88vh,44rem)] sm:max-w-2xl"
-			>
-				<ManagerDialogScrollableList className="flex min-h-0 flex-col overflow-hidden">
-					<div className="flex min-h-0 flex-1 flex-col gap-4">
-						{target?.mode === "entity" ? (
-							<section className="shrink-0 space-y-2">
-								<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-									{t("tag_selected")}
-								</h3>
-								<div className="flex max-h-24 min-h-11 flex-wrap content-start gap-1.5 overflow-y-auto rounded-lg border border-border/70 bg-muted/25 p-3">
-									{entityTags.length > 0 ? (
-										entityTags.map((tag) => (
+		<ManagerDialogShell
+			open={open}
+			onOpenChange={onOpenChange}
+			title={title}
+			description={description}
+			controls={controls}
+			footer={footer}
+			className="sm:h-[min(88vh,44rem)] sm:max-w-2xl"
+		>
+			<ManagerDialogScrollableList className="flex min-h-0 flex-col overflow-hidden">
+				<div className="flex min-h-0 flex-1 flex-col gap-4">
+					{target?.mode === "entity" ? (
+						<section className="shrink-0 space-y-2">
+							<h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+								{t("tag_selected")}
+							</h3>
+							<div className="flex max-h-24 min-h-11 flex-wrap content-start gap-1.5 overflow-y-auto rounded-lg border border-border/70 bg-muted/25 p-3">
+								{entityTags.length > 0 ? (
+									entityTags.map((tag) => (
+										<TagChip
+											key={tag.id}
+											tag={tag}
+											removeLabel={t("tag_remove")}
+											onRemove={() => {
+												setEntityTags((current) =>
+													current.filter(
+														(currentTag) => currentTag.id !== tag.id,
+													),
+												);
+											}}
+										/>
+									))
+								) : (
+									<span className="text-sm text-muted-foreground">
+										{t("tag_no_tags")}
+									</span>
+								)}
+							</div>
+						</section>
+					) : null}
+
+					{target?.mode === "batch" && batchChanged ? (
+						<section className="shrink-0 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+							{pendingAddTags.length > 0 ? (
+								<div className="flex min-w-0 items-start gap-2">
+									<div className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[11px] font-medium text-primary">
+										<Icon name="Plus" className="size-3" />
+										{t("tag_pending_add")}
+									</div>
+									<div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+										{pendingAddTags.map((tag) => (
 											<TagChip
 												key={tag.id}
-												tag={tag}
+												tag={toSummary(tag)}
 												removeLabel={t("tag_remove")}
-												onRemove={() => {
-													setEntityTags((current) =>
-														current.filter(
-															(currentTag) => currentTag.id !== tag.id,
-														),
-													);
-												}}
+												onRemove={() => setBatchAction(tag.id, "none")}
 											/>
-										))
-									) : (
-										<span className="text-sm text-muted-foreground">
-											{t("tag_no_tags")}
-										</span>
-									)}
+										))}
+									</div>
 								</div>
-							</section>
-						) : null}
-
-						{target?.mode === "batch" && batchChanged ? (
-							<section className="shrink-0 space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2.5">
-								{pendingAddTags.length > 0 ? (
-									<div className="flex min-w-0 items-start gap-2">
-										<div className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[11px] font-medium text-primary">
-											<Icon name="Plus" className="size-3" />
-											{t("tag_pending_add")}
-										</div>
-										<div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-											{pendingAddTags.map((tag) => (
-												<TagChip
-													key={tag.id}
-													tag={toSummary(tag)}
-													removeLabel={t("tag_remove")}
-													onRemove={() => setBatchAction(tag.id, "none")}
-												/>
-											))}
-										</div>
+							) : null}
+							{pendingRemoveTags.length > 0 ? (
+								<div className="flex min-w-0 items-start gap-2">
+									<div className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-destructive/10 px-1.5 text-[11px] font-medium text-destructive">
+										<Icon name="Minus" className="size-3" />
+										{t("tag_pending_remove")}
 									</div>
-								) : null}
-								{pendingRemoveTags.length > 0 ? (
-									<div className="flex min-w-0 items-start gap-2">
-										<div className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-destructive/10 px-1.5 text-[11px] font-medium text-destructive">
-											<Icon name="Minus" className="size-3" />
-											{t("tag_pending_remove")}
-										</div>
-										<div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
-											{pendingRemoveTags.map((tag) => (
-												<TagChip
-													key={tag.id}
-													tag={toSummary(tag)}
-													removeLabel={t("tag_remove")}
-													onRemove={() => setBatchAction(tag.id, "none")}
-												/>
-											))}
-										</div>
-									</div>
-								) : null}
-							</section>
-						) : null}
-
-						<section className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-							<div className="flex items-center justify-between gap-3">
-								<h3
-									id={TAG_LIBRARY_REGION_ID}
-									className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
-								>
-									{t("tag_library")}
-								</h3>
-								<Button
-									type="button"
-									size="sm"
-									variant="ghost"
-									onClick={() => setLibraryManagerOpen(true)}
-								>
-									<Icon name="PencilSimple" className="size-3.5" />
-									{t("tag_library_manage")}
-								</Button>
-							</div>
-							<section
-								aria-labelledby={TAG_LIBRARY_REGION_ID}
-								className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1"
-							>
-								{canCreate ? (
-									<button
-										type="button"
-										className="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-dashed border-primary/45 bg-primary/5 px-2.5 text-left text-sm transition-colors hover:bg-primary/10"
-										disabled={creating}
-										onClick={() => {
-											void handleCreateTag();
-										}}
-									>
-										<span
-											className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
-											style={{ backgroundColor: createPreviewColor }}
-											aria-hidden
-										/>
-										<span className="min-w-0 flex-1 truncate">
-											{t("tag_create_named", { name: query.trim() })}
-										</span>
-										{creating ? (
-											<Icon
-												name="Spinner"
-												className="size-4 shrink-0 animate-spin"
-											/>
-										) : (
-											<Icon name="Plus" className="size-4 shrink-0" />
-										)}
-									</button>
-								) : null}
-
-								{loading ? (
-									<p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm text-muted-foreground">
-										{t("info_loading")}
-									</p>
-								) : filteredTags.length > 0 ? (
-									filteredTags.map((tag) => {
-										const selected = selectedIds.has(tag.id);
-										const batchAction = batchActions.get(tag.id) ?? "none";
-
-										if (target?.mode === "entity") {
-											return (
-												<button
-													key={tag.id}
-													type="button"
-													className={cn(
-														"flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-card/60 px-2.5 py-2 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
-														selected && "border-primary/45 bg-primary/5",
-													)}
-													aria-pressed={selected}
-													onClick={() => toggleEntityTag(tag)}
-												>
-													<span
-														className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
-														style={{ backgroundColor: safeTagColor(tag.color) }}
-														aria-hidden
-													/>
-													<span className="min-w-0 flex-1 truncate text-sm">
-														{tag.name}
-													</span>
-													<span
-														className={cn(
-															"inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors",
-															selected &&
-																"bg-secondary/90 text-secondary-foreground",
-														)}
-														aria-hidden
-													>
-														<Icon
-															name={selected ? "Check" : "Plus"}
-															className="size-4"
-														/>
-													</span>
-												</button>
-											);
-										}
-
-										return (
-											<div
+									<div className="flex min-w-0 flex-1 flex-wrap gap-1.5">
+										{pendingRemoveTags.map((tag) => (
+											<TagChip
 												key={tag.id}
+												tag={toSummary(tag)}
+												removeLabel={t("tag_remove")}
+												onRemove={() => setBatchAction(tag.id, "none")}
+											/>
+										))}
+									</div>
+								</div>
+							) : null}
+						</section>
+					) : null}
+
+					<section className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+						<div className="flex items-center justify-between gap-3">
+							<h3
+								id={TAG_LIBRARY_REGION_ID}
+								className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+							>
+								{t("tag_library")}
+							</h3>
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								onClick={() => setLibraryManagerOpen(true)}
+							>
+								<Icon name="PencilSimple" className="size-3.5" />
+								{t("tag_library_manage")}
+							</Button>
+						</div>
+						<section
+							aria-labelledby={TAG_LIBRARY_REGION_ID}
+							className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1"
+						>
+							{canCreate ? (
+								<button
+									type="button"
+									className="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-dashed border-primary/45 bg-primary/5 px-2.5 text-left text-sm transition-colors hover:bg-primary/10"
+									disabled={creating}
+									onClick={() => {
+										void handleCreateTag();
+									}}
+								>
+									<span
+										className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+										style={{ backgroundColor: createPreviewColor }}
+										aria-hidden
+									/>
+									<span className="min-w-0 flex-1 truncate">
+										{t("tag_create_named", { name: query.trim() })}
+									</span>
+									{creating ? (
+										<Icon
+											name="Spinner"
+											className="size-4 shrink-0 animate-spin"
+										/>
+									) : (
+										<Icon name="Plus" className="size-4 shrink-0" />
+									)}
+								</button>
+							) : null}
+
+							{loading ? (
+								<p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm text-muted-foreground">
+									{t("info_loading")}
+								</p>
+							) : filteredTags.length > 0 ? (
+								filteredTags.map((tag) => {
+									const selected = selectedIds.has(tag.id);
+									const batchAction = batchActions.get(tag.id) ?? "none";
+
+									if (target?.mode === "entity") {
+										return (
+											<button
+												key={tag.id}
+												type="button"
 												className={cn(
-													"min-w-0 rounded-lg border border-border/70 bg-card/60 px-2.5 py-2 transition-colors",
-													"flex flex-col items-stretch gap-2 sm:flex-row sm:items-center",
-													batchAction === "add" &&
-														"border-primary/45 bg-primary/5",
-													batchAction === "remove" &&
-														"border-destructive/35 bg-destructive/5",
+													"flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-border/70 bg-card/60 px-2.5 py-2 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
+													selected && "border-primary/45 bg-primary/5",
 												)}
+												aria-pressed={selected}
+												onClick={() => toggleEntityTag(tag)}
 											>
-												<button
-													type="button"
-													className="flex min-w-0 flex-1 items-center gap-2 text-left"
-													onClick={() => {
-														if (target?.mode === "batch") {
+												<span
+													className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+													style={{ backgroundColor: safeTagColor(tag.color) }}
+													aria-hidden
+												/>
+												<span className="min-w-0 flex-1 truncate text-sm">
+													{tag.name}
+												</span>
+												<span
+													className={cn(
+														"inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors",
+														selected &&
+															"bg-secondary/90 text-secondary-foreground",
+													)}
+													aria-hidden
+												>
+													<Icon
+														name={selected ? "Check" : "Plus"}
+														className="size-4"
+													/>
+												</span>
+											</button>
+										);
+									}
+
+									return (
+										<div
+											key={tag.id}
+											className={cn(
+												"min-w-0 rounded-lg border border-border/70 bg-card/60 px-2.5 py-2 transition-colors",
+												"flex flex-col items-stretch gap-2 sm:flex-row sm:items-center",
+												batchAction === "add" &&
+													"border-primary/45 bg-primary/5",
+												batchAction === "remove" &&
+													"border-destructive/35 bg-destructive/5",
+											)}
+										>
+											<button
+												type="button"
+												className="flex min-w-0 flex-1 items-center gap-2 text-left"
+												onClick={() => {
+													if (target?.mode === "batch") {
+														setBatchAction(
+															tag.id,
+															batchAction === "add" ? "none" : "add",
+														);
+													}
+												}}
+											>
+												<span
+													className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+													style={{ backgroundColor: safeTagColor(tag.color) }}
+													aria-hidden
+												/>
+												<span className="min-w-0 flex-1 truncate text-sm">
+													{tag.name}
+												</span>
+											</button>
+											{target?.mode === "batch" ? (
+												<div className="grid w-full grid-cols-2 gap-1 sm:w-auto sm:shrink-0">
+													<Button
+														type="button"
+														size="xs"
+														variant={
+															batchAction === "add" ? "secondary" : "outline"
+														}
+														aria-pressed={batchAction === "add"}
+														onClick={() =>
 															setBatchAction(
 																tag.id,
 																batchAction === "add" ? "none" : "add",
-															);
+															)
 														}
-													}}
-												>
-													<span
-														className="size-2.5 shrink-0 rounded-full ring-1 ring-black/10"
-														style={{ backgroundColor: safeTagColor(tag.color) }}
-														aria-hidden
-													/>
-													<span className="min-w-0 flex-1 truncate text-sm">
-														{tag.name}
-													</span>
-												</button>
-												{target?.mode === "batch" ? (
-													<div className="grid w-full grid-cols-2 gap-1 sm:w-auto sm:shrink-0">
-														<Button
-															type="button"
-															size="xs"
-															variant={
-																batchAction === "add" ? "secondary" : "outline"
-															}
-															aria-pressed={batchAction === "add"}
-															onClick={() =>
-																setBatchAction(
-																	tag.id,
-																	batchAction === "add" ? "none" : "add",
-																)
-															}
-														>
-															<Icon name="Plus" className="size-3" />
-															{t("tag_add")}
-														</Button>
-														<Button
-															type="button"
-															size="xs"
-															variant={
-																batchAction === "remove"
-																	? "destructive"
-																	: "outline"
-															}
-															aria-pressed={batchAction === "remove"}
-															onClick={() =>
-																setBatchAction(
-																	tag.id,
-																	batchAction === "remove" ? "none" : "remove",
-																)
-															}
-														>
-															<Icon name="Minus" className="size-3" />
-															{t("tag_remove")}
-														</Button>
-													</div>
-												) : null}
-											</div>
-										);
-									})
-								) : (
-									<p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm text-muted-foreground">
-										{normalizedQuery
-											? t("tag_search_empty")
-											: t("tag_library_empty")}
-									</p>
-								)}
+													>
+														<Icon name="Plus" className="size-3" />
+														{t("tag_add")}
+													</Button>
+													<Button
+														type="button"
+														size="xs"
+														variant={
+															batchAction === "remove"
+																? "destructive"
+																: "outline"
+														}
+														aria-pressed={batchAction === "remove"}
+														onClick={() =>
+															setBatchAction(
+																tag.id,
+																batchAction === "remove" ? "none" : "remove",
+															)
+														}
+													>
+														<Icon name="Minus" className="size-3" />
+														{t("tag_remove")}
+													</Button>
+												</div>
+											) : null}
+										</div>
+									);
+								})
+							) : (
+								<p className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm text-muted-foreground">
+									{normalizedQuery
+										? t("tag_search_empty")
+										: t("tag_library_empty")}
+								</p>
+							)}
 
-								{!loading && hasMoreTags ? (
-									<Button
-										type="button"
-										size="sm"
-										variant="outline"
-										className="w-full"
-										disabled={loadingMoreTags}
-										onClick={() => {
-											void loadMoreTags();
-										}}
-									>
-										{loadingMoreTags ? (
-											<Icon name="Spinner" className="size-3.5 animate-spin" />
-										) : null}
-										{t("tag_library_load_more")}
-									</Button>
-								) : null}
-							</section>
+							{!loading && hasMoreTags ? (
+								<Button
+									type="button"
+									size="sm"
+									variant="outline"
+									className="w-full"
+									disabled={loadingMoreTags}
+									onClick={() => {
+										void loadMoreTags();
+									}}
+								>
+									{loadingMoreTags ? (
+										<Icon name="Spinner" className="size-3.5 animate-spin" />
+									) : null}
+									{t("tag_library_load_more")}
+								</Button>
+							) : null}
 						</section>
-					</div>
-				</ManagerDialogScrollableList>
-			</ManagerDialogShell>
+					</section>
+				</div>
+			</ManagerDialogScrollableList>
 			<TagLibraryManagerDialog
 				open={libraryManagerOpen}
 				onOpenChange={setLibraryManagerOpen}
@@ -795,6 +812,6 @@ export function TagManagerDialog({
 				onTagDeleted={handleLibraryTagDeleted}
 				onTagUpdated={handleLibraryTagUpdated}
 			/>
-		</>
+		</ManagerDialogShell>
 	);
 }

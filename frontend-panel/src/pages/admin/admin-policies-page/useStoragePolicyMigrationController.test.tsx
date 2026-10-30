@@ -81,6 +81,37 @@ function dryRun(
 }
 
 describe("useStoragePolicyMigrationController", () => {
+	it("ignores a delayed dry run after close and allows the new session to retry", async () => {
+		let finish = (_value: StoragePolicyMigrationDryRun) => {};
+		const delayed = new Promise<StoragePolicyMigrationDryRun>((resolve) => {
+			finish = resolve;
+		});
+		const { result } = renderHook(() => useStoragePolicyMigrationController());
+		await act(async () => {
+			await result.current.openDialog();
+		});
+		vi.mocked(adminPolicyService.dryRunMigration).mockReturnValueOnce(delayed);
+		let pending: Promise<void> | undefined;
+		act(() => {
+			pending = result.current.dryRunMigration();
+		});
+		expect(result.current.dryRunLoading).toBe(true);
+		act(() => result.current.setOpen(false));
+		await act(async () => {
+			await result.current.openDialog();
+		});
+		expect(result.current.dryRunLoading).toBe(false);
+		await act(async () => {
+			finish(dryRun());
+			await pending;
+		});
+		expect(result.current.dryRun).toBeNull();
+		await act(async () => {
+			await result.current.dryRunMigration();
+		});
+		expect(result.current.dryRun?.can_start).toBe(true);
+	});
+
 	beforeEach(() => {
 		mockNavigate.mockReset();
 		mockToastError.mockReset();

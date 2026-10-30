@@ -2,6 +2,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -10,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
+import { useDialogPresentation } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import type { PreviewOpenMode, WopiLaunchSession } from "@/types/api";
 import { PreviewLoadingState } from "../../shared/PreviewLoadingState";
@@ -92,6 +94,7 @@ export function WopiPreview({
 	rawConfig,
 	sessionResource,
 }: WopiPreviewProps) {
+	const active = useDialogPresentation()?.active ?? true;
 	const { t } = useTranslation("files");
 	const iframeNameRef = useRef(
 		`wopi-preview-${Math.random().toString(36).slice(2, 10)}`,
@@ -104,11 +107,22 @@ export function WopiPreview({
 		() => ({ sessionResource }),
 		[sessionResource],
 	);
-	const sessionState = useSyncExternalStore(
-		sessionResource.subscribe,
+	const subscribe = useCallback(
+		(listener: () => void) =>
+			active ? sessionResource.subscribe(listener) : () => {},
+		[active, sessionResource],
+	);
+	const liveSnapshot = useSyncExternalStore(
+		subscribe,
 		sessionResource.getSnapshot,
 		sessionResource.getSnapshot,
 	);
+	const retainedSnapshot = useRef(liveSnapshot);
+	useLayoutEffect(() => {
+		if (active) retainedSnapshot.current = liveSnapshot;
+	}, [active, liveSnapshot]);
+	const sessionState = active ? liveSnapshot : retainedSnapshot.current;
+
 	const isLoading = sessionState.loading;
 	const session = isLoading ? null : sessionState.session;
 
@@ -145,6 +159,7 @@ export function WopiPreview({
 	);
 
 	useEffect(() => {
+		if (!active) return;
 		if (!session || !frameSubmissionKey || mode === "new_tab") {
 			submittedFrameRef.current = null;
 			return;
@@ -166,7 +181,7 @@ export function WopiPreview({
 		return () => {
 			window.cancelAnimationFrame(timer);
 		};
-	}, [frameSubmissionKey, mode, requestKey, session, submitToTarget]);
+	}, [active, frameSubmissionKey, mode, requestKey, session, submitToTarget]);
 
 	const openExternally = useCallback(() => {
 		const target = `wopi-external-${Math.random().toString(36).slice(2, 10)}`;

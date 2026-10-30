@@ -15,7 +15,6 @@ export function FilePreviewDialog({
 	open,
 	file,
 	onClose,
-	onOpenChangeComplete,
 	onFileUpdated,
 	editable = true,
 	resources,
@@ -40,11 +39,7 @@ export function FilePreviewDialog({
 
 	return (
 		<>
-			<Dialog
-				open={open}
-				onOpenChange={model.handleDialogOpenChange}
-				onOpenChangeComplete={onOpenChangeComplete}
-			>
+			<Dialog open={open} onOpenChange={model.handleDialogOpenChange}>
 				<DialogContent
 					animated={
 						model.showOpenMethodChooser || model.isImagePreview

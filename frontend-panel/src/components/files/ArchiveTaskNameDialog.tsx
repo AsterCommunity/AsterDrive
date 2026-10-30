@@ -8,6 +8,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,7 +31,6 @@ import type { ArchiveFilenameEncoding } from "@/types/api";
 interface ArchiveTaskNameDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	mode: "compress" | "extract";
 	initialName: string;
 	onSubmit: (
@@ -36,14 +39,33 @@ interface ArchiveTaskNameDialogProps {
 	) => Promise<void>;
 }
 
-export function ArchiveTaskNameDialog({
+export function ArchiveTaskNameDialog(props: ArchiveTaskNameDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={`${props.mode}:${props.initialName}`}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<ArchiveTaskNameDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function ArchiveTaskNameDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	mode,
 	initialName,
 	onSubmit,
 }: ArchiveTaskNameDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["core", "tasks"]);
 	const [name, setName] = useState("");
 	const [filenameEncoding, setFilenameEncoding] =
@@ -69,9 +91,9 @@ export function ArchiveTaskNameDialog({
 			}
 			onOpenChange(false);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 		} finally {
-			setSubmitting(false);
+			if (isCurrent()) setSubmitting(false);
 		}
 	};
 
@@ -100,7 +122,6 @@ export function ArchiveTaskNameDialog({
 					onOpenChange(nextOpen);
 				}
 			}}
-			onOpenChangeComplete={onOpenChangeComplete}
 		>
 			<DialogContent keepMounted>
 				<DialogHeader>

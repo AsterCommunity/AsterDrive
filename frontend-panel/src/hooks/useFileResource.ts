@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDialogPresentation } from "@/components/ui/dialog-lifecycle";
 import type {
 	FileResourceDeliveryMode,
 	ReadyFileResourceHandle,
@@ -65,6 +66,9 @@ export function useFileContentResource({
 	representation = "auto",
 	resolveResourceHandle = fileService.resolveResourceHandle,
 }: UseFileContentResourceOptions): ReadyFileResourceHandle | null {
+	const presentation = useDialogPresentation();
+	const active = open && (presentation?.active ?? true);
+	const retain = presentation?.active === false;
 	const requestKey = useMemo(
 		() =>
 			fileResourceRequestKey({
@@ -88,7 +92,8 @@ export function useFileContentResource({
 	}));
 
 	useEffect(() => {
-		if (!open || !enabled) {
+		if (!active || !enabled) {
+			if (retain && enabled) return;
 			requestRef.current = null;
 			setState((current) =>
 				current.fileId === fileId &&
@@ -163,13 +168,14 @@ export function useFileContentResource({
 		deliveryMode,
 		enabled,
 		fileId,
-		open,
+		active,
+		retain,
 		representation,
 		requestKey,
 		resolveResourceHandle,
 	]);
 
-	if (!open || !enabled) return null;
+	if ((!active && !retain) || !enabled) return null;
 	if (state.fileId !== fileId || state.requestKey !== requestKey) return null;
 	return state.status === "ready" ? state.resource : null;
 }

@@ -8,7 +8,6 @@ import {
 import type { FilePreviewResources } from "@/components/files/preview/resources/filePreviewResources";
 import type { ResolveFileResourceHandle } from "@/hooks/useFileResource";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { canBrowserRenderImage } from "@/lib/browserImageSupport";
 import { derivedFileResource } from "@/lib/fileResource";
 import { shareService } from "@/services/shareService";
@@ -71,23 +70,18 @@ export function SharePreviewElement({
 	onClose: () => void;
 	onPreviewNavigate: (file: FileInfo | FileListItem) => void;
 }) {
-	const {
-		retainedValue: retainedPreviewFile,
-		handleOpenChangeComplete: handlePreviewOpenChangeComplete,
-	} = useRetainedDialogValue(previewFile, previewFile !== null);
-
 	const createExternalPreviewLink = useCallback(() => {
-		if (!retainedPreviewFile || !info) {
+		if (!previewFile || !info) {
 			return Promise.reject(new Error("share preview link is unavailable"));
 		}
 		return info.share_type === "file"
 			? shareService.createPreviewLink(token)
-			: shareService.createFolderFilePreviewLink(token, retainedPreviewFile.id);
-	}, [info, retainedPreviewFile, token]);
+			: shareService.createFolderFilePreviewLink(token, previewFile.id);
+	}, [info, previewFile, token]);
 
 	const loadArchiveManifest = useCallback(
 		(options?: Parameters<typeof shareService.getArchivePreview>[1]) => {
-			if (!retainedPreviewFile || !info) {
+			if (!previewFile || !info) {
 				return Promise.reject(
 					new Error("share archive preview is unavailable"),
 				);
@@ -96,27 +90,24 @@ export function SharePreviewElement({
 				? shareService.getArchivePreview(token, options)
 				: shareService.getFolderFileArchivePreview(
 						token,
-						retainedPreviewFile.id,
+						previewFile.id,
 						options,
 					);
 		},
-		[info, retainedPreviewFile, token],
+		[info, previewFile, token],
 	);
 
 	const createMediaStreamSession = useCallback(() => {
-		if (!retainedPreviewFile || !info) {
+		if (!previewFile || !info) {
 			return Promise.reject(new Error("share media stream is unavailable"));
 		}
 		return info.share_type === "file"
 			? shareService.createStreamSession(token)
-			: shareService.createFolderFileStreamSession(
-					token,
-					retainedPreviewFile.id,
-				);
-	}, [info, retainedPreviewFile, token]);
+			: shareService.createFolderFileStreamSession(token, previewFile.id);
+	}, [info, previewFile, token]);
 	const resolveShareResourceHandle = useCallback<ResolveFileResourceHandle>(
 		(_fileId, request) => {
-			if (!retainedPreviewFile || !info) {
+			if (!previewFile || !info) {
 				return Promise.reject(new Error("share resource is unavailable"));
 			}
 
@@ -124,13 +115,13 @@ export function SharePreviewElement({
 				download: downloadPath,
 				imagePreview: imagePreviewPath,
 				thumbnail: thumbnailPath,
-			} = shareResourcePaths(info.share_type, token, retainedPreviewFile.id);
+			} = shareResourcePaths(info.share_type, token, previewFile.id);
 			const shouldUseImagePreview =
 				request.representation === "image_preview" ||
 				(request.representation === "auto" &&
 					request.delivery_mode === "blob_url" &&
-					retainedPreviewFile.mime_type?.startsWith("image/") &&
-					!canBrowserRenderImage(retainedPreviewFile));
+					previewFile.mime_type?.startsWith("image/") &&
+					!canBrowserRenderImage(previewFile));
 			const resourcePath = shouldUseImagePreview
 				? imagePreviewPath
 				: request.representation === "thumbnail"
@@ -143,12 +134,12 @@ export function SharePreviewElement({
 					mimeType:
 						resourcePath === imagePreviewPath || resourcePath === thumbnailPath
 							? "image/webp"
-							: retainedPreviewFile.mime_type,
+							: previewFile.mime_type,
 					scope: "share",
 				}),
 			);
 		},
-		[info, retainedPreviewFile, token],
+		[info, previewFile, token],
 	);
 	const filePreviewImageNavigation = useMemo(
 		() =>
@@ -162,12 +153,12 @@ export function SharePreviewElement({
 		[imageNavigation, onPreviewNavigate],
 	);
 	const previewResources = useMemo<FilePreviewResources | null>(() => {
-		if (!retainedPreviewFile || !info) return null;
+		if (!previewFile || !info) return null;
 		const {
 			download: downloadPath,
 			imagePreview: imagePreviewPath,
 			thumbnail: thumbnailPath,
-		} = shareResourcePaths(info.share_type, token, retainedPreviewFile.id);
+		} = shareResourcePaths(info.share_type, token, previewFile.id);
 		return {
 			scope: "share",
 			paths: {
@@ -188,21 +179,16 @@ export function SharePreviewElement({
 		info,
 		loadArchiveManifest,
 		resolveShareResourceHandle,
-		retainedPreviewFile,
+		previewFile,
 		token,
 	]);
-
-	if (!retainedPreviewFile || !previewResources) {
-		return null;
-	}
 
 	return (
 		<Suspense fallback={null}>
 			<FilePreview
-				file={retainedPreviewFile}
+				file={previewFile}
 				open={previewFile !== null}
 				onClose={onClose}
-				onOpenChangeComplete={handlePreviewOpenChangeComplete}
 				editable={false}
 				resources={previewResources}
 				imageNavigation={filePreviewImageNavigation}

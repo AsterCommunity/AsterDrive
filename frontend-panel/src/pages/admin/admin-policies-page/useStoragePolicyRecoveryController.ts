@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { handleApiError } from "@/hooks/useApiError";
 import { adminPolicyService } from "@/services/adminService";
 import type {
@@ -25,6 +26,7 @@ export function useStoragePolicyRecoveryController() {
 	const [confirmation, setConfirmation] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
+	const isMounted = useDialogActivity();
 	const workflowRef = useRef({
 		generation: 0,
 		policyId: null as number | null,
@@ -39,6 +41,7 @@ export function useStoragePolicyRecoveryController() {
 
 	/** Returns whether an asynchronous result still belongs to the visible workflow. */
 	const isCurrentWorkflow = (generation: number, policyId: number) =>
+		isMounted() &&
 		workflowRef.current.generation === generation &&
 		workflowRef.current.policyId === policyId;
 

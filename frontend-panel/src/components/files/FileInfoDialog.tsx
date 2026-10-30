@@ -14,9 +14,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogMotion,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
@@ -39,7 +42,6 @@ import {
 } from "./file-info-dialog/fileInfoDialogUtils";
 import { buildMediaMetadataRows } from "./file-info-dialog/mediaMetadataRows";
 import type { DetailRow } from "./file-info-dialog/types";
-import { useDesktopInfoPanelMount } from "./file-info-dialog/useDesktopInfoPanelMount";
 import { useFileInfoDialogData } from "./file-info-dialog/useFileInfoDialogData";
 import { useMediaQuery } from "./file-info-dialog/useMediaQuery";
 
@@ -221,7 +223,6 @@ function FileInfoDialogFrame({
 	content,
 	desktopVisible,
 	panelRef,
-	handleOpenChangeComplete,
 	isDesktop,
 	onOpenChange,
 	open,
@@ -230,7 +231,6 @@ function FileInfoDialogFrame({
 	content: ReactNode;
 	desktopVisible: boolean;
 	panelRef: import("react").RefObject<HTMLDivElement | null>;
-	handleOpenChangeComplete: (open: boolean) => void;
 	isDesktop: boolean;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
@@ -264,11 +264,7 @@ function FileInfoDialogFrame({
 	}
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={handleOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				keepMounted
 				className="max-h-[min(80vh,42rem)] w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] gap-0 overflow-hidden p-0 sm:w-full sm:max-w-lg"
@@ -378,6 +374,31 @@ function ResourceActivitySection({
 
 // The outer frame owns presence; content owns its data until presence disposes it.
 export function FileInfoDialog(props: FileInfoDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open && Boolean(props.file || props.folder || props.loading)}
+			target={props}
+			onOpenChange={props.onOpenChange}
+			identity={
+				props.file
+					? `file:${props.file.id}`
+					: props.folder
+						? `folder:${props.folder.id}`
+						: "loading"
+			}
+		>
+			{({ target, active, onOpenChange }) => (
+				<FileInfoPresentation
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function FileInfoPresentation(props: FileInfoDialogProps) {
 	const {
 		open,
 		file,
@@ -388,24 +409,19 @@ export function FileInfoDialog(props: FileInfoDialogProps) {
 		actions,
 		onOpenChange,
 	} = props;
-	const target = useMemo(
-		() =>
-			open && (file || folder || loading)
-				? { file, folder, loading, thumbnailPath, childCount, actions }
-				: null,
-		[open, file, folder, loading, thumbnailPath, childCount, actions],
-	);
-	const { retainedValue, handleOpenChangeComplete } = useRetainedDialogValue(
-		target,
-		open,
-	);
+	const retainedValue = {
+		file,
+		folder,
+		loading,
+		thumbnailPath,
+		childCount,
+		actions,
+	};
 	const isDesktop = useMediaQuery("(min-width: 1024px)");
-	const { desktopMounted, desktopVisible, panelRef } = useDesktopInfoPanelMount(
+	const { ref: panelRef, visible: desktopVisible } = useDialogMotion(
 		open,
 		isDesktop,
-		handleOpenChangeComplete,
 	);
-	if ((!open && !desktopMounted && isDesktop) || !retainedValue) return null;
 	const resourceKey = retainedValue.file
 		? `file:${retainedValue.file.id}`
 		: retainedValue.folder
@@ -428,7 +444,6 @@ export function FileInfoDialog(props: FileInfoDialogProps) {
 			}
 			desktopVisible={desktopVisible}
 			panelRef={panelRef}
-			handleOpenChangeComplete={handleOpenChangeComplete}
 			isDesktop={isDesktop}
 			onOpenChange={onOpenChange}
 			open={open}

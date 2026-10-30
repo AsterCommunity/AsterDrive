@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
 import type { TagInfo, TagSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -126,26 +127,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		onOpenChangeComplete,
-		open,
-	}: {
-		children: React.ReactNode;
-		onOpenChangeComplete?: (open: boolean) => void;
-		open: boolean;
-	}) =>
-		open || mockState.keepDialogMountedWhenClosed ? (
-			<div data-open={open} data-testid="dialog">
-				{children}
-				<button
-					type="button"
-					hidden
-					data-testid="dialog-complete-close"
-					onClick={() => onOpenChangeComplete?.(false)}
-				/>
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot {...props} />
+	),
 	DialogContent: ({
 		children,
 		className,
@@ -890,17 +874,16 @@ describe("TagManagerDialog", () => {
 		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 
 		rerender(
-			<TagManagerDialog open={false} onOpenChange={vi.fn()} target={target} />,
+			<TagManagerDialog open={false} onOpenChange={vi.fn()} target={null} />,
 		);
 
 		expect(screen.getByTestId("dialog")).toHaveAttribute("data-open", "false");
 		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 		expect(screen.queryByText("tag_draft_entity_summary")).toBeNull();
 
-		fireEvent.click(screen.getByTestId("dialog-complete-close"));
-		await waitFor(() => {
-			expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
-		});
+		expect(screen.getAllByText("Alpha")).toHaveLength(2);
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+		expect(screen.queryByLabelText("tag_search_label")).not.toBeInTheDocument();
 	});
 
 	it("routes create failures through handleApiError", async () => {

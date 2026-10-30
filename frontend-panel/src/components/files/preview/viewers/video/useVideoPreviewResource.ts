@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDialogPresentation } from "@/components/ui/dialog-lifecycle";
 import { prepareAuthenticatedResource } from "@/lib/authenticatedResource";
 import { logger } from "@/lib/logger";
 import { type ResourcePath, resourceRequestPath } from "@/lib/resourceRequest";
@@ -20,6 +21,7 @@ export function useVideoPreviewResource({
 	fileName,
 	resource,
 }: UseVideoPreviewResourceOptions) {
+	const active = useDialogPresentation()?.active ?? true;
 	const inputIdentityRef = useRef({ createMediaStreamSession, resource });
 	const [inputIdentityVersion, setInputIdentityVersion] = useState(0);
 	const [retryCount, setRetryCount] = useState(0);
@@ -46,6 +48,7 @@ export function useVideoPreviewResource({
 	}, [createMediaStreamSession, inputIdentityChanged, resource]);
 
 	useEffect(() => {
+		if (!active) return;
 		setError(null);
 		if (inputIdentityChanged) return;
 		if (!resource || !requestPath) {
@@ -83,6 +86,7 @@ export function useVideoPreviewResource({
 			cancelled = true;
 		};
 	}, [
+		active,
 		createMediaStreamSession,
 		fileName,
 		inputIdentityChanged,

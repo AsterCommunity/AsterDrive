@@ -109,7 +109,7 @@ describe("Create dialogs", () => {
 		expect(onOpenChange).not.toHaveBeenCalled();
 	});
 
-	it("creates files with trimmed names, resets the field, and closes the dialog", async () => {
+	it("creates files with trimmed names and retains the field during exit", async () => {
 		const onOpenChange = vi.fn();
 
 		render(<CreateFileDialog open onOpenChange={onOpenChange} />);
@@ -127,7 +127,7 @@ describe("Create dialogs", () => {
 				"create_file_success",
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
-			expect(input).toHaveValue("");
+			expect(input).toHaveValue("  notes.md  ");
 		});
 	});
 
@@ -197,7 +197,7 @@ describe("Create dialogs", () => {
 		expect(onOpenChange).not.toHaveBeenCalled();
 	});
 
-	it("creates folders with trimmed names, resets the field, and closes the dialog", async () => {
+	it("creates folders with trimmed names and retains the field during exit", async () => {
 		const onOpenChange = vi.fn();
 
 		render(<CreateFolderDialog open onOpenChange={onOpenChange} />);
@@ -215,7 +215,7 @@ describe("Create dialogs", () => {
 				"create_folder_success",
 			);
 			expect(onOpenChange).toHaveBeenCalledWith(false);
-			expect(input).toHaveValue("");
+			expect(input).toHaveValue("  Projects  ");
 		});
 	});
 

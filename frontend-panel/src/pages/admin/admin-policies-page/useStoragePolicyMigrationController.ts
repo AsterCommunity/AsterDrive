@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { handleApiError } from "@/hooks/useApiError";
 import { adminPolicyService } from "@/services/adminService";
 import type { StoragePolicy, StoragePolicyMigrationDryRun } from "@/types/api";
@@ -19,9 +20,15 @@ export function useStoragePolicyMigrationController() {
 	const [dryRunLoading, setDryRunLoading] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 
+	const isMounted = useDialogActivity();
+	const isCurrent = useDialogActivity(
+		`${sourcePolicyId}:${targetPolicyId}`,
+		open,
+	);
 	const openDialog = async () => {
 		try {
 			const allPolicies = await adminPolicyService.listAll();
+			if (!isMounted()) return;
 			const firstPolicy = allPolicies[0];
 			const secondPolicy = allPolicies.find(
 				(policy) => policy.id !== firstPolicy?.id,
@@ -30,6 +37,8 @@ export function useStoragePolicyMigrationController() {
 			setSourcePolicyId(firstPolicy ? String(firstPolicy.id) : "");
 			setTargetPolicyId(secondPolicy ? String(secondPolicy.id) : "");
 			setDryRun(null);
+			setDryRunLoading(false);
+			setSubmitting(false);
 			setOpen(true);
 		} catch (error) {
 			handleApiError(error);
@@ -38,6 +47,7 @@ export function useStoragePolicyMigrationController() {
 
 	const handleSourcePolicyChange = (policyId: string) => {
 		setSourcePolicyId(policyId);
+		setDryRunLoading(false);
 		setDryRun(null);
 		if (policyId === targetPolicyId) {
 			setTargetPolicyId("");
@@ -45,6 +55,7 @@ export function useStoragePolicyMigrationController() {
 	};
 
 	const handleTargetPolicyChange = (policyId: string) => {
+		setDryRunLoading(false);
 		if (policyId === sourcePolicyId) {
 			setTargetPolicyId("");
 			setDryRun(null);
@@ -86,15 +97,16 @@ export function useStoragePolicyMigrationController() {
 				source_policy_id: sourceId,
 				target_policy_id: targetId,
 			});
-			setOpen(false);
+			if (isCurrent()) setOpen(false);
 			toast.success(t("policy_migration_created", { id: task.id }));
-			navigate("/admin/tasks?kind=storage_policy_migration", {
-				viewTransition: false,
-			});
+			if (isCurrent())
+				navigate("/admin/tasks?kind=storage_policy_migration", {
+					viewTransition: false,
+				});
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 		} finally {
-			setSubmitting(false);
+			if (isCurrent()) setSubmitting(false);
 		}
 	};
 
@@ -118,17 +130,17 @@ export function useStoragePolicyMigrationController() {
 
 		setDryRunLoading(true);
 		try {
-			setDryRun(
-				await adminPolicyService.dryRunMigration({
-					source_policy_id: sourceId,
-					target_policy_id: targetId,
-				}),
-			);
+			const result = await adminPolicyService.dryRunMigration({
+				source_policy_id: sourceId,
+				target_policy_id: targetId,
+			});
+			if (isCurrent()) setDryRun(result);
 		} catch (error) {
+			if (!isCurrent()) return;
 			setDryRun(null);
 			handleApiError(error);
 		} finally {
-			setDryRunLoading(false);
+			if (isCurrent()) setDryRunLoading(false);
 		}
 	};
 

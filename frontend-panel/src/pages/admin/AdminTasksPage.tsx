@@ -18,6 +18,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import {
@@ -200,7 +201,11 @@ function adminTasksUiReducer(
 ): AdminTasksUiState {
 	switch (action.type) {
 		case "set_cleanup_dialog_open":
-			return { ...state, cleanupDialogOpen: action.open };
+			return {
+				...state,
+				cleanupDialogOpen: action.open,
+				cleanupSubmitting: action.open ? false : state.cleanupSubmitting,
+			};
 		case "set_detail_dialog_task":
 			return { ...state, detailDialogTaskId: action.taskId };
 		case "set_resuming_storage_migration_task":
@@ -448,6 +453,7 @@ function useAdminTasksPageContent() {
 		cleanupStatusFilter,
 	);
 
+	const isCleanupCurrent = useDialogActivity(undefined, cleanupDialogOpen);
 	const handleCleanupSubmit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (cleanupRequest == null) {
@@ -464,16 +470,18 @@ function useAdminTasksPageContent() {
 						: undefined,
 			});
 			toast.success(t("admin:tasks_cleaned", { count: result.removed }));
-			dispatchUi({ open: false, type: "set_cleanup_dialog_open" });
+			if (isCleanupCurrent())
+				dispatchUi({ open: false, type: "set_cleanup_dialog_open" });
 			if (offset !== 0) {
 				setOffset(0);
 			} else {
 				await reload();
 			}
 		} catch (error) {
-			handleApiError(error);
+			if (isCleanupCurrent()) handleApiError(error);
 		} finally {
-			dispatchUi({ submitting: false, type: "set_cleanup_submitting" });
+			if (isCleanupCurrent())
+				dispatchUi({ submitting: false, type: "set_cleanup_submitting" });
 		}
 	};
 

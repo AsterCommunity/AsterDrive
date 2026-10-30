@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShareDialog } from "@/components/files/ShareDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
@@ -87,28 +88,13 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		open,
-		onOpenChange,
-		onOpenChangeComplete,
-	}: {
-		children: React.ReactNode;
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-		onOpenChangeComplete?: (open: boolean) => void;
-	}) =>
-		open ? (
-			<div data-testid="dialog">
-				<button type="button" onClick={() => onOpenChange(false)}>
-					close-dialog
-				</button>
-				<button type="button" onClick={() => onOpenChangeComplete?.(false)}>
-					close-dialog-complete
-				</button>
-				{children}
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot
+			{...props}
+			exitLabel="close-dialog-complete"
+			closeLabel="close-dialog"
+		/>
+	),
 	DialogContent: ({
 		children,
 		className,
@@ -574,7 +560,7 @@ describe("ShareDialog", () => {
 		mockState.create.mockResolvedValue({ token: "copied-token" });
 		mockState.clipboardWriteText.mockResolvedValue(undefined);
 
-		render(
+		const { rerender } = render(
 			<ShareDialog open onOpenChange={onOpenChange} folderId={7} name="Docs" />,
 		);
 
@@ -602,8 +588,22 @@ describe("ShareDialog", () => {
 			screen.getByDisplayValue(`${window.location.origin}/s/copied-token`),
 		).toBeInTheDocument();
 
+		rerender(
+			<ShareDialog
+				open={false}
+				onOpenChange={onOpenChange}
+				folderId={7}
+				name="Docs"
+			/>,
+		);
+
 		fireEvent.click(
 			screen.getByRole("button", { name: "close-dialog-complete" }),
+		);
+
+		expect(screen.queryByTestId("dialog")).not.toBeInTheDocument();
+		rerender(
+			<ShareDialog open onOpenChange={onOpenChange} folderId={7} name="Docs" />,
 		);
 
 		expect(
@@ -645,7 +645,7 @@ describe("ShareDialog", () => {
 	it("clears pending form state when the dialog closes externally", () => {
 		const onOpenChange = vi.fn();
 
-		render(
+		const { rerender } = render(
 			<ShareDialog
 				open
 				onOpenChange={onOpenChange}
@@ -670,17 +670,19 @@ describe("ShareDialog", () => {
 			"keep-out",
 		);
 
+		rerender(
+			<ShareDialog
+				open={false}
+				onOpenChange={onOpenChange}
+				fileId={1}
+				name="draft.md"
+			/>,
+		);
+
 		fireEvent.click(
 			screen.getByRole("button", { name: "close-dialog-complete" }),
 		);
 
-		const dialog = screen.getByTestId("dialog");
-		expect(
-			within(dialog).getByLabelText("share:share_password_optional"),
-		).toHaveValue("");
-		expect(within(dialog).getByTestId("share-expiry")).toHaveValue("never");
-		expect(
-			within(dialog).getByLabelText("share:share_download_limit"),
-		).toHaveValue(null);
+		expect(screen.queryByTestId("dialog")).not.toBeInTheDocument();
 	});
 });

@@ -10,6 +10,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import {
@@ -34,7 +38,6 @@ const CLOSED_TARGET_KEY = "__closed__";
 interface FolderPolicyDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	folder: FolderInfo | FolderListItem | null;
 	onUpdated?: () => Promise<void> | void;
 }
@@ -149,16 +152,35 @@ function folderPolicyDialogReducer(
 	}
 }
 
-export function FolderPolicyDialog({
+export function FolderPolicyDialog(props: FolderPolicyDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.folder?.id}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<FolderPolicyDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function FolderPolicyDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	folder,
 	onUpdated,
 }: FolderPolicyDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["files", "core"]);
 	const [state, dispatch] = useReducer(folderPolicyDialogReducer, initialState);
-	const targetFolderId = open && folder != null ? folder.id : null;
+	const targetFolderId = folder?.id ?? null;
 	const targetKey =
 		targetFolderId != null ? String(targetFolderId) : CLOSED_TARGET_KEY;
 
@@ -178,7 +200,7 @@ export function FolderPolicyDialog({
 	} = currentState;
 
 	useEffect(() => {
-		if (targetFolderId == null) return;
+		if (!open || targetFolderId == null) return;
 
 		let canceled = false;
 		const requestTargetKey = String(targetFolderId);
@@ -199,14 +221,14 @@ export function FolderPolicyDialog({
 			.catch((error: unknown) => {
 				if (canceled) return;
 				dispatch({ type: "load_failed", targetKey: requestTargetKey });
-				handleApiError(error);
+				if (isCurrent()) handleApiError(error);
 			})
 			.catch(() => undefined);
 
 		return () => {
 			canceled = true;
 		};
-	}, [targetFolderId]);
+	}, [targetFolderId, open, isCurrent]);
 
 	const currentPolicy = useMemo(() => {
 		if (folderInfo?.policy_id == null) return null;
@@ -252,23 +274,20 @@ export function FolderPolicyDialog({
 			const updated = await adminFolderService.setPolicy(folder.id, {
 				policy_id: policyId,
 			});
-			dispatch({ type: "save_succeeded", folderInfo: updated });
+			if (isCurrent())
+				dispatch({ type: "save_succeeded", folderInfo: updated });
 			toast.success(t("folder_policy_updated"));
 			await onUpdated?.();
 			onOpenChange(false);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 		} finally {
-			dispatch({ type: "save_finished" });
+			if (isCurrent()) dispatch({ type: "save_finished" });
 		}
 	};
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				keepMounted
 				className="w-[calc(100%-1rem)] max-w-[calc(100%-1rem)] sm:max-w-md"

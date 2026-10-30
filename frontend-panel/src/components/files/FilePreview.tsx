@@ -1,5 +1,6 @@
 import { FilePreviewDialog } from "@/components/files/preview/dialog/FilePreviewDialog";
 import type { FilePreviewResources } from "@/components/files/preview/resources/filePreviewResources";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import type { FileInfo, FileListItem } from "@/types/api";
 
 export interface FilePreviewImageNavigation {
@@ -9,39 +10,39 @@ export interface FilePreviewImageNavigation {
 }
 
 interface FilePreviewProps {
-	file: FileInfo | FileListItem;
+	file: FileInfo | FileListItem | null;
 	onClose: () => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	onFileUpdated?: () => void;
 	editable?: boolean;
-	resources: FilePreviewResources;
+	resources: FilePreviewResources | null;
 	imageNavigation?: FilePreviewImageNavigation;
 	open?: boolean;
 	openMode?: "auto" | "direct" | "picker";
 }
 
-export function FilePreview({
-	file,
-	onClose,
-	onOpenChangeComplete,
-	onFileUpdated,
-	editable,
-	resources,
-	imageNavigation,
-	open = true,
-	openMode,
-}: FilePreviewProps) {
+export function FilePreview(props: FilePreviewProps) {
+	const open =
+		(props.open ?? true) && props.file !== null && props.resources !== null;
 	return (
-		<FilePreviewDialog
+		<DialogLifecycle
 			open={open}
-			file={file}
-			onClose={onClose}
-			onOpenChangeComplete={onOpenChangeComplete}
-			onFileUpdated={onFileUpdated}
-			editable={editable}
-			resources={resources}
-			imageNavigation={imageNavigation}
-			openMode={openMode}
-		/>
+			target={props}
+			identity={props.file?.id}
+			onOpenChange={(nextOpen) => {
+				if (!nextOpen) props.onClose();
+			}}
+		>
+			{({ target, active, onOpenChange }) =>
+				target.file && target.resources ? (
+					<FilePreviewDialog
+						{...target}
+						file={target.file}
+						resources={target.resources}
+						open={active}
+						onClose={() => onOpenChange(false)}
+					/>
+				) : null
+			}
+		</DialogLifecycle>
 	);
 }

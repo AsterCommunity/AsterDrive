@@ -6,6 +6,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 
 type Translate = (
 	key: string,
@@ -63,7 +64,27 @@ interface PreviewAppsUrlTemplateVariablesDialogProps {
 	t: Translate;
 }
 
-export function PreviewAppsUrlTemplateVariablesDialog({
+export function PreviewAppsUrlTemplateVariablesDialog(
+	props: PreviewAppsUrlTemplateVariablesDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<PreviewAppsUrlTemplateVariablesDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function PreviewAppsUrlTemplateVariablesDialogContent({
 	appName,
 	open,
 	onOpenChange,

@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	AlertDialog,
@@ -10,6 +9,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 
 export interface ConfirmDialogProps {
 	open: boolean;
@@ -21,7 +21,25 @@ export interface ConfirmDialogProps {
 	variant?: "default" | "destructive";
 }
 
-export function ConfirmDialog({
+export function ConfirmDialog(props: ConfirmDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<ConfirmDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function ConfirmDialogContent({
 	open,
 	onOpenChange,
 	title,
@@ -31,23 +49,6 @@ export function ConfirmDialog({
 	variant = "default",
 }: ConfirmDialogProps) {
 	const { t } = useTranslation();
-	const contentRef = useRef({
-		confirmLabel,
-		description,
-		title,
-		variant,
-	});
-
-	if (open) {
-		contentRef.current = {
-			confirmLabel,
-			description,
-			title,
-			variant,
-		};
-	}
-
-	const content = contentRef.current;
 
 	const handleConfirm = () => {
 		onOpenChange(false);
@@ -58,11 +59,9 @@ export function ConfirmDialog({
 		<AlertDialog open={open} onOpenChange={onOpenChange}>
 			<AlertDialogContent keepMounted>
 				<AlertDialogHeader>
-					<AlertDialogTitle>{content.title}</AlertDialogTitle>
-					{content.description && (
-						<AlertDialogDescription>
-							{content.description}
-						</AlertDialogDescription>
+					<AlertDialogTitle>{title}</AlertDialogTitle>
+					{description && (
+						<AlertDialogDescription>{description}</AlertDialogDescription>
 					)}
 				</AlertDialogHeader>
 				<AlertDialogFooter>
@@ -70,12 +69,12 @@ export function ConfirmDialog({
 					<AlertDialogAction
 						onClick={handleConfirm}
 						className={
-							content.variant === "destructive"
+							variant === "destructive"
 								? "bg-destructive text-white hover:bg-destructive/90"
 								: ""
 						}
 					>
-						{content.confirmLabel || t("confirm")}
+						{confirmLabel || t("confirm")}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

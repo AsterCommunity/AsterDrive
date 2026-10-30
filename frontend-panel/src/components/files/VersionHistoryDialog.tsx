@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useReducer, useRef } from "react";
+import { Fragment, useEffect, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
@@ -10,6 +10,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import {
 	Table,
@@ -20,7 +24,6 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { handleApiError } from "@/hooks/useApiError";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { invalidateFileResourceCachesForMutation } from "@/lib/fileResourceCacheInvalidation";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { type FileVersionPage, fileService } from "@/services/fileService";
@@ -33,7 +36,6 @@ interface VersionHistoryDialogProps {
 		download: (revisionId: number) => Promise<void>;
 	};
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	fileId: number;
 	fileName: string;
 	mimeType?: string;
@@ -140,53 +142,46 @@ function versionHistoryReducer(
 	}
 }
 
-export function VersionHistoryDialog({
+export function VersionHistoryDialog(props: VersionHistoryDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.fileId}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<VersionHistoryDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function VersionHistoryDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	fileId,
 	fileName,
 	mimeType,
 	readOnlySource,
 	onRestored,
 }: VersionHistoryDialogProps) {
-	const target = useMemo(
-		() =>
-			open ? { fileId, fileName, mimeType, readOnlySource, onRestored } : null,
-		[open, fileId, fileName, mimeType, readOnlySource, onRestored],
-	);
-	const { retainedValue, handleOpenChangeComplete } = useRetainedDialogValue(
-		target,
-		open,
-	);
-	const [closing, setClosing] = useReducer(
-		(_state: boolean, value: boolean) => value,
-		false,
-	);
-	useEffect(() => {
-		if (open) setClosing(false);
-	}, [open]);
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={(nextOpen) => {
-				setClosing(!nextOpen);
-				onOpenChange(nextOpen);
-			}}
-			onOpenChangeComplete={(nextOpen) => {
-				if (!nextOpen && open) return;
-				handleOpenChangeComplete(nextOpen);
-				onOpenChangeComplete?.(nextOpen);
-			}}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent keepMounted className="max-w-lg">
-				{retainedValue ? (
-					<VersionHistoryContent
-						key={retainedValue.fileId}
-						{...retainedValue}
-						open={open && !closing}
-					/>
-				) : null}
+				<VersionHistoryContent
+					key={fileId}
+					fileId={fileId}
+					fileName={fileName}
+					mimeType={mimeType}
+					readOnlySource={readOnlySource}
+					onRestored={onRestored}
+					open={open}
+				/>
 			</DialogContent>
 		</Dialog>
 	);
@@ -200,7 +195,8 @@ function VersionHistoryContent({
 	fileName,
 	mimeType,
 	onRestored,
-}: Omit<VersionHistoryDialogProps, "onOpenChange" | "onOpenChangeComplete">) {
+}: Omit<VersionHistoryDialogProps, "onOpenChange">) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["files", "core"]);
 	const [
 		{
@@ -230,10 +226,10 @@ function VersionHistoryContent({
 				targetFileId,
 				nextAfterSequence,
 			);
-			if (requestGeneration.current !== generation) return;
+			if (requestGeneration.current !== generation || !isCurrent()) return;
 			dispatch({ type: "load-more-end", page });
 		} catch (e) {
-			if (requestGeneration.current !== generation) return;
+			if (requestGeneration.current !== generation || !isCurrent()) return;
 			handleApiError(e);
 			dispatch({ type: "load-more-end" });
 		}
@@ -253,19 +249,19 @@ function VersionHistoryContent({
 			});
 			toast.success(t("version_restored"));
 			onRestored?.();
-			if (requestGeneration.current !== generation) return;
+			if (requestGeneration.current !== generation || !isCurrent()) return;
 			dispatch({ type: "mutation-refresh-start" });
 			try {
 				const page = await fileService.listVersions(targetFileId);
-				if (requestGeneration.current !== generation) return;
+				if (requestGeneration.current !== generation || !isCurrent()) return;
 				dispatch({ type: "load-end", page });
 			} catch (e) {
-				if (requestGeneration.current !== generation) return;
+				if (requestGeneration.current !== generation || !isCurrent()) return;
 				handleApiError(e);
 				dispatch({ type: "load-end" });
 			}
 		} catch (e) {
-			if (requestGeneration.current !== generation) return;
+			if (requestGeneration.current !== generation || !isCurrent()) return;
 			handleApiError(e);
 			dispatch({ type: "restore-end" });
 		}
@@ -279,19 +275,19 @@ function VersionHistoryContent({
 			dispatch({ type: "delete-start", versionId });
 			await fileService.deleteVersion(targetFileId, versionId);
 			toast.success(t("version_deleted"));
-			if (requestGeneration.current !== generation) return;
+			if (requestGeneration.current !== generation || !isCurrent()) return;
 			dispatch({ type: "mutation-refresh-start" });
 			try {
 				const page = await fileService.listVersions(targetFileId);
-				if (requestGeneration.current !== generation) return;
+				if (requestGeneration.current !== generation || !isCurrent()) return;
 				dispatch({ type: "load-end", page });
 			} catch (e) {
-				if (requestGeneration.current !== generation) return;
+				if (requestGeneration.current !== generation || !isCurrent()) return;
 				handleApiError(e);
 				dispatch({ type: "load-end" });
 			}
 		} catch (e) {
-			if (requestGeneration.current !== generation) return;
+			if (requestGeneration.current !== generation || !isCurrent()) return;
 			handleApiError(e);
 			dispatch({ type: "delete-end" });
 		}
@@ -316,12 +312,12 @@ function VersionHistoryContent({
 			dispatch({ type: "load-start" });
 			void (readOnlySource?.list ?? fileService.listVersions)(fileId)
 				.then((page) => {
-					if (requestGeneration.current === generation) {
+					if (requestGeneration.current === generation && isCurrent()) {
 						dispatch({ type: "load-end", page });
 					}
 				})
 				.catch((error: unknown) => {
-					if (requestGeneration.current === generation) {
+					if (requestGeneration.current === generation && isCurrent()) {
 						handleApiError(error);
 						dispatch({ type: "load-end" });
 					}
@@ -332,7 +328,7 @@ function VersionHistoryContent({
 				requestGeneration.current += 1;
 			}
 		};
-	}, [fileId, open, readOnlySource]);
+	}, [fileId, open, readOnlySource, isCurrent]);
 
 	return (
 		<>

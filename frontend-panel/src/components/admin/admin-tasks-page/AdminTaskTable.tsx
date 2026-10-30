@@ -23,8 +23,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
 import type { SortOrder } from "@/lib/pagination";
 import { cn } from "@/lib/utils";
@@ -283,24 +283,38 @@ export function AdminTaskTableRow({
 	);
 }
 
-export function AdminTaskDetailDialog({
+export function AdminTaskDetailDialog(props: AdminTaskDetailDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.detailTask !== null}
+			target={props}
+			onOpenChange={props.onOpenDetailChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<AdminTaskDetailContent
+					{...target}
+					open={active}
+					onOpenDetailChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function AdminTaskDetailContent({
+	open,
 	detailTask,
 	formatTaskKind,
 	formatTaskStatus,
 	onOpenDetailChange,
 	onResumeStorageMigration,
 	resumingTaskId,
-}: AdminTaskDetailDialogProps) {
+}: AdminTaskDetailDialogProps & { open: boolean }) {
 	const { t } = useTranslation(["admin", "core", "tasks"]);
-	const { retainedValue: retainedTask, handleOpenChangeComplete } =
-		useRetainedDialogValue(detailTask, detailTask !== null);
+	const retainedTask = detailTask;
 
 	return (
-		<Dialog
-			open={detailTask !== null}
-			onOpenChange={onOpenDetailChange}
-			onOpenChangeComplete={handleOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenDetailChange}>
 			{retainedTask ? (
 				<DialogContent
 					keepMounted

@@ -47,9 +47,17 @@ function webdavAccountDialogReducer(
 ): WebdavAccountDialogState {
 	switch (action.type) {
 		case "createOpenChanged":
-			return { ...state, createDialogOpen: action.open };
+			return {
+				...state,
+				createDialogOpen: action.open,
+				creating: action.open ? false : state.creating,
+			};
 		case "credentialsOpenChanged":
-			return { ...state, credentialsDialogOpen: action.open };
+			return {
+				...state,
+				credentialsDialogOpen: action.open,
+				testing: action.open ? false : state.testing,
+			};
 		case "creatingChanged":
 			return { ...state, creating: action.creating };
 		case "usernameChanged":

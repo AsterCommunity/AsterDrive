@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
 import type { TagInfo } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -66,23 +67,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		onOpenChangeComplete,
-		open,
-	}: {
-		children: React.ReactNode;
-		onOpenChangeComplete?: (open: boolean) => void;
-		open: boolean;
-	}) =>
-		open || mockState.keepDialogMountedWhenClosed ? (
-			<div data-open={open} data-testid="dialog">
-				{children}
-				<button type="button" onClick={() => onOpenChangeComplete?.(false)}>
-					complete-close
-				</button>
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot {...props} />
+	),
 	DialogContent: ({
 		children,
 		className,
@@ -256,7 +243,7 @@ describe("TagLibraryManagerDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
 
 		expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
-		expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
+		expect(screen.queryByLabelText("tag_search_label")).not.toBeInTheDocument();
 	});
 
 	it("creates a tag from the library search row and reports it to the parent", async () => {

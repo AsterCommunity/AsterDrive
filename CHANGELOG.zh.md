@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **弹窗生命周期** — 业务弹窗在退出动画中保留标题、草稿、已加载内容和图片 URL，退出完成后释放展示资源；关闭、重开或切换目标时隔离迟到请求与 mutation 的 UI 回调。桌面详情原位切换，嵌套弹窗保留焦点行为，生成的敏感凭据在关闭时立即遮蔽。（#665）
 - **Aster Metrics v1（不兼容）** — 通用 HTTP/DB/process 使用 OTel 语义，产品指标使用 Aster Drive 命名空间，提供版本化 schema 与生成目录。升级须同步查询、告警和 Grafana，旧别名删除。新增原生池状态、响应体生命周期、本地任务 handler 执行与任务快照新鲜度；Grafana 图例和监控文档使用 v1 标签，任务空闲退避限制为不超过 164 秒，为 180 秒快照新鲜度窗口保留抓取余量；OTLP profile resource 由 wire 测试覆盖。仍为显式 Prometheus pull 和可选 OTLP HTTP/protobuf。
 - **回收站导航** — 回收站共用文件浏览器的地址栏、刷新按钮和视图切换，导航及内容对齐方式与普通文件浏览保持一致。
 

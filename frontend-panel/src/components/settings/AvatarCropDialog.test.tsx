@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
 
 const mockState = vi.hoisted(() => ({
 	cropAvatarImage: vi.fn(),
@@ -89,23 +90,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		open,
-		onOpenChange,
-	}: {
-		children: ReactNode;
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-	}) =>
-		open ? (
-			<div data-testid="dialog">
-				<button type="button" onClick={() => onOpenChange(false)}>
-					dialog-close
-				</button>
-				{children}
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot {...props} />
+	),
 	DialogContent: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -132,6 +119,36 @@ vi.mock("@/lib/avatarCrop", () => ({
 }));
 
 describe("AvatarCropDialog", () => {
+	it("retains its source URL until exit completes even when the parent clears the file", () => {
+		const file = new File(["image"], "avatar.png", { type: "image/png" });
+		const onOpenChange = vi.fn();
+		const onConfirm = vi.fn();
+		const { rerender } = render(
+			<AvatarCropDialog
+				open
+				file={file}
+				onOpenChange={onOpenChange}
+				onConfirm={onConfirm}
+			/>,
+		);
+		rerender(
+			<AvatarCropDialog
+				open={false}
+				file={null}
+				onOpenChange={onOpenChange}
+				onConfirm={onConfirm}
+			/>,
+		);
+		expect(document.querySelector("img")).toHaveAttribute(
+			"src",
+			"blob:avatar-source",
+		);
+		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+		expect(document.querySelector("img")).toBeNull();
+		expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:avatar-source");
+	});
+
 	beforeEach(() => {
 		mockState.cropAvatarImage.mockReset();
 		mockState.renderAvatarCropPreview.mockReset();

@@ -17,6 +17,10 @@ import {
 	initialEditShareDialogFormState,
 } from "@/components/files/shareDialogState";
 import { Button } from "@/components/ui/button";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +33,6 @@ import {
 } from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePendingAction } from "@/hooks/usePendingAction";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { shareService } from "@/services/shareService";
 import type { MyShareInfo } from "@/types/api";
 
@@ -40,15 +43,33 @@ interface EditShareDialogProps {
 	onSaved?: () => void | Promise<void>;
 }
 
-export function EditShareDialog({
+export function EditShareDialog(props: EditShareDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.share?.id}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<EditShareDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function EditShareDialogContent({
 	open,
 	onOpenChange,
-	share: inputShare,
+	share,
 	onSaved,
 }: EditShareDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["core", "share"]);
-	const { retainedValue: share, handleOpenChangeComplete } =
-		useRetainedDialogValue(inputShare, open);
 	const [formState, dispatchForm] = useReducer(
 		editShareDialogReducer,
 		initialEditShareDialogFormState,
@@ -99,9 +120,9 @@ export function EditShareDialog({
 				onOpenChange(false);
 				await onSaved?.();
 			} catch (error) {
-				handleApiError(error);
+				if (isCurrent()) handleApiError(error);
 			} finally {
-				dispatchForm({ type: "saveFinished" });
+				if (isCurrent()) dispatchForm({ type: "saveFinished" });
 			}
 		});
 	};
@@ -111,7 +132,6 @@ export function EditShareDialog({
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={onOpenChange}
-			onOpenChangeComplete={handleOpenChangeComplete}
 			className="h-auto max-h-[min(92dvh,44rem)]"
 			title={
 				<span className="flex items-center gap-2">

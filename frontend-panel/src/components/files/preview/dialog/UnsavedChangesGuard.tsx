@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+	DialogLifecycle,
+	useDialogMotion,
+} from "@/components/ui/dialog-lifecycle";
 import { cn } from "@/lib/utils";
 
 interface UnsavedChangesGuardProps {
@@ -9,39 +12,35 @@ interface UnsavedChangesGuardProps {
 	onConfirm: () => void;
 }
 
-export function UnsavedChangesGuard({
+export function UnsavedChangesGuard(props: UnsavedChangesGuardProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<UnsavedChangesContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function UnsavedChangesContent({
 	open,
 	onOpenChange,
 	onConfirm,
 }: UnsavedChangesGuardProps) {
 	const { t } = useTranslation(["core", "files"]);
-	const [exiting, setExiting] = useState(false);
-	const wasOpenRef = useRef(false);
-
-	useEffect(() => {
-		const wasOpen = wasOpenRef.current;
-		wasOpenRef.current = open;
-
-		if (open) {
-			setExiting(false);
-			return;
-		}
-
-		if (!wasOpen) {
-			return;
-		}
-
-		setExiting(true);
-		const timeoutId = window.setTimeout(() => setExiting(false), 140);
-		return () => window.clearTimeout(timeoutId);
-	}, [open]);
-
-	if (!open && !exiting) {
-		return null;
-	}
+	const { ref } = useDialogMotion(open);
 
 	return (
 		<div
+			ref={ref}
 			data-testid="unsaved-changes-guard"
 			aria-hidden={!open}
 			className={cn(

@@ -19,7 +19,6 @@ export interface FilePreviewDialogProps {
 	open: boolean;
 	file: FileInfo | FileListItem;
 	onClose: () => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	onFileUpdated?: () => void;
 	editable?: boolean;
 	resources: FilePreviewResources;
@@ -32,10 +31,7 @@ export interface FilePreviewDialogProps {
 }
 
 interface FilePreviewDialogModelInput
-	extends Omit<
-		FilePreviewDialogProps,
-		"onOpenChangeComplete" | "onFileUpdated"
-	> {
+	extends Omit<FilePreviewDialogProps, "onFileUpdated"> {
 	language?: string;
 	translateFileLabel: (key: string) => string;
 }
@@ -134,7 +130,6 @@ export function useFilePreviewDialogModel({
 		archiveManifestLoader,
 		fileId: file.id,
 		launchWopiSession,
-		open,
 	});
 	const {
 		dialogContentClassName,

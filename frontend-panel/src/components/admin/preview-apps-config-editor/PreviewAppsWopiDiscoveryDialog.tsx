@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 
 interface PreviewAppsWopiDiscoveryDialogProps {
@@ -19,7 +20,27 @@ interface PreviewAppsWopiDiscoveryDialogProps {
 	onUrlChange: (url: string) => void;
 }
 
-export function PreviewAppsWopiDiscoveryDialog({
+export function PreviewAppsWopiDiscoveryDialog(
+	props: PreviewAppsWopiDiscoveryDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<PreviewAppsWopiDiscoveryDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function PreviewAppsWopiDiscoveryDialogContent({
 	building,
 	onBuild,
 	onOpenChange,

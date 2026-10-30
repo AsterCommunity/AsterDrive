@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GlobalSearchDialog } from "@/components/layout/GlobalSearchDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
 import type { TagInfo } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -34,14 +35,9 @@ vi.mock("@/services/tagService", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		open,
-		children,
-	}: {
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-		children: ReactNode;
-	}) => (open ? <div>{children}</div> : null),
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot {...props} />
+	),
 	DialogContent: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -74,6 +70,24 @@ function tag(id: number, name: string, color = "#2563eb"): TagInfo {
 }
 
 describe("GlobalSearchDialog", () => {
+	it("keeps the query through exit, then disposes its content", () => {
+		const onOpenChange = vi.fn();
+		const { rerender } = render(
+			<GlobalSearchDialog open onOpenChange={onOpenChange} />,
+		);
+		fireEvent.change(screen.getByPlaceholderText("search:placeholder"), {
+			target: { value: "retained query" },
+		});
+		rerender(<GlobalSearchDialog open={false} onOpenChange={onOpenChange} />);
+		expect(screen.getByPlaceholderText("search:placeholder")).toHaveValue(
+			"retained query",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+		expect(
+			screen.queryByPlaceholderText("search:placeholder"),
+		).not.toBeInTheDocument();
+	});
+
 	beforeEach(() => {
 		mockState.listTags.mockReset();
 		mockState.listTags.mockResolvedValue({

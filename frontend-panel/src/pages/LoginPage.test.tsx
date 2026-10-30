@@ -2007,7 +2007,9 @@ describe("LoginPage", () => {
 		render(<LoginPage />);
 
 		expect(
-			await screen.findByText("external_auth_email_verification_title"),
+			await screen.findByRole("heading", {
+				name: "external_auth_email_verification_title",
+			}),
 		).toBeInTheDocument();
 		expect(
 			await screen.findByText("external_auth_password_link_tab"),
@@ -2466,10 +2468,10 @@ describe("LoginPage", () => {
 		expect(
 			await screen.findByRole("button", { name: "sign_in" }),
 		).toBeVisible();
-		expect(screen.getByLabelText("email_or_username")).toHaveValue(
+		expect(await screen.findByLabelText("email_or_username")).toHaveValue(
 			"cluster-admin@example.com",
 		);
-		expect(screen.getByLabelText("password")).toHaveValue("secret123");
+		expect(await screen.findByLabelText("password")).toHaveValue("secret123");
 
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 		await waitFor(() => {

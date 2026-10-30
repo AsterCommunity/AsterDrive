@@ -9,6 +9,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
 import { useFileStore } from "@/stores/fileStore";
@@ -18,10 +22,29 @@ interface CreateFileDialogProps {
 	onOpenChange: (open: boolean) => void;
 }
 
-export function CreateFileDialog({
+export function CreateFileDialog(props: CreateFileDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<CreateFileDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function CreateFileDialogContent({
 	open,
 	onOpenChange,
 }: CreateFileDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation("files");
 	const createFile = useFileStore((s) => s.createFile);
 	const [name, setName] = useState("");
@@ -37,13 +60,12 @@ export function CreateFileDialog({
 		try {
 			await createFile(trimmedName);
 			toast.success(t("create_file_success"));
-			setName("");
 			onOpenChange(false);
 		} catch (err) {
-			handleApiError(err);
+			if (isCurrent()) handleApiError(err);
 		} finally {
 			submittingRef.current = false;
-			setSubmitting(false);
+			if (isCurrent()) setSubmitting(false);
 		}
 	};
 

@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import {
 	type ResourcePath,
 	resourceCacheKey,
@@ -234,6 +235,8 @@ function profile(
 	};
 }
 
+let finishEntrance = (_open: boolean) => {};
+
 function renderModel(
 	overrides: Partial<Parameters<typeof useFilePreviewDialogModel>[0]> = {},
 ) {
@@ -258,7 +261,17 @@ function renderModel(
 	};
 	const hook = renderHook(
 		(nextProps: typeof props) => useFilePreviewDialogModel(nextProps),
-		{ initialProps: props },
+		{
+			initialProps: props,
+			wrapper: ({ children }) => (
+				<DialogLifecycle open target={null}>
+					{({ complete }) => {
+						finishEntrance = complete;
+						return children;
+					}}
+				</DialogLifecycle>
+			),
+		},
 	);
 	return { ...hook, onClose };
 }
@@ -1112,7 +1125,7 @@ describe("useFilePreviewDialogModel", () => {
 
 		expect(result.current.isDialogAnimationEnabled).toBe(true);
 		act(() => {
-			vi.advanceTimersByTime(120);
+			finishEntrance(true);
 		});
 		expect(result.current.isDialogAnimationEnabled).toBe(false);
 

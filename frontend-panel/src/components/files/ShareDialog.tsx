@@ -15,6 +15,10 @@ import {
 	shareDialogReducer,
 } from "@/components/files/shareDialogState";
 import { Button } from "@/components/ui/button";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +40,6 @@ type ShareLinkMode = "page" | "direct";
 interface ShareDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	onShareCreated?: () => void | Promise<void>;
 	fileId?: number;
 	folderId?: number;
@@ -44,16 +47,35 @@ interface ShareDialogProps {
 	initialMode?: ShareLinkMode;
 }
 
-export function ShareDialog({
+export function ShareDialog(props: ShareDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={`${props.fileId}:${props.folderId}:${props.initialMode}`}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<ShareDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function ShareDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	onShareCreated,
 	fileId,
 	folderId,
 	name,
 	initialMode,
 }: ShareDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["core", "share", "errors"]);
 	const directEligible = fileId != null;
 	const mode: ShareLinkMode =
@@ -114,15 +136,16 @@ export function ShareDialog({
 						.catch(() => undefined);
 				}
 
+				toast.success(t("share:share_created"));
+				if (!isCurrent()) return;
 				dispatch({
 					type: "createSucceeded",
 					links: { primaryUrl, forceDownloadUrl },
 				});
-				toast.success(t("share:share_created"));
 			} catch (error) {
-				handleApiError(error);
+				if (isCurrent()) handleApiError(error);
 			} finally {
-				dispatch({ type: "createFinished" });
+				if (isCurrent()) dispatch({ type: "createFinished" });
 			}
 		});
 	};
@@ -133,11 +156,14 @@ export function ShareDialog({
 	) => {
 		try {
 			await writeTextToClipboard(value);
+			if (!isCurrent()) return;
 			toast.success(t("copied_to_clipboard"));
 			dispatch({ type: "copySucceeded", link });
-			setTimeout(() => dispatch({ type: "copyReset", link }), 2000);
+			setTimeout(() => {
+				if (isCurrent()) dispatch({ type: "copyReset", link });
+			}, 2000);
 		} catch {
-			toast.error(t("errors:unexpected_error"));
+			if (isCurrent()) toast.error(t("errors:unexpected_error"));
 		}
 	};
 
@@ -145,18 +171,10 @@ export function ShareDialog({
 		onOpenChange(open);
 	};
 
-	const handleOpenChangeComplete = (open: boolean) => {
-		if (!open) {
-			dispatch({ type: "reset" });
-		}
-		onOpenChangeComplete?.(open);
-	};
-
 	return (
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={handleClose}
-			onOpenChangeComplete={handleOpenChangeComplete}
 			className="h-auto max-h-[min(92dvh,44rem)]"
 			title={
 				<span className="flex max-w-full min-w-0 items-start gap-2 leading-snug">

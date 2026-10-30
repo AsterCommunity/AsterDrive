@@ -9,6 +9,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,7 +63,28 @@ function policyName(
 	);
 }
 
-export function PolicyGroupSimulationDialog({
+export function PolicyGroupSimulationDialog(
+	props: PolicyGroupSimulationDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.group?.id}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<PolicyGroupSimulationDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function PolicyGroupSimulationDialogContent({
 	open,
 	error,
 	filename,

@@ -243,7 +243,7 @@ src/i18n/locales/{zh,en}/
 ### 弹窗与详情生命周期
 
 - open=false 表示开始退出，不等于展示资源已经销毁。关闭立即取消请求或使迟到结果失效，数据和标题由内容组件持有到退出完成再卸载。
-- Base UI 弹窗用 onOpenChangeComplete(false) 释放 useRetainedDialogValue 持有的目标，桌面详情使用实际动画完成信号；不要用与 CSS 时长平行的定时器。快速重开和 reduced-motion 必须正确。
+- 业务弹窗通过 `DialogLifecycle` 持有目标和内容子树；Base UI primitive 自动连接退出完成信号，桌面详情使用 `useDialogMotion` 等待实际动画。不要复制 retained/reset/退出定时器；完整用法及迁移清单见 [`frontend-dialog-lifecycle.md`](../developer-docs/zh-CN/design/frontend-dialog-lifecycle.md)。快速重开和 reduced-motion 必须正确。
 - 详情已展开时切换文件或目录只更新内部目标与加载态，保持面板挂载与宽度，隔离旧目标迟到结果。
 
 ### Flex 滚动链完整性

@@ -14,6 +14,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
 import { cn } from "@/lib/utils";
@@ -27,30 +31,43 @@ import type {
 interface FolderIconDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	folder: FolderListItem | null;
 	onUpdated?: () => void | Promise<void>;
 }
 
 type IconMode = FolderIcon["kind"];
 
-export function FolderIconDialog({
+export function FolderIconDialog(props: FolderIconDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.folder?.id}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<FolderIconDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function FolderIconDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	folder,
 	onUpdated,
 }: FolderIconDialogProps) {
 	const { t } = useTranslation("files");
 	const initial = folder?.icon ?? ({ kind: "default" } as const);
-	const resetKey = `${folder?.id ?? "none"}:${JSON.stringify(initial)}:${open}`;
+	const resetKey = `${folder?.id ?? "none"}:${JSON.stringify(initial)}`;
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent keepMounted className="sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle>{t("folder_icon_title")}</DialogTitle>
@@ -75,6 +92,7 @@ function FolderIconDialogForm({
 }: Pick<FolderIconDialogProps, "onOpenChange" | "onUpdated"> & {
 	folder: FolderListItem;
 }) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation("files");
 	const [mode, setMode] = useState<IconMode>(folder.icon.kind);
 	const [builtin, setBuiltin] = useState<FolderBuiltinIcon>(
@@ -102,9 +120,9 @@ function FolderIconDialogForm({
 		try {
 			await fileService.setFolderIcon(folder.id, nextIcon);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 			submittingRef.current = false;
-			setSubmitting(false);
+			if (isCurrent()) setSubmitting(false);
 			return;
 		}
 		toast.success(t("folder_icon_updated"));

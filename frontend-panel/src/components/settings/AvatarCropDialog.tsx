@@ -5,6 +5,10 @@ import ReactCrop, {
 	type PercentCrop,
 	type PixelCrop,
 } from "react-image-crop";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import "react-image-crop/dist/ReactCrop.css";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -59,13 +63,33 @@ function createCenteredAvatarCrop(
 	);
 }
 
-export function AvatarCropDialog({
+export function AvatarCropDialog(props: AvatarCropDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.file}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<AvatarCropDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function AvatarCropDialogContent({
 	open,
 	file,
 	busy = false,
 	onOpenChange,
 	onConfirm,
 }: AvatarCropDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["core", "settings"]);
 	const imageRef = useRef<HTMLImageElement | null>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -79,7 +103,7 @@ export function AvatarCropDialog({
 		setCrop(undefined);
 		setCompletedCrop(null);
 
-		if (!open || !file) {
+		if (!file) {
 			setImageUrl(null);
 			return;
 		}
@@ -89,7 +113,7 @@ export function AvatarCropDialog({
 		return () => {
 			URL.revokeObjectURL(objectUrl);
 		};
-	}, [file, open]);
+	}, [file]);
 
 	useEffect(() => {
 		if (
@@ -148,12 +172,13 @@ export function AvatarCropDialog({
 				file,
 				completedCrop,
 			);
+			if (!isCurrent()) return;
 			const shouldClose = await onConfirm(croppedFile);
 			if (shouldClose) {
 				onOpenChange(false);
 			}
 		} finally {
-			setProcessing(false);
+			if (isCurrent()) setProcessing(false);
 		}
 	};
 

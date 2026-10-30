@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import type { WebdavCredentials } from "./useWebdavAccountDialogState";
@@ -20,7 +21,6 @@ interface WebdavCredentialsDialogProps {
 	description: string;
 	onCopy: (value: string) => void;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete: (open: boolean) => void;
 	onTest: () => void;
 	open: boolean;
 	passwordLabel: string;
@@ -31,14 +31,32 @@ interface WebdavCredentialsDialogProps {
 	usernameLabel: string;
 }
 
-export function WebdavCredentialsDialog({
+export function WebdavCredentialsDialog(props: WebdavCredentialsDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.credentials?.username}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<WebdavCredentialsDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function WebdavCredentialsDialogContent({
 	connectionFailedLabel,
 	connectionSuccessLabel,
 	credentials,
 	description,
 	onCopy,
 	onOpenChange,
-	onOpenChangeComplete,
 	onTest,
 	open,
 	passwordLabel,
@@ -53,11 +71,7 @@ export function WebdavCredentialsDialog({
 	}
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
@@ -68,14 +82,18 @@ export function WebdavCredentialsDialog({
 						<Label>{usernameLabel}</Label>
 						<WebdavCopyField
 							value={credentials.username}
-							onCopy={() => onCopy(credentials.username)}
+							onCopy={() => {
+								if (open) onCopy(credentials.username);
+							}}
 						/>
 					</div>
 					<div className="space-y-1.5">
 						<Label>{passwordLabel}</Label>
 						<WebdavCopyField
-							value={credentials.password}
-							onCopy={() => onCopy(credentials.password)}
+							value={open ? credentials.password : "••••••••"}
+							onCopy={() => {
+								if (open) onCopy(credentials.password);
+							}}
 						/>
 					</div>
 					{testResult !== null ? (

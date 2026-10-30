@@ -48,6 +48,7 @@ import {
 	isMailDeliveryConfigReady,
 	MAIL_DELIVERY_CONFIG_KEYS,
 } from "@/components/admin/settings/mailDeliveryConfigReady";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { handleApiError } from "@/hooks/useApiError";
 import {
 	loadAdminConfigSchema,
@@ -166,10 +167,12 @@ export function useAdminSettingsData({
 	}, []);
 
 	const openTestEmailDialog = useCallback(() => {
+		setSendingTestEmail(false);
 		setTestEmailTarget(currentUserEmail);
 		setTestEmailDialogOpen(true);
 	}, [currentUserEmail]);
 
+	const isTestEmailCurrent = useDialogActivity(undefined, testEmailDialogOpen);
 	const handleSendTestEmail = useCallback(async () => {
 		setSendingTestEmail(true);
 		try {
@@ -186,13 +189,21 @@ export function useAdminSettingsData({
 					? t("mail_test_email_sent", { email: targetEmail })
 					: t("mail_test_email_sent_default"),
 			);
-			setTestEmailDialogOpen(false);
+			if (isTestEmailCurrent()) setTestEmailDialogOpen(false);
 		} catch (error) {
-			handleApiError(error);
+			if (isTestEmailCurrent()) handleApiError(error);
 		} finally {
-			setSendingTestEmail(false);
+			if (isTestEmailCurrent()) setSendingTestEmail(false);
 		}
-	}, [configs, currentUserEmail, draftValues, schemas, t, testEmailTarget]);
+	}, [
+		configs,
+		currentUserEmail,
+		draftValues,
+		schemas,
+		t,
+		testEmailTarget,
+		isTestEmailCurrent,
+	]);
 
 	const handleBuildWopiDiscoveryPreviewConfig = useCallback(
 		async ({
