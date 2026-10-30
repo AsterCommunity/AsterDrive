@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SkeletonFileTable } from "@/components/common/SkeletonFileTable";
 import { TagChips } from "@/components/files/TagChips";
 import {
 	TagManagerDialog,
@@ -45,6 +46,8 @@ import { useMediaQuery } from "./file-info-dialog/useMediaQuery";
 interface FileInfoDialogProps {
 	open: boolean;
 	metadataOnly?: boolean;
+	loading?: boolean;
+	childCount?: { folders: number; files: number } | null;
 	thumbnailPath?: string | null;
 	actions?: ReactNode;
 	onOpenChange: (open: boolean) => void;
@@ -67,11 +70,6 @@ interface FileInfoDialogProps {
 		locked: boolean,
 	) => Promise<boolean> | boolean | undefined;
 }
-
-type FileInfoDialogTarget = {
-	file?: FileInfo | FileListItem;
-	folder?: FolderInfo | FolderListItem;
-};
 
 function getSharedFlag({
 	renderedFile,
@@ -222,6 +220,7 @@ function buildOverviewRows({
 function FileInfoDialogFrame({
 	content,
 	desktopVisible,
+	panelRef,
 	handleOpenChangeComplete,
 	isDesktop,
 	onOpenChange,
@@ -230,6 +229,7 @@ function FileInfoDialogFrame({
 }: {
 	content: ReactNode;
 	desktopVisible: boolean;
+	panelRef: import("react").RefObject<HTMLDivElement | null>;
 	handleOpenChangeComplete: (open: boolean) => void;
 	isDesktop: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -241,6 +241,7 @@ function FileInfoDialogFrame({
 	if (isDesktop) {
 		return (
 			<div
+				ref={panelRef}
 				className={cn(
 					"hidden h-full min-h-0 flex-none overflow-hidden transition-[width] duration-280 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:block",
 					desktopVisible ? "w-[22rem]" : "pointer-events-none w-0",
@@ -375,29 +376,82 @@ function ResourceActivitySection({
 	);
 }
 
-export function FileInfoDialog({
+// The outer frame owns presence; content owns its data until presence disposes it.
+export function FileInfoDialog(props: FileInfoDialogProps) {
+	const {
+		open,
+		file,
+		folder,
+		loading,
+		thumbnailPath,
+		childCount,
+		actions,
+		onOpenChange,
+	} = props;
+	const target = useMemo(
+		() =>
+			open && (file || folder || loading)
+				? { file, folder, loading, thumbnailPath, childCount, actions }
+				: null,
+		[open, file, folder, loading, thumbnailPath, childCount, actions],
+	);
+	const { retainedValue, handleOpenChangeComplete } = useRetainedDialogValue(
+		target,
+		open,
+	);
+	const isDesktop = useMediaQuery("(min-width: 1024px)");
+	const { desktopMounted, desktopVisible, panelRef } = useDesktopInfoPanelMount(
+		open,
+		isDesktop,
+		handleOpenChangeComplete,
+	);
+	if ((!open && !desktopMounted && isDesktop) || !retainedValue) return null;
+	const resourceKey = retainedValue.file
+		? `file:${retainedValue.file.id}`
+		: retainedValue.folder
+			? `folder:${retainedValue.folder.id}`
+			: "loading";
+	return (
+		<FileInfoDialogFrame
+			content={
+				retainedValue.file || retainedValue.folder ? (
+					<FileInfoDialogBody
+						key={resourceKey}
+						{...props}
+						{...retainedValue}
+						open={open}
+						isDesktop={isDesktop}
+					/>
+				) : (
+					<SkeletonFileTable />
+				)
+			}
+			desktopVisible={desktopVisible}
+			panelRef={panelRef}
+			handleOpenChangeComplete={handleOpenChangeComplete}
+			isDesktop={isDesktop}
+			onOpenChange={onOpenChange}
+			open={open}
+			title={retainedValue.file?.name ?? retainedValue.folder?.name ?? ""}
+		/>
+	);
+}
+
+function FileInfoDialogBody({
 	metadataOnly = false,
+	loading = false,
+	childCount: providedChildCount,
 	thumbnailPath,
 	actions,
 	open,
 	onOpenChange,
 	file,
 	folder,
-}: FileInfoDialogProps) {
+	isDesktop,
+}: FileInfoDialogProps & { isDesktop: boolean }) {
 	const { t } = useTranslation(["files", "core"]);
-	const retainedTargetInput = useMemo<FileInfoDialogTarget | null>(
-		() => (file ? { file } : folder ? { folder } : null),
-		[file, folder],
-	);
-	const { retainedValue: retainedTarget, handleOpenChangeComplete } =
-		useRetainedDialogValue<FileInfoDialogTarget>(retainedTargetInput, open);
-	const renderedFile = file ?? retainedTarget?.file;
-	const renderedFolder = folder ?? retainedTarget?.folder;
-	const isDesktop = useMediaQuery("(min-width: 1024px)");
-	const { desktopMounted, desktopVisible } = useDesktopInfoPanelMount(
-		open,
-		isDesktop,
-	);
+	const renderedFile = file;
+	const renderedFolder = folder;
 	const data = useFileInfoDialogData({
 		enabled: !metadataOnly,
 		open,
@@ -414,6 +468,7 @@ export function FileInfoDialog({
 			? renderedFolder
 			: data.resolvedFolder
 		: null;
+	const childCount = providedChildCount ?? data.childCount;
 	const loadingText = t("info_loading");
 	const isShared = getSharedFlag({ renderedFile, renderedFolder });
 	const title = renderedFile
@@ -439,10 +494,10 @@ export function FileInfoDialog({
 	const summaryLabel = renderedFile ? t("core:file") : t("core:folder");
 	const summarySubtitle = renderedFile
 		? formatBytes((activeFile ?? renderedFile).size)
-		: data.childCount != null
+		: childCount != null
 			? t("info_children_count", {
-					folders: data.childCount.folders,
-					files: data.childCount.files,
+					folders: childCount.folders,
+					files: childCount.files,
 				})
 			: data.folderDetailsLoading
 				? loadingText
@@ -450,9 +505,9 @@ export function FileInfoDialog({
 	const overviewRows = buildOverviewRows({
 		activeFile,
 		activeFolder,
-		childCount: data.childCount,
-		fileDetailsLoading: data.fileDetailsLoading,
-		folderDetailsLoading: data.folderDetailsLoading,
+		childCount,
+		fileDetailsLoading: loading || data.fileDetailsLoading,
+		folderDetailsLoading: loading || data.folderDetailsLoading,
 		loadingText,
 		renderedFile,
 		renderedFolder,
@@ -486,8 +541,8 @@ export function FileInfoDialog({
 	const metadataTitle = data.renderedMediaMetadataKind
 		? t(`info_media_metadata_${data.renderedMediaMetadataKind}`)
 		: t("info_media_metadata");
-	const renderedTarget = renderedFile ?? renderedFolder;
-	const activeTarget = activeFile ?? activeFolder ?? renderedTarget;
+	const renderedResource = renderedFile ?? renderedFolder;
+	const activeTarget = activeFile ?? activeFolder ?? renderedResource;
 	const tagsSection =
 		activeTarget && (renderedFile || renderedFolder) ? (
 			<TagsSection
@@ -501,13 +556,6 @@ export function FileInfoDialog({
 			/>
 		) : null;
 
-	if (
-		(isDesktop && !open && !desktopMounted) ||
-		(!renderedFile && !renderedFolder)
-	) {
-		return null;
-	}
-
 	const content = (
 		<FileInfoDialogContent
 			actions={actions}
@@ -518,7 +566,7 @@ export function FileInfoDialog({
 						? null
 						: undefined
 			}
-			closeLabel={t("close")}
+			closeLabel={t("core:close")}
 			currentLocked={currentLocked}
 			isDesktop={isDesktop}
 			isShared={isShared}
@@ -563,15 +611,5 @@ export function FileInfoDialog({
 		/>
 	);
 
-	return (
-		<FileInfoDialogFrame
-			content={content}
-			desktopVisible={desktopVisible}
-			handleOpenChangeComplete={handleOpenChangeComplete}
-			isDesktop={isDesktop}
-			onOpenChange={onOpenChange}
-			open={open}
-			title={title}
-		/>
-	);
+	return content;
 }

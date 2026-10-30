@@ -30,7 +30,6 @@
 	"content_access_remark": "备注（可选，最多 500 字）",
 	"content_access_begin": "开始只读访问",
 	"content_access_end": "结束本次访问",
-	"content_access_download": "访问并下载内容",
 	"content_reason_user_support": "用户支持",
 	"content_reason_data_recovery": "数据恢复",
 	"content_reason_security_investigation": "安全调查",

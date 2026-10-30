@@ -196,6 +196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/content-access/folders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_workspace_folder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/content-access/status": {
         parameters: {
             query?: never;
@@ -4745,7 +4761,7 @@ export interface components {
             size: number;
         };
         AdminDownloadInitRequest: {
-            access_id: string;
+            access_id?: string | null;
             /** Format: int64 */
             revision_id?: number | null;
         };
@@ -4948,6 +4964,12 @@ export interface components {
             size: number;
             /** Format: int64 */
             version: number;
+        };
+        AdminFolderChildCount: {
+            /** Format: int64 */
+            files: number;
+            /** Format: int64 */
+            folders: number;
         };
         AdminLockListQuery: {
             sort_by?: components["schemas"]["AdminLockSortBy"] | null;
@@ -11081,6 +11103,37 @@ export interface operations {
                             /** Format: int64 */
                             version: number;
                         }[];
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    admin_workspace_folder: {
+        parameters: {
+            query: {
+                access_id: string;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            child_count: components["schemas"]["AdminFolderChildCount"];
+                            folder: components["schemas"]["FolderInfo"];
+                        };
                         error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
                     };

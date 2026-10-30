@@ -198,3 +198,19 @@ pub async fn get_thumbnail(
             .json(crate::api::response::empty_success())),
     }
 }
+
+#[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/folders/{id}", tag = "admin", operation_id = "admin_workspace_folder",
+ params(("id" = i64, Path), ("access_id" = String, Query)),
+ responses((status = 200, body = inline(ApiResponse<AdminFolderInfo>))), security(("bearer" = [])))]
+pub async fn get_folder(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    path: web::Path<i64>,
+    access: web::Query<ContentFileQuery>,
+) -> Result<HttpResponse> {
+    let info =
+        content_access::get_folder(state.get_ref(), &claims, &access.access_id, *path).await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(crate::api::response::success(info)))
+}

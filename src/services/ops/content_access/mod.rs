@@ -6,8 +6,8 @@ mod workspace;
 pub use download::{download, init_download};
 pub use types::*;
 pub use workspace::{
-    AdminWorkspaceContents, AdminWorkspaceQuery, get_file, get_thumbnail, list_trash,
-    list_versions, list_workspace,
+    AdminFolderInfo, AdminWorkspaceContents, AdminWorkspaceQuery, get_file, get_folder,
+    get_thumbnail, list_trash, list_versions, list_workspace,
 };
 
 use crate::{
@@ -65,11 +65,11 @@ async fn require_actor(state: &impl SharedRuntimeState, claims: &Claims) -> Resu
 
 async fn require_target(
     state: &impl SharedRuntimeState,
-    payload: &AccessPayload,
+    scope: &AccessScope,
 ) -> Result<WorkspaceResourceScope> {
-    match payload.scope_kind {
+    match scope.scope_kind {
         AdminScopeKind::Personal => {
-            let user = user_repo::find_by_id(state.writer_db(), payload.target_id)
+            let user = user_repo::find_by_id(state.writer_db(), scope.target_id)
                 .await
                 .map_err(|e| match e {
                     crate::errors::AsterError::RecordNotFound(_) => {
@@ -83,7 +83,7 @@ async fn require_target(
             Ok(WorkspaceResourceScope::Personal { user_id: user.id })
         }
         AdminScopeKind::Team => {
-            let team = team_repo::find_by_id(state.writer_db(), payload.target_id)
+            let team = team_repo::find_by_id(state.writer_db(), scope.target_id)
                 .await
                 .map_err(|e| match e {
                     crate::errors::AsterError::RecordNotFound(_) => {
@@ -99,7 +99,7 @@ async fn require_target(
     }
 }
 
-fn validate_request(request: &CreateAdminContentAccess) -> Result<AccessPayload> {
+fn validate_request(request: &CreateAdminContentAccess) -> Result<WorkspaceAccess> {
     let reason = request
         .reason
         .ok_or_else(|| denied(ApiErrorCode::AdminContentReasonRequired))?;
@@ -113,16 +113,17 @@ fn validate_request(request: &CreateAdminContentAccess) -> Result<AccessPayload>
             "invalid content access request",
         ));
     }
-    Ok(AccessPayload {
-        scope_kind: request.scope_kind,
-        target_id: request.target_id,
+    Ok(WorkspaceAccess {
+        scope: AccessScope {
+            scope_kind: request.scope_kind,
+            target_id: request.target_id,
+        },
         reason,
         remark: request
             .remark
             .as_ref()
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty()),
-        download: None,
     })
 }
 
@@ -134,18 +135,24 @@ pub async fn create(
 ) -> Result<AdminContentAccessInfo> {
     require_actor(state, claims).await?;
     let payload = validate_request(request)?;
-    require_target(state, &payload).await?;
+    require_target(state, &payload.scope).await?;
     let txn = state.writer_db().begin().await?;
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let info = persist(&txn, claims, &payload, &id).await?;
+    let info = persist(
+        &txn,
+        claims,
+        &AccessPayload::Workspace(payload.clone()),
+        &id,
+    )
+    .await?;
     record(
         &txn,
         ctx,
-        &payload,
+        &payload.scope,
+        Some(&payload),
         audit::AuditAction::AdminWorkspaceInspect,
         (None, None),
         "authorized",
-        false,
     )
     .await?;
     txn.commit().await?;
@@ -195,28 +202,50 @@ async fn load(state: &impl SharedRuntimeState, claims: &Claims, id: &str) -> Res
     }
     let payload: AccessPayload = serde_json::from_str(&grant.payload)
         .map_err(|_| denied(ApiErrorCode::AdminContentContextInvalid))?;
-    require_target(state, &payload).await?;
+    require_target(state, &payload.scope()).await?;
     Ok(payload)
+}
+
+async fn load_workspace(
+    state: &impl SharedRuntimeState,
+    claims: &Claims,
+    id: &str,
+) -> Result<WorkspaceAccess> {
+    match load(state, claims, id).await? {
+        AccessPayload::Workspace(access) => Ok(access),
+        AccessPayload::Download { .. } => Err(denied(ApiErrorCode::AdminContentContextInvalid)),
+    }
 }
 
 async fn record<C: sea_orm::ConnectionTrait>(
     db: &C,
     ctx: &audit::AuditContext,
-    payload: &AccessPayload,
+    scope: &AccessScope,
+    inspection: Option<&WorkspaceAccess>,
     action: audit::AuditAction,
     target: (Option<i64>, Option<i64>),
     result: &str,
-    has_range: bool,
 ) -> Result<()> {
-    let (entity_type, entity_id) = match payload.scope_kind {
-        AdminScopeKind::Team => (audit::AuditEntityType::Team, payload.target_id),
-        AdminScopeKind::Personal => (audit::AuditEntityType::User, payload.target_id),
+    let (entity_type, entity_id) = match scope.scope_kind {
+        AdminScopeKind::Team => (audit::AuditEntityType::Team, scope.target_id),
+        AdminScopeKind::Personal => (audit::AuditEntityType::User, scope.target_id),
     };
     // Snapshot target identity with the evidence; later account renames must not rewrite history.
-    let entity_name = match payload.scope_kind {
-        AdminScopeKind::Personal => user_repo::find_by_id(db, payload.target_id).await?.username,
-        AdminScopeKind::Team => team_repo::find_by_id(db, payload.target_id).await?.name,
+    let entity_name = match scope.scope_kind {
+        AdminScopeKind::Personal => user_repo::find_by_id(db, scope.target_id).await?.username,
+        AdminScopeKind::Team => team_repo::find_by_id(db, scope.target_id).await?.name,
     };
+    let mut details = serde_json::json!({
+        "scope_kind": scope.scope_kind, "target_id": scope.target_id,
+        "file_id": target.0, "revision_id": target.1,
+        "result": result, "source": "admin",
+    });
+    if let Some(inspection) = inspection {
+        details["reason"] = serde_json::json!(inspection.reason);
+        if let Some(remark) = &inspection.remark {
+            details["remark"] = serde_json::json!(remark);
+        }
+    }
     audit::log_required(
         db,
         audit::AuditLogInput {
@@ -226,11 +255,7 @@ async fn record<C: sea_orm::ConnectionTrait>(
             entity_id: Some(entity_id),
             entity_name: Some(&entity_name),
         },
-        serde_json::json!({
-            "scope_kind": payload.scope_kind, "target_id": payload.target_id,
-            "file_id": target.0, "revision_id": target.1, "reason": payload.reason,
-            "remark": payload.remark, "result": result, "has_range": has_range, "source": "admin",
-        }),
+        details,
     )
     .await
 }

@@ -2276,7 +2276,7 @@ pub async fn admin_download_init(
         &ctx,
         file_id,
         &AdminDownloadInitRequest {
-            access_id: access.id,
+            access_id: Some(access.id),
             revision_id,
         },
     )

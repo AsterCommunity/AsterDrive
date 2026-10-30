@@ -204,13 +204,34 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	expect(saved).not.toBeNull();
 	expect(await readFile(saved as string)).toEqual(original);
 	await page.getByRole("cell", { name, exact: true }).click();
+	const infoPanel = page.getByRole("complementary", { name: "Details" });
+	await expect(infoPanel).toBeVisible();
+	await expect(infoPanel).toHaveClass(/opacity-100/);
+	await expect(infoPanel.locator("..")).toHaveClass(/w-\[22rem\]/);
+	await infoPanel.evaluate((node) => {
+		node.setAttribute("data-retained-panel", "true");
+	});
 
-	await expect(
-		page.getByRole("complementary", { name: "Details" }),
-	).toBeVisible();
 	await expect(page).toHaveURL(
 		new RegExp(`/admin/users/${me.id}/files.*fileId=${file.id}`),
 	);
+	// Switching targets keeps the same expanded frame.
+	await page.getByRole("cell", { name: imageName, exact: true }).click();
+	await expect(
+		infoPanel.getByRole("heading", { name: imageName, exact: true }),
+	).toBeVisible();
+	await expect(page.locator('[data-retained-panel="true"]')).toHaveClass(
+		/opacity-100/,
+	);
+	await expect(infoPanel.locator("..")).toHaveClass(/w-\[22rem\]/);
+	await page.getByRole("cell", { name, exact: true }).click();
+	await expect(
+		infoPanel.getByRole("heading", { name, exact: true }),
+	).toBeVisible();
+	await expect(page.locator('[data-retained-panel="true"]')).toHaveClass(
+		/opacity-100/,
+	);
+
 	const inspectionCount = (
 		await apiJsonInPage<{ total: number }>(
 			page,
@@ -222,6 +243,12 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	await expect(
 		history.getByRole("heading", { name: `Version History - ${name}` }),
 	).toBeVisible();
+	await expect(page.locator('[data-retained-panel="true"]')).toHaveClass(
+		/opacity-100/,
+	);
+	await expect(
+		page.locator('[data-retained-panel="true"]').locator(".."),
+	).toHaveClass(/w-\[22rem\]/);
 	const [historical] = await Promise.all([
 		page.waitForEvent("download"),
 		history
@@ -264,7 +291,53 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		method: "DELETE",
 		withCsrf: true,
 	});
-	await history.getByRole("button", { name: "Close", exact: true }).click();
+	const exitSnapshot = await history.evaluate((node) => {
+		const button = node.querySelector<HTMLButtonElement>(
+			'[data-slot="dialog-close"]',
+		);
+		if (!button) throw new Error("version close button missing");
+		button.click();
+		return {
+			title: node.querySelector("h2")?.textContent,
+			rows: node.querySelectorAll("tbody tr").length,
+		};
+	});
+	expect(exitSnapshot.title).toBe("Version History - " + name);
+	expect(exitSnapshot.rows).toBeGreaterThan(0);
+	await expect(history).toBeHidden();
+	await expect(page).toHaveURL(/panel=info/);
+	await expect(infoPanel).toBeVisible();
+	await expect(infoPanel).toHaveClass(/opacity-100/);
+	await infoPanel.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(infoPanel).toHaveCount(0);
+	// Open a folder through the shared item menu without changing the browsed directory.
+	await page
+		.locator("[data-folder-tree-root-row]")
+		.getByRole("button", { name: "Root", exact: true })
+		.click();
+	await page
+		.getByRole("row")
+		.filter({ has: page.getByRole("cell", { name: folder.name, exact: true }) })
+		.getByRole("button", { name: "More actions" })
+		.click();
+	await page.getByRole("menuitem", { name: "Details", exact: true }).click();
+	await expect(page).toHaveURL(new RegExp(`infoFolderId=${folder.id}`));
+	await expect(page).not.toHaveURL(/[?&]folderId=/);
+	await expect(
+		infoPanel.getByRole("heading", { name: folder.name, exact: true }),
+	).toBeVisible();
+	await expect(
+		infoPanel.getByText("0 folder(s), 2 file(s)", { exact: true }).first(),
+	).toBeVisible();
+	await expect(
+		infoPanel.getByRole("button", { name: /Versions|Download/ }),
+	).toHaveCount(0);
+	await page.screenshot({
+		path: "/private/tmp/admin628-folder-details.png",
+		animations: "disabled",
+	});
+	await infoPanel.getByRole("button", { name: "Close", exact: true }).click();
+	await expect(infoPanel).toHaveCount(0);
 	await page.getByRole("button", { name: "Trash", exact: true }).click();
 	await expect(page).toHaveURL(/view=trash/);
 	await expect(
@@ -306,12 +379,56 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		.filter({ hasText: String(detail.blob.id) })
 		.first()
 		.click();
-	await page
-		.getByRole("link", { name: new RegExp(`v${revision.version}`) })
-		.click();
+	await expect(page).toHaveURL(new RegExp("blobId=" + detail.blob.id));
+	await page.reload();
+	const blobDialog = page.getByRole("dialog");
+	await expect(
+		blobDialog.getByRole("heading", {
+			name: "Blob #" + detail.blob.id,
+			exact: true,
+		}),
+	).toBeVisible();
+	await page.screenshot({
+		path: "/private/tmp/admin628-blob-uploader-horizontal.png",
+		animations: "disabled",
+	});
+	const reference = blobDialog.getByRole("link", {
+		name: new RegExp("v" + revision.version),
+	});
+	const card = await reference.boundingBox();
+	if (!card) throw new Error("version reference missing");
+	await reference.click({
+		position: { x: card.width - 4, y: card.height - 4 },
+	});
 	await expect(page).toHaveURL(
 		new RegExp(`fileId=${file.id}.*revisionId=${revision.id}`),
 	);
+	const logicalDialog = page.getByRole("dialog");
+	await expect(logicalDialog).toBeVisible();
+	await expect(
+		logicalDialog.getByRole("combobox", { name: "Access reason" }),
+	).toHaveCount(0);
+	const versionCard = logicalDialog.getByRole("link", {
+		name: new RegExp("^v" + revision.version),
+	});
+	const versionBounds = await versionCard.boundingBox();
+	if (!versionBounds) throw new Error("logical revision card missing");
+	await versionCard.click({
+		position: { x: versionBounds.width - 4, y: versionBounds.height - 4 },
+	});
+	const [directDownload] = await Promise.all([
+		page.waitForEvent("download"),
+		logicalDialog
+			.getByRole("button", {
+				name: "Download revision v" + revision.version,
+				exact: true,
+			})
+			.click(),
+	]);
+	expect(await readFile((await directDownload.path()) as string)).toEqual(
+		original,
+	);
+	await page.reload();
 	await expect(page.getByRole("dialog")).toBeVisible();
 	const team = await createTeamViaApi(page, uniqueName("inspect-team"));
 	await page.goto(`/admin/teams/${team.id}/files`);

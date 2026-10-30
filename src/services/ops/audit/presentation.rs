@@ -187,7 +187,6 @@ fn detail_message(
                     "reason",
                     "remark",
                     "result",
-                    "has_range",
                 ],
             );
             Some(message("admin_content_access", params))

@@ -135,6 +135,9 @@ function resolveReadOnlyFolderMenuProps({
 		onArchiveDownload: handlers.onArchiveDownload
 			? () => handlers.onArchiveDownload?.(item.id)
 			: undefined,
+		onInfo: handlers.onInfo
+			? () => handlers.onInfo?.("folder", item.id)
+			: undefined,
 	};
 }
 

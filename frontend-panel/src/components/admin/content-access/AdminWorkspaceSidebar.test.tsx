@@ -16,8 +16,8 @@ vi.mock("@/hooks/useApiError", () => ({ handleApiError: mocks.error }));
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({ t: (key: string) => key }),
 }));
-vi.mock("@/components/common/UserAvatarImage", () => ({
-	UserAvatarImage: () => <span>target avatar</span>,
+vi.mock("@/hooks/useBlobUrl", () => ({
+	useBlobUrl: () => ({ blobUrl: null, error: null }),
 }));
 describe("scoped workspace sidebar", () => {
 	beforeEach(() => {
@@ -127,4 +127,40 @@ it("shares the full root and folder hit areas without enabling mutation or bubbl
 	expect(trash).toHaveAttribute("aria-current", "page");
 	fireEvent.click(trash);
 	expect(onTrash).toHaveBeenCalledOnce();
+});
+
+it("uses the shared user identity and initials fallback when the inspected user has no avatar", () => {
+	const user = {
+		id: 7,
+		username: "target-user",
+		storage_used: 0,
+		profile: {
+			display_name: "Target User",
+			avatar: { source: "none", url_512: null, url_1024: null, version: 0 },
+		},
+	} as import("@/types/api").UserInfo;
+	const view = render(<AdminWorkspaceSidebar user={user} />);
+	const identity = screen.getByTestId("admin-workspace-identity");
+	expect(within(identity).getByText("TU")).toBeInTheDocument();
+	expect(within(identity).getByText("@target-user")).toBeInTheDocument();
+	expect(within(identity).queryByRole("img")).not.toBeInTheDocument();
+	view.rerender(
+		<AdminWorkspaceSidebar
+			user={{
+				...user,
+				profile: {
+					display_name: null,
+					avatar: {
+						source: "upload",
+						url_512: "https://example.test/avatar.webp",
+						url_1024: null,
+						version: 1,
+					},
+				},
+			}}
+		/>,
+	);
+	expect(
+		within(identity).getByRole("img", { name: "target-user" }),
+	).toHaveAttribute("src", "https://example.test/avatar.webp");
 });

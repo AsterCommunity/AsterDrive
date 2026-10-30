@@ -1,76 +1,52 @@
-import { useEffect, useReducer } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
-const DESKTOP_PANEL_EXIT_MS = 220;
-
-interface DesktopInfoPanelMountState {
-	desktopMounted: boolean;
-	desktopVisible: boolean;
-}
-
-type DesktopInfoPanelMountAction =
-	| { type: "sync"; open: boolean }
-	| { type: "mount" }
-	| { type: "show" }
-	| { type: "hide" }
-	| { type: "unmount" };
-
-function desktopInfoPanelMountReducer(
-	state: DesktopInfoPanelMountState,
-	action: DesktopInfoPanelMountAction,
-): DesktopInfoPanelMountState {
-	switch (action.type) {
-		case "sync":
-			return {
-				desktopMounted: action.open,
-				desktopVisible: action.open,
-			};
-		case "mount":
-			return state.desktopMounted ? state : { ...state, desktopMounted: true };
-		case "show":
-			return state.desktopVisible ? state : { ...state, desktopVisible: true };
-		case "hide":
-			return state.desktopVisible ? { ...state, desktopVisible: false } : state;
-		case "unmount":
-			return state.desktopMounted ? { ...state, desktopMounted: false } : state;
-	}
-}
-
-export function useDesktopInfoPanelMount(open: boolean, isDesktop: boolean) {
-	const [state, dispatch] = useReducer(desktopInfoPanelMountReducer, {
-		desktopMounted: open,
-		desktopVisible: open,
-	});
-
-	useEffect(() => {
+/** Presence owns the DOM until its actual transitions finish, including reduced motion. */
+export function useDesktopInfoPanelMount(
+	open: boolean,
+	isDesktop: boolean,
+	onExitComplete?: (open: boolean) => void,
+) {
+	const panelRef = useRef<HTMLDivElement>(null);
+	const [desktopMounted, setMounted] = useState(open);
+	const [desktopVisible, setVisible] = useState(open);
+	useLayoutEffect(() => {
 		if (!isDesktop) {
-			dispatch({ type: "sync", open });
+			setMounted(open);
+			setVisible(open);
 			return;
 		}
-
-		let enterTimeout: number | null = null;
-		let exitTimeout: number | null = null;
-
+		if (open) setMounted(true);
+		else setVisible(false);
+	}, [open, isDesktop]);
+	useLayoutEffect(() => {
+		if (!isDesktop || !desktopMounted) return;
+		const node = panelRef.current;
+		if (!node) return;
+		// Commit the collapsed geometry before showing; this also works after a fast reopen.
 		if (open) {
-			dispatch({ type: "mount" });
-			enterTimeout = window.setTimeout(() => {
-				dispatch({ type: "show" });
-			}, 0);
-		} else {
-			dispatch({ type: "hide" });
-			exitTimeout = window.setTimeout(() => {
-				dispatch({ type: "unmount" });
-			}, DESKTOP_PANEL_EXIT_MS);
+			void node.offsetWidth;
+			setVisible(true);
+			return;
 		}
-
+		// Wait for the closed classes to reach the DOM before collecting transitions.
+		if (desktopVisible) return;
+		let active = true;
+		const animations = node
+			.getAnimations({ subtree: true })
+			.filter(
+				(animation) =>
+					animation.effect?.getComputedTiming().iterations !== Infinity,
+			);
+		void Promise.allSettled(
+			animations.map((animation) => animation.finished),
+		).then(() => {
+			if (!active) return;
+			setMounted(false);
+			onExitComplete?.(false);
+		});
 		return () => {
-			if (enterTimeout != null) {
-				window.clearTimeout(enterTimeout);
-			}
-			if (exitTimeout != null) {
-				window.clearTimeout(exitTimeout);
-			}
+			active = false;
 		};
-	}, [isDesktop, open]);
-
-	return state;
+	}, [open, isDesktop, desktopMounted, desktopVisible, onExitComplete]);
+	return { desktopMounted, desktopVisible, panelRef };
 }

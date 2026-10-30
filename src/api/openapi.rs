@@ -18,6 +18,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::content_access::status,
         crate::api::routes::admin::content_access::list_trash,
         crate::api::routes::admin::content_access::get_file,
+        crate::api::routes::admin::content_access::get_folder,
         crate::api::routes::admin::content_access::get_thumbnail,
         crate::api::routes::admin::content_access::list_versions,
         crate::api::routes::admin::content_access::create,

@@ -58,6 +58,7 @@ import {
 	useManagedListQueryState,
 } from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateAbsoluteWithOffset } from "@/lib/format";
 import {
@@ -256,8 +257,9 @@ function createManagedFileQuerySchema(
 			serialize: (value) => (!isFiles ? value : undefined),
 		},
 		secondaryId: {
-			keys: ["blobId"],
-			parse: (searchParams) => parseOptionalNumber(searchParams.get("blobId")),
+			keys: isFiles ? ["blobId"] : [],
+			parse: (searchParams) =>
+				isFiles ? parseOptionalNumber(searchParams.get("blobId")) : undefined,
 			serialize: (value) => (isFiles ? { blobId: value } : undefined),
 		},
 		sizeMax: {
@@ -324,7 +326,7 @@ function DetailRow({
 	value,
 }: {
 	label: string;
-	value: string | number;
+	value: React.ReactNode;
 }) {
 	return (
 		<div className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 border-b border-border/50 py-2 text-sm last:border-b-0">
@@ -338,7 +340,7 @@ function DetailRow({
 
 function FileDetailDialog({
 	revisionId,
-	file,
+	file: currentFile,
 	open,
 	onOpenChange,
 }: {
@@ -347,9 +349,23 @@ function FileDetailDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	const target = useMemo(
+		() => (open && currentFile ? { file: currentFile, revisionId } : null),
+		[open, currentFile, revisionId],
+	);
+	const { retainedValue, handleOpenChangeComplete } = useRetainedDialogValue(
+		target,
+		open,
+	);
+	const file = retainedValue?.file;
+	const selectedRevisionId = retainedValue?.revisionId;
 	const { t } = useTranslation("admin");
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={onOpenChange}
+			onOpenChangeComplete={handleOpenChangeComplete}
+		>
 			<DialogContent className="max-h-[min(860px,calc(100vh-2rem))] overflow-y-auto sm:max-w-[760px]">
 				<DialogHeader>
 					<DialogTitle>{file?.name ?? t("admin_file_detail")}</DialogTitle>
@@ -357,9 +373,9 @@ function FileDetailDialog({
 				{file ? (
 					<div className="space-y-4">
 						<AdminFileDownloads
-							key={`${file.id}:${revisionId ?? "current"}`}
+							key={`${file.id}:${selectedRevisionId ?? "current"}`}
 							file={file}
-							revisionId={revisionId}
+							revisionId={selectedRevisionId}
 						/>
 						<div className="rounded-lg bg-muted/30 p-3">
 							<DetailRow label={t("id")} value={file.id} />
@@ -376,12 +392,10 @@ function FileDetailDialog({
 								label={t("admin_mime_type")}
 								value={displayValue(file.mime_type)}
 							/>
-							<div className="border-b border-border/50 py-2 text-sm last:border-b-0">
-								<div className="mb-2 text-muted-foreground">
-									{t("admin_uploaded_by")}
-								</div>
-								<UserIdentity user={file.created_by} />
-							</div>
+							<DetailRow
+								label={t("admin_uploaded_by")}
+								value={<UserIdentity user={file.created_by} />}
+							/>
 							<DetailRow
 								label={t("admin_storage_path")}
 								value={displayValue(fileBlobSummary(file)?.storage_path)}
@@ -406,28 +420,26 @@ function FileDetailDialog({
 							{file.versions.length ? (
 								<div className="space-y-2">
 									{file.versions.map((version) => (
-										<div
+										<Link
 											key={version.id}
+											to={`/admin/files?fileId=${file.id}&revisionId=${version.id}`}
+											aria-current={
+												selectedRevisionId === version.id ? "true" : undefined
+											}
 											className={
-												revisionId === version.id
-													? "rounded-lg bg-accent p-3 text-sm ring-1 ring-ring"
-													: "rounded-lg bg-muted/30 p-3 text-sm"
+												selectedRevisionId === version.id
+													? "block rounded-lg bg-accent p-3 text-sm ring-1 ring-ring"
+													: "block rounded-lg bg-muted/30 p-3 text-sm"
 											}
 										>
-											<Link
-												to={`/admin/files?fileId=${file.id}&revisionId=${version.id}`}
-												className="font-medium underline"
-												aria-current={
-													revisionId === version.id ? "true" : undefined
-												}
-											>
+											<span className="font-medium underline">
 												v{version.version} · {formatBytes(version.size)}
-											</Link>
+											</span>
 											<div className="mt-1 break-all font-mono text-xs text-muted-foreground">
 												#{version.id} · blob #{version.blob_id} ·{" "}
 												{displayValue(version.blob?.hash)}
 											</div>
-										</div>
+										</Link>
 									))}
 								</div>
 							) : (
@@ -444,7 +456,7 @@ function FileDetailDialog({
 }
 
 function BlobDetailDialog({
-	blob,
+	blob: currentBlob,
 	open,
 	onOpenChange,
 	onCreateMaintenanceTask,
@@ -459,10 +471,16 @@ function BlobDetailDialog({
 	) => Promise<void>;
 	maintenanceAction: BlobMaintenanceAction | null;
 }) {
+	const { retainedValue: blob, handleOpenChangeComplete } =
+		useRetainedDialogValue(open ? currentBlob : null, open);
 	const { t } = useTranslation("admin");
 	const isBusy = maintenanceAction !== null;
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open={open}
+			onOpenChange={onOpenChange}
+			onOpenChangeComplete={handleOpenChangeComplete}
+		>
 			<DialogContent className="max-h-[min(860px,calc(100vh-2rem))] overflow-y-auto sm:max-w-[760px]">
 				<DialogHeader>
 					<DialogTitle>
@@ -532,15 +550,15 @@ function BlobDetailDialog({
 								label={t("admin_blob_health")}
 								value={t(blobHealthLabelKey(blob.health))}
 							/>
-							<div className="border-b border-border/50 py-2 text-sm last:border-b-0">
-								<div className="mb-2 text-muted-foreground">
-									{t("admin_uploaded_by")}
-								</div>
-								<UserIdentityGroup
-									users={blob.uploaders}
-									total={blob.uploader_count}
-								/>
-							</div>
+							<DetailRow
+								label={t("admin_uploaded_by")}
+								value={
+									<UserIdentityGroup
+										users={blob.uploaders}
+										total={blob.uploader_count}
+									/>
+								}
+							/>
 							<DetailRow
 								label={t("admin_storage_path")}
 								value={displayValue(blob.storage_path)}
@@ -557,17 +575,15 @@ function BlobDetailDialog({
 								<div className="space-y-2">
 									{blob.files.length ? (
 										blob.files.map((file) => (
-											<div
+											<Link
 												key={file.id}
-												className="rounded-lg bg-muted/30 p-3 text-sm"
+												to={`/admin/files?fileId=${file.id}`}
+												onClick={() => onOpenChange(false)}
+												className="block rounded-lg bg-muted/30 p-3 text-sm transition-colors hover:bg-accent/50"
 											>
-												<Link
-													className="block truncate py-1 font-medium underline"
-													to={`/admin/files?fileId=${file.id}`}
-													onClick={() => onOpenChange(false)}
-												>
+												<span className="block py-1 font-medium underline">
 													{file.name}
-												</Link>
+												</span>
 												<p>
 													{file.team_id != null
 														? t("content_team_owner", { id: file.team_id })
@@ -589,7 +605,7 @@ function BlobDetailDialog({
 													className="mt-2"
 													size="sm"
 												/>
-											</div>
+											</Link>
 										))
 									) : (
 										<div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -605,18 +621,16 @@ function BlobDetailDialog({
 								<div className="space-y-2">
 									{blob.file_versions.length ? (
 										blob.file_versions.map((version) => (
-											<div
+											<Link
 												key={version.id}
-												className="rounded-lg bg-muted/30 p-3 text-sm"
+												to={`/admin/files?fileId=${version.file_id}&revisionId=${version.id}`}
+												onClick={() => onOpenChange(false)}
+												className="block rounded-lg bg-muted/30 p-3 text-sm transition-colors hover:bg-accent/50"
 											>
-												<Link
-													className="block py-1 font-medium underline"
-													to={`/admin/files?fileId=${version.file_id}&revisionId=${version.id}`}
-													onClick={() => onOpenChange(false)}
-												>
+												<span className="block py-1 font-medium underline">
 													{version.file_name ?? `file #${version.file_id}`} · v
 													{version.version}
-												</Link>
+												</span>
 												<p>
 													{version.team_id != null
 														? t("content_team_owner", { id: version.team_id })
@@ -639,7 +653,7 @@ function BlobDetailDialog({
 												<div className="mt-1 font-mono text-xs text-muted-foreground">
 													#{version.id} · {formatBytes(version.size)}
 												</div>
-											</div>
+											</Link>
 										))
 									) : (
 										<div className="rounded-lg bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -705,6 +719,32 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const fileDetailDialog = useManagedAdminListDetailDialog<AdminFileDetail>();
 	const blobDetailDialog =
 		useManagedAdminListDetailDialog<AdminFileBlobDetail>();
+	const selectedBlobId = !isFiles
+		? parseOptionalNumber(searchParams.get("blobId"))
+		: undefined;
+	const { setDetail: setSelectedBlob, onOpenChange: setBlobDialogOpen } =
+		blobDetailDialog;
+	const [blobTargetUnavailable, setBlobTargetUnavailable] = useState(false);
+	useEffect(() => {
+		setBlobDialogOpen(false);
+		setBlobTargetUnavailable(false);
+		if (!selectedBlobId) return;
+		let active = true;
+		adminFileService
+			.getBlob(selectedBlobId)
+			.then((blob) => {
+				if (active) setSelectedBlob(blob);
+			})
+			.catch((error) => {
+				if (active) {
+					setBlobTargetUnavailable(true);
+					handleApiError(error);
+				}
+			});
+		return () => {
+			active = false;
+		};
+	}, [selectedBlobId, setSelectedBlob, setBlobDialogOpen]);
 	const selectedFileId = isFiles
 		? parseOptionalNumber(searchParams.get("fileId"))
 		: undefined;
@@ -834,11 +874,11 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		});
 	};
 	const openBlobDetail = async (id: number) => {
-		try {
-			blobDetailDialog.setDetail(await adminFileService.getBlob(id));
-		} catch (error) {
-			handleApiError(error);
-		}
+		setSearchParams((current) => {
+			const next = new URLSearchParams(current);
+			next.set("blobId", String(id));
+			return next;
+		});
 	};
 	const createMaintenanceTask = async (
 		action: BlobMaintenanceAction,
@@ -855,7 +895,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			toast.success(t("admin_blob_maintenance_task_created", { id: task.id }));
 			await reload();
 			if (blobDetailDialog.detail) {
-				await openBlobDetail(blobDetailDialog.detail.id);
+				blobDetailDialog.setDetail(
+					await adminFileService.getBlob(blobDetailDialog.detail.id),
+				);
 			}
 		} catch (error) {
 			handleApiError(error);
@@ -1239,6 +1281,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 					totalPages={totalPages}
 				/>
 			</AdminPageShell>
+			{blobTargetUnavailable ? (
+				<p role="alert">{t("content_file_unavailable")}</p>
+			) : null}
 			{fileTargetUnavailable ? (
 				<p role="alert">{t("content_file_unavailable")}</p>
 			) : null}
@@ -1263,7 +1308,15 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				maintenanceAction={
 					isMaintenanceBusy ? (maintenanceAction ?? "integrity_check") : null
 				}
-				onOpenChange={blobDetailDialog.onOpenChange}
+				onOpenChange={(open) => {
+					if (!open)
+						setSearchParams((current) => {
+							const next = new URLSearchParams(current);
+							next.delete("blobId");
+							return next;
+						});
+					setBlobDialogOpen(open);
+				}}
 				onCreateMaintenanceTask={createMaintenanceTask}
 			/>
 			<ConfirmDialog

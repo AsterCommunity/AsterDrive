@@ -56,3 +56,17 @@ describe("administrator download initialization", () => {
 		expect(mocks.init).not.toHaveBeenCalled();
 	});
 });
+
+it("omits the workspace access id for direct administrator downloads", async () => {
+	mocks.fresh.mockResolvedValue(undefined);
+	mocks.init.mockResolvedValue({
+		resource: { request: { url: "/admin/content-access/direct/download" } },
+		name: "direct.txt",
+	});
+	await startAdminContentDownload(undefined, 42, 99);
+	expect(mocks.init).toHaveBeenLastCalledWith(42, { revision_id: 99 });
+	expect(mocks.native).toHaveBeenLastCalledWith(
+		"/admin/content-access/direct/download",
+		"direct.txt",
+	);
+});

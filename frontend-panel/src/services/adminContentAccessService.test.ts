@@ -66,3 +66,15 @@ it("builds a thumbnail path scoped to the active inspection without another gran
 	);
 	expect(mocks.post).toHaveBeenCalledTimes(posts);
 });
+
+it("loads complete folder details within the current inspection context", async () => {
+	mocks.get.mockResolvedValueOnce({
+		folder: { id: 19 },
+		child_count: { folders: 0, files: 2 },
+	});
+	const result = await adminContentAccessService.getFolder("context +/", 19);
+	expect(mocks.get).toHaveBeenLastCalledWith(
+		"/admin/content-access/folders/19?access_id=context+%2B%2F",
+	);
+	expect(result.child_count).toEqual({ folders: 0, files: 2 });
+});

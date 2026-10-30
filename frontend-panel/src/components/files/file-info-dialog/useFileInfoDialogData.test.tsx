@@ -233,9 +233,9 @@ describe("useFileInfoDialogData", () => {
 
 		rerender({ open: false });
 		await waitFor(() => {
-			expect(result.current.resolvedFile).toBeNull();
-			expect(result.current.resolvedFolder).toBeNull();
-			expect(result.current.childCount).toBeNull();
+			expect(result.current.resolvedFile?.name).toBe("Resolved.mp3");
+			expect(result.current.resolvedFolder?.name).toBe("Resolved Folder");
+			expect(result.current.childCount).toEqual({ files: 1, folders: 0 });
 		});
 
 		rerender({ open: true });

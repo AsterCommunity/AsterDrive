@@ -44,7 +44,7 @@ pub struct AdminContentAccessStatus {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(deny_unknown_fields)]
 pub struct AdminDownloadInitRequest {
-    pub access_id: String,
+    pub access_id: Option<String>,
     pub revision_id: Option<i64>,
 }
 #[derive(Serialize)]
@@ -56,16 +56,37 @@ pub struct AdminDownloadInfo {
     pub name: String,
     pub size: i64,
 }
-#[derive(Clone, Serialize, Deserialize)]
-pub(super) struct AccessPayload {
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AccessScope {
     pub scope_kind: AdminScopeKind,
     pub target_id: i64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct WorkspaceAccess {
+    pub scope: AccessScope,
     pub reason: AdminAccessReason,
     pub remark: Option<String>,
-    pub download: Option<DownloadTarget>,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
-pub(super) struct DownloadTarget {
-    pub file_id: i64,
-    pub revision_id: i64,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum AccessPayload {
+    Workspace(WorkspaceAccess),
+    Download {
+        scope: AccessScope,
+        file_id: i64,
+        revision_id: i64,
+    },
+}
+
+impl AccessPayload {
+    pub fn scope(&self) -> AccessScope {
+        match self {
+            Self::Workspace(access) => access.scope,
+            Self::Download { scope, .. } => *scope,
+        }
+    }
 }

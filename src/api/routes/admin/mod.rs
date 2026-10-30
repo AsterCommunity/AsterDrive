@@ -316,6 +316,10 @@ pub fn routes(
                         web::get().to(content_access::list_trash),
                     )
                     .route(
+                        "/content-access/folders/{id}",
+                        web::get().to(content_access::get_folder),
+                    )
+                    .route(
                         "/content-access/files/{id}",
                         web::get().to(content_access::get_file),
                     )

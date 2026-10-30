@@ -841,6 +841,10 @@ async fn every_content_endpoint_requires_administrator_authentication_and_post_r
     for (method, uri) in [
         (
             actix_web::http::Method::GET,
+            "/api/v1/admin/content-access/folders/1?access_id=unknown",
+        ),
+        (
+            actix_web::http::Method::GET,
             "/api/v1/admin/content-access/trash?access_id=unknown",
         ),
         (
@@ -1622,4 +1626,445 @@ async fn thumbnails_reuse_inspection_for_personal_team_and_trash_and_recheck_con
     expired.update(state.writer_db()).await.unwrap();
     let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
     assert_eq!(response.status(), 403);
+}
+
+#[actix_web::test]
+async fn folder_details_reuse_projection_and_context_without_impersonating_workspace_owner() {
+    use aster_drive::db::repository::{folder_repo, revision_repo};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin, _) = register_and_login!(app);
+    let owner_id = admin_create_user!(
+        app,
+        admin,
+        "folderowner",
+        "folderowner@example.com",
+        "password123"
+    );
+    let (owner, _) = login_user!(app, "folderowner", "password123");
+    enable(&state).await;
+    let response = test::call_service(
+        &app,
+        post(&owner, "/api/v1/folders", json!({"name":"details-root"})).to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let root: Value = test::read_body_json(response).await;
+    let root_id = root["data"]["id"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        post(
+            &owner,
+            "/api/v1/folders",
+            json!({"name":"child","parent_id":root_id}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let child: Value = test::read_body_json(response).await;
+    let child_id = child["data"]["id"].as_i64().unwrap();
+    let file_id = upload_test_file_named!(app, owner, "counted.txt");
+    let mut file = file::Entity::find_by_id(file_id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    file.folder_id = Set(Some(root_id));
+    file.update(state.writer_db()).await.unwrap();
+    let revision = revision_repo::find_current_by_file_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    aster_drive::services::files::file::update_content(
+        &state,
+        file_id,
+        owner_id,
+        actix_web::web::Bytes::from_static(b"new"),
+        None,
+    )
+    .await
+    .unwrap();
+    let access = grant!(app, admin, owner_id);
+    let uri = format!("/api/v1/admin/content-access/folders/{root_id}?access_id={access}");
+    let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+    let detail: Value = test::read_body_json(response).await;
+    assert_eq!(detail["data"]["folder"]["name"], "details-root");
+    assert_eq!(
+        detail["data"]["folder"]["created_by"]["name"],
+        "folderowner"
+    );
+    assert_eq!(
+        detail["data"]["child_count"],
+        json!({"folders":1,"files":1})
+    );
+    assert_eq!(
+        detail["data"]["folder"]["storage_used"],
+        3 + revision.logical_size
+    );
+    let response = test::call_service(
+        &app,
+        get(&owner, &format!("/api/v1/folders/{root_id}/info")).to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let ordinary: Value = test::read_body_json(response).await;
+    assert_eq!(
+        detail["data"]["folder"], ordinary["data"],
+        "normal and admin detail use the same folder projection"
+    );
+    let child_uri = format!("/api/v1/admin/content-access/folders/{child_id}?access_id={access}");
+    let response = test::call_service(&app, get(&admin, &child_uri).to_request()).await;
+    let empty: Value = test::read_body_json(response).await;
+    assert_eq!(empty["data"]["child_count"], json!({"folders":0,"files":0}));
+    assert_eq!(empty["data"]["folder"]["storage_used"], 0);
+    let response = test::call_service(
+        &app,
+        post(&admin, "/api/v1/folders", json!({"name":"admin-private"})).to_request(),
+    )
+    .await;
+    let private: Value = test::read_body_json(response).await;
+    let private_id = private["data"]["id"].as_i64().unwrap();
+    for path in [
+        format!("/api/v1/admin/content-access/folders/{private_id}?access_id={access}"),
+        format!("/api/v1/admin/content-access/folders/{root_id}?access_id=unknown"),
+    ] {
+        assert_eq!(
+            test::call_service(&app, get(&admin, &path).to_request())
+                .await
+                .status(),
+            403
+        );
+    }
+    assert_eq!(
+        test::call_service(
+            &app,
+            get(
+                &admin,
+                &format!(
+                    "/api/v1/admin/content-access/folders/9223372036854775807?access_id={access}"
+                )
+            )
+            .to_request()
+        )
+        .await
+        .status(),
+        404
+    );
+    let (new_session, _) = login_user!(app, "testuser", "password123");
+    assert_eq!(
+        test::call_service(&app, get(&new_session, &uri).to_request())
+            .await
+            .status(),
+        403
+    );
+    let init = init_download!(app, admin, access, file_id, None::<i64>);
+    let download_uri = stream_uri(&init);
+    let download_id = download_uri.split('/').rev().nth(1).unwrap();
+    assert_eq!(
+        test::call_service(
+            &app,
+            get(
+                &admin,
+                &format!("/api/v1/admin/content-access/folders/{root_id}?access_id={download_id}")
+            )
+            .to_request()
+        )
+        .await
+        .status(),
+        403
+    );
+    // Trash directory details remain available without restoring any item.
+    for id in [root_id, child_id] {
+        let folder = folder_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        let mut deleted = folder.into_active_model();
+        deleted.deleted_at = Set(Some(chrono::Utc::now()));
+        deleted.update(state.writer_db()).await.unwrap();
+    }
+    let file = file::Entity::find_by_id(file_id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut deleted = file.into_active_model();
+    deleted.deleted_at = Set(Some(chrono::Utc::now()));
+    deleted.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
+    assert_eq!(response.status(), 200);
+    let trash: Value = test::read_body_json(response).await;
+    assert!(trash["data"]["folder"]["deleted_at"].is_string());
+    assert_eq!(trash["data"]["child_count"], json!({"folders":1,"files":1}));
+    let response = test::call_service(
+        &app,
+        post(
+            &admin,
+            "/api/v1/admin/teams",
+            json!({"name":"Folder team","admin_user_id":owner_id}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let team: Value = test::read_body_json(response).await;
+    let team_id = team["data"]["id"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        post(
+            &owner,
+            &format!("/api/v1/teams/{team_id}/folders"),
+            json!({"name":"team-folder"}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let team_folder: Value = test::read_body_json(response).await;
+    let team_folder_id = team_folder["data"]["id"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        post(
+            &admin,
+            "/api/v1/admin/content-access",
+            json!({"scope_kind":"team","target_id":team_id,"reason":"user_support"}),
+        )
+        .to_request(),
+    )
+    .await;
+    let grant: Value = test::read_body_json(response).await;
+    let team_access = grant["data"]["id"].as_str().unwrap();
+    let team_uri =
+        format!("/api/v1/admin/content-access/folders/{team_folder_id}?access_id={team_access}");
+    let response = test::call_service(&app, get(&admin, &team_uri).to_request()).await;
+    assert_eq!(response.status(), 200);
+    let info: Value = test::read_body_json(response).await;
+    assert_eq!(info["data"]["folder"]["team_id"], team_id);
+    for (id, grant) in [(root_id, team_access), (team_folder_id, access.as_str())] {
+        assert_eq!(
+            test::call_service(
+                &app,
+                get(
+                    &admin,
+                    &format!("/api/v1/admin/content-access/folders/{id}?access_id={grant}")
+                )
+                .to_request()
+            )
+            .await
+            .status(),
+            403
+        );
+    }
+    assert_eq!(
+        audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq("admin_workspace_inspect"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        2
+    );
+    let grant = admin_content_access::Entity::find_by_id(access)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut expired = grant.into_active_model();
+    expired.expires_at = Set(chrono::Utc::now() - chrono::Duration::seconds(1));
+    expired.update(state.writer_db()).await.unwrap();
+    assert_eq!(
+        test::call_service(&app, get(&admin, &uri).to_request())
+            .await
+            .status(),
+        403
+    );
+}
+
+#[actix_web::test]
+async fn direct_download_uses_minimal_grant_and_init_audit_without_workspace_access() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin, _) = register_and_login!(app);
+    let owner_id = admin_create_user!(
+        app,
+        admin,
+        "directowner",
+        "directowner@example.com",
+        "password123"
+    );
+    let (owner, _) = login_user!(app, "directowner", "password123");
+    let file_id = upload_test_file!(app, owner);
+    let revision = revision_repo::find_current_by_file_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    let uri = format!("/api/v1/admin/files/{file_id}/download-init");
+    assert_eq!(
+        test::call_service(&app, post(&admin, &uri, json!({})).to_request())
+            .await
+            .status(),
+        403
+    );
+    enable(&state).await;
+    for body in [json!({}), json!({"revision_id":revision.id})] {
+        let response = test::call_service(&app, post(&admin, &uri, body).to_request()).await;
+        assert_eq!(response.status(), 200);
+        let init: Value = test::read_body_json(response).await;
+        let info = &init["data"];
+        let download_uri = stream_uri(info);
+        let grant_id = download_uri.split('/').rev().nth(1).unwrap();
+        let row = admin_content_access::Entity::find_by_id(grant_id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap();
+        let payload: Value = serde_json::from_str(&row.payload).unwrap();
+        assert_eq!(
+            payload,
+            json!({"kind":"download","scope":{"scope_kind":"personal","target_id":owner_id},"file_id":file_id,"revision_id":revision.id})
+        );
+        for field in ["reason", "remark", "download"] {
+            assert!(payload.get(field).is_none());
+        }
+        let response = test::call_service(
+            &app,
+            get(&admin, &download_uri)
+                .insert_header(("Range", "bytes=0-3"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 206);
+        assert_eq!(test::read_body(response).await.as_ref(), b"test");
+        assert_eq!(
+            test::call_service(
+                &app,
+                get(
+                    &admin,
+                    &format!("/api/v1/admin/content-access/workspace?access_id={grant_id}")
+                )
+                .to_request()
+            )
+            .await
+            .status(),
+            403
+        );
+    }
+    let audits = audit_log::Entity::find()
+        .filter(audit_log::Column::Action.is_in(["admin_file_download", "admin_revision_download"]))
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(audits.len(), 2);
+    for row in &audits {
+        let detail: Value = serde_json::from_str(row.details.as_deref().unwrap()).unwrap();
+        assert_eq!(detail["target_id"], owner_id);
+        assert_eq!(detail["result"], "initialized");
+        assert!(detail.get("reason").is_none());
+        assert!(detail.get("remark").is_none());
+    }
+    assert_eq!(
+        audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq("admin_workspace_inspect"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
+    for id in ["", "unknown"] {
+        assert_eq!(
+            test::call_service(
+                &app,
+                post(&admin, &uri, json!({"access_id":id})).to_request()
+            )
+            .await
+            .status(),
+            403
+        );
+    }
+    let response = test::call_service(
+        &app,
+        post(
+            &admin,
+            "/api/v1/admin/teams",
+            json!({"name":"Direct team","admin_user_id":owner_id}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let team: Value = test::read_body_json(response).await;
+    let team_id = team["data"]["id"].as_i64().unwrap();
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &owner,
+        &format!("/api/v1/teams/{team_id}/files"),
+        "team-direct.txt",
+        "text/plain",
+        b"team bytes",
+    )
+    .await;
+    assert_eq!(status, 201);
+    let team_file = body["data"]["id"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        post(
+            &admin,
+            &format!("/api/v1/admin/files/{team_file}/download-init"),
+            json!({}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let info: Value = test::read_body_json(response).await;
+    let stream = stream_uri(&info["data"]);
+    let response = test::call_service(&app, get(&admin, &stream).to_request()).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(test::read_body(response).await.as_ref(), b"team bytes");
+    let stream_id = stream.split('/').rev().nth(1).unwrap();
+    let row = admin_content_access::Entity::find_by_id(stream_id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let payload: Value = serde_json::from_str(&row.payload).unwrap();
+    assert_eq!(
+        payload["scope"],
+        json!({"scope_kind":"team","target_id":team_id})
+    );
+    assert_eq!(
+        test::call_service(
+            &app,
+            post(&admin, &uri, json!({"revision_id":i64::MAX})).to_request()
+        )
+        .await
+        .status(),
+        404
+    );
+    let count = admin_content_access::Entity::find()
+        .count(state.writer_db())
+        .await
+        .unwrap();
+    state
+        .writer_db()
+        .execute_unprepared("DROP TABLE audit_logs")
+        .await
+        .unwrap();
+    let response = test::call_service(&app, post(&admin, &uri, json!({})).to_request()).await;
+    assert_eq!(response.status(), 403);
+    let denied: Value = test::read_body_json(response).await;
+    assert!(denied.get("data").is_none_or(Value::is_null));
+    assert_eq!(
+        admin_content_access::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        count
+    );
+    assert_eq!(
+        test::call_service(&app, get(&admin, &stream).to_request())
+            .await
+            .status(),
+        200
+    );
 }

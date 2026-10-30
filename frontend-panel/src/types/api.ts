@@ -624,5 +624,8 @@ export type AdminContentAccessStatus =
 export type AdminDownloadInfo = components["schemas"]["AdminDownloadInfo"];
 export type AdminDownloadInitRequest =
 	components["schemas"]["AdminDownloadInitRequest"];
+export type AdminFolderInfo = NonNullable<
+	import("@/services/api.generated").operations["admin_workspace_folder"]["responses"][200]["content"]["application/json"]["data"]
+>;
 export type AdminWorkspaceContents =
 	components["schemas"]["AdminWorkspaceContents"];

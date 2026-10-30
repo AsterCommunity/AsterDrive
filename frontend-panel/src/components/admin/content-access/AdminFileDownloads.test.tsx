@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdminFileDetail } from "@/types/api";
 import { AdminFileDownloads } from "./AdminFileDownloads";
@@ -11,22 +10,6 @@ vi.mock("@/services/adminContentDownload", () => ({
 vi.mock("@/hooks/useApiError", () => ({ handleApiError: mocks.error }));
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({ t: (key: string) => key }),
-}));
-vi.mock("./AdminContentAccessGate", () => ({
-	AdminContentAccessGate: ({
-		children,
-		scopeKind,
-		targetId,
-	}: {
-		children: (id: string, end: () => void) => ReactNode;
-		scopeKind: string;
-		targetId: number;
-	}) => (
-		<div data-testid="scope">
-			{scopeKind}:{targetId}
-			{children("context", () => {})}
-		</div>
-	),
 }));
 function file(overrides: Partial<AdminFileDetail> = {}): AdminFileDetail {
 	const blob = {
@@ -76,14 +59,13 @@ describe("administrator file downloads", () => {
 		mocks.download.mockResolvedValue(undefined);
 	});
 	it.each([undefined, 44])(
-		"initializes the logical file and selected revision %s",
+		"downloads revision %s directly without a reason form or extra activation",
 		async (revisionId) => {
 			render(<AdminFileDownloads file={file()} revisionId={revisionId} />);
-			expect(mocks.download).not.toHaveBeenCalled();
-			fireEvent.click(
-				screen.getByRole("button", { name: "content_access_download" }),
-			);
-			expect(screen.getByTestId("scope")).toHaveTextContent("personal:8");
+			expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+			expect(
+				screen.queryByRole("button", { name: "content_access_download" }),
+			).not.toBeInTheDocument();
 			fireEvent.click(
 				screen.getByRole("button", {
 					name: revisionId
@@ -92,36 +74,55 @@ describe("administrator file downloads", () => {
 				}),
 			);
 			await waitFor(() =>
-				expect(mocks.download).toHaveBeenCalledWith("context", 7, revisionId),
+				expect(mocks.download).toHaveBeenCalledExactlyOnceWith(
+					undefined,
+					7,
+					revisionId,
+				),
 			);
 		},
 	);
-	it("derives team ownership from the file and rejects nonexistent revisions", () => {
+	it("supports team-owned files and rejects missing revisions and ownerless files", async () => {
 		const view = render(
 			<AdminFileDownloads file={file({ team_id: 12, owner_user_id: null })} />,
 		);
 		fireEvent.click(
-			screen.getByRole("button", { name: "content_access_download" }),
+			screen.getByRole("button", { name: "content_download_current" }),
 		);
-		expect(screen.getByTestId("scope")).toHaveTextContent("team:12");
+		await waitFor(() => expect(mocks.download).toHaveBeenCalledOnce());
 		view.rerender(<AdminFileDownloads file={file()} revisionId={999} />);
 		expect(screen.getByRole("alert")).toHaveTextContent(
 			"content_revision_unavailable",
 		);
-		expect(mocks.download).not.toHaveBeenCalled();
+		view.rerender(
+			<AdminFileDownloads
+				file={file({ owner_user_id: null, team_id: null })}
+			/>,
+		);
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"content_access_failed",
+		);
+		expect(mocks.download).toHaveBeenCalledOnce();
 	});
-	it("surfaces initialization failures and restores the download action", async () => {
-		mocks.download.mockRejectedValue(new Error("audit failed"));
+	it("prevents duplicate initialization while busy and restores retry after failure", async () => {
+		let fail: (error: Error) => void = () => {};
+		mocks.download.mockReturnValueOnce(
+			new Promise((_resolve, reject) => {
+				fail = reject;
+			}),
+		);
 		render(<AdminFileDownloads file={file()} />);
-		fireEvent.click(
-			screen.getByRole("button", { name: "content_access_download" }),
-		);
-		fireEvent.click(
-			screen.getByRole("button", { name: "content_download_current" }),
-		);
-		await waitFor(() => expect(mocks.error).toHaveBeenCalledOnce());
-		expect(
-			screen.getByRole("button", { name: "content_download_current" }),
-		).not.toBeDisabled();
+		const button = screen.getByRole("button", {
+			name: "content_download_current",
+		});
+		fireEvent.click(button);
+		fireEvent.click(button);
+		expect(mocks.download).toHaveBeenCalledOnce();
+		expect(button).toBeDisabled();
+		fail(new Error("audit failed"));
+		await waitFor(() => expect(button).toBeEnabled());
+		expect(mocks.error).toHaveBeenCalledOnce();
+		fireEvent.click(button);
+		await waitFor(() => expect(mocks.download).toHaveBeenCalledTimes(2));
 	});
 });

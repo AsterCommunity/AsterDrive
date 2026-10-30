@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { UserAvatarImage } from "@/components/common/UserAvatarImage";
+import { UserIdentity } from "@/components/common/UserIdentity";
 import { AnimatedTreeGroup } from "@/components/folders/folder-tree/AnimatedTreeGroup";
 import { FolderTreeRootRow } from "@/components/folders/folder-tree/FolderTreeRootRow";
 import { FolderTreeRow } from "@/components/folders/folder-tree/FolderTreeRow";
 import { SidebarNavigation } from "@/components/layout/SidebarNavigation";
 import { WorkspaceSidebarLayout } from "@/components/layout/WorkspaceSidebarLayout";
 import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { SIDEBAR_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { formatBytes } from "@/lib/format";
@@ -206,25 +206,24 @@ export function AdminWorkspaceSidebar({
 					className="space-y-3 border-t p-4"
 					data-testid="admin-workspace-identity"
 				>
-					<div className="flex items-center gap-3">
-						{user ? (
-							<UserAvatarImage
-								avatar={user.profile.avatar}
-								name={name}
-								size="md"
-							/>
-						) : (
-							<Icon name="User" className="size-9" />
-						)}
-						<div className="min-w-0">
-							<p className="truncate text-sm font-semibold">{name}</p>
-							<p className="truncate text-xs text-muted-foreground">
-								{user
-									? `@${user.username}`
-									: t("content_team_owner", { id: team?.id })}
-							</p>
+					{user ? (
+						<UserIdentity
+							user={user}
+							size="md"
+							className="gap-3"
+							avatarClassName="size-10 rounded-2xl text-sm"
+						/>
+					) : (
+						<div className="flex items-center gap-3">
+							<UserAvatarImage avatar={null} name={name} size="md" />
+							<div className="min-w-0">
+								<p className="truncate text-sm font-semibold">{name}</p>
+								<p className="truncate text-xs text-muted-foreground">
+									{t("content_team_owner", { id: team?.id })}
+								</p>
+							</div>
 						</div>
-					</div>
+					)}
 					{user || team ? (
 						<p className="text-xs text-muted-foreground">
 							{formatBytes((user ?? team)?.storage_used ?? 0)} ·{" "}

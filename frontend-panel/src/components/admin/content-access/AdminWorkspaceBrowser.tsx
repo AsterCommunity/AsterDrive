@@ -27,6 +27,7 @@ import { adminContentAccessService } from "@/services/adminContentAccessService"
 import { startAdminContentDownload } from "@/services/adminContentDownload";
 import { useFileStore } from "@/stores/fileStore";
 import type {
+	AdminFolderInfo,
 	AdminScopeKind,
 	AdminWorkspaceContents,
 	FileInfo,
@@ -56,10 +57,24 @@ function WorkspaceContents({
 		null,
 	);
 	const selectedId = positiveId(search.get("fileId"));
+	const selectedFolderId =
+		selectedId == null ? positiveId(search.get("infoFolderId")) : undefined;
 	const versionsOpen =
 		search.get("panel") === "versions" || search.has("revisionId");
 	const [selectedFile, setSelectedFile] = useState<FileInfo | undefined>();
-	const [selectedFailed, setSelectedFailed] = useState(false);
+	const [selectedFolder, setSelectedFolder] = useState<AdminFolderInfo>();
+	const activeFile = selectedFile?.id === selectedId ? selectedFile : undefined;
+	const activeFolder =
+		selectedFolder?.folder.id === selectedFolderId ? selectedFolder : undefined;
+	const selectionKey =
+		selectedId != null
+			? `file:${selectedId}`
+			: selectedFolderId != null
+				? `folder:${selectedFolderId}`
+				: null;
+	const [failedSelection, setFailedSelection] = useState<string | null>(null);
+	const selectedFailed =
+		selectionKey != null && failedSelection === selectionKey;
 	const viewMode = useFileStore((state) => state.viewMode);
 	const setViewMode = useFileStore((state) => state.setViewMode);
 	const [data, setData] = useState<AdminWorkspaceContents | null>(null);
@@ -166,6 +181,7 @@ function WorkspaceContents({
 	const openFolder = (id?: number) =>
 		update({
 			fileId: undefined,
+			infoFolderId: undefined,
 			panel: undefined,
 			revisionId: undefined,
 			view: undefined,
@@ -183,30 +199,57 @@ function WorkspaceContents({
 		}
 	};
 	const openFile = (id: number, panel = "info") =>
-		update({ fileId: String(id), panel, revisionId: undefined });
+		update({
+			fileId: String(id),
+			infoFolderId: undefined,
+			panel,
+			revisionId: undefined,
+		});
 	const closeFile = () =>
-		update({ fileId: undefined, panel: undefined, revisionId: undefined });
+		update({
+			fileId: undefined,
+			infoFolderId: undefined,
+			panel: undefined,
+			revisionId: undefined,
+		});
+	const openFolderInfo = (id: number) =>
+		update({
+			fileId: undefined,
+			infoFolderId: String(id),
+			panel: "info",
+			revisionId: undefined,
+		});
+
 	useEffect(() => {
 		let active = true;
 		setSelectedFile(undefined);
-		setSelectedFailed(false);
-		if (selectedId == null) return;
-		adminContentAccessService
-			.getFile(accessId, selectedId)
-			.then((detail) => {
-				if (!active) return;
-				setSelectedFile(detail);
-			})
-			.catch((error) => {
-				if (active) {
-					setSelectedFailed(true);
-					handleApiError(error);
-				}
-			});
+		setSelectedFolder(undefined);
+		setFailedSelection(null);
+		const request =
+			selectedId != null
+				? adminContentAccessService
+						.getFile(accessId, selectedId)
+						.then((detail) => {
+							if (active) setSelectedFile(detail);
+						})
+				: selectedFolderId != null
+					? adminContentAccessService
+							.getFolder(accessId, selectedFolderId)
+							.then((detail) => {
+								if (active) setSelectedFolder(detail);
+							})
+					: null;
+		request?.catch((error) => {
+			if (active) {
+				setFailedSelection(selectionKey);
+				handleApiError(error);
+			}
+		});
 		return () => {
 			active = false;
 		};
-	}, [accessId, selectedId]);
+	}, [accessId, selectedId, selectedFolderId, selectionKey]);
+
 	const versionSource = useMemo(
 		() => ({
 			list: (fileId: number, after?: number) =>
@@ -228,6 +271,7 @@ function WorkspaceContents({
 			deleted: undefined,
 			folderId: undefined,
 			fileId: undefined,
+			infoFolderId: undefined,
 			panel: undefined,
 			revisionId: undefined,
 			folderOffset: undefined,
@@ -273,6 +317,7 @@ function WorkspaceContents({
 		onVersions: (id) => openFile(id, "versions"),
 		onInfo: (type, id) => {
 			if (type === "file") openFile(id);
+			else openFolderInfo(id);
 		},
 	};
 
@@ -430,50 +475,71 @@ function WorkspaceContents({
 						</>
 					) : null}
 				</ScrollArea>
-				{selectedId && selectedFailed ? (
+				{(selectedId != null || selectedFolderId != null) && selectedFailed ? (
 					<p role="alert" className="p-5">
-						{t("content_file_unavailable")}
+						{t(
+							selectedFolderId != null
+								? "content_workspace_unavailable"
+								: "content_file_unavailable",
+						)}
 					</p>
 				) : null}
-				{selectedFile ? (
-					<FileInfoDialog
-						metadataOnly
-						thumbnailPath={adminContentAccessService.thumbnailPath(
-							accessId,
-							selectedFile.id,
-						)}
-						file={selectedFile}
-						open={!versionsOpen}
-						onOpenChange={(open) => {
-							if (!open) closeFile();
-						}}
-						actions={
+				<FileInfoDialog
+					metadataOnly
+					thumbnailPath={
+						activeFile
+							? adminContentAccessService.thumbnailPath(accessId, activeFile.id)
+							: null
+					}
+					file={
+						activeFile ??
+						data?.contents.files.find((file) => file.id === selectedId)
+					}
+					folder={
+						activeFolder?.folder ??
+						(selectedId == null
+							? data?.contents.folders.find(
+									(folder) => folder.id === selectedFolderId,
+								)
+							: undefined)
+					}
+					loading={
+						selectionKey != null &&
+						!activeFile &&
+						!activeFolder &&
+						!selectedFailed
+					}
+					childCount={activeFolder?.child_count}
+					open={selectionKey != null && !selectedFailed}
+					onOpenChange={(open) => {
+						if (!open) closeFile();
+					}}
+					actions={
+						activeFile ? (
 							<>
-								<Button onClick={() => void download(selectedFile.id)}>
+								<Button onClick={() => void download(activeFile.id)}>
 									{t("files:download")}
 								</Button>
 								<Button
 									variant="outline"
-									onClick={() => openFile(selectedFile.id, "versions")}
+									onClick={() => openFile(activeFile.id, "versions")}
 								>
 									{t("admin:admin_file_versions")}
 								</Button>
 							</>
-						}
-					/>
-				) : null}
-				{selectedFile && versionsOpen ? (
-					<VersionHistoryDialog
-						open
-						onOpenChange={(open) => {
-							if (!open) closeFile();
-						}}
-						fileId={selectedFile.id}
-						fileName={selectedFile.name}
-						mimeType={selectedFile.mime_type}
-						readOnlySource={versionSource}
-					/>
-				) : null}
+						) : undefined
+					}
+				/>
+				<VersionHistoryDialog
+					open={activeFile != null && versionsOpen}
+					onOpenChange={(open) => {
+						if (!open) update({ panel: "info", revisionId: undefined });
+					}}
+					fileId={activeFile?.id ?? 0}
+					fileName={activeFile?.name ?? ""}
+					mimeType={activeFile?.mime_type}
+					readOnlySource={versionSource}
+				/>
 			</div>
 		</AppLayout>
 	);

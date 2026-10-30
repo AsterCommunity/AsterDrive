@@ -5,6 +5,7 @@ import type {
 	AdminContentAccessStatus,
 	AdminDownloadInfo,
 	AdminDownloadInitRequest,
+	AdminFolderInfo,
 	AdminWorkspaceContents,
 	CreateAdminContentAccess,
 	FileInfo,
@@ -37,6 +38,12 @@ export const adminContentAccessService = {
 	getFile: (accessId: string, fileId: number) =>
 		api.get<FileInfo>(
 			withQuery(`/admin/content-access/files/${fileId}`, {
+				access_id: accessId,
+			}),
+		),
+	getFolder: (accessId: string, folderId: number) =>
+		api.get<AdminFolderInfo>(
+			withQuery(`/admin/content-access/folders/${folderId}`, {
 				access_id: accessId,
 			}),
 		),

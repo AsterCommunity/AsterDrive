@@ -1,5 +1,4 @@
-use super::{denied, load};
-use crate::api::api_error_code::ApiErrorCode;
+use super::load_workspace;
 use crate::{
     db::repository::{file_repo, folder_repo},
     errors::Result,
@@ -43,11 +42,8 @@ pub async fn list_workspace(
             "invalid workspace navigation",
         ));
     }
-    let payload = load(state, claims, &query.access_id).await?;
-    if payload.download.is_some() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
-    let scope = super::require_target(state, &payload).await?;
+    let payload = load_workspace(state, claims, &query.access_id).await?;
+    let scope = super::require_target(state, &payload.scope).await?;
     let mut ancestors = Vec::new();
     let mut id = query.folder_id;
     let mut seen = std::collections::HashSet::new();
@@ -137,15 +133,12 @@ pub async fn get_file(
     access_id: &str,
     file_id: i64,
 ) -> Result<crate::services::workspace::models::FileInfo> {
-    let payload = load(state, claims, access_id).await?;
-    if payload.download.is_some() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
+    let payload = load_workspace(state, claims, access_id).await?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
 
     crate::services::files::file::build_authorized_file_info(
         state,
-        super::require_target(state, &payload).await?,
+        super::require_target(state, &payload.scope).await?,
         file,
     )
     .await
@@ -158,14 +151,11 @@ pub async fn list_versions(
     file_id: i64,
     query: crate::services::workspace::models::FileVersionListQuery,
 ) -> Result<Vec<crate::services::workspace::models::FileVersion>> {
-    let payload = load(state, claims, access_id).await?;
-    if payload.download.is_some() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
+    let payload = load_workspace(state, claims, access_id).await?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
     crate::services::workspace::scope::ensure_file_resource_scope(
         &file,
-        super::require_target(state, &payload).await?,
+        super::require_target(state, &payload.scope).await?,
     )?;
     crate::services::content::version::list_authorized_versions(state, file_id, query).await
 }
@@ -177,11 +167,8 @@ pub async fn list_trash(
     access_id: &str,
     query: crate::api::pagination::TrashListQuery,
 ) -> Result<crate::services::files::trash::TrashContents> {
-    let payload = load(state, claims, access_id).await?;
-    if payload.download.is_some() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
-    let scope = super::require_target(state, &payload).await?;
+    let payload = load_workspace(state, claims, access_id).await?;
+    let scope = super::require_target(state, &payload.scope).await?;
     let has_cursor = query.file_after_expires_at.is_some() || query.file_after_id.is_some();
     if query.file_after_id.is_some_and(|id| id <= 0)
         || (has_cursor && query.file_cursor().is_none())
@@ -211,14 +198,79 @@ pub async fn get_thumbnail(
     access_id: &str,
     file_id: i64,
 ) -> Result<Option<crate::services::files::file::ThumbnailResult>> {
-    let payload = load(state, claims, access_id).await?;
-    if payload.download.is_some() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
+    let payload = load_workspace(state, claims, access_id).await?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
     crate::services::workspace::scope::ensure_file_resource_scope(
         &file,
-        super::require_target(state, &payload).await?,
+        super::require_target(state, &payload.scope).await?,
     )?;
     crate::services::files::file::thumbnail_for_file(state, &file).await
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct AdminFolderChildCount {
+    pub folders: u64,
+    pub files: u64,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct AdminFolderInfo {
+    pub folder: crate::services::workspace::models::FolderInfo,
+    pub child_count: AdminFolderChildCount,
+}
+
+pub async fn get_folder(
+    state: &impl SharedRuntimeState,
+    claims: &Claims,
+    access_id: &str,
+    folder_id: i64,
+) -> Result<AdminFolderInfo> {
+    let payload = load_workspace(state, claims, access_id).await?;
+    let scope = super::require_target(state, &payload.scope).await?;
+    let model = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
+    ensure_folder_resource_scope(&model, scope)?;
+    let deleted = model.deleted_at.is_some();
+    let (file_scope, folder_scope) = match scope {
+        WorkspaceResourceScope::Personal { user_id } => (
+            file_repo::FileScope::Personal { user_id },
+            folder_repo::FolderScope::Personal { user_id },
+        ),
+        WorkspaceResourceScope::Team { team_id } => (
+            file_repo::FileScope::Team { team_id },
+            folder_repo::FolderScope::Team { team_id },
+        ),
+    };
+    let ((_, folders), (_, files), folder) = tokio::try_join!(
+        folder_repo::find_children_paginated_in_scope(
+            state.writer_db(),
+            folder_scope,
+            folder_repo::FolderChildrenQuery {
+                parent_id: Some(folder_id),
+                limit: 0,
+                offset: 0,
+                sort_by: Default::default(),
+                sort_order: Default::default(),
+                deleted
+            }
+        ),
+        file_repo::find_by_folder_cursor_in_scope(
+            state.writer_db(),
+            file_scope,
+            file_repo::FileCursorQuery {
+                folder_id: Some(folder_id),
+                limit: 0,
+                after: None,
+                sort_by: Default::default(),
+                sort_order: Default::default(),
+                deleted
+            }
+        ),
+        folder::build_authorized_folder_info(state, scope, model),
+    )?;
+    Ok(AdminFolderInfo {
+        folder,
+        child_count: AdminFolderChildCount { folders, files },
+    })
 }

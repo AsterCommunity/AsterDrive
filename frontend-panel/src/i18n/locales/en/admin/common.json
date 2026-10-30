@@ -30,7 +30,6 @@
 	"content_access_remark": "Remark (optional, up to 500 characters)",
 	"content_access_begin": "Begin read-only access",
 	"content_access_end": "End access",
-	"content_access_download": "Access and download content",
 	"content_reason_user_support": "User support",
 	"content_reason_data_recovery": "Data recovery",
 	"content_reason_security_investigation": "Security investigation",

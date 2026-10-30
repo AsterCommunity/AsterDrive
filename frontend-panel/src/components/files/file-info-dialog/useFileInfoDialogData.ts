@@ -186,7 +186,8 @@ export function useFileInfoDialogData({
 	}, [loadMediaDataSupport, mediaDataSupportLoaded, enabled]);
 
 	useEffect(() => {
-		if (!enabled || !open || !renderedFile) {
+		if (!open) return;
+		if (!enabled || !renderedFile) {
 			dispatch({ type: "resetFileDetails" });
 			return;
 		}
@@ -216,7 +217,8 @@ export function useFileInfoDialogData({
 	}, [renderedFile, open, enabled]);
 
 	useEffect(() => {
-		if (!enabled || !open || !renderedFolder) {
+		if (!open) return;
+		if (!enabled || !renderedFolder) {
 			dispatch({ type: "resetFolderDetails" });
 			return;
 		}
@@ -246,7 +248,8 @@ export function useFileInfoDialogData({
 	}, [renderedFolder, open, enabled]);
 
 	useEffect(() => {
-		if (!enabled || !open || !renderedFolder) {
+		if (!open) return;
+		if (!enabled || !renderedFolder) {
 			dispatch({ type: "resetChildCount" });
 			return;
 		}
@@ -278,9 +281,9 @@ export function useFileInfoDialogData({
 	}, [open, renderedFolder, enabled]);
 
 	useEffect(() => {
+		if (!open) return;
 		if (
 			!enabled ||
-			!open ||
 			!renderedFile ||
 			!renderedMediaMetadataKind ||
 			!canRequestMediaMetadata

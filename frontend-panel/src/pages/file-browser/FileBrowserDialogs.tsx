@@ -134,10 +134,6 @@ export function FileBrowserDialogs({
 		handleOpenChangeComplete: handleMoveOpenChangeComplete,
 	} = useRetainedDialogValue(moveTarget, moveTarget !== null);
 	const {
-		retainedValue: retainedVersionTarget,
-		handleOpenChangeComplete: handleVersionOpenChangeComplete,
-	} = useRetainedDialogValue(versionTarget, versionTarget !== null);
-	const {
 		retainedValue: retainedRenameTarget,
 		handleOpenChangeComplete: handleRenameOpenChangeComplete,
 	} = useRetainedDialogValue(renameTarget, renameTarget !== null);
@@ -317,10 +313,9 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onVersionClose();
 					}}
-					onOpenChangeComplete={handleVersionOpenChangeComplete}
-					fileId={retainedVersionTarget?.fileId ?? 0}
-					fileName={retainedVersionTarget?.fileName ?? ""}
-					mimeType={retainedVersionTarget?.mimeType}
+					fileId={versionTarget?.fileId ?? 0}
+					fileName={versionTarget?.fileName ?? ""}
+					mimeType={versionTarget?.mimeType}
 					onRestored={onVersionRestored}
 				/>
 			</Suspense>

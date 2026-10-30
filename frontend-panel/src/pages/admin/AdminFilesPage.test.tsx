@@ -774,8 +774,7 @@ describe("AdminFilesPage", () => {
 		renderPage("blobs", "/admin/file-blobs");
 		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
 		const current = await screen.findByRole("link", {
-			name: "report.txt",
-			exact: true,
+			name: /report\.txt/,
 		});
 		expect(current).toHaveAttribute("href", "/admin/files?fileId=21");
 		const revision = screen.getByRole("link", { name: /v3/ });
@@ -1288,3 +1287,40 @@ describe("AdminFilesPage", () => {
 vi.mock("@/components/admin/content-access/AdminFileDownloads", () => ({
 	AdminFileDownloads: () => null,
 }));
+
+it("restores blob details from URL, keeps filters, and clears the id on close", async () => {
+	renderPage("blobs", "/admin/file-blobs?blobId=31&policyId=4&hash=fedcba");
+	await screen.findByText("Blob #31");
+	expect(mockState.getBlob).toHaveBeenCalledWith(31);
+	expect(screen.getByTestId("location-search")).toHaveTextContent("blobId=31");
+	const label = screen
+		.getAllByText("admin_uploaded_by")
+		.find((node) => node.tagName === "DIV");
+	if (!label) throw new Error("uploader detail missing");
+	expect(label.parentElement).toHaveClass(
+		"grid",
+		"grid-cols-[140px_minmax(0,1fr)]",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "close" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+			"blobId=",
+		),
+	);
+	expect(screen.getByTestId("location-search")).toHaveTextContent("policyId=4");
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"hash=fedcba",
+	);
+});
+it("makes the version metadata and card padding part of the navigation link", async () => {
+	renderPage("files", "/admin/files?fileId=21");
+	const link = await screen.findByRole("link", { name: /v2/ });
+	expect(link).toHaveClass("block", "p-3");
+	expect(link).toHaveTextContent("#44");
+	fireEvent.click(link);
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"revisionId=44",
+		),
+	);
+});

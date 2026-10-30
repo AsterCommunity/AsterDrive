@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useReducer, useRef } from "react";
+import { Fragment, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
@@ -20,6 +20,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { handleApiError } from "@/hooks/useApiError";
+import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { invalidateFileResourceCachesForMutation } from "@/lib/fileResourceCacheInvalidation";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { type FileVersionPage, fileService } from "@/services/fileService";
@@ -140,15 +141,66 @@ function versionHistoryReducer(
 }
 
 export function VersionHistoryDialog({
-	readOnlySource,
 	open,
 	onOpenChange,
 	onOpenChangeComplete,
 	fileId,
 	fileName,
 	mimeType,
+	readOnlySource,
 	onRestored,
 }: VersionHistoryDialogProps) {
+	const target = useMemo(
+		() =>
+			open ? { fileId, fileName, mimeType, readOnlySource, onRestored } : null,
+		[open, fileId, fileName, mimeType, readOnlySource, onRestored],
+	);
+	const { retainedValue, handleOpenChangeComplete } = useRetainedDialogValue(
+		target,
+		open,
+	);
+	const [closing, setClosing] = useReducer(
+		(_state: boolean, value: boolean) => value,
+		false,
+	);
+	useEffect(() => {
+		if (open) setClosing(false);
+	}, [open]);
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(nextOpen) => {
+				setClosing(!nextOpen);
+				onOpenChange(nextOpen);
+			}}
+			onOpenChangeComplete={(nextOpen) => {
+				if (!nextOpen && open) return;
+				handleOpenChangeComplete(nextOpen);
+				onOpenChangeComplete?.(nextOpen);
+			}}
+		>
+			<DialogContent keepMounted className="max-w-lg">
+				{retainedValue ? (
+					<VersionHistoryContent
+						key={retainedValue.fileId}
+						{...retainedValue}
+						open={open && !closing}
+					/>
+				) : null}
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+// Presentation state belongs to the mounted content, whose lifetime ends after exit.
+function VersionHistoryContent({
+	readOnlySource,
+	open,
+	fileId,
+	fileName,
+	mimeType,
+	onRestored,
+}: Omit<VersionHistoryDialogProps, "onOpenChange" | "onOpenChangeComplete">) {
 	const { t } = useTranslation(["files", "core"]);
 	const [
 		{
@@ -257,18 +309,10 @@ export function VersionHistoryDialog({
 					: { kind, version },
 		});
 	};
-	const handleOpenChange = (nextOpen: boolean) => {
-		if (!nextOpen) {
-			requestGeneration.current += 1;
-			dispatch({ type: "close" });
-		}
-		onOpenChange(nextOpen);
-	};
-
 	useEffect(() => {
 		const generation = ++requestGeneration.current;
-		dispatch({ type: "close" });
 		if (open) {
+			dispatch({ type: "close" });
 			dispatch({ type: "load-start" });
 			void (readOnlySource?.list ?? fileService.listVersions)(fileId)
 				.then((page) => {
@@ -291,254 +335,246 @@ export function VersionHistoryDialog({
 	}, [fileId, open, readOnlySource]);
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={handleOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
-			<DialogContent keepMounted className="max-w-lg">
-				<DialogHeader>
-					<div className="flex items-start gap-3 pr-8">
-						{mimeType ? (
-							<FileTypeIcon
-								mimeType={mimeType}
-								fileName={fileName}
-								className="mt-0.5 size-5 shrink-0"
-							/>
-						) : null}
-						<div className="min-w-0">
-							<DialogTitle>
-								{t("version_history_title", { name: fileName })}
-							</DialogTitle>
-						</div>
-					</div>
-				</DialogHeader>
-				<div className="mb-4 rounded-lg border bg-muted/20 p-3">
-					<div className="flex items-center gap-3">
-						<div className="min-w-0 flex-1">
-							<div className="text-sm font-medium text-foreground">
-								{t("version_current")}
-							</div>
-							{currentRevision !== null ? (
-								<div className="mt-1 font-mono text-xs text-muted-foreground">
-									v{currentRevision.version}
-								</div>
-							) : null}
-						</div>
-						<div className="text-xs text-muted-foreground">
-							{t("version_history_count", {
-								count: historicalVersionCount,
-							})}
-						</div>
+		<>
+			<DialogHeader>
+				<div className="flex items-start gap-3 pr-8">
+					{mimeType ? (
+						<FileTypeIcon
+							mimeType={mimeType}
+							fileName={fileName}
+							className="mt-0.5 size-5 shrink-0"
+						/>
+					) : null}
+					<div className="min-w-0">
+						<DialogTitle>
+							{t("version_history_title", { name: fileName })}
+						</DialogTitle>
 					</div>
 				</div>
-				{loading ? (
-					<p className="text-muted-foreground text-sm py-4 text-center">
-						{t("loading_preview")}
-					</p>
-				) : versions.length === 0 ? (
-					<p className="text-muted-foreground text-sm py-4 text-center">
-						{t("version_empty")}
-					</p>
-				) : (
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>{t("version_column")}</TableHead>
-								<TableHead>{t("version_size")}</TableHead>
-								<TableHead>{t("version_date")}</TableHead>
-								<TableHead className="w-20">{t("version_actions")}</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{versions.map((v) => (
-								<Fragment key={v.id}>
-									<TableRow key={v.id}>
-										<TableCell className="font-mono text-sm">
-											<div className="flex items-center gap-2">
-												<span>v{v.version}</span>
-												{v.current ? (
-													<span className="font-sans text-xs text-muted-foreground">
-														{t("version_current")}
-													</span>
-												) : null}
-											</div>
-										</TableCell>
-										<TableCell className="text-sm">
-											{formatBytes(v.size)}
-										</TableCell>
-										<TableCell className="text-muted-foreground text-xs">
-											{formatDateTime(v.created_at)}
-										</TableCell>
-										<TableCell>
-											<div className="flex gap-1">
-												{readOnlySource ? (
+			</DialogHeader>
+			<div className="mb-4 rounded-lg border bg-muted/20 p-3">
+				<div className="flex items-center gap-3">
+					<div className="min-w-0 flex-1">
+						<div className="text-sm font-medium text-foreground">
+							{t("version_current")}
+						</div>
+						{currentRevision !== null ? (
+							<div className="mt-1 font-mono text-xs text-muted-foreground">
+								v{currentRevision.version}
+							</div>
+						) : null}
+					</div>
+					<div className="text-xs text-muted-foreground">
+						{t("version_history_count", {
+							count: historicalVersionCount,
+						})}
+					</div>
+				</div>
+			</div>
+			{loading ? (
+				<p className="text-muted-foreground text-sm py-4 text-center">
+					{t("loading_preview")}
+				</p>
+			) : versions.length === 0 ? (
+				<p className="text-muted-foreground text-sm py-4 text-center">
+					{t("version_empty")}
+				</p>
+			) : (
+				<Table>
+					<TableHeader>
+						<TableRow>
+							<TableHead>{t("version_column")}</TableHead>
+							<TableHead>{t("version_size")}</TableHead>
+							<TableHead>{t("version_date")}</TableHead>
+							<TableHead className="w-20">{t("version_actions")}</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{versions.map((v) => (
+							<Fragment key={v.id}>
+								<TableRow key={v.id}>
+									<TableCell className="font-mono text-sm">
+										<div className="flex items-center gap-2">
+											<span>v{v.version}</span>
+											{v.current ? (
+												<span className="font-sans text-xs text-muted-foreground">
+													{t("version_current")}
+												</span>
+											) : null}
+										</div>
+									</TableCell>
+									<TableCell className="text-sm">
+										{formatBytes(v.size)}
+									</TableCell>
+									<TableCell className="text-muted-foreground text-xs">
+										{formatDateTime(v.created_at)}
+									</TableCell>
+									<TableCell>
+										<div className="flex gap-1">
+											{readOnlySource ? (
+												<Button
+													variant="ghost"
+													size="icon"
+													className="size-7"
+													aria-label={t("admin:content_download_revision", {
+														version: v.version,
+													})}
+													title={t("admin:content_download_revision", {
+														version: v.version,
+													})}
+													onClick={() => {
+														void readOnlySource
+															.download(v.id)
+															.catch(handleApiError);
+													}}
+												>
+													<Icon name="Download" className="size-3.5" />
+												</Button>
+											) : v.current ? null : (
+												<>
 													<Button
 														variant="ghost"
 														size="icon"
 														className="size-7"
-														aria-label={t("admin:content_download_revision", {
-															version: v.version,
-														})}
-														title={t("admin:content_download_revision", {
-															version: v.version,
-														})}
-														onClick={() => {
-															void readOnlySource
-																.download(v.id)
-																.catch(handleApiError);
-														}}
+														title={
+															restoringVersionId === v.id
+																? t("version_restoring")
+																: t("version_restore")
+														}
+														disabled={
+															loadingMore ||
+															restoringVersionId !== null ||
+															deletingVersionId !== null
+														}
+														onClick={() => requestInlineConfirm("restore", v)}
 													>
-														<Icon name="Download" className="size-3.5" />
-													</Button>
-												) : v.current ? null : (
-													<>
-														<Button
-															variant="ghost"
-															size="icon"
-															className="size-7"
-															title={
+														<Icon
+															name={
 																restoringVersionId === v.id
-																	? t("version_restoring")
-																	: t("version_restore")
+																	? "Spinner"
+																	: "ArrowCounterClockwise"
 															}
-															disabled={
-																loadingMore ||
-																restoringVersionId !== null ||
-																deletingVersionId !== null
+															className={`size-3.5 ${restoringVersionId === v.id ? "animate-spin" : ""}`}
+														/>
+													</Button>
+													<Button
+														variant="ghost"
+														size="icon"
+														className="size-7 text-destructive"
+														title={
+															deletingVersionId === v.id
+																? t("version_deleting")
+																: t("version_delete")
+														}
+														disabled={
+															loadingMore ||
+															restoringVersionId !== null ||
+															deletingVersionId !== null
+														}
+														onClick={() => requestInlineConfirm("delete", v)}
+													>
+														<Icon
+															name={
+																deletingVersionId === v.id ? "Spinner" : "Trash"
 															}
-															onClick={() => requestInlineConfirm("restore", v)}
-														>
-															<Icon
-																name={
-																	restoringVersionId === v.id
-																		? "Spinner"
-																		: "ArrowCounterClockwise"
-																}
-																className={`size-3.5 ${restoringVersionId === v.id ? "animate-spin" : ""}`}
-															/>
-														</Button>
+															className={`size-3.5 ${deletingVersionId === v.id ? "animate-spin" : ""}`}
+														/>
+													</Button>
+												</>
+											)}
+										</div>
+									</TableCell>
+								</TableRow>
+								{inlineConfirm?.version.id === v.id ? (
+									<TableRow key={`${v.id}-confirm`}>
+										<TableCell colSpan={4} className="whitespace-normal">
+											<InlineConfirm>
+												<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+													<div className="space-y-1">
+														<div className="text-sm font-medium">
+															{inlineConfirm.kind === "restore"
+																? t("version_restore_confirm_title")
+																: t("version_delete_confirm_title")}
+														</div>
+														<p className="text-sm text-muted-foreground">
+															{inlineConfirm.kind === "restore"
+																? t("version_restore_confirm_desc", {
+																		version: v.version,
+																	})
+																: t("version_delete_confirm_desc", {
+																		version: v.version,
+																	})}
+														</p>
+													</div>
+													<div className="flex shrink-0 items-center gap-2 sm:justify-end">
 														<Button
 															variant="ghost"
-															size="icon"
-															className="size-7 text-destructive"
-															title={
-																deletingVersionId === v.id
-																	? t("version_deleting")
-																	: t("version_delete")
-															}
+															size="sm"
 															disabled={
 																loadingMore ||
 																restoringVersionId !== null ||
 																deletingVersionId !== null
 															}
-															onClick={() => requestInlineConfirm("delete", v)}
+															onClick={() =>
+																dispatch({
+																	type: "set-inline-confirm",
+																	inlineConfirm: null,
+																})
+															}
 														>
-															<Icon
-																name={
-																	deletingVersionId === v.id
-																		? "Spinner"
-																		: "Trash"
-																}
-																className={`size-3.5 ${deletingVersionId === v.id ? "animate-spin" : ""}`}
-															/>
+															{t("core:cancel")}
 														</Button>
-													</>
-												)}
-											</div>
+														<Button
+															variant={
+																inlineConfirm.kind === "delete"
+																	? "destructive"
+																	: "default"
+															}
+															size="sm"
+															disabled={
+																loadingMore ||
+																restoringVersionId !== null ||
+																deletingVersionId !== null
+															}
+															onClick={() => {
+																if (inlineConfirm.kind === "restore") {
+																	void handleRestore(v.id);
+																	return;
+																}
+																void handleDelete(v.id);
+															}}
+														>
+															{inlineConfirm.kind === "restore"
+																? t("version_restore")
+																: t("version_delete")}
+														</Button>
+													</div>
+												</div>
+											</InlineConfirm>
 										</TableCell>
 									</TableRow>
-									{inlineConfirm?.version.id === v.id ? (
-										<TableRow key={`${v.id}-confirm`}>
-											<TableCell colSpan={4} className="whitespace-normal">
-												<InlineConfirm>
-													<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-														<div className="space-y-1">
-															<div className="text-sm font-medium">
-																{inlineConfirm.kind === "restore"
-																	? t("version_restore_confirm_title")
-																	: t("version_delete_confirm_title")}
-															</div>
-															<p className="text-sm text-muted-foreground">
-																{inlineConfirm.kind === "restore"
-																	? t("version_restore_confirm_desc", {
-																			version: v.version,
-																		})
-																	: t("version_delete_confirm_desc", {
-																			version: v.version,
-																		})}
-															</p>
-														</div>
-														<div className="flex shrink-0 items-center gap-2 sm:justify-end">
-															<Button
-																variant="ghost"
-																size="sm"
-																disabled={
-																	loadingMore ||
-																	restoringVersionId !== null ||
-																	deletingVersionId !== null
-																}
-																onClick={() =>
-																	dispatch({
-																		type: "set-inline-confirm",
-																		inlineConfirm: null,
-																	})
-																}
-															>
-																{t("core:cancel")}
-															</Button>
-															<Button
-																variant={
-																	inlineConfirm.kind === "delete"
-																		? "destructive"
-																		: "default"
-																}
-																size="sm"
-																disabled={
-																	loadingMore ||
-																	restoringVersionId !== null ||
-																	deletingVersionId !== null
-																}
-																onClick={() => {
-																	if (inlineConfirm.kind === "restore") {
-																		void handleRestore(v.id);
-																		return;
-																	}
-																	void handleDelete(v.id);
-																}}
-															>
-																{inlineConfirm.kind === "restore"
-																	? t("version_restore")
-																	: t("version_delete")}
-															</Button>
-														</div>
-													</div>
-												</InlineConfirm>
-											</TableCell>
-										</TableRow>
-									) : null}
-								</Fragment>
-							))}
-						</TableBody>
-					</Table>
-				)}
-				{nextAfterSequence !== null ? (
-					<div className="mt-4 flex justify-center">
-						<Button
-							variant="outline"
-							size="sm"
-							disabled={
-								loadingMore ||
-								restoringVersionId !== null ||
-								deletingVersionId !== null
-							}
-							onClick={() => void loadMore()}
-						>
-							{loadingMore ? t("version_loading_more") : t("version_load_more")}
-						</Button>
-					</div>
-				) : null}
-			</DialogContent>
-		</Dialog>
+								) : null}
+							</Fragment>
+						))}
+					</TableBody>
+				</Table>
+			)}
+			{nextAfterSequence !== null ? (
+				<div className="mt-4 flex justify-center">
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={
+							loadingMore ||
+							restoringVersionId !== null ||
+							deletingVersionId !== null
+						}
+						onClick={() => void loadMore()}
+					>
+						{loadingMore ? t("version_loading_more") : t("version_load_more")}
+					</Button>
+				</div>
+			) : null}
+		</>
 	);
 }

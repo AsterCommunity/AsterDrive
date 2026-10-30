@@ -92,13 +92,20 @@ vi.mock("@/components/ui/dialog", () => ({
 	Dialog: ({
 		children,
 		onOpenChange,
+		onOpenChangeComplete,
 		open,
 	}: {
 		children: React.ReactNode;
 		onOpenChange: (open: boolean) => void;
+		onOpenChangeComplete?: (open: boolean) => void;
 		open: boolean;
 	}) => (
 		<div data-testid="dialog" hidden={!open}>
+			<button
+				type="button"
+				aria-label="exit_complete"
+				onClick={() => onOpenChangeComplete?.(false)}
+			/>
 			<button
 				type="button"
 				aria-label="dialog_close_control"
@@ -275,7 +282,7 @@ describe("VersionHistoryDialog", () => {
 		mockState.toastSuccess.mockReset();
 	});
 
-	it("shows loading state, renders version rows, and clears them when closed", async () => {
+	it("keeps version rows until exit completes and then disposes their state", async () => {
 		let resolveList:
 			| ((value: ReturnType<typeof versionPage>) => void)
 			| undefined;
@@ -336,7 +343,12 @@ describe("VersionHistoryDialog", () => {
 		);
 
 		expect(screen.getByTestId("dialog")).not.toBeVisible();
+		expect(screen.getByText("v2")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "exit_complete", hidden: true }),
+		);
 		expect(screen.queryByText("v2")).not.toBeInTheDocument();
+		expect(screen.queryByText("version_empty")).not.toBeInTheDocument();
 	});
 
 	it("loads older revisions on demand without replacing the current page", async () => {
@@ -426,7 +438,7 @@ describe("VersionHistoryDialog", () => {
 			await resolvedOlderPage.promise;
 		});
 		expect(screen.queryByText("v1")).not.toBeInTheDocument();
-		expect(screen.getByText("version_empty")).toBeInTheDocument();
+		expect(screen.queryByText("version_empty")).not.toBeInTheDocument();
 
 		rerender(
 			<VersionHistoryDialog
@@ -454,7 +466,7 @@ describe("VersionHistoryDialog", () => {
 
 		expect(mockState.handleApiError).not.toHaveBeenCalled();
 		expect(screen.queryByText("v1")).not.toBeInTheDocument();
-		expect(screen.getByText("version_empty")).toBeInTheDocument();
+		expect(screen.queryByText("version_empty")).not.toBeInTheDocument();
 	});
 
 	it("blocks revision mutations while an older page is loading", async () => {
@@ -636,7 +648,7 @@ describe("VersionHistoryDialog", () => {
 			screen.getByRole("button", { name: "dialog_close_control" }),
 		);
 		expect(onOpenChange).toHaveBeenCalledWith(false);
-		expect(screen.getByText("version_empty")).toBeInTheDocument();
+		expect(screen.getByText("v2")).toBeInTheDocument();
 	});
 
 	it("keeps successful mutation side effects but ignores stale completion state", async () => {
@@ -821,7 +833,7 @@ describe("VersionHistoryDialog", () => {
 
 		expect(mockState.handleApiError).not.toHaveBeenCalled();
 		expect(screen.queryByText("v1")).not.toBeInTheDocument();
-		expect(screen.getByText("version_empty")).toBeInTheDocument();
+		expect(screen.queryByText("version_empty")).not.toBeInTheDocument();
 
 		deleteView.rerender(
 			<VersionHistoryDialog
@@ -1072,4 +1084,44 @@ it("uses the supplied workspace source and offers direct downloads without resto
 		})[0],
 	);
 	await waitFor(() => expect(download).toHaveBeenCalledWith(versions[0].id));
+});
+
+it("freezes title and rows on close even when the parent clears its target, then ignores stale exit on reopen", async () => {
+	mockState.listVersions.mockResolvedValue(versionPage(versions));
+	const complete = vi.fn();
+	const view = render(
+		<VersionHistoryDialog
+			open
+			onOpenChange={vi.fn()}
+			onOpenChangeComplete={complete}
+			fileId={8}
+			fileName="old.pdf"
+		/>,
+	);
+	await screen.findByText("v2");
+	view.rerender(
+		<VersionHistoryDialog
+			open={false}
+			onOpenChange={vi.fn()}
+			onOpenChangeComplete={complete}
+			fileId={0}
+			fileName=""
+		/>,
+	);
+	expect(screen.getByText("history:old.pdf")).toBeInTheDocument();
+	expect(screen.getByText("v2")).toBeInTheDocument();
+	expect(mockState.listVersions).toHaveBeenCalledExactlyOnceWith(8);
+	view.rerender(
+		<VersionHistoryDialog
+			open
+			onOpenChange={vi.fn()}
+			onOpenChangeComplete={complete}
+			fileId={9}
+			fileName="new.pdf"
+		/>,
+	);
+	await screen.findByText("v2");
+	fireEvent.click(screen.getByRole("button", { name: "exit_complete" }));
+	expect(screen.getByText("history:new.pdf")).toBeInTheDocument();
+	expect(screen.getByText("v2")).toBeInTheDocument();
 });

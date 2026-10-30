@@ -1,4 +1,4 @@
-use super::{denied, load, persist, record, require_target, types::*};
+use super::{denied, load, load_workspace, persist, record, require_target, types::*};
 use crate::{
     api::{
         api_error_code::ApiErrorCode,
@@ -70,10 +70,28 @@ pub async fn init_download(
     file_id: i64,
     request: &AdminDownloadInitRequest,
 ) -> Result<AdminDownloadInfo> {
-    let payload = load(state, claims, &request.access_id).await?;
-    if payload.download.is_some() {
-        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
-    }
+    super::require_actor(state, claims).await?;
+    let inspection = match &request.access_id {
+        Some(access_id) => Some(load_workspace(state, claims, access_id).await?),
+        None => None,
+    };
+    let scope = match &inspection {
+        Some(inspection) => inspection.scope,
+        None => {
+            let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+            match (file.team_id, file.owner_user_id) {
+                (Some(team_id), _) => AccessScope {
+                    scope_kind: AdminScopeKind::Team,
+                    target_id: team_id,
+                },
+                (None, Some(user_id)) => AccessScope {
+                    scope_kind: AdminScopeKind::Personal,
+                    target_id: user_id,
+                },
+                _ => return Err(denied(ApiErrorCode::AdminContentTargetUnavailable)),
+            }
+        }
+    };
     let action = if request.revision_id.is_some() {
         audit::AuditAction::AdminRevisionDownload
     } else {
@@ -83,10 +101,10 @@ pub async fn init_download(
         state,
         claims,
         ctx,
-        &payload,
+        &scope,
+        inspection.as_ref(),
         action,
-        file_id,
-        request.revision_id,
+        (file_id, request.revision_id),
     )
     .await;
     if result.is_err() {
@@ -94,11 +112,11 @@ pub async fn init_download(
         record(
             state.writer_db(),
             ctx,
-            &payload,
+            &scope,
+            inspection.as_ref(),
             action,
             (Some(file_id), request.revision_id),
             "failed",
-            false,
         )
         .await?;
     }
@@ -109,18 +127,19 @@ async fn prepare(
     state: &PrimaryAppState,
     claims: &Claims,
     ctx: &audit::AuditContext,
-    payload: &AccessPayload,
+    scope: &AccessScope,
+    inspection: Option<&WorkspaceAccess>,
     action: audit::AuditAction,
-    file_id: i64,
-    revision_id: Option<i64>,
+    target: (i64, Option<i64>),
 ) -> Result<AdminDownloadInfo> {
+    let (file_id, revision_id) = target;
     let (file, blob, revision) = snapshot(state, file_id, revision_id).await?;
-    ensure_file_resource_scope(&file, require_target(state, payload).await?)?;
-    let mut download_payload = payload.clone();
-    download_payload.download = Some(DownloadTarget {
+    ensure_file_resource_scope(&file, require_target(state, scope).await?)?;
+    let download_payload = AccessPayload::Download {
+        scope: *scope,
         file_id,
         revision_id: revision.id,
-    });
+    };
     let grant_id = uuid::Uuid::new_v4().simple().to_string();
     let path = format!("/admin/content-access/{grant_id}/download");
     let mut resource = file::resolve_file_resource_handle_for_file(
@@ -137,7 +156,7 @@ async fn prepare(
             delivery_mode: FileResourceDeliveryMode::DirectUrl,
             representation: FileResourceRepresentation::Original,
         },
-        Some(match payload.scope_kind {
+        Some(match scope.scope_kind {
             AdminScopeKind::Personal => "personal",
             AdminScopeKind::Team => "team",
         }),
@@ -147,17 +166,17 @@ async fn prepare(
     // URL resolution can contact a provider; keep it outside the database transaction.
     // No URL or durable grant is released until authority and mandatory audit both succeed.
     super::require_actor(state, claims).await?;
-    require_target(state, payload).await?;
+    require_target(state, scope).await?;
     let txn = state.writer_db().begin().await?;
     let grant = persist(&txn, claims, &download_payload, &grant_id).await?;
     record(
         &txn,
         ctx,
-        payload,
+        scope,
+        inspection,
         action,
         (Some(file_id), Some(revision.id)),
         "initialized",
-        false,
     )
     .await?;
     txn.commit().await?;
@@ -194,14 +213,17 @@ pub async fn download(
     range: Option<&HeaderValue>,
 ) -> Result<file::DownloadOutcome> {
     let payload = load(state, claims, id).await?;
-    let target = payload
-        .download
-        .as_ref()
-        .ok_or_else(|| denied(ApiErrorCode::AdminContentContextInvalid))?;
+    let AccessPayload::Download {
+        scope,
+        file_id,
+        revision_id,
+    } = payload
+    else {
+        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
+    };
     let result = async {
-        let (file, blob, revision) =
-            snapshot(state, target.file_id, Some(target.revision_id)).await?;
-        ensure_file_resource_scope(&file, require_target(state, &payload).await?)?;
+        let (file, blob, revision) = snapshot(state, file_id, Some(revision_id)).await?;
+        ensure_file_resource_scope(&file, require_target(state, &scope).await?)?;
         let range = file::resolve_range_for_download_snapshot(&file, range)?;
         // The browser has already initialized access. A same-origin fallback stays streamed.
         file::build_stream_outcome_with_disposition_and_range(

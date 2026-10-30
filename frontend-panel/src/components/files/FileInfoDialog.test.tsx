@@ -902,7 +902,7 @@ describe("FileInfoDialog", () => {
 		expect(onShare).not.toHaveBeenCalled();
 		expect(onRename).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: "close" }));
+		fireEvent.click(screen.getByRole("button", { name: "core:close" }));
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
 
@@ -937,10 +937,15 @@ describe("FileInfoDialog", () => {
 		expect(screen.getByText("status:unlocked:private")).toBeInTheDocument();
 	});
 
-	it("keeps the desktop inspector mounted long enough to animate out", () => {
+	it("keeps the desktop inspector mounted until its actual animation completes", async () => {
 		setDesktopMode(true);
-		vi.useFakeTimers();
-
+		let finish: () => void = () => {};
+		const finished = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		const animations = vi
+			.spyOn(Element.prototype, "getAnimations")
+			.mockReturnValue([{ finished } as Animation]);
 		const file = {
 			blob_id: 88,
 			created_at: "2026-01-01T00:00:00Z",
@@ -961,10 +966,12 @@ describe("FileInfoDialog", () => {
 		);
 		expect(screen.getByLabelText("info")).toBeInTheDocument();
 
-		act(() => {
-			vi.advanceTimersByTime(320);
+		await act(async () => {
+			finish();
+			await finished;
 		});
 		expect(screen.queryByLabelText("info")).not.toBeInTheDocument();
+		animations.mockRestore();
 	});
 	it("collapses activity when closing or changing the inspected resource", () => {
 		const file = {
@@ -1084,3 +1091,61 @@ it.each([null, "/admin/content-access/files/7/thumbnail?access_id=grant"])(
 			);
 	},
 );
+
+it("keeps scoped folder counts through exit and switches folder/file targets without mixed content", async () => {
+	setDesktopMode(true);
+	const folder = {
+		id: 19,
+		name: "scoped-folder",
+		storage_used: 0,
+		created_at: "2026-01-01T00:00:00Z",
+		updated_at: "2026-01-01T00:00:00Z",
+		lock_state: { state: "unlocked" },
+		icon: { kind: "default" },
+		tags: [],
+	} as never;
+	const file = {
+		id: 7,
+		name: "scoped-file",
+		blob_id: 2,
+		size: 0,
+		storage_used: 0,
+		mime_type: "text/plain",
+		created_at: "2026-01-01T00:00:00Z",
+		updated_at: "2026-01-01T00:00:00Z",
+		lock_state: { state: "unlocked" },
+		tags: [],
+	} as never;
+	const props = { open: true, metadataOnly: true, onOpenChange: vi.fn() };
+	const view = render(
+		<FileInfoDialog
+			{...props}
+			folder={folder}
+			childCount={{ folders: 0, files: 2 }}
+		/>,
+	);
+	expect(screen.getAllByText("folders:0 files:2").length).toBeGreaterThan(0);
+	view.rerender(<FileInfoDialog {...props} open={false} />);
+	expect(screen.getAllByText("folders:0 files:2").length).toBeGreaterThan(0);
+	view.rerender(
+		<FileInfoDialog {...props} file={file} thumbnailPath="/scoped-thumbnail" />,
+	);
+	expect(
+		screen.getByRole("heading", { name: "scoped-file" }),
+	).toBeInTheDocument();
+	expect(screen.queryByText("info_children")).not.toBeInTheDocument();
+	view.rerender(
+		<FileInfoDialog
+			{...props}
+			folder={folder}
+			childCount={{ folders: 1, files: 0 }}
+		/>,
+	);
+	expect(
+		screen.getByRole("heading", { name: "scoped-folder" }),
+	).toBeInTheDocument();
+	expect(
+		screen.queryByRole("heading", { name: "scoped-file" }),
+	).not.toBeInTheDocument();
+	expect(screen.getAllByText("folders:1 files:0").length).toBeGreaterThan(0);
+});

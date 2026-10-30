@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +16,9 @@ import { AdminWorkspaceBrowser } from "./AdminWorkspaceBrowser";
 const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
 	trash: vi.fn(),
+	getFile: vi.fn(),
+	getFolder: vi.fn(),
+	listVersions: vi.fn(),
 	download: vi.fn(),
 	error: vi.fn(),
 	thumbnailPath: vi.fn(
@@ -47,6 +57,7 @@ vi.mock("./AdminContentAccessGate", () => ({
 }));
 vi.mock("@/components/files/FileTypeIcon", () => ({
 	FileTypeIcon: () => null,
+	getFileBadgeTint: () => "",
 }));
 const empty: AdminWorkspaceContents = {
 	contents: {
@@ -68,6 +79,20 @@ function Probe() {
 			<button type="button" onClick={() => navigate("/admin/users/7/files")}>
 				navigate-root
 			</button>
+			<button
+				type="button"
+				onClick={() => navigate("/admin/users/7/files?fileId=52&panel=info")}
+			>
+				select-other-file
+			</button>
+			<button
+				type="button"
+				onClick={() =>
+					navigate("/admin/users/7/files?infoFolderId=19&panel=info")
+				}
+			>
+				select-folder
+			</button>
 		</>
 	);
 }
@@ -82,13 +107,26 @@ function mount(
 		</MemoryRouter>,
 	);
 }
+beforeEach(() => {
+	vi.clearAllMocks();
+	mocks.list.mockReset();
+	useFileStore.setState({ viewMode: "list" });
+	mocks.list.mockResolvedValue(empty);
+	mocks.getFile.mockReset();
+	mocks.getFolder.mockReset();
+	mocks.listVersions.mockResolvedValue({ items: [], nextAfterSequence: null });
+	vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+		matches: true,
+		media: query,
+		onchange: null,
+		addListener: vi.fn(),
+		removeListener: vi.fn(),
+		addEventListener: vi.fn(),
+		removeEventListener: vi.fn(),
+		dispatchEvent: vi.fn(),
+	}));
+});
 describe("administrator read-only workspace", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		mocks.list.mockReset();
-		useFileStore.getState().setViewMode("list");
-		mocks.list.mockResolvedValue(empty);
-	});
 	it("restores folder and pagination state from URL without creating mutation entry points", async () => {
 		mount(
 			"/admin/users/7/files?folderId=19&folderOffset=50&fileAfterId=9&fileAfterValue=z&sortBy=size&sortOrder=desc",
@@ -274,4 +312,161 @@ it("uses the recycle-bin expiry cursor instead of ordinary file sorting cursors"
 			}),
 		),
 	);
+});
+
+const detailFile = {
+	id: 51,
+	name: "inspected.md",
+	mime_type: "text/markdown",
+	size: 12,
+	storage_used: 12,
+	blob_id: 7,
+	created_at: "2026-10-30T00:00:00Z",
+	updated_at: "2026-10-30T00:00:00Z",
+	lock_state: { state: "unlocked" },
+	tags: [],
+};
+const detailFolder = {
+	folder: {
+		id: 19,
+		name: "inspected-folder",
+		icon: { kind: "default" },
+		created_at: "2026-10-30T00:00:00Z",
+		updated_at: "2026-10-30T00:00:00Z",
+		storage_used: 12,
+		lock_state: { state: "unlocked" },
+		tags: [],
+	},
+	child_count: { folders: 1, files: 2 },
+};
+
+it("keeps the shared detail panel open while viewing and closing version history", async () => {
+	mocks.getFile.mockResolvedValue(detailFile);
+	mount("/admin/users/7/files?fileId=51&panel=info");
+	const panel = await screen.findByRole("complementary", { name: "info" });
+	await waitFor(() => expect(panel).toHaveClass("opacity-100"));
+	fireEvent.click(
+		within(panel).getByRole("button", { name: "admin:admin_file_versions" }),
+	);
+	const history = await screen.findByRole("dialog");
+	expect(panel).toHaveClass("opacity-100");
+	expect(mocks.getFile).toHaveBeenCalledOnce();
+	fireEvent.click(within(history).getByRole("button", { name: "close" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("url")).toHaveTextContent("panel=info"),
+	);
+	await waitFor(() =>
+		expect(screen.getByRole("complementary", { name: "info" })).toBe(panel),
+	);
+	expect(panel).toHaveClass("opacity-100");
+	fireEvent.click(within(panel).getByRole("button", { name: "core:close" }));
+	expect(panel.parentElement).toHaveClass("w-0");
+	expect(panel).toHaveTextContent("inspected.md");
+	await waitFor(() =>
+		expect(
+			screen.queryByRole("complementary", { name: "info" }),
+		).not.toBeInTheDocument(),
+	);
+});
+it("loads scoped folder details with child counts and clears file-specific actions", async () => {
+	mocks.getFolder.mockResolvedValue(detailFolder);
+	mount("/admin/users/7/files?infoFolderId=19&panel=info");
+	const panel = await screen.findByRole("complementary", { name: "info" });
+	expect(panel).toHaveTextContent("inspected-folder");
+	expect(panel).not.toHaveTextContent("info_loading");
+	expect(mocks.getFolder).toHaveBeenCalledExactlyOnceWith("personal:7", 19);
+	expect(mocks.getFile).not.toHaveBeenCalled();
+	expect(
+		within(panel).queryByRole("button", {
+			name: /download|versions|tag_manage/,
+		}),
+	).not.toBeInTheDocument();
+});
+it("does not show a previous file or late response after selecting a folder", async () => {
+	let resolve: (value: unknown) => void = () => {};
+	mocks.getFile.mockReturnValue(
+		new Promise((done) => {
+			resolve = done;
+		}),
+	);
+	mocks.getFolder.mockResolvedValue(detailFolder);
+	mount("/admin/users/7/files?fileId=51");
+	fireEvent.click(screen.getByRole("button", { name: "select-folder" }));
+	await screen.findByRole("heading", { name: "inspected-folder" });
+	await act(async () => resolve(detailFile));
+	expect(
+		screen.queryByRole("heading", { name: "inspected.md" }),
+	).not.toBeInTheDocument();
+});
+it("closes stale details when a subsequent scoped resource cannot be read", async () => {
+	mocks.getFile
+		.mockResolvedValueOnce(detailFile)
+		.mockRejectedValueOnce(new Error("scope denied"));
+	mount("/admin/users/7/files?fileId=51");
+	await screen.findByRole("heading", { name: "inspected.md" });
+	fireEvent.click(screen.getByRole("button", { name: "select-other-file" }));
+	expect(await screen.findByRole("alert")).toHaveTextContent(
+		"content_file_unavailable",
+	);
+	await waitFor(() =>
+		expect(
+			screen.queryByRole("heading", { name: "inspected.md" }),
+		).not.toBeInTheDocument(),
+	);
+});
+
+it("opens folder details from the actual shared folder menu while preserving its browse location", async () => {
+	mocks.list.mockResolvedValue({
+		...empty,
+		contents: {
+			...empty.contents,
+			folders: [
+				{
+					id: 19,
+					name: "menu-folder",
+					updated_at: "2026-10-30T00:00:00Z",
+					icon: { kind: "default" },
+					lock_state: { state: "unlocked" },
+				},
+			],
+			folders_total: 1,
+		},
+	});
+	mocks.getFolder.mockResolvedValue(detailFolder);
+	mount();
+	const row = (await screen.findByText("menu-folder")).closest("tr");
+	if (!row) throw new Error("folder row missing");
+	fireEvent.click(within(row).getByRole("button", { name: "more_actions" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "info" }));
+	await screen.findByRole("heading", { name: "inspected-folder" });
+	expect(screen.getByTestId("url")).toHaveTextContent("infoFolderId=19");
+	expect(screen.getByTestId("url")).not.toHaveTextContent("?folderId=");
+	expect(mocks.getFolder).toHaveBeenCalledExactlyOnceWith("personal:7", 19);
+});
+
+it("switches file and folder content in the same expanded panel while details are pending", async () => {
+	let finish: (value: unknown) => void = () => {};
+	mocks.getFile.mockResolvedValueOnce(detailFile).mockReturnValueOnce(
+		new Promise((resolve) => {
+			finish = resolve;
+		}),
+	);
+	mocks.getFolder.mockResolvedValue(detailFolder);
+	mount("/admin/users/7/files?fileId=51");
+	const panel = await screen.findByRole("complementary", { name: "info" });
+	await waitFor(() => expect(panel).toHaveClass("opacity-100"));
+	fireEvent.click(screen.getByRole("button", { name: "select-other-file" }));
+	expect(screen.getByRole("complementary", { name: "info" })).toBe(panel);
+	expect(panel).toHaveClass("opacity-100");
+	expect(panel.parentElement).toHaveClass("w-[22rem]");
+	expect(
+		screen.queryByRole("heading", { name: "inspected.md" }),
+	).not.toBeInTheDocument();
+	await act(async () => finish({ ...detailFile, id: 52, name: "other.md" }));
+	expect(screen.getByRole("complementary", { name: "info" })).toBe(panel);
+	expect(panel).toHaveTextContent("other.md");
+	fireEvent.click(screen.getByRole("button", { name: "select-folder" }));
+	await screen.findByRole("heading", { name: "inspected-folder" });
+	expect(screen.getByRole("complementary", { name: "info" })).toBe(panel);
+	expect(panel).toHaveClass("opacity-100");
 });

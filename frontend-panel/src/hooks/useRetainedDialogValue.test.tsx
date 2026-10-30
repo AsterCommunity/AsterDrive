@@ -51,3 +51,20 @@ describe("useRetainedDialogValue", () => {
 		expect(result.current.retainedValue).toBeNull();
 	});
 });
+
+it("ignores an old exit notification after a new resource has opened", () => {
+	const { result, rerender } = renderHook(
+		({ value, open }: { value: string | null; open: boolean }) =>
+			useRetainedDialogValue(value, open),
+		{ initialProps: { value: "old" as string | null, open: true } },
+	);
+	const staleComplete = result.current.handleOpenChangeComplete;
+	rerender({ value: null, open: false });
+	rerender({ value: "new", open: true });
+	act(() => staleComplete(false));
+	expect(result.current.retainedValue).toBe("new");
+	rerender({ value: null, open: false });
+	expect(result.current.retainedValue).toBe("new");
+	act(() => result.current.handleOpenChangeComplete(false));
+	expect(result.current.retainedValue).toBeNull();
+});

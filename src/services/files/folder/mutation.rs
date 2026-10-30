@@ -18,6 +18,7 @@ use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     events::storage_change,
     workspace::models::FolderInfo,
+    workspace::scope::{WorkspaceResourceScope, ensure_folder_resource_scope},
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 use aster_drive_model::entities::{file, folder};
@@ -53,13 +54,13 @@ where
 /// 立即释放 file ids，避免大目录详情把整棵树文件记录压进内存。
 async fn load_file_id_size_page(
     state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     folder_ids: &[i64],
     after_id: Option<i64>,
 ) -> Result<Vec<file_repo::FileIdSize>> {
     let file_scope = match scope {
-        WorkspaceStorageScope::Personal { user_id } => file_repo::FileScope::Personal { user_id },
-        WorkspaceStorageScope::Team { team_id, .. } => file_repo::FileScope::Team { team_id },
+        WorkspaceResourceScope::Personal { user_id } => file_repo::FileScope::Personal { user_id },
+        WorkspaceResourceScope::Team { team_id } => file_repo::FileScope::Team { team_id },
     };
     file_repo::find_id_size_by_folders(
         state.reader_db(),
@@ -76,14 +77,14 @@ async fn load_file_id_size_page(
 /// 这里同样只拿 id，不加载完整 folder model；详情页只需要继续向下遍历。
 async fn load_child_folder_ids(
     state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     folder_ids: &[i64],
 ) -> Result<Vec<i64>> {
     let folder_scope = match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             folder_repo::FolderScope::Personal { user_id }
         }
-        WorkspaceStorageScope::Team { team_id, .. } => folder_repo::FolderScope::Team { team_id },
+        WorkspaceResourceScope::Team { team_id } => folder_repo::FolderScope::Team { team_id },
     };
     folder_repo::find_child_ids_in_parents(state.reader_db(), folder_scope, folder_ids).await
 }
@@ -100,7 +101,7 @@ async fn load_child_folder_ids(
 /// 删除/复制场景可以接受，详情页统计大目录时不该这么做。
 async fn compute_folder_storage_used(
     state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
+    scope: WorkspaceResourceScope,
     folder_id: i64,
 ) -> Result<i64> {
     let mut total = 0i64;
@@ -474,15 +475,24 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
 ) -> Result<FolderInfo> {
     // 先走普通详情权限校验；`storage_used` 只在用户确实能读这个文件夹时计算。
     let folder = get_info_in_scope(state, scope, folder_id).await?;
-    let storage_used = compute_folder_storage_used(state, scope, folder_id).await?;
-    let tags =
-        crate::services::content::tag::load_entity_tag_map(state, scope.into(), &[], &[folder.id])
-            .await?
-            .remove(&(aster_drive_model::types::EntityType::Folder, folder.id))
-            .unwrap_or_default();
+    build_authorized_folder_info(state, scope.into(), folder).await
+}
+
+/// Reuse folder details after the caller has authorized a logical workspace resource.
+pub(crate) async fn build_authorized_folder_info(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceResourceScope,
+    folder: folder::Model,
+) -> Result<FolderInfo> {
+    ensure_folder_resource_scope(&folder, scope)?;
+    let storage_used = compute_folder_storage_used(state, scope, folder.id).await?;
+    let tags = crate::services::content::tag::load_entity_tag_map(state, scope, &[], &[folder.id])
+        .await?
+        .remove(&(aster_drive_model::types::EntityType::Folder, folder.id))
+        .unwrap_or_default();
     let lock_states = crate::services::files::lock::load_for_scope(
         state,
-        scope.into(),
+        scope,
         &[],
         std::slice::from_ref(&folder),
     )
