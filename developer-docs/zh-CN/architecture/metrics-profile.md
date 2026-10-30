@@ -16,6 +16,8 @@ ready 取 /health/ready 同一结果，首次检查前未知；diagnostic health
 
 CPU 为秒累计快照，不重复 Add；内存是物理进程内存，不等同容器总量。pool 只输出 SQLx 实际 idle/used/max，单 writer 不造 reader。任务 handler 的 returned_ok/returned_error/dropped 是本地事实，持久成功另由已确认状态转换表达；取消 active 在实际 future drop/返回时下降。
 
+Drive 的主数据库池身份固定为 main，实际池名为 main.writer / main.reader；不从数据库 URL、用户输入或运行时 ID 生成。HTTP status 属性在 OTLP 中为整数，Prometheus 标签为文本；生成目录的 integer_attributes 标注整数属性。HEAD 在响应可用时结束计量，不把协议省略 body 记为取消。
+
 ## 产品指标和基数
 
 49 个产品 instrument 使用 aster.drive.*，保留原有业务成功、失败、取消及字节边界。属性来自 enum/static catalog，route 为匹配模板。profile/rule/policy 仅既有受控拓扑目录，不含文件、用户、请求、URL、对象 key、SQL、错误文本。默认每 instrument 4096、实例 16384 个组合；Classic histogram 还展开桶/sum/count，部署预算须乘副本和环境。超限跳过本次观测，累计本地失败，不改变业务事务。

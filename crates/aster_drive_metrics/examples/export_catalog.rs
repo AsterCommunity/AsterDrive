@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "kind":format!("{:?}",d.kind),
         "unit":d.unit,
         "attributes":d.labels,
+        "integer_attributes":d.integer_labels,
         "buckets":d.buckets,
         "description":d.help
     })).collect();

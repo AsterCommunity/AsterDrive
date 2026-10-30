@@ -16,7 +16,7 @@ pub(crate) async fn sample_primary(state: &PrimaryAppState) {
     let now = Utc::now();
     state
         .db_handles
-        .record_pool_metrics(state.metrics().forge_recorder().as_ref());
+        .record_pool_metrics("main", state.metrics().forge_recorder().as_ref());
     let result: Result<()> = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         let uploads = observability_repo::upload_backlog(state.writer_db(), now).await?;
         let blobs = observability_repo::blob_backlog(state.writer_db()).await?;
@@ -230,6 +230,22 @@ mod tests {
             .await
             .unwrap();
         sample_primary(&state).await;
+        let maximum = f64::from(
+            state
+                .writer_db()
+                .get_sqlite_connection_pool()
+                .options()
+                .get_max_connections(),
+        );
+        assert_eq!(
+            value(
+                &provider,
+                "db_client_connection_max",
+                &["db_client_connection_pool_name=\"main.writer\""]
+            )
+            .await,
+            maximum
+        );
         assert_eq!(
             value(
                 &provider,

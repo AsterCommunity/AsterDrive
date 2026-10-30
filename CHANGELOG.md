@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Aster Metrics v1 (breaking)** — Adopt standard OTel HTTP/DB/process signals and Aster Drive product instruments with a versioned schema and generated catalog. Update queries, alerts and Grafana with the application; old aliases are removed. Native pool state, response-body lifetime, local task handler execution and task-snapshot freshness are now observable. Prometheus remains opt-in pull; OTLP HTTP/protobuf remains optional.
+- **Aster Metrics v1 (breaking)** — Adopt standard OTel HTTP/DB/process signals and Aster Drive product instruments with a versioned schema and generated catalog. Update queries, alerts and Grafana with the application; old aliases are removed. Native pool state uses explicit main.writer/main.reader identities; HTTP status attributes retain integer types in OTLP and HEAD completes without false cancellation. Response-body lifetime, local task handler execution and task-snapshot freshness are now observable. Prometheus remains opt-in pull; OTLP HTTP/protobuf remains optional.
 
 - **Node.js build toolchain** — Local development and CI select Node.js 26.13.0 from `.nvmrc`; the Docker frontend build pins the same patch and checks its binary version. Frontend and documentation packages require Node.js >=26.13.0 <27.
 

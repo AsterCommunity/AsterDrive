@@ -635,7 +635,7 @@ pub fn spawn_follower_background_tasks(
                 crate::services::ops::metrics::sample_capacity(state.get_ref()).await;
                 state
                     .db_handles
-                    .record_pool_metrics(state.metrics.forge_recorder().as_ref());
+                    .record_pool_metrics("main", state.metrics.forge_recorder().as_ref());
             },
         ));
     }

@@ -311,6 +311,10 @@ fn published_catalog_matches_actual_schema() {
             .unwrap();
         assert_eq!(item["unit"], descriptor.unit);
         assert_eq!(item["attributes"], serde_json::json!(descriptor.labels));
+        assert_eq!(
+            item["integer_attributes"],
+            serde_json::json!(descriptor.integer_labels)
+        );
         assert_eq!(item["buckets"], serde_json::json!(descriptor.buckets));
     }
 }
