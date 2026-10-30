@@ -1,17 +1,17 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
-import { SortMenu } from "@/components/common/SortMenu";
-import { ToolbarBar } from "@/components/common/ToolbarBar";
-import { ViewToggle } from "@/components/common/ViewToggle";
+import { EmptyState } from "@/components/common/EmptyState";
+import { SkeletonFileGrid } from "@/components/common/SkeletonFileGrid";
+import { SkeletonFileTable } from "@/components/common/SkeletonFileTable";
 import {
 	type FileBrowserContextValue,
 	FileBrowserProvider,
 } from "@/components/files/FileBrowserContext";
+import { FileBrowserNavigationBar } from "@/components/files/FileBrowserNavigationBar";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileInfoDialog } from "@/components/files/FileInfoDialog";
 import { FileTable } from "@/components/files/FileTable";
-import { FolderBreadcrumb } from "@/components/files/FolderBreadcrumb";
 import { VersionHistoryDialog } from "@/components/files/VersionHistoryDialog";
 import { AppLayout } from "@/components/layout/AppLayout";
 import {
@@ -247,7 +247,8 @@ function WorkspaceContents({
 			? (type, id) => trashMeta.get(`${type}:${id}`)
 			: undefined,
 		breadcrumbPathIds: data?.ancestors.map((item) => item.id) ?? [],
-		getThumbnailPath: () => null,
+		getThumbnailPath: (file) =>
+			adminContentAccessService.thumbnailPath(accessId, file.id),
 		sorting: inTrash
 			? undefined
 			: {
@@ -290,66 +291,51 @@ function WorkspaceContents({
 				/>
 			}
 		>
-			<ToolbarBar
-				left={
-					<>
-						<Icon
-							name={
-								inTrash ? "Trash" : folderId == null ? "House" : "FolderOpen"
-							}
-							className="size-4 shrink-0"
-						/>
-						<FolderBreadcrumb
-							items={[
-								{ id: null, name: t("files:root") },
-								...(inTrash
-									? [{ id: null, name: t("core:trash") }]
-									: (data?.ancestors ?? [])),
-							]}
-							onNavigate={(id) => openFolder(id ?? undefined)}
-						/>
-						<Button
-							variant="ghost"
-							size="icon"
-							aria-label={t("core:refresh")}
-							onClick={() => setRefreshKey((value) => value + 1)}
-						>
-							<Icon name="ArrowsClockwise" className="size-4" />
-						</Button>
-					</>
-				}
-				right={
-					<>
-						{!inTrash ? (
-							<SortMenu
-								sortBy={sortBy}
-								sortOrder={sortOrder}
-								onSortBy={(value) =>
+			<FileBrowserNavigationBar
+				icon={inTrash ? "Trash" : folderId == null ? "House" : "FolderOpen"}
+				breadcrumb={{
+					items: [
+						{ id: null, name: t("files:root") },
+						...(inTrash
+							? [{ id: null, name: t("core:trash") }]
+							: (data?.ancestors ?? [])),
+					],
+					onNavigate: (id) => openFolder(id ?? undefined),
+				}}
+				onRefresh={() => setRefreshKey((value) => value + 1)}
+				viewMode={viewMode}
+				onViewModeChange={setViewMode}
+				sorting={
+					inTrash
+						? undefined
+						: {
+								sortBy,
+								sortOrder,
+								onSortBy: (value) =>
 									update({
 										sortBy: value,
 										folderOffset: undefined,
 										fileAfterId: undefined,
 										fileAfterValue: undefined,
-									})
-								}
-								onSortOrder={(value) =>
+									}),
+								onSortOrder: (value) =>
 									update({
 										sortOrder: value,
 										folderOffset: undefined,
 										fileAfterId: undefined,
 										fileAfterValue: undefined,
-									})
-								}
-							/>
-						) : null}
-						<ViewToggle value={viewMode} onChange={setViewMode} />
-					</>
+									}),
+							}
 				}
 			/>
 			<div className="flex min-h-0 flex-1">
 				<ScrollArea ref={setScrollElement} className="min-h-0 min-w-0 flex-1">
 					{loading ? (
-						<p className="p-5">{t("core:loading")}</p>
+						viewMode === "grid" ? (
+							<SkeletonFileGrid />
+						) : (
+							<SkeletonFileTable />
+						)
 					) : failed ? (
 						<p role="alert" className="p-5">
 							{t("content_workspace_unavailable")}
@@ -358,9 +344,20 @@ function WorkspaceContents({
 						<>
 							{data.contents.files.length + data.contents.folders.length ===
 							0 ? (
-								<p className="p-5">
-									{t(inTrash ? "files:trash_empty_title" : "content_empty")}
-								</p>
+								<EmptyState
+									icon={
+										<Icon
+											name={inTrash ? "Trash" : "FolderOpen"}
+											className="size-10"
+										/>
+									}
+									title={t(
+										inTrash ? "files:trash_empty_title" : "content_empty",
+									)}
+									description={
+										inTrash ? t("files:trash_empty_desc") : undefined
+									}
+								/>
 							) : (
 								<FileBrowserProvider value={browserContext}>
 									{viewMode === "grid" ? (
@@ -441,6 +438,10 @@ function WorkspaceContents({
 				{selectedFile ? (
 					<FileInfoDialog
 						metadataOnly
+						thumbnailPath={adminContentAccessService.thumbnailPath(
+							accessId,
+							selectedFile.id,
+						)}
 						file={selectedFile}
 						open={!versionsOpen}
 						onOpenChange={(open) => {

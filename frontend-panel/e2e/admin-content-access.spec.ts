@@ -78,6 +78,21 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		{ name, mimeType: "text/plain", buffer: original },
 		folder.id,
 	);
+
+	const imageName = `${uniqueName("inspection-thumbnail")}.png`;
+	await uploadFileViaApi(
+		page,
+		"/api/v1",
+		{
+			name: imageName,
+			mimeType: "image/png",
+			buffer: Buffer.from(
+				"iVBORw0KGgoAAAANSUhEUgAAACAAAAAYCAIAAAAUMWhjAAAAJElEQVR4nGP4HxpKU8QwasGoBaMWjFowasGoBaMWjFowNCwAAJ7w+z3kabdcAAAAAElFTkSuQmCC",
+				"base64",
+			),
+		},
+		folder.id,
+	);
 	await apiJsonInPage(
 		page,
 		"/api/v1/admin/config/admin_workspace_content_access_enabled",
@@ -115,6 +130,46 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	await page.reload();
 	await beginAccess(page);
 	await page.getByRole("button", { name: "List View", exact: true }).click();
+	await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
+
+	// Exercise the shared tree background, not the inner name button.
+	const rootRow = page.locator("[data-folder-tree-root-row]");
+	const rootBox = await rootRow.boundingBox();
+	if (!rootBox) throw new Error("root tree row is not visible");
+	await rootRow.click({ position: { x: rootBox.width - 3, y: 10 } });
+	await expect(page).not.toHaveURL(/folderId=/);
+	const treeRow = page.locator(`[data-folder-tree-row="${folder.id}"]`);
+	await expect(treeRow).toBeVisible();
+	const treeBox = await treeRow.boundingBox();
+	if (!treeBox) throw new Error("folder tree row is not visible");
+	await treeRow.click({ position: { x: treeBox.width - 3, y: 10 } });
+	await expect(page).toHaveURL(new RegExp(`folderId=${folder.id}`));
+	await treeRow
+		.getByRole("button", { name: "Expand tree", exact: true })
+		.click();
+	await expect(page).toHaveURL(new RegExp(`folderId=${folder.id}`));
+	await treeRow
+		.getByRole("button", { name: "Collapse tree", exact: true })
+		.click();
+	await expect(page).toHaveURL(new RegExp(`folderId=${folder.id}`));
+	const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+	const refreshBox = await refresh.boundingBox();
+	const addressBox = await page
+		.getByRole("navigation", { name: "breadcrumb" })
+		.boundingBox();
+	if (!refreshBox || !addressBox)
+		throw new Error("file navigation controls are not visible");
+	expect(refreshBox.x).toBeGreaterThan(addressBox.x + addressBox.width - 1);
+	const targetImageRow = page.getByRole("row").filter({ hasText: imageName });
+	await expect(targetImageRow.locator("img[src^='blob:']")).toBeVisible();
+	await expect
+		.poll(async () =>
+			targetImageRow
+				.locator("img")
+				.evaluate((node: HTMLImageElement) => node.naturalWidth),
+		)
+		.toBeGreaterThan(0);
+	await refresh.click();
 	await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
 	await page.getByRole("button", { name: "Grid View", exact: true }).click();
 	await expect(

@@ -62,6 +62,7 @@ pub(crate) use resource_handle::{
 pub use thumbnail::{ImagePreviewResult, ThumbnailResult, get_thumbnail_data};
 pub(crate) use thumbnail::{
     get_image_preview_data_in_scope, get_thumbnail_data_in_scope, image_preview_for_file,
+    thumbnail_for_file,
 };
 pub(crate) use transfer::{
     BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec, CopiedFilePropertyMode,

@@ -853,6 +853,10 @@ async fn every_content_endpoint_requires_administrator_authentication_and_post_r
         ),
         (
             actix_web::http::Method::GET,
+            "/api/v1/admin/content-access/files/1/thumbnail?access_id=unknown",
+        ),
+        (
+            actix_web::http::Method::GET,
             "/api/v1/admin/content-access/status",
         ),
         (
@@ -1126,7 +1130,7 @@ async fn workspace_file_and_revision_reads_reuse_access_without_reauthorization(
     let body: Value = test::read_body_json(response).await;
     assert_eq!(body["data"][0]["current"], false);
     assert!(body["data"][0]["etag"].is_string());
-    for suffix in ["", "/versions"] {
+    for suffix in ["", "/versions", "/thumbnail"] {
         let response = test::call_service(
             &app,
             get(
@@ -1148,7 +1152,7 @@ async fn workspace_file_and_revision_reads_reuse_access_without_reauthorization(
         .rev()
         .nth(1)
         .unwrap();
-    for suffix in ["", "/versions"] {
+    for suffix in ["", "/versions", "/thumbnail"] {
         let response = test::call_service(
             &app,
             get(&token, &format!("{uri}{suffix}?access_id={download_id}")).to_request(),
@@ -1371,5 +1375,251 @@ async fn recycle_bin_lists_all_target_directories_with_scope_and_top_level_bound
     .await
     .unwrap();
     let response = test::call_service(&app, get(&token, &root).to_request()).await;
+    assert_eq!(response.status(), 403);
+}
+
+#[actix_web::test]
+async fn thumbnails_reuse_inspection_for_personal_team_and_trash_and_recheck_context() {
+    use aster_drive::db::repository::file_repo;
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (admin, _) = register_and_login!(app);
+    let uid = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let owner_id = admin_create_user!(
+        app,
+        admin,
+        "thumbowner",
+        "thumbowner@example.com",
+        "password123"
+    );
+    let (owner, _) = login_user!(app, "thumbowner", "password123");
+    enable(&state).await;
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::ImageEncoder::write_image(
+        image::codecs::png::PngEncoder::new(&mut png),
+        &[255, 0, 0],
+        1,
+        1,
+        image::ExtendedColorType::Rgb8,
+    )
+    .unwrap();
+    let png = png.into_inner();
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &owner,
+        "/api/v1/files",
+        "cover.png",
+        "image/png",
+        &png,
+    )
+    .await;
+    assert_eq!(status, 201);
+    let file_id = body["data"]["id"].as_i64().unwrap();
+    let access = grant!(app, admin, owner_id);
+    let uri = format!("/api/v1/admin/content-access/files/{file_id}/thumbnail?access_id={access}");
+    // Pending follows the ordinary thumbnail queue and retry contract.
+    let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
+    assert_eq!(response.status(), 202);
+    assert_eq!(response.headers().get("Retry-After").unwrap(), "2");
+    assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+    let model = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    let blob = file_repo::find_blob_by_id(state.writer_db(), model.blob_id)
+        .await
+        .unwrap();
+    let expected = aster_drive::services::media::processing::get_or_generate_thumbnail(
+        &state,
+        &blob,
+        &model.name,
+        &model.mime_type,
+    )
+    .await
+    .unwrap();
+    let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("Content-Type").unwrap(),
+        "image/webp"
+    );
+    assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-store");
+    let etag = response.headers().get("ETag").unwrap().clone();
+    assert_eq!(test::read_body(response).await, expected.data);
+    let response = test::call_service(
+        &app,
+        get(&admin, &uri)
+            .insert_header(("If-None-Match", etag.clone()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 304);
+    assert!(test::read_body(response).await.is_empty());
+    // Retained files in the target recycle bin use the same derivative pipeline.
+    let mut deleted = model.into_active_model();
+    deleted.deleted_at = Set(Some(chrono::Utc::now()));
+    deleted.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(test::read_body(response).await, expected.data);
+    // Identical content must still be authorized by its logical workspace file.
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &admin,
+        "/api/v1/files",
+        "private.png",
+        "image/png",
+        &png,
+    )
+    .await;
+    assert_eq!(status, 201);
+    let private = body["data"]["id"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        get(
+            &admin,
+            &format!("/api/v1/admin/content-access/files/{private}/thumbnail?access_id={access}"),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    let response = test::call_service(
+        &app,
+        get(
+            &admin,
+            &format!("/api/v1/admin/content-access/files/{file_id}/thumbnail?access_id=unknown"),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    let (another_session, _) = login_user!(app, "testuser", "password123");
+    let response = test::call_service(&app, get(&another_session, &uri).to_request()).await;
+    assert_eq!(response.status(), 403);
+    // An initialized download is not a workspace inspection context.
+    let init = init_download!(app, admin, access, file_id, None::<i64>);
+    let download_uri = stream_uri(&init);
+    let download_id = download_uri.split('/').rev().nth(1).unwrap();
+    let response = test::call_service(
+        &app,
+        get(
+            &admin,
+            &format!(
+                "/api/v1/admin/content-access/files/{file_id}/thumbnail?access_id={download_id}"
+            ),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    let response = test::call_service(
+        &app,
+        post(
+            &admin,
+            "/api/v1/admin/teams",
+            json!({"name":"Thumbnail team", "admin_user_id":owner_id}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let team: Value = test::read_body_json(response).await;
+    let team_id = team["data"]["id"].as_i64().unwrap();
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &owner,
+        &format!("/api/v1/teams/{team_id}/files"),
+        "team.png",
+        "image/png",
+        &png,
+    )
+    .await;
+    assert_eq!(status, 201);
+    let team_file = body["data"]["id"].as_i64().unwrap();
+    // Team policies can store derivatives separately even when the source bytes match.
+    let team_model = file_repo::find_by_id(state.writer_db(), team_file)
+        .await
+        .unwrap();
+    let team_blob = file_repo::find_blob_by_id(state.writer_db(), team_model.blob_id)
+        .await
+        .unwrap();
+    aster_drive::services::media::processing::get_or_generate_thumbnail(
+        &state,
+        &team_blob,
+        &team_model.name,
+        &team_model.mime_type,
+    )
+    .await
+    .unwrap();
+    let response = test::call_service(
+        &app,
+        post(
+            &admin,
+            "/api/v1/admin/content-access",
+            json!({"scope_kind":"team", "target_id":team_id,"reason":"data_recovery"}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let team_grant: Value = test::read_body_json(response).await;
+    let team_access = team_grant["data"]["id"].as_str().unwrap();
+    let team_uri =
+        format!("/api/v1/admin/content-access/files/{team_file}/thumbnail?access_id={team_access}");
+    let response = test::call_service(&app, get(&admin, &team_uri).to_request()).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(test::read_body(response).await, expected.data);
+    for (id, grant) in [(team_file, access.as_str()), (file_id, team_access)] {
+        let response = test::call_service(
+            &app,
+            get(
+                &admin,
+                &format!("/api/v1/admin/content-access/files/{id}/thumbnail?access_id={grant}"),
+            )
+            .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 403);
+    }
+    assert_eq!(
+        audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq("admin_workspace_inspect"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        2,
+        "thumbnail reads reuse the original inspection audit"
+    );
+    // Even cached 304 requests must revalidate the live access authority.
+    config_repo::upsert(
+        state.writer_db(),
+        "admin_workspace_content_access_enabled",
+        "false",
+        uid,
+    )
+    .await
+    .unwrap();
+    let response = test::call_service(
+        &app,
+        get(&admin, &uri)
+            .insert_header(("If-None-Match", etag))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    enable(&state).await;
+    let grant = admin_content_access::Entity::find_by_id(access.clone())
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut expired = grant.into_active_model();
+    expired.expires_at = Set(chrono::Utc::now() - chrono::Duration::seconds(1));
+    expired.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(&app, get(&admin, &uri).to_request()).await;
     assert_eq!(response.status(), 403);
 }

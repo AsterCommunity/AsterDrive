@@ -1,11 +1,7 @@
 import type React from "react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-	DRAG_SOURCE_MIME,
-	FOLDER_TREE_INDENT_PX,
-	FOLDER_TREE_ROW_OFFSET_PX,
-} from "@/lib/constants";
+import { DRAG_SOURCE_MIME } from "@/lib/constants";
 import {
 	getInvalidInternalDropReason,
 	hasInternalDragData,
@@ -13,9 +9,8 @@ import {
 	setInternalDragPreview,
 	writeInternalDragData,
 } from "@/lib/dragDrop";
-import { folderTreeRowClass } from "@/lib/utils";
 import { AnimatedTreeGroup } from "./AnimatedTreeGroup";
-import { FolderTreeItemContent } from "./FolderTreeItemContent";
+import { FolderTreeRow } from "./FolderTreeRow";
 import type { TreeNodeProps } from "./types";
 
 export function FolderTreeNodeRow({
@@ -99,37 +94,28 @@ export function FolderTreeNodeRow({
 
 	return (
 		<div>
-			{/* biome-ignore lint/a11y/noStaticElementInteractions: 行同时是拖拽目标和整行点击导航区；键盘与读屏经内部语义按钮完成导航/展开 */}
-			{/* biome-ignore lint/a11y/useKeyWithClickEvents: 键盘交互由行内语义按钮承担，行 onClick 仅服务指针用户 */}
-			<div
-				ref={rowRef}
-				draggable
-				className={folderTreeRowClass(
-					isActive,
-					dragOver && "ring-2 ring-primary bg-accent/30",
-					{ indicator: true },
-				)}
-				data-folder-tree-row={node.folder.id}
-				style={{
-					paddingLeft: `${depth * FOLDER_TREE_INDENT_PX + FOLDER_TREE_ROW_OFFSET_PX}px`,
+			<FolderTreeRow
+				rowRef={rowRef}
+				folderId={node.folder.id}
+				active={isActive}
+				depth={depth}
+				dragOver={dragOver}
+				dragHandlers={{
+					draggable: true,
+					onDragStart: handleDragStart,
+					onDragOver: handleDragOver,
+					onDragLeave: handleDragLeave,
+					onDrop: handleDrop,
 				}}
-				onClick={() => onNavigate(node.folder.id, node.folder.name)}
-				onDragStart={handleDragStart}
-				onDragOver={handleDragOver}
-				onDragLeave={handleDragLeave}
-				onDrop={handleDrop}
-			>
-				<FolderTreeItemContent
-					expanded={isExpanded}
-					label={node.folder.name}
-					icon={node.folder.icon}
-					loading={isLoading}
-					showToggle={showToggle}
-					toggleLabel={t(isExpanded ? "collapse_tree" : "expand_tree")}
-					onNavigate={() => onNavigate(node.folder.id, node.folder.name)}
-					onToggle={() => onToggle(node.folder.id)}
-				/>
-			</div>
+				expanded={isExpanded}
+				label={node.folder.name}
+				icon={node.folder.icon}
+				loading={isLoading}
+				showToggle={showToggle}
+				toggleLabel={t(isExpanded ? "collapse_tree" : "expand_tree")}
+				onNavigate={() => onNavigate(node.folder.id, node.folder.name)}
+				onToggle={() => onToggle(node.folder.id)}
+			/>
 			<AnimatedTreeGroup open={isExpanded && node.childIds.length > 0}>
 				{children}
 			</AnimatedTreeGroup>

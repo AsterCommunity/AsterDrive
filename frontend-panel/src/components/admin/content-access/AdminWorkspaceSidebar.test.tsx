@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminWorkspaceSidebar } from "./AdminWorkspaceSidebar";
 
@@ -65,4 +71,60 @@ it("provides the target recycle-bin entry alongside the tree using the current a
 	expect(
 		screen.queryByRole("button", { name: /restore|purge/i }),
 	).not.toBeInTheDocument();
+});
+
+it("shares the full root and folder hit areas without enabling mutation or bubbling toggle clicks", async () => {
+	mocks.list.mockResolvedValue({
+		contents: {
+			folders: [{ id: 9, name: "folder", icon: { kind: "default" } }],
+			folders_total: 1,
+		},
+	});
+	const onNavigate = vi.fn();
+	const onTrash = vi.fn();
+	const view = render(
+		<AdminWorkspaceSidebar
+			accessId="grant"
+			onNavigate={onNavigate}
+			onTrash={onTrash}
+			currentId={9}
+		/>,
+	);
+	const folder = await screen.findByRole("button", { name: "folder" });
+	const row = folder.closest<HTMLElement>("[data-folder-tree-row]");
+	expect(row).not.toBeNull();
+	expect(row).not.toHaveAttribute("draggable");
+	expect(row).toHaveClass("bg-accent");
+	fireEvent.click(row as HTMLElement);
+	expect(onNavigate).toHaveBeenCalledExactlyOnceWith(9);
+	fireEvent.click(folder);
+	expect(onNavigate).toHaveBeenCalledTimes(2);
+	fireEvent.click(
+		within(row as HTMLElement).getByRole("button", { name: "expand_tree" }),
+	);
+	expect(onNavigate).toHaveBeenCalledTimes(2);
+	const root = screen
+		.getByRole("button", { name: "root" })
+		.closest<HTMLElement>("[data-folder-tree-root-row]");
+	fireEvent.click(root as HTMLElement);
+	expect(onNavigate).toHaveBeenLastCalledWith();
+	expect(onNavigate).toHaveBeenCalledTimes(3);
+	fireEvent.click(
+		within(root as HTMLElement).getByRole("button", { name: "collapse_tree" }),
+	);
+	expect(onNavigate).toHaveBeenCalledTimes(3);
+	view.rerender(
+		<AdminWorkspaceSidebar
+			accessId="grant"
+			onNavigate={onNavigate}
+			onTrash={onTrash}
+			currentId={9}
+			inTrash
+		/>,
+	);
+	expect(root).not.toHaveClass("bg-accent");
+	const trash = screen.getByRole("button", { name: "core:trash" });
+	expect(trash).toHaveAttribute("aria-current", "page");
+	fireEvent.click(trash);
+	expect(onTrash).toHaveBeenCalledOnce();
 });

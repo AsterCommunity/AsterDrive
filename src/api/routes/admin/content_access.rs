@@ -171,3 +171,30 @@ pub async fn list_trash(
         .insert_header(("Cache-Control", "no-store"))
         .json(crate::api::response::success(contents)))
 }
+
+#[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/files/{id}/thumbnail", tag = "admin", operation_id = "admin_workspace_thumbnail",
+ params(("id" = i64, Path), ("access_id" = String, Query), ("If-None-Match" = Option<String>, Header)),
+ responses((status = 200, description = "WebP thumbnail"), (status = 202, description = "Thumbnail generation pending"), (status = 304, description = "Not modified")), security(("bearer" = [])))]
+pub async fn get_thumbnail(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+    access: web::Query<ContentFileQuery>,
+) -> Result<HttpResponse> {
+    let result =
+        content_access::get_thumbnail(state.get_ref(), &claims, &access.access_id, *path).await?;
+    match result {
+        Some(result) => Ok(crate::api::routes::files::access::thumbnail_response(
+            result,
+            req.headers()
+                .get("If-None-Match")
+                .and_then(|value| value.to_str().ok()),
+            "no-store".to_string(),
+        )),
+        None => Ok(HttpResponse::Accepted()
+            .insert_header(("Cache-Control", "no-store"))
+            .insert_header(("Retry-After", "2"))
+            .json(crate::api::response::empty_success())),
+    }
+}

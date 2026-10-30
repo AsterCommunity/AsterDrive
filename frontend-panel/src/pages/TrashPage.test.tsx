@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileBrowserContextValue } from "@/components/files/FileBrowserContext";
 import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
@@ -438,7 +439,11 @@ describe("TrashPage", () => {
 	it("uses the stored grid preference and persists view mode changes", async () => {
 		localStorage.setItem(STORAGE_KEYS.trashViewMode, "grid");
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		expect(
 			await screen.findByText("files:trash_empty_title:files:trash_empty_desc"),
@@ -449,6 +454,32 @@ describe("TrashPage", () => {
 
 		expect(localStorage.getItem(STORAGE_KEYS.trashViewMode)).toBe("list");
 		expect(screen.getByText("view:list")).toBeInTheDocument();
+	});
+
+	it("refreshes through the file toolbar and disables refresh while a reload is pending", async () => {
+		let resolve: (value: ReturnType<typeof emptyTrashContents>) => void =
+			() => {};
+		mockState.list
+			.mockResolvedValueOnce(emptyTrashContents())
+			.mockReturnValueOnce(
+				new Promise((done) => {
+					resolve = done;
+				}),
+			);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
+		const refresh = screen.getByRole("button", { name: "core:refresh" });
+		await waitFor(() => expect(refresh).toBeEnabled());
+		fireEvent.click(refresh);
+		expect(mockState.list).toHaveBeenCalledTimes(2);
+		expect(refresh).toBeDisabled();
+		fireEvent.click(refresh);
+		expect(mockState.list).toHaveBeenCalledTimes(2);
+		resolve(emptyTrashContents());
+		await waitFor(() => expect(refresh).toBeEnabled());
 	});
 
 	it("restores selected items through the batch action bar and reloads the list", async () => {
@@ -462,7 +493,11 @@ describe("TrashPage", () => {
 			} as never)
 			.mockResolvedValueOnce(emptyTrashContents());
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		await screen.findByText("select:report.pdf");
 		fireEvent.click(screen.getByRole("button", { name: "select:report.pdf" }));
@@ -506,7 +541,11 @@ describe("TrashPage", () => {
 			} as never)
 			.mockResolvedValueOnce(emptyTrashContents());
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: "restore:report.pdf" }),
@@ -529,7 +568,11 @@ describe("TrashPage", () => {
 			} as never)
 			.mockResolvedValueOnce(emptyTrashContents());
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		fireEvent.click(
 			await screen.findByRole("button", { name: "purge:report.pdf" }),
@@ -565,7 +608,11 @@ describe("TrashPage", () => {
 			next_file_cursor: null,
 		} as never);
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		await screen.findByText("select:report.pdf");
 
@@ -592,7 +639,11 @@ describe("TrashPage", () => {
 			next_file_cursor: null,
 		} as never);
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		await screen.findByText("select:report.pdf");
 
@@ -617,7 +668,11 @@ describe("TrashPage", () => {
 			} as never)
 			.mockResolvedValueOnce(emptyTrashContents());
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		await screen.findByRole("button", { name: "select:report.pdf" });
 		fireEvent.click(screen.getByRole("button", { name: /admin:empty_trash/i }));
@@ -653,7 +708,11 @@ describe("TrashPage", () => {
 				} as never)
 				.mockResolvedValueOnce(emptyTrashContents());
 
-			render(<TrashPage />);
+			render(
+				<MemoryRouter>
+					<TrashPage />
+				</MemoryRouter>,
+			);
 
 			await screen.findByText("select:report.pdf");
 
@@ -687,7 +746,11 @@ describe("TrashPage", () => {
 			next_file_cursor: null,
 		} as never);
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		await screen.findByText("select:report.pdf");
 
@@ -730,7 +793,11 @@ describe("TrashPage", () => {
 					}) as never,
 			);
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		await screen.findByText("select:report.pdf");
 
@@ -782,7 +849,11 @@ describe("TrashPage", () => {
 			)
 			.mockResolvedValueOnce(emptyTrashContents());
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 		await screen.findByText("select:report.pdf");
 
 		for (const listener of mockState.listeners) {
@@ -814,7 +885,11 @@ describe("TrashPage", () => {
 			},
 		} as never);
 
-		render(<TrashPage />);
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
 
 		expect(await screen.findByText("items:152")).toBeInTheDocument();
 		expect(screen.queryByText("items:1")).not.toBeInTheDocument();
@@ -844,7 +919,11 @@ describe("TrashPage", () => {
 					next_file_cursor: null,
 				} as never);
 
-			render(<TrashPage />);
+			render(
+				<MemoryRouter>
+					<TrashPage />
+				</MemoryRouter>,
+			);
 
 			await screen.findByText("select:folder-a");
 			await waitFor(() => {

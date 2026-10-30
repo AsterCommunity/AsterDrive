@@ -29,6 +29,14 @@ pub(crate) async fn get_thumbnail_data_in_scope(
     file_id: i64,
 ) -> Result<Option<ThumbnailResult>> {
     let f = get_info_in_scope(state, scope, file_id).await?;
+    thumbnail_for_file(state, &f).await
+}
+
+/// The caller has already authorized the logical file (including retained trash entries).
+pub(crate) async fn thumbnail_for_file(
+    state: &PrimaryAppState,
+    f: &aster_drive_model::entities::file::Model,
+) -> Result<Option<ThumbnailResult>> {
     let blob = file_repo::find_blob_by_id(state.reader_db(), f.blob_id).await?;
     let thumbnail = processing::load_thumbnail_if_exists(state, &blob, &f.name, &f.mime_type)
         .await

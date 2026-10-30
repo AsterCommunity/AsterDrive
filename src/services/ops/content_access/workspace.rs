@@ -203,3 +203,22 @@ pub async fn list_trash(
     )
     .await
 }
+
+/// Thumbnails are part of the existing workspace inspection context, not a new download.
+pub async fn get_thumbnail(
+    state: &crate::runtime::PrimaryAppState,
+    claims: &Claims,
+    access_id: &str,
+    file_id: i64,
+) -> Result<Option<crate::services::files::file::ThumbnailResult>> {
+    let payload = load(state, claims, access_id).await?;
+    if payload.download.is_some() {
+        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
+    }
+    let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+    crate::services::workspace::scope::ensure_file_resource_scope(
+        &file,
+        super::require_target(state, &payload).await?,
+    )?;
+    crate::services::files::file::thumbnail_for_file(state, &file).await
+}

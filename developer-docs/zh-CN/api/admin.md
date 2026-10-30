@@ -1093,6 +1093,7 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 | `GET` | `/admin/content-access/status` | 当前 writer 配置是否允许内容访问 |
 | `POST` | `/admin/content-access` | 以 `scope_kind`、`target_id`、`reason` 和可选 `remark` 建立短期访问上下文 |
 | `GET` | `/admin/content-access/files/{id}` | 在当前访问上下文内读取逻辑文件详情 |
+| `GET` | `/admin/content-access/files/{id}/thumbnail` | 使用当前 `access_id` 读取缩略图；200 WebP、202 + Retry-After 或 304 |
 | `GET` | `/admin/content-access/files/{id}/versions` | 在当前上下文内按 sequence 分页读取版本 |
 | `GET` | `/admin/content-access/trash` | 使用当前 `access_id` 读取目标空间完整回收站，沿用回收站分页与到期时间 cursor |
 | `GET` | `/admin/content-access/workspace` | 使用 `access_id`、`folder_id`、`deleted` 与现有目录分页/排序参数读取目录及面包屑 |
@@ -1113,6 +1114,6 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 
 前端入口为 `/admin/users/:userId/files` 和 `/admin/teams/:teamId/files`；`/admin/files?fileId=...&revisionId=...` 用于可刷新/复制的逻辑文件与版本定位。blob 引用链接交接到此入口，orphan blob 只保留维护操作。
 
-管理员 workspace UI 复用 `FileBrowserProvider`、`FileTable`、`FileGrid` 和 `FolderBreadcrumb`，只提供读取、导航、排序和受控下载回调。只读排序使用上下文的受控排序接口，不改写普通 workspace 的排序状态；显式 `null` 缩略图路径禁止回退到普通用户的内容接口。用户详情左侧基础信息下的操作在新标签页打开独立文件页，团队入口也打开新标签页；两者使用用户端 AppLayout、目录树、工具栏和文件详情/版本组件，侧栏左下角替换为目标身份。详情、版本和下载复用当前访问上下文，不再弹第二次原因确认。
+管理员 workspace UI 复用 `FileBrowserProvider`、`FileTable`、`FileGrid`、`FileBrowserNavigationBar`、`FolderTreeRow`、`SidebarNavigation` 和 `WorkspaceSidebarLayout`，只提供读取、导航、排序和受控下载回调。只读排序使用上下文的受控排序接口，不改写普通 workspace 的排序状态；列表、网格、悬停和详情中的缩略图通过当前访问上下文读取，复用现有缩略图生成与展示管线；保留的回收站文件同样支持。缩略图读取不增加下载审计，每次请求（包括条件请求）仍检查当前上下文、会话和目标空间。用户详情左侧基础信息下的操作在新标签页打开独立文件页，团队入口也打开新标签页；普通文件页、普通回收站和管理员文件页共用文件导航工具栏，刷新按钮位于地址区域末端；管理员与用户侧共用完整目录行、导航和 sidebar 布局，目录行整块可点且展开按钮独立。两种管理员入口使用用户端 AppLayout 和文件详情/版本组件，侧栏左下角替换为目标身份。详情、版本和下载复用当前访问上下文，不再弹第二次原因确认。
 
 新管理员内容访问审计保存目标名称快照。旧记录缺少名称时，查询和导出按页批量补齐目标名称；该显示补齐不改写原记录，目标不存在时以稳定 ID 展示。原因与结果在前端翻译，自由备注以普通文本显示。

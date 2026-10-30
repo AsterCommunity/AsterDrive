@@ -117,6 +117,11 @@ export function UserDetailSidebar({
 						>
 							<Icon name="Folder" className="mr-2 size-4" />
 							{t("content_view_workspace")}
+							<Icon
+								name="ArrowSquareOut"
+								className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+								aria-hidden="true"
+							/>
 						</Button>
 					</div>
 				) : null}

@@ -45,6 +45,7 @@ import { useMediaQuery } from "./file-info-dialog/useMediaQuery";
 interface FileInfoDialogProps {
 	open: boolean;
 	metadataOnly?: boolean;
+	thumbnailPath?: string | null;
 	actions?: ReactNode;
 	onOpenChange: (open: boolean) => void;
 	file?: FileInfo | FileListItem;
@@ -376,6 +377,7 @@ function ResourceActivitySection({
 
 export function FileInfoDialog({
 	metadataOnly = false,
+	thumbnailPath,
 	actions,
 	open,
 	onOpenChange,
@@ -509,7 +511,13 @@ export function FileInfoDialog({
 	const content = (
 		<FileInfoDialogContent
 			actions={actions}
-			thumbnailPath={metadataOnly ? null : undefined}
+			thumbnailPath={
+				thumbnailPath !== undefined
+					? thumbnailPath
+					: metadataOnly
+						? null
+						: undefined
+			}
 			closeLabel={t("close")}
 			currentLocked={currentLocked}
 			isDesktop={isDesktop}

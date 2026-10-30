@@ -57,3 +57,12 @@ it("requests a workspace recycle bin with an encoded expiry cursor and no folder
 	expect(uri).toContain("%2B08%3A00");
 	expect(uri).not.toContain("folder_id");
 });
+
+it("builds a thumbnail path scoped to the active inspection without another grant", () => {
+	const posts = mocks.post.mock.calls.length;
+	const path = adminContentAccessService.thumbnailPath("context +/", 42);
+	expect(path).toBe(
+		"/admin/content-access/files/42/thumbnail?access_id=context+%2B%2F",
+	);
+	expect(mocks.post).toHaveBeenCalledTimes(posts);
+});

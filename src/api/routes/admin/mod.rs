@@ -320,6 +320,10 @@ pub fn routes(
                         web::get().to(content_access::get_file),
                     )
                     .route(
+                        "/content-access/files/{id}/thumbnail",
+                        web::get().to(content_access::get_thumbnail),
+                    )
+                    .route(
                         "/content-access/files/{id}/versions",
                         web::get().to(content_access::list_versions),
                     )

@@ -1,10 +1,7 @@
 import type { DragEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { SortMenu } from "@/components/common/SortMenu";
-import { ToolbarBar } from "@/components/common/ToolbarBar";
-import { ViewToggle } from "@/components/common/ViewToggle";
+import { FileBrowserNavigationBar } from "@/components/files/FileBrowserNavigationBar";
 import { FileSelectionToolbarTransition } from "@/components/files/FileSelectionToolbar";
-import { FolderBreadcrumb } from "@/components/files/FolderBreadcrumb";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -80,39 +77,6 @@ export function FileBrowserToolbar({
 	onTriggerFolderUpload,
 }: FileBrowserToolbarProps) {
 	const { t } = useTranslation(["files", "tasks"]);
-	const defaultLeft = (
-		<>
-			<span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-accent/55 text-accent-foreground sm:h-8 sm:w-8">
-				<Icon name={isRootFolder ? "House" : "FolderOpen"} className="size-4" />
-			</span>
-			<div className="min-w-0 flex-1">
-				{isSearching ? (
-					<span className="block truncate text-xs text-muted-foreground sm:text-sm">
-						{t("core:search")}: &quot;{searchQuery}&quot;
-					</span>
-				) : (
-					<FolderBreadcrumb
-						items={breadcrumb}
-						compact={isCompactBreadcrumb}
-						dragOverIndex={dragOverBreadcrumbIndex}
-						onDragLeave={onBreadcrumbDragLeave}
-						onDragOver={onBreadcrumbDragOver}
-						onDrop={onBreadcrumbDrop}
-						onNavigate={onNavigateToFolder}
-					/>
-				)}
-			</div>
-			<button
-				type="button"
-				className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/55 hover:text-accent-foreground sm:h-8 sm:w-8"
-				onClick={() => void onRefresh()}
-				aria-label={t("core:refresh")}
-				title={t("core:refresh")}
-			>
-				<Icon name="ArrowsClockwise" className="size-4" />
-			</button>
-		</>
-	);
 	const defaultRight = (
 		<>
 			<DropdownMenu>
@@ -152,19 +116,36 @@ export function FileBrowserToolbar({
 				<Icon name="Tag" className="size-3.5" />
 				<span>{t("tag_library_manage")}</span>
 			</Button>
-			<SortMenu
-				sortBy={sortBy}
-				sortOrder={sortOrder}
-				onSortBy={onSetSortBy}
-				onSortOrder={onSetSortOrder}
-			/>
-			<ViewToggle value={viewMode} onChange={onSetViewMode} />
 		</>
 	);
 
 	return (
 		<FileSelectionToolbarTransition
-			defaultToolbar={<ToolbarBar left={defaultLeft} right={defaultRight} />}
+			defaultToolbar={
+				<FileBrowserNavigationBar
+					icon={isRootFolder ? "House" : "FolderOpen"}
+					breadcrumb={{
+						items: breadcrumb,
+						compact: isCompactBreadcrumb,
+						dragOverIndex: dragOverBreadcrumbIndex,
+						onDragLeave: onBreadcrumbDragLeave,
+						onDragOver: onBreadcrumbDragOver,
+						onDrop: onBreadcrumbDrop,
+						onNavigate: onNavigateToFolder,
+					}}
+					searchQuery={isSearching ? (searchQuery ?? "") : undefined}
+					onRefresh={onRefresh}
+					viewMode={viewMode}
+					onViewModeChange={onSetViewMode}
+					sorting={{
+						sortBy,
+						sortOrder,
+						onSortBy: onSetSortBy,
+						onSortOrder: onSetSortOrder,
+					}}
+					actions={defaultRight}
+				/>
+			}
 			selectionToolbar={selectionToolbar}
 		/>
 	);

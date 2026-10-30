@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SkeletonFileGrid } from "@/components/common/SkeletonFileGrid";
 import { SkeletonFileTable } from "@/components/common/SkeletonFileTable";
-import { ViewToggle } from "@/components/common/ViewToggle";
 import {
 	type FileBrowserContextValue,
 	FileBrowserProvider,
 } from "@/components/files/FileBrowserContext";
+import { FileBrowserNavigationBar } from "@/components/files/FileBrowserNavigationBar";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileTable } from "@/components/files/FileTable";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -34,9 +35,11 @@ import { FOLDER_LIMIT, getBottomOverlayPaddingClass } from "@/lib/constants";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import { cn } from "@/lib/utils";
+import { workspaceRootPath } from "@/lib/workspace";
 import { trashService } from "@/services/trashService";
 import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { TrashContents } from "@/types/api";
 import type { TrashItem } from "@/types/api-helpers";
 
@@ -62,6 +65,8 @@ function getItemKey(item: TrashItem) {
 export default function TrashPage() {
 	const { t } = useTranslation(["core", "files", "admin", "tasks"]);
 	usePageTitle(t("core:trash"));
+	const navigate = useNavigate();
+	const workspace = useWorkspaceStore((s) => s.workspace);
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const [contents, setContents] = useState<TrashContents>({
 		files: [],
@@ -464,46 +469,41 @@ export default function TrashPage() {
 
 	return (
 		<AppLayout>
-			<div className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
-				<div className="px-1 py-2">
-					<div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-						<div className="flex items-center gap-3">
-							<div className="flex size-11 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
-								<Icon name="Trash" className="size-5" />
-							</div>
-							<div className="min-w-0">
-								<h1 className="text-lg font-semibold">{t("trash")}</h1>
-								<p className="text-sm text-muted-foreground">
-									{t("files:trash_page_desc")}
-								</p>
-							</div>
-						</div>
-						<div className="flex shrink-0 items-center gap-2 self-start">
-							<ViewToggle value={viewMode} onChange={handleViewModeChange} />
-							{!isEmpty && !loading ? (
-								<Button
-									variant="destructive"
-									size="sm"
-									disabled={isBusy}
-									onClick={() => requestPurgeAllConfirm(true)}
-								>
-									<Icon
-										name={
-											pendingOperation === "purge-all" ? "Spinner" : "Trash"
-										}
-										className={`mr-1 size-4 ${pendingOperation === "purge-all" ? "animate-spin" : ""}`}
-									/>
-									{pendingOperation === "purge-all"
-										? t("files:trash_purging")
-										: t("admin:empty_trash")}
-								</Button>
-							) : null}
-						</div>
-					</div>
-				</div>
-
+			<FileBrowserNavigationBar
+				icon="Trash"
+				breadcrumb={{
+					items: [
+						{ id: null, name: t("files:root") },
+						{ id: null, name: t("trash") },
+					],
+					onNavigate: () => navigate(workspaceRootPath(workspace)),
+				}}
+				onRefresh={load}
+				refreshDisabled={loading || isBusy}
+				viewMode={viewMode}
+				onViewModeChange={handleViewModeChange}
+				actions={
+					!isEmpty && !loading ? (
+						<Button
+							variant="destructive"
+							size="sm"
+							disabled={isBusy}
+							onClick={() => requestPurgeAllConfirm(true)}
+						>
+							<Icon
+								name={pendingOperation === "purge-all" ? "Spinner" : "Trash"}
+								className={`mr-1 size-4 ${pendingOperation === "purge-all" ? "animate-spin" : ""}`}
+							/>
+							{pendingOperation === "purge-all"
+								? t("files:trash_purging")
+								: t("admin:empty_trash")}
+						</Button>
+					) : null
+				}
+			/>
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 				{!loading && !isEmpty ? (
-					<div className="flex items-center justify-between px-1 py-1">
+					<div className="flex items-center justify-between px-4 py-1 md:px-5">
 						<div className="flex items-center gap-3">
 							{viewMode === "grid" ? (
 								<ItemCheckbox

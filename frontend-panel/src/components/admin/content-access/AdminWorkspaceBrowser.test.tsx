@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
 	trash: vi.fn(),
 	download: vi.fn(),
 	error: vi.fn(),
+	thumbnailPath: vi.fn(
+		(_access: string, id: number) => `/admin-thumbnail/${id}`,
+	),
 }));
 vi.mock("@/services/adminContentAccessService", () => ({
 	adminContentAccessService: mocks,
@@ -81,7 +84,8 @@ function mount(
 }
 describe("administrator read-only workspace", () => {
 	beforeEach(() => {
-		vi.resetAllMocks();
+		vi.clearAllMocks();
+		mocks.list.mockReset();
 		useFileStore.getState().setViewMode("list");
 		mocks.list.mockResolvedValue(empty);
 	});

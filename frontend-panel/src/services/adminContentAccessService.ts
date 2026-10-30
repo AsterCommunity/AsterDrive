@@ -30,6 +30,10 @@ export const adminContentAccessService = {
 			operations["admin_workspace_trash"]["parameters"]["query"]
 		>,
 	) => api.get<TrashContents>(withQuery("/admin/content-access/trash", params)),
+	thumbnailPath: (accessId: string, fileId: number) =>
+		withQuery(`/admin/content-access/files/${fileId}/thumbnail`, {
+			access_id: accessId,
+		}),
 	getFile: (accessId: string, fileId: number) =>
 		api.get<FileInfo>(
 			withQuery(`/admin/content-access/files/${fileId}`, {

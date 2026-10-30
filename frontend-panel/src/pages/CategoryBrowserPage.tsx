@@ -18,6 +18,7 @@ import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
 import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
@@ -40,7 +41,6 @@ import type {
 	FileBrowserVersionTarget,
 } from "@/pages/file-browser/types";
 import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
-import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
