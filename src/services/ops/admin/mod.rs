@@ -451,6 +451,11 @@ fn admin_health_status_from_runtime(status: RuntimeSystemHealthStatus) -> AdminS
     }
 }
 
+#[derive(Deserialize)]
+struct ActivityBackedBatch {
+    workspace_activity_operation_id: String,
+}
+
 async fn build_daily_reports(
     state: &impl SharedRuntimeState,
     today: NaiveDate,
@@ -495,16 +500,29 @@ async fn build_daily_reports(
             break;
         }
 
-        for (_id, action, created_at) in &events {
+        for (_id, action, created_at, details) in &events {
             let date = created_at.with_timezone(&timezone).date_naive();
             let Some(report_index) = report_indexes.get(&date).copied() else {
                 continue;
             };
             let report = &mut reports[report_index];
             let action = audit::AuditAction::from_str_name(action);
-            record_audit_actions(report, action, 1);
+            // New batch summaries describe a request whose successful resource changes are
+            // counted once from the durable activity operation. Keep legacy audit counts.
+            let activity_backed_batch = action == Some(audit::AuditAction::BatchDelete)
+                && details
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<ActivityBackedBatch>(raw).ok())
+                    .is_some_and(|details| !details.workspace_activity_operation_id.is_empty());
+            if activity_backed_batch {
+                report.total_events += 1;
+            } else {
+                record_audit_actions(report, action, 1);
+            }
         }
-        cursor = events.last().map(|(id, _, created_at)| (*created_at, *id));
+        cursor = events
+            .last()
+            .map(|(id, _, created_at, _)| (*created_at, *id));
     }
 
     let windows = (0..days)
@@ -523,15 +541,15 @@ async fn build_daily_reports(
         )
         .await?
     {
-        if let Ok(index) = usize::try_from(index) {
-            if let Some(report) = reports.get_mut(index) {
-                record_audit_actions(
-                    report,
-                    audit::AuditAction::from_str_name(&action),
-                    u64::try_from(count)
-                        .map_err(|_| AsterError::internal_error("invalid activity count"))?,
-                );
-            }
+        if let Ok(index) = usize::try_from(index)
+            && let Some(report) = reports.get_mut(index)
+        {
+            record_audit_actions(
+                report,
+                audit::AuditAction::from_str_name(&action),
+                u64::try_from(count)
+                    .map_err(|_| AsterError::internal_error("invalid activity count"))?,
+            );
         }
     }
     Ok(reports)

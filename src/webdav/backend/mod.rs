@@ -765,7 +765,7 @@ impl DavFileSystem for AsterDavFs {
             .await?;
 
             let state = self.app_state();
-            folder::create_in_scope_with_audit(
+            folder::create_in_scope(
                 &state,
                 self.scope(),
                 &name,
@@ -773,7 +773,7 @@ impl DavFileSystem for AsterDavFs {
                 crate::services::files::lock::LockMutationCredentials::SubmittedTokens(
                     credentials.submitted_lock_tokens,
                 ),
-                &self.audit_ctx,
+                crate::services::workspace::activity::ActivitySource::Webdav,
             )
             .await
             .map_err(to_fs_error)?;
@@ -804,6 +804,7 @@ impl DavFileSystem for AsterDavFs {
                 self.scope,
                 folder.id,
                 Some(MUTATION_FOLDER_TREE_LIMITS),
+                crate::services::workspace::activity::ActivitySource::Webdav,
             )
             .await
             .map_err(to_fs_error)?;
@@ -837,9 +838,14 @@ impl DavFileSystem for AsterDavFs {
             };
 
             let state = self.app_state();
-            file_ops::delete_in_scope_with_audit(&state, self.scope(), file.id, &self.audit_ctx)
-                .await
-                .map_err(to_fs_error)?;
+            file_ops::delete_in_scope(
+                &state,
+                self.scope(),
+                file.id,
+                crate::services::workspace::activity::ActivitySource::Webdav,
+            )
+            .await
+            .map_err(to_fs_error)?;
 
             Ok(())
         })
@@ -876,26 +882,26 @@ impl DavFileSystem for AsterDavFs {
 
             match node {
                 ResolvedNode::File(f) => {
-                    file_ops::update_in_scope_with_audit(
+                    file_ops::update_in_scope(
                         &state,
                         self.scope(),
                         f.id,
                         Some(dest_name),
                         dest_parent_id.into(),
-                        &self.audit_ctx,
+                        crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
                     .map_err(to_fs_error)?;
                 }
                 ResolvedNode::Folder(f) => {
-                    folder::update_in_scope_with_audit(
+                    folder::update_in_scope(
                         &state,
                         self.scope(),
                         f.id,
                         Some(dest_name),
                         dest_parent_id.into(),
                         NullablePatch::Absent,
-                        &self.audit_ctx,
+                        crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
                     .map_err(to_fs_error)?;
@@ -943,6 +949,7 @@ impl DavFileSystem for AsterDavFs {
                         &f,
                         dest_parent_id,
                         &dest_name,
+                        crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
                     .map_err(to_fs_error)?;
@@ -1618,9 +1625,21 @@ async fn delete_existing_destination_for_overwrite(
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = file_ops::audit_location_details_for_model(state, scope, &existing).await;
-        file_repo::soft_delete(state.writer_db(), existing.id)
+        let txn = aster_forge_db::transaction::begin(state.writer_db())
             .await
-            .map_err(to_fs_error)?;
+            .map_err(|error| to_fs_error(error.into()))?;
+        file_ops::delete_in_scope_on(
+            &txn,
+            scope,
+            existing.id,
+            false,
+            crate::services::workspace::activity::ActivitySource::Webdav,
+        )
+        .await
+        .map_err(to_fs_error)?;
+        aster_forge_db::transaction::commit(txn)
+            .await
+            .map_err(|error| to_fs_error(error.into()))?;
         storage_change::publish(
             state,
             storage_change::StorageChangeEvent::new(
@@ -1645,9 +1664,15 @@ async fn delete_existing_destination_for_overwrite(
 
     if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = folder::audit_location_details_for_model(state, scope, &existing).await;
-        folder::delete_in_scope(state, scope, existing.id, traversal_limits)
-            .await
-            .map_err(to_fs_error)?;
+        folder::delete_in_scope(
+            state,
+            scope,
+            existing.id,
+            traversal_limits,
+            crate::services::workspace::activity::ActivitySource::Webdav,
+        )
+        .await
+        .map_err(to_fs_error)?;
         audit::log_with_details(
             state,
             audit_ctx,

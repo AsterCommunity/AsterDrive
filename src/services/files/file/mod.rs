@@ -176,7 +176,13 @@ pub(crate) async fn delete_in_scope_with_audit(
 ) -> Result<()> {
     let file = get_info_in_scope(state, scope, file_id).await?;
     let details = audit_location_details_for_model(state, scope, &file).await;
-    delete_in_scope(state, scope, file_id).await?;
+    delete_in_scope(
+        state,
+        scope,
+        file_id,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await?;
     audit::log_with_details(
         state,
         audit_ctx,

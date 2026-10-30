@@ -663,7 +663,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                     let created = create_file_from_blob_with_mime(
                         txn,
                         CreateFileFromBlobWithMimeParams {
-                            activity_source: activity_source,
+                            activity_source,
                             scope,
                             folder_id,
                             filename: &filename,

@@ -35,11 +35,7 @@ impl<'a> ActivityBatch<'a> {
         self.changes.push(PendingChange {
             model: activity_model(
                 self.context,
-                before.team_id,
-                before.owner_user_id,
-                "file",
-                before.id,
-                &before.name,
+                ActivityResource::File(before),
                 action,
                 serde_json::Value::Null,
                 Utc::now(),
@@ -59,11 +55,7 @@ impl<'a> ActivityBatch<'a> {
         self.changes.push(PendingChange {
             model: activity_model(
                 self.context,
-                before.team_id,
-                before.owner_user_id,
-                "folder",
-                before.id,
-                &before.name,
+                ActivityResource::Folder(before),
                 action,
                 serde_json::Value::Null,
                 Utc::now(),
@@ -72,7 +64,7 @@ impl<'a> ActivityBatch<'a> {
             location: target.map(|parent| (before.parent_id, parent, before.name.clone())),
         });
     }
-    pub fn file_moved(&mut self, before: &file::Model, target: Option<i64>) {
+    pub fn file_moved(&mut self, before: &file::Model, target: Option<i64>) -> Result<()> {
         self.file_change(
             before,
             AuditAction::FileMove,
@@ -86,11 +78,16 @@ impl<'a> ActivityBatch<'a> {
                 previous_mime_type: &before.mime_type,
                 mime_type: &before.mime_type,
             })
-            .expect("file activity details are serializable"),
+            .map_err(|_| {
+                crate::errors::AsterError::internal_error(
+                    "failed to serialize file activity details",
+                )
+            })?,
             Some(target),
         );
+        Ok(())
     }
-    pub fn folder_moved(&mut self, before: &folder::Model, target: Option<i64>) {
+    pub fn folder_moved(&mut self, before: &folder::Model, target: Option<i64>) -> Result<()> {
         self.folder_change(
             before,
             AuditAction::FolderMove,
@@ -104,11 +101,16 @@ impl<'a> ActivityBatch<'a> {
                 previous_key: before.icon_value.as_deref(),
                 key: before.icon_value.as_deref(),
             })
-            .expect("folder activity details are serializable"),
+            .map_err(|_| {
+                crate::errors::AsterError::internal_error(
+                    "failed to serialize folder activity details",
+                )
+            })?,
             Some(target),
         );
+        Ok(())
     }
-    pub fn file_lifecycle(&mut self, before: &file::Model, action: AuditAction) {
+    pub fn file_lifecycle(&mut self, before: &file::Model, action: AuditAction) -> Result<()> {
         debug_assert!(matches!(
             action,
             AuditAction::FileDelete | AuditAction::FileRestore
@@ -126,11 +128,16 @@ impl<'a> ActivityBatch<'a> {
                 previous_mime_type: &before.mime_type,
                 mime_type: &before.mime_type,
             })
-            .expect("file activity details are serializable"),
+            .map_err(|_| {
+                crate::errors::AsterError::internal_error(
+                    "failed to serialize file activity details",
+                )
+            })?,
             None,
         );
+        Ok(())
     }
-    pub fn folder_lifecycle(&mut self, before: &folder::Model, action: AuditAction) {
+    pub fn folder_lifecycle(&mut self, before: &folder::Model, action: AuditAction) -> Result<()> {
         debug_assert!(matches!(
             action,
             AuditAction::FolderDelete | AuditAction::FolderRestore
@@ -148,9 +155,14 @@ impl<'a> ActivityBatch<'a> {
                 previous_key: before.icon_value.as_deref(),
                 key: before.icon_value.as_deref(),
             })
-            .expect("folder activity details are serializable"),
+            .map_err(|_| {
+                crate::errors::AsterError::internal_error(
+                    "failed to serialize folder activity details",
+                )
+            })?,
             None,
         );
+        Ok(())
     }
     pub fn file_copied(&mut self, source: &file::Model, target: &file::Model) {
         file_copy_records(&mut self.copies, self.context, source, target, Utc::now());

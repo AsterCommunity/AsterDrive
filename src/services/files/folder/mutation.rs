@@ -172,6 +172,7 @@ pub(crate) async fn create_in_scope(
     name: &str,
     parent_id: Option<i64>,
     lock_credentials: crate::services::files::lock::LockMutationCredentials,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<folder::Model> {
     tracing::debug!(
         scope = ?scope,
@@ -236,7 +237,7 @@ pub(crate) async fn create_in_scope(
                 updated_at: Set(now),
                 ..Default::default()
             },
-            crate::services::workspace::activity::ActivitySource::Rest,
+            source,
         )
         .await
     })
@@ -273,6 +274,7 @@ pub async fn create(
         name,
         parent_id,
         crate::services::files::lock::LockMutationCredentials::None,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)
@@ -283,6 +285,7 @@ pub(crate) async fn delete_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id, "soft deleting folder tree");
     let now = Utc::now();
@@ -290,7 +293,7 @@ pub(crate) async fn delete_in_scope(
     // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
     // 可能导致只删除到遍历时看到的一部分节点。
     let outcome = transaction::with_transaction(state.writer_db(), async |txn| {
-        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false).await
+        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false, source).await
     })
     .await?;
     let FolderTreeDeletion {
@@ -400,31 +403,21 @@ pub(crate) async fn apply_locked_tree_deletion_on<C: ConnectionTrait>(
         source,
     )
     .await?;
-    for id in &locked.file_ids {
-        let before = file_repo::find_by_id(db, *id).await?;
-        let mut after = before.clone();
-        after.deleted_at = Some(now);
-        crate::services::workspace::activity::file_changed(
-            db,
-            &ctx,
-            &before,
-            &mut after,
-            aster_drive_model::types::AuditAction::FileDelete,
-        )
-        .await?;
+    for ids in locked.file_ids.chunks(200) {
+        let files = file_repo::find_by_ids(db, ids).await?;
+        let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+        for before in &files {
+            batch.file_lifecycle(before, aster_drive_model::types::AuditAction::FileDelete)?;
+        }
+        batch.persist(db).await?;
     }
-    for id in &locked.folder_ids {
-        let before = folder_repo::find_by_id(db, *id).await?;
-        let mut after = before.clone();
-        after.deleted_at = Some(now);
-        crate::services::workspace::activity::folder_changed(
-            db,
-            &ctx,
-            &before,
-            &mut after,
-            aster_drive_model::types::AuditAction::FolderDelete,
-        )
-        .await?;
+    for ids in locked.folder_ids.chunks(200) {
+        let folders = folder_repo::find_by_ids(db, ids).await?;
+        let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+        for before in &folders {
+            batch.folder_lifecycle(before, aster_drive_model::types::AuditAction::FolderDelete)?;
+        }
+        batch.persist(db).await?;
     }
     file_repo::soft_delete_many(db, &locked.file_ids, now).await?;
     folder_repo::soft_delete_many(db, &locked.folder_ids, now).await?;
@@ -446,22 +439,24 @@ pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
     now: chrono::DateTime<Utc>,
     allow_locked_root: bool,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<FolderTreeDeletion> {
     let locked =
         lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, allow_locked_root)
             .await?;
-    apply_locked_tree_deletion_on(
-        db,
-        locked,
-        now,
-        crate::services::workspace::activity::ActivitySource::Rest,
-    )
-    .await
+    apply_locked_tree_deletion_on(db, locked, now, source).await
 }
 
 /// 删除文件夹（软删除 → 回收站，递归标记子项）
 pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i64) -> Result<()> {
-    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id, None).await
+    delete_in_scope(
+        state,
+        WorkspaceStorageScope::Personal { user_id },
+        id,
+        None,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await
 }
 
 pub(crate) async fn get_info_in_scope(
@@ -520,6 +515,7 @@ pub(crate) async fn update_in_scope(
     name: Option<String>,
     parent_id: NullablePatch<i64>,
     policy_id: NullablePatch<i64>,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<folder::Model> {
     let db = state.writer_db();
     tracing::debug!(
@@ -640,7 +636,7 @@ pub(crate) async fn update_in_scope(
         let ctx = crate::services::workspace::activity::ActivityContext::actor(
             txn,
             scope.actor_user_id(),
-            crate::services::workspace::activity::ActivitySource::Rest,
+            source,
         )
         .await?;
         let action = if before.parent_id != updated.parent_id {
@@ -898,6 +894,7 @@ pub async fn update(
         name,
         parent_id,
         policy_id,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)
@@ -924,6 +921,7 @@ pub async fn move_folder(
             None => NullablePatch::Null,
         },
         NullablePatch::Absent,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)

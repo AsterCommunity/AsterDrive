@@ -7,6 +7,8 @@ Entry point: `Admin -> System Settings -> Audit Logs`. For other groups and when
 
 This group decides whether admin and key operations leave records, and also lets you narrow the recorded action scope.
 
+Action selection lists only actions written to `audit_logs`. Required file creation, editing, movement, deletion and other business activities are excluded. Legacy selections for those activities are filtered when presented; new writes reject those inapplicable actions, without disabling activity capture or expanding the selected audit scope.
+
 - **`Enable Audit Logs`**
 - **`Recorded Audit Actions`**
 - **`Audit Log Retention`**
@@ -19,6 +21,6 @@ The primary node's service startup and shutdown are also recorded as audit event
 
 ## File Activity Retention
 
-`Workspace activity retention days` (`workspace_activity_retention_days`) controls workspace file/folder business history. Its default, `0`, retains all activity; positive values prune activity older than that number of days.
+`Workspace activity retention days` (`workspace_activity_retention_days`) controls workspace file/folder business history. Its default, `0`, retains all activity; positive values prune activity older than that number of days. Negative and non-integer settings are rejected.
 
 Required file activities commit atomically with business mutations and are independent of the audit switch and action selection above, which control system, administrative and security audit records. Audit log retention does not prune file activity. Pruning activity preserves current creator/modifier attribution, and old audit records are not converted into invented business history.

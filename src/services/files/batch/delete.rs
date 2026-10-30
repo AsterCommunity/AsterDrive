@@ -184,14 +184,17 @@ pub(crate) async fn batch_delete_in_scope(
         for files in before_files.chunks(200) {
             let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
             for before in files {
-                batch.file_lifecycle(before, aster_drive_model::types::AuditAction::FileDelete);
+                batch.file_lifecycle(before, aster_drive_model::types::AuditAction::FileDelete)?;
             }
             batch.persist(&txn).await?;
         }
         for folders in before_folders.chunks(200) {
             let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
             for before in folders {
-                batch.folder_lifecycle(before, aster_drive_model::types::AuditAction::FolderDelete);
+                batch.folder_lifecycle(
+                    before,
+                    aster_drive_model::types::AuditAction::FolderDelete,
+                )?;
             }
             batch.persist(&txn).await?;
         }

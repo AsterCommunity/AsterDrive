@@ -150,7 +150,7 @@ async fn restore_folder_in_scope(
     for before in &files {
         if before.deleted_at.is_some() {
             file_activities
-                .file_lifecycle(before, aster_drive_model::types::AuditAction::FileRestore);
+                .file_lifecycle(before, aster_drive_model::types::AuditAction::FileRestore)?;
         }
     }
     file_activities.persist(&txn).await?;
@@ -161,7 +161,7 @@ async fn restore_folder_in_scope(
             folder_activities.folder_lifecycle(
                 &before,
                 aster_drive_model::types::AuditAction::FolderRestore,
-            );
+            )?;
         }
     }
     folder_activities.persist(&txn).await?;

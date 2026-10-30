@@ -330,6 +330,7 @@ pub(crate) async fn update_content_in_scope(
                 .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
             StoreFromTempHints {
                 operation_context: storage::StorageOperationContext::default()
+                    .with_content_edit()
                     .with_activity_source(
                         crate::services::workspace::activity::ActivitySource::Rest,
                     ),
@@ -366,6 +367,7 @@ pub(crate) async fn update_content_in_scope(
                 .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
             StoreFromTempHints {
                 operation_context: storage::StorageOperationContext::default()
+                    .with_content_edit()
                     .with_activity_source(
                         crate::services::workspace::activity::ActivitySource::Rest,
                     ),

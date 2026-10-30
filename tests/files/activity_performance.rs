@@ -110,4 +110,32 @@ async fn batch_move_activity_query_budget() {
         max_inserts <= count.div_ceil(50),
         "activity inserts must be chunked, got {max_inserts}"
     );
+    statements.lock().unwrap().clear();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::delete()
+            .uri(&format!("/api/v1/folders/{}", parent.unwrap()))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let sql = statements.lock().unwrap();
+    let inserts = sql
+        .iter()
+        .filter(|s| s.starts_with("INSERT") && s.contains("workspace_activities"))
+        .count();
+    let updates = sql
+        .iter()
+        .filter(|s| s.starts_with("UPDATE") && s.contains("modified_by_username"))
+        .count();
+    assert!(
+        inserts <= count.div_ceil(50) + 1,
+        "tree deletion should use chunked inserts, got {inserts}"
+    );
+    assert!(
+        updates <= 2,
+        "tree deletion should bulk-update attribution, got {updates}"
+    );
 }

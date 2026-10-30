@@ -334,12 +334,12 @@ pub(crate) async fn batch_move_in_scope(
         let mut batch = crate::services::workspace::activity::ActivityBatch::new(&activity);
         for before in &before_files {
             if before.folder_id != target_folder_id {
-                batch.file_moved(before, target_folder_id);
+                batch.file_moved(before, target_folder_id)?;
             }
         }
         for before in &before_folders {
             if before.parent_id != target_folder_id {
-                batch.folder_moved(before, target_folder_id);
+                batch.folder_moved(before, target_folder_id)?;
             }
         }
         // Capture source paths before moving selected folders. Every activity remains atomic

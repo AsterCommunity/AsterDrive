@@ -149,6 +149,11 @@ async fn failed_activity_insert_rolls_back_file_folder_and_notifications() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     let id = common::create_empty_file_via_api(&app, &token, "before.txt", None).await;
+    let destination =
+        common::create_empty_file_via_api(&app, &token, "overwrite-target.txt", None).await;
+    let destination_before = file_repo::find_by_id(state.writer_db(), destination)
+        .await
+        .unwrap();
     let (_, body) = request!(
         app,
         token,
@@ -215,6 +220,31 @@ async fn failed_activity_insert_rolls_back_file_folder_and_notifications() {
         .await
         .unwrap()
         .is_none()
+    );
+    use aster_forge_webdav::{DavFileSystem, DavPath};
+    let fs = aster_drive::webdav::backend::AsterDavFs::new(
+        state.clone(),
+        before.owner_user_id.unwrap(),
+        None,
+    );
+    assert!(
+        fs.copy(
+            &DavPath::new("/before.txt").unwrap(),
+            &DavPath::new("/overwrite-target.txt").unwrap()
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), destination)
+            .await
+            .unwrap(),
+        destination_before,
+        "a failed overwrite-delete activity must preserve the destination"
+    );
+    assert!(
+        changes.try_recv().is_err(),
+        "failed overwrite deletion must not emit a success notification"
     );
 }
 
@@ -917,4 +947,261 @@ async fn retention_config_is_independent_bounded_and_keeps_current_attribution()
         file_repo::find_by_id(state.writer_db(), id).await.unwrap(),
         before
     );
+}
+
+#[actix_web::test]
+async fn buffered_content_update_records_edit_instead_of_upload() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let id = common::create_empty_file_via_api(&app, &token, "buffered-edit.txt", None).await;
+    let file = file_repo::find_by_id(state.writer_db(), id).await.unwrap();
+    aster_drive::services::files::file::update_content(
+        &state,
+        id,
+        file.created_by_user_id.unwrap(),
+        bytes::Bytes::from_static(b"edited"),
+        None,
+    )
+    .await
+    .unwrap();
+    let rows = events(&state, "file", id).await;
+    assert_eq!(rows.last().unwrap().action, "file_edit");
+    assert_eq!(rows.last().unwrap().source, "rest");
+}
+
+#[actix_web::test]
+async fn generic_webdav_mutations_keep_source_and_overwrite_delete_activity() {
+    use aster_forge_webdav::{DavFileSystem, DavMutationCredentials, DavPath};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let id = common::create_empty_file_via_api(&app, &token, "dav-source.txt", None).await;
+    let overwritten = common::create_empty_file_via_api(&app, &token, "dav-copy.txt", None).await;
+    let file = file_repo::find_by_id(state.writer_db(), id).await.unwrap();
+    let fs = aster_drive::webdav::backend::AsterDavFs::new(
+        state.clone(),
+        file.created_by_user_id.unwrap(),
+        None,
+    );
+    fs.copy(
+        &DavPath::new("/dav-source.txt").unwrap(),
+        &DavPath::new("/dav-copy.txt").unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        events(&state, "file", overwritten)
+            .await
+            .last()
+            .unwrap()
+            .action,
+        "file_delete"
+    );
+    assert_eq!(
+        events(&state, "file", overwritten)
+            .await
+            .last()
+            .unwrap()
+            .source,
+        "webdav"
+    );
+    fs.rename(
+        &DavPath::new("/dav-source.txt").unwrap(),
+        &DavPath::new("/dav-renamed.txt").unwrap(),
+    )
+    .await
+    .unwrap();
+    fs.remove_file(&DavPath::new("/dav-renamed.txt").unwrap())
+        .await
+        .unwrap();
+    fs.create_dir(
+        &DavPath::new("/dav-folder").unwrap(),
+        DavMutationCredentials::default(),
+    )
+    .await
+    .unwrap();
+    fs.rename(
+        &DavPath::new("/dav-folder").unwrap(),
+        &DavPath::new("/dav-folder-renamed").unwrap(),
+    )
+    .await
+    .unwrap();
+    fs.remove_dir(&DavPath::new("/dav-folder-renamed").unwrap())
+        .await
+        .unwrap();
+    let rows = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::Source.eq("webdav"))
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    for action in [
+        "file_copy",
+        "file_rename",
+        "file_delete",
+        "folder_create",
+        "folder_rename",
+        "folder_delete",
+    ] {
+        assert!(
+            rows.iter().any(|row| row.action == action),
+            "missing {action}"
+        );
+    }
+    assert_eq!(events(&state, "file", id).await.len(), 3);
+}
+
+#[actix_web::test]
+async fn overview_counts_one_deletion_operation_for_a_batch_tree() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let (_, folder) = request!(
+        app,
+        token,
+        post,
+        "/api/v1/folders",
+        json!({"name":"delete-count-tree"})
+    );
+    let folder_id = folder["data"]["id"].as_i64().unwrap();
+    for index in 0..3 {
+        common::create_empty_file_via_api(
+            &app,
+            &token,
+            &format!("descendant-{index}.txt"),
+            Some(folder_id),
+        )
+        .await;
+    }
+    let (status, body) = request!(
+        app,
+        token,
+        post,
+        "/api/v1/batch/delete",
+        json!({"file_ids":[],"folder_ids":[folder_id]})
+    );
+    assert_eq!(status, 200, "{body}");
+    let rows = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::Action.is_in(["file_delete", "folder_delete"]))
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 4);
+    assert!(
+        rows.iter()
+            .all(|row| row.operation_id == rows[0].operation_id)
+    );
+    let (_, overview) = request!(
+        app,
+        token,
+        get,
+        "/api/v1/admin/overview?days=1&timezone=UTC",
+        json!({})
+    );
+    assert_eq!(
+        overview["data"]["daily_reports"][0]["deletions"], 1,
+        "{overview}"
+    );
+    let now = chrono::Utc::now();
+    let counts = workspace_activity_repo::action_counts_in_windows(
+        state.writer_db(),
+        &[(
+            now - chrono::Duration::days(1),
+            now + chrono::Duration::days(1),
+        )],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        counts
+            .iter()
+            .find(|(_, action, _)| action == "file_delete")
+            .unwrap()
+            .2,
+        1
+    );
+    assert!(
+        workspace_activity_repo::action_counts_in_windows(state.writer_db(), &[])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[actix_web::test]
+async fn retention_config_rejects_negative_and_non_integer_writes() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    for value in ["-3", "abc", "1.5"] {
+        let (status, _) = request!(
+            app,
+            token,
+            put,
+            "/api/v1/admin/config/workspace_activity_retention_days",
+            json!({"value":value})
+        );
+        assert_eq!(status, 400, "{value}");
+    }
+    for value in ["0", "30"] {
+        let (status, body) = request!(
+            app,
+            token,
+            put,
+            "/api/v1/admin/config/workspace_activity_retention_days",
+            json!({"value":value})
+        );
+        assert_eq!(status, 200, "{body}");
+    }
+}
+
+#[actix_web::test]
+async fn audit_configuration_schema_and_legacy_values_exclude_workspace_mutations() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let (_, schema) = request!(app, token, get, "/api/v1/admin/config/schema", json!({}));
+    let options = schema["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "audit_log_recorded_actions")
+        .unwrap()["options"]
+        .as_array()
+        .unwrap();
+    assert!(
+        options
+            .iter()
+            .any(|option| option["value"] == "file_download")
+    );
+    for option in options {
+        let action =
+            aster_drive_model::types::AuditAction::from_str_name(option["value"].as_str().unwrap())
+                .unwrap();
+        assert!(!action.is_workspace_mutation());
+    }
+    let (status, _) = request!(
+        app,
+        token,
+        put,
+        "/api/v1/admin/config/audit_log_recorded_actions",
+        json!({"value":["file_upload"]})
+    );
+    assert_eq!(status, 400);
+    aster_drive::db::repository::config_repo::upsert_with_actor(
+        state.writer_db(),
+        "audit_log_recorded_actions",
+        r#"["file_upload","user_login"]"#,
+        None,
+    )
+    .await
+    .unwrap();
+    let (_, config) = request!(
+        app,
+        token,
+        get,
+        "/api/v1/admin/config/audit_log_recorded_actions",
+        json!({})
+    );
+    assert_eq!(config["data"]["value"], json!(["user_login"]));
 }

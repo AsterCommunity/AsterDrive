@@ -9842,3 +9842,32 @@ async fn test_webdav_activity_is_durable_and_tracks_protocol_source_and_actor() 
         .unwrap();
     assert_eq!(f.modified_by_username.as_deref(), Some("testuser"));
 }
+
+#[actix_web::test]
+async fn test_webdav_activity_lock_null_creation_uses_webdav_source() {
+    let (app, state) = setup_with_webdav!(with_state);
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let body = r#"<D:lockinfo xmlns:D="DAV:"><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockinfo>"#;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::default()
+            .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+            .uri("/webdav/lock-null-source.txt")
+            .insert_header(("Authorization", auth))
+            .insert_header(("Content-Type", "application/xml"))
+            .insert_header(("Depth", "0"))
+            .set_payload(body)
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    use aster_drive_model::entities::workspace_activity;
+    let records = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::Action.eq("file_create"))
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].source, "webdav");
+}

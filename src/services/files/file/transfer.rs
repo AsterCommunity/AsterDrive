@@ -71,8 +71,15 @@ pub(crate) async fn copy_file_in_scope(
     let mut copied = None;
     let mut candidate_name = copy_name;
     for _ in 0..MAX_COPY_NAME_RETRIES {
-        match duplicate_file_record_in_scope(state, scope, &src, dest_folder_id, &candidate_name)
-            .await
+        match duplicate_file_record_in_scope(
+            state,
+            scope,
+            &src,
+            dest_folder_id,
+            &candidate_name,
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await
         {
             Ok(file) => {
                 copied = Some(file);
@@ -268,10 +275,12 @@ pub(crate) async fn duplicate_file_record_in_scope(
     src: &file::Model,
     dest_folder_id: Option<i64>,
     dest_name: &str,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     let txn = transaction::begin(state.writer_db()).await?;
     let new_file =
-        duplicate_file_record_in_scope_on(&txn, scope, src, dest_folder_id, dest_name).await?;
+        duplicate_file_record_in_scope_on(&txn, scope, src, dest_folder_id, dest_name, source)
+            .await?;
     transaction::commit(txn).await?;
     Ok(new_file)
 }
@@ -282,6 +291,7 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
     src: &file::Model,
     dest_folder_id: Option<i64>,
     dest_name: &str,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     let new_file = duplicate_file_record_without_initial_revision_in_scope_on(
         db,
@@ -289,7 +299,7 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
         src,
         dest_folder_id,
         dest_name,
-        crate::services::workspace::activity::ActivitySource::Rest,
+        source,
     )
     .await?;
 
@@ -379,6 +389,7 @@ pub async fn duplicate_file_record(
         src,
         dest_folder_id,
         dest_name,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await?;
     storage_change::publish(

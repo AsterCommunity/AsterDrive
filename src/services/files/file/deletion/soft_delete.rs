@@ -10,17 +10,11 @@ pub(crate) async fn delete_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     id: i64,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "soft deleting file");
     let txn = transaction::begin(state.writer_db()).await?;
-    let file = delete_in_scope_on(
-        &txn,
-        scope,
-        id,
-        false,
-        crate::services::workspace::activity::ActivitySource::Rest,
-    )
-    .await?;
+    let file = delete_in_scope_on(&txn, scope, id, false, source).await?;
     transaction::commit(txn).await?;
     storage_change::publish(
         state,
@@ -86,5 +80,11 @@ pub(crate) async fn delete_in_scope_on<C: ConnectionTrait>(
 
 /// 删除文件（软删除 → 回收站）
 pub async fn delete(state: &PrimaryAppState, id: i64, user_id: i64) -> Result<()> {
-    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id).await
+    delete_in_scope(
+        state,
+        WorkspaceStorageScope::Personal { user_id },
+        id,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await
 }

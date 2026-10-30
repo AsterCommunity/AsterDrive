@@ -148,21 +148,39 @@ pub async fn action_counts_in_windows<C: ConnectionTrait>(
             .add(workspace_activity::Column::CreatedAt.lt(end))
     };
     let mut bucket = Expr::case(condition(*first_start, *first_end), 0i32);
-    for (index, (start, end)) in windows.iter().enumerate().skip(1) {
+    let (mut start, mut end) = (*first_start, *first_end);
+    for (index, (window_start, window_end)) in windows.iter().enumerate().skip(1) {
         let index = i32::try_from(index)
             .map_err(|_| AsterError::validation_error("too many activity report windows"))?;
-        bucket = bucket.case(condition(*start, *end), index);
+        bucket = bucket.case(condition(*window_start, *window_end), index);
+        start = start.min(*window_start);
+        end = end.max(*window_end);
     }
-    let start = windows.iter().map(|(start, _)| *start).min().unwrap();
-    let end = windows.iter().map(|(_, end)| *end).max().unwrap();
+    let is_deletion = || {
+        Condition::any()
+            .add(workspace_activity::Column::Action.eq("file_delete"))
+            .add(workspace_activity::Column::Action.eq("folder_delete"))
+    };
+    // One deletion operation may touch files and folders; collapse both actions before
+    // grouping, and count its operation once rather than counting every descendant.
+    let action = Expr::case(is_deletion(), "file_delete")
+        .finally(Expr::col(workspace_activity::Column::Action));
+    let identity = Expr::case(
+        is_deletion(),
+        Expr::col(workspace_activity::Column::OperationId),
+    )
+    .finally(Expr::col(workspace_activity::Column::EventId));
     Entity::find()
         .select_only()
         .expr_as(bucket.finally(-1i32), "day_index")
-        .column(workspace_activity::Column::Action)
-        .column_as(workspace_activity::Column::Id.count(), "event_count")
+        .expr_as(action, "report_action")
+        .expr_as(
+            sea_orm::ExprTrait::count_distinct(Expr::expr(identity)),
+            "event_count",
+        )
         .filter(condition(start, end))
         .group_by(Expr::col(Alias::new("day_index")))
-        .group_by(workspace_activity::Column::Action)
+        .group_by(Expr::col(Alias::new("report_action")))
         .into_tuple::<(i32, String, i64)>()
         .all(db)
         .await

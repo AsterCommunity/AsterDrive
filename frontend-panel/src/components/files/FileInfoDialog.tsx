@@ -407,14 +407,16 @@ export function FileInfoDialog({
 		? (activeFile ?? renderedFile).name
 		: ((activeFolder ?? renderedFolder)?.name ?? "");
 	const workspace = useWorkspaceStore((state) => state.workspace);
+	const activityEntityType = renderedFile ? "file" : "folder";
+	const activityEntityId = renderedFile?.id ?? renderedFolder?.id ?? 0;
 	const activityTarget = useMemo<ActivityTarget>(
 		() => ({
 			kind: "resource",
 			workspace,
-			entityType: renderedFile ? "file" : "folder",
-			entityId: renderedFile?.id ?? renderedFolder?.id ?? 0,
+			entityType: activityEntityType,
+			entityId: activityEntityId,
 		}),
-		[workspace, renderedFile, renderedFolder],
+		[workspace, activityEntityType, activityEntityId],
 	);
 	const currentLocked = renderedFile
 		? isResourceLocked((activeFile ?? renderedFile).lock_state)

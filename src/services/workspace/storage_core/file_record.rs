@@ -9,25 +9,25 @@ use aster_drive_model::entities::{file, file_blob};
 const MAX_AUTO_NAME_RETRIES: usize = 32;
 
 #[derive(Clone, Copy)]
-enum NewFileNameMode {
+pub(crate) enum NewFileNameMode {
     ResolveUnique,
     Exact,
 }
 
-struct CreateFileFromBlobParams<'a> {
-    scope: WorkspaceStorageScope,
-    activity_source: crate::services::workspace::activity::ActivitySource,
-    creation_action: aster_drive_model::types::AuditAction,
-    folder_id: Option<i64>,
-    filename: &'a str,
-    blob: &'a file_blob::Model,
-    now: chrono::DateTime<Utc>,
-    name_mode: NewFileNameMode,
-    actor_username: Option<&'a str>,
-    mime_type: Option<&'a str>,
+pub(crate) struct CreateFileFromBlobParams<'a> {
+    pub scope: WorkspaceStorageScope,
+    pub activity_source: crate::services::workspace::activity::ActivitySource,
+    pub creation_action: aster_drive_model::types::AuditAction,
+    pub folder_id: Option<i64>,
+    pub filename: &'a str,
+    pub blob: &'a file_blob::Model,
+    pub now: chrono::DateTime<Utc>,
+    pub name_mode: NewFileNameMode,
+    pub actor_username: Option<&'a str>,
+    pub mime_type: Option<&'a str>,
 }
 
-async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
+pub(crate) async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
     db: &C,
     params: CreateFileFromBlobParams<'_>,
 ) -> Result<file::Model> {
@@ -197,32 +197,6 @@ pub(crate) async fn create_new_file_from_blob_with_actor_username<C: ConnectionT
             now,
             name_mode: NewFileNameMode::ResolveUnique,
             actor_username: Some(actor_username),
-            mime_type: None,
-        },
-    )
-    .await
-}
-
-pub(crate) async fn create_exact_file_from_blob<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    folder_id: Option<i64>,
-    filename: &str,
-    blob: &file_blob::Model,
-    now: chrono::DateTime<Utc>,
-) -> Result<file::Model> {
-    create_file_from_blob_with_name_mode(
-        db,
-        CreateFileFromBlobParams {
-            creation_action: aster_drive_model::types::AuditAction::FileCreate,
-            scope,
-            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
-            folder_id,
-            filename,
-            blob,
-            now,
-            name_mode: NewFileNameMode::Exact,
-            actor_username: None,
             mime_type: None,
         },
     )

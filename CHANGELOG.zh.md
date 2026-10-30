@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **列表更新后的选择快捷键** — Ctrl/Cmd+A 与 Escape 立即使用最新已提交列表的回调，搜索结果已显示而被动 effect 尚未执行时也能正确操作当前选择。
 - **OneDrive 授权回调竞争** — 延迟返回的 OAuth 回调不能再覆盖较新的应用配置或重建已删除的凭据。授权开始时记录的凭据 revision 会作为最终事务写入的前置条件。升级前已经打开但未完成的授权页面需要重新发起授权；已有的已保存授权继续保留。
 
 ### Security

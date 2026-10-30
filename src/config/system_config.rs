@@ -118,10 +118,10 @@ mod tests {
                 .normalize_value(
                     &lookup,
                     crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
-                    r#"["file_upload","user_login"]"#
+                    r#"["user_login","file_download"]"#
                 )
                 .unwrap(),
-            r#"["file_upload","user_login"]"#
+            r#"["file_download","user_login"]"#
         );
         assert!(
             CONFIG_REGISTRY

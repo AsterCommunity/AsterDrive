@@ -248,10 +248,10 @@ pub fn resolve_identity(
     identity: &mut Option<ActivityIdentity>,
     names: &std::collections::HashMap<i64, String>,
 ) {
-    if let Some(identity) = identity {
-        if let Some(name) = identity.user_id.and_then(|id| names.get(&id)) {
-            identity.name = name.clone();
-        }
+    if let Some(identity) = identity
+        && let Some(name) = identity.user_id.and_then(|id| names.get(&id))
+    {
+        identity.name = name.clone();
     }
     if identity
         .as_ref()
@@ -261,46 +261,34 @@ pub fn resolve_identity(
     }
 }
 
-async fn append<C: ConnectionTrait>(
-    db: &C,
-    ctx: &ActivityContext,
-    team_id: Option<i64>,
-    owner_user_id: Option<i64>,
-    kind: &str,
-    id: i64,
-    name: &str,
-    action: AuditAction,
-    details: serde_json::Value,
-) -> Result<()> {
-    workspace_activity_repo::append(
-        db,
-        activity_model(
-            ctx,
-            team_id,
-            owner_user_id,
-            kind,
-            id,
-            name,
-            action,
-            details,
-            Utc::now(),
-        ),
-    )
-    .await?;
-    Ok(())
+enum ActivityResource<'a> {
+    File(&'a file::Model),
+    Folder(&'a folder::Model),
 }
 
 fn activity_model(
     ctx: &ActivityContext,
-    team_id: Option<i64>,
-    owner_user_id: Option<i64>,
-    kind: &str,
-    id: i64,
-    name: &str,
+    resource: ActivityResource<'_>,
     action: AuditAction,
     details: serde_json::Value,
     now: chrono::DateTime<Utc>,
 ) -> workspace_activity::ActiveModel {
+    let (team_id, owner_user_id, kind, id, name) = match resource {
+        ActivityResource::File(file) => (
+            file.team_id,
+            file.owner_user_id,
+            "file",
+            file.id,
+            &file.name,
+        ),
+        ActivityResource::Folder(folder) => (
+            folder.team_id,
+            folder.owner_user_id,
+            "folder",
+            folder.id,
+            &folder.name,
+        ),
+    };
     workspace_activity::ActiveModel {
         event_id: Set(uuid::Uuid::new_v4().to_string()),
         operation_id: Set(ctx.operation_id.clone()),
@@ -327,16 +315,15 @@ pub(crate) async fn file_created<C: ConnectionTrait>(
 ) -> Result<()> {
     let mut ctx = ActivityContext::creator(f.created_by_user_id, &f.created_by_username);
     ctx.source = source;
-    append(
+    workspace_activity_repo::append(
         db,
-        &ctx,
-        f.team_id,
-        f.owner_user_id,
-        "file",
-        f.id,
-        &f.name,
-        action,
-        serde_json::json!({"folder_id":f.folder_id}),
+        activity_model(
+            &ctx,
+            ActivityResource::File(f),
+            action,
+            serde_json::json!({"folder_id":f.folder_id}),
+            Utc::now(),
+        ),
     )
     .await
 }
@@ -348,16 +335,15 @@ pub(crate) async fn folder_created<C: ConnectionTrait>(
 ) -> Result<()> {
     let mut ctx = ActivityContext::creator(f.created_by_user_id, &f.created_by_username);
     ctx.source = source;
-    append(
+    workspace_activity_repo::append(
         db,
-        &ctx,
-        f.team_id,
-        f.owner_user_id,
-        "folder",
-        f.id,
-        &f.name,
-        AuditAction::FolderCreate,
-        serde_json::json!({"parent_id":f.parent_id}),
+        activity_model(
+            &ctx,
+            ActivityResource::Folder(f),
+            AuditAction::FolderCreate,
+            serde_json::json!({"parent_id":f.parent_id}),
+            Utc::now(),
+        ),
     )
     .await
 }
@@ -400,28 +386,31 @@ pub(crate) async fn file_changed<C: ConnectionTrait>(
     after.modified_by_user_id = ctx.actor_user_id;
     after.modified_by_username = Some(ctx.actor_name.clone());
     after.modified_at = Some(now);
-    append(
+    workspace_activity_repo::append(
         db,
-        ctx,
-        after.team_id,
-        after.owner_user_id,
-        "file",
-        after.id,
-        &after.name,
-        change.action,
-        merge_details(
-            serde_json::to_value(FileChangeDetails {
-                previous_name: &before.name,
-                next_name: &after.name,
-                source_folder_id: before.folder_id,
-                target_folder_id: after.folder_id,
-                previous_size: before.size,
-                size: after.size,
-                previous_mime_type: &before.mime_type,
-                mime_type: &after.mime_type,
-            })
-            .expect("file activity details are serializable"),
-            change.details,
+        activity_model(
+            ctx,
+            ActivityResource::File(after),
+            change.action,
+            merge_details(
+                serde_json::to_value(FileChangeDetails {
+                    previous_name: &before.name,
+                    next_name: &after.name,
+                    source_folder_id: before.folder_id,
+                    target_folder_id: after.folder_id,
+                    previous_size: before.size,
+                    size: after.size,
+                    previous_mime_type: &before.mime_type,
+                    mime_type: &after.mime_type,
+                })
+                .map_err(|_| {
+                    crate::errors::AsterError::internal_error(
+                        "failed to serialize file activity details",
+                    )
+                })?,
+                change.details,
+            ),
+            Utc::now(),
         ),
     )
     .await
@@ -465,28 +454,31 @@ pub(crate) async fn folder_changed<C: ConnectionTrait>(
     after.modified_by_user_id = ctx.actor_user_id;
     after.modified_by_username = Some(ctx.actor_name.clone());
     after.modified_at = Some(now);
-    append(
+    workspace_activity_repo::append(
         db,
-        ctx,
-        after.team_id,
-        after.owner_user_id,
-        "folder",
-        after.id,
-        &after.name,
-        change.action,
-        merge_details(
-            serde_json::to_value(FolderChangeDetails {
-                previous_name: &before.name,
-                next_name: &after.name,
-                source_parent_id: before.parent_id,
-                target_parent_id: after.parent_id,
-                previous_kind: &before.icon_kind,
-                kind: &after.icon_kind,
-                previous_key: before.icon_value.as_deref(),
-                key: after.icon_value.as_deref(),
-            })
-            .expect("folder activity details are serializable"),
-            change.details,
+        activity_model(
+            ctx,
+            ActivityResource::Folder(after),
+            change.action,
+            merge_details(
+                serde_json::to_value(FolderChangeDetails {
+                    previous_name: &before.name,
+                    next_name: &after.name,
+                    source_parent_id: before.parent_id,
+                    target_parent_id: after.parent_id,
+                    previous_kind: &before.icon_kind,
+                    kind: &after.icon_kind,
+                    previous_key: before.icon_value.as_deref(),
+                    key: after.icon_value.as_deref(),
+                })
+                .map_err(|_| {
+                    crate::errors::AsterError::internal_error(
+                        "failed to serialize folder activity details",
+                    )
+                })?,
+                change.details,
+            ),
+            Utc::now(),
         ),
     )
     .await
@@ -522,8 +514,8 @@ impl ActivityChange {
     }
 }
 fn merge_details(mut base: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
-    if let (Some(base), Some(extra)) = (base.as_object_mut(), extra.as_object()) {
-        base.extend(extra.clone());
+    if let (Some(base), serde_json::Value::Object(extra)) = (base.as_object_mut(), extra) {
+        base.extend(extra);
     }
     base
 }
@@ -722,11 +714,7 @@ fn file_copy_records(
     } else {
         records.push(activity_model(
             ctx,
-            source.team_id,
-            source.owner_user_id,
-            "file",
-            source.id,
-            &source.name,
+            ActivityResource::File(source),
             AuditAction::FileCopy,
             serde_json::json!({"direction":"outgoing","destination_workspace":"external"}),
             now,
@@ -735,11 +723,7 @@ fn file_copy_records(
     };
     records.push(activity_model(
         ctx,
-        target.team_id,
-        target.owner_user_id,
-        "file",
-        target.id,
-        &target.name,
+        ActivityResource::File(target),
         AuditAction::FileCopy,
         details,
         now,
@@ -769,11 +753,7 @@ fn folder_copy_records(
     } else {
         records.push(activity_model(
             ctx,
-            source.team_id,
-            source.owner_user_id,
-            "folder",
-            source.id,
-            &source.name,
+            ActivityResource::Folder(source),
             AuditAction::FolderCopy,
             serde_json::json!({"direction":"outgoing","destination_workspace":"external"}),
             now,
@@ -782,11 +762,7 @@ fn folder_copy_records(
     };
     records.push(activity_model(
         ctx,
-        target.team_id,
-        target.owner_user_id,
-        "folder",
-        target.id,
-        &target.name,
+        ActivityResource::Folder(target),
         AuditAction::FolderCopy,
         details,
         now,

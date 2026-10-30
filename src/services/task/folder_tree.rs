@@ -490,7 +490,7 @@ async fn finalize_operation(
                 } else {
                     aster_drive_model::types::AuditAction::FileRestore
                 };
-                batch.file_lifecycle(&before, action);
+                batch.file_lifecycle(&before, action)?;
             }
             batch.persist(txn).await?;
         }
@@ -512,7 +512,7 @@ async fn finalize_operation(
                 } else {
                     aster_drive_model::types::AuditAction::FolderRestore
                 };
-                batch.folder_lifecycle(&before, action);
+                batch.folder_lifecycle(&before, action)?;
             }
             batch.persist(txn).await?;
         }

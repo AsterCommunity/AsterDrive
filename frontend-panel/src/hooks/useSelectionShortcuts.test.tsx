@@ -1,9 +1,28 @@
-import { fireEvent, renderHook } from "@testing-library/react";
+import { fireEvent, render, renderHook } from "@testing-library/react";
+import { useLayoutEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
 	shouldIgnoreKeyboardTarget,
 	useSelectionShortcuts,
 } from "@/hooks/useSelectionShortcuts";
+
+function SelectionOnCommit({
+	ids,
+	selectItems,
+	clearSelection,
+}: {
+	ids: number[];
+	selectItems: (ids: number[]) => void;
+	clearSelection: () => void;
+}) {
+	useSelectionShortcuts({ selectAll: () => selectItems(ids), clearSelection });
+	useLayoutEffect(() => {
+		if (ids.length > 0) {
+			fireEvent.keyDown(document, { metaKey: true, key: "a" });
+		}
+	}, [ids]);
+	return <div>{ids.join(",")}</div>;
+}
 
 describe("shouldIgnoreKeyboardTarget", () => {
 	it("ignores editable form controls and contenteditable targets", () => {
@@ -26,6 +45,26 @@ describe("shouldIgnoreKeyboardTarget", () => {
 });
 
 describe("useSelectionShortcuts", () => {
+	it("uses the committed selection before passive effects run", () => {
+		const selectItems = vi.fn();
+		const clearSelection = vi.fn();
+		const { rerender } = render(
+			<SelectionOnCommit
+				ids={[]}
+				selectItems={selectItems}
+				clearSelection={clearSelection}
+			/>,
+		);
+		rerender(
+			<SelectionOnCommit
+				ids={[1, 2]}
+				selectItems={selectItems}
+				clearSelection={clearSelection}
+			/>,
+		);
+		expect(selectItems).toHaveBeenCalledExactlyOnceWith([1, 2]);
+	});
+
 	it("handles select-all and clear-selection shortcuts", () => {
 		const clearSelection = vi.fn();
 		const selectAll = vi.fn();

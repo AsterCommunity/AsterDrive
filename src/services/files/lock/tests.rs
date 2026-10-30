@@ -1515,6 +1515,7 @@ async fn workspace_root_lock_blocks_root_membership_creation() {
         "blocked-at-root",
         None,
         crate::services::files::lock::LockMutationCredentials::None,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .expect_err("workspace root lock should block root membership changes");

@@ -10,10 +10,14 @@ import { FileInfoDialog } from "@/components/files/FileInfoDialog";
 import { ApiPendingError } from "@/services/http";
 
 vi.mock("@/components/files/WorkspaceActivityFeed", () => ({
-	WorkspaceActivityFeed: () => <div data-testid="workspace-activity-feed" />,
+	WorkspaceActivityFeed: ({ target }: { target: unknown }) => {
+		mockState.activityTarget(target);
+		return <div data-testid="workspace-activity-feed" />;
+	},
 }));
 
 const mockState = vi.hoisted(() => ({
+	activityTarget: vi.fn(),
 	getFile: vi.fn(),
 	getFolderInfo: vi.fn(),
 	getMediaMetadata: vi.fn(),
@@ -997,5 +1001,30 @@ describe("FileInfoDialog", () => {
 		expect(
 			screen.queryByTestId("workspace-activity-feed"),
 		).not.toBeInTheDocument();
+	});
+	it("keeps the activity target stable across list refreshes for the same resource", () => {
+		const file = {
+			id: 91,
+			name: "stable.txt",
+			size: 1,
+			blob_id: 2,
+			mime_type: "text/plain",
+			created_at: "2026-01-01",
+			updated_at: "2026-01-01",
+			lock_state: { state: "unlocked" },
+		} as unknown as import("@/types/api").FileInfo;
+		const { rerender } = render(
+			<FileInfoDialog open onOpenChange={vi.fn()} file={file} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "activity_view" }));
+		const target = mockState.activityTarget.mock.lastCall?.[0];
+		rerender(
+			<FileInfoDialog
+				open
+				onOpenChange={vi.fn()}
+				file={{ ...file, name: "refreshed.txt" }}
+			/>,
+		);
+		expect(mockState.activityTarget.mock.lastCall?.[0]).toBe(target);
 	});
 });
