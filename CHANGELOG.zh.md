@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Aster Metrics v1（不兼容）** — 通用 HTTP/DB/process 使用 OTel 语义，产品指标使用 Aster Drive 命名空间，提供版本化 schema 与生成目录。升级须同步查询、告警和 Grafana，旧别名删除。新增原生池状态、响应体生命周期、本地任务 handler 执行与任务快照新鲜度；仍为显式 Prometheus pull 和可选 OTLP HTTP/protobuf。
+- **Aster Metrics v1（不兼容）** — 通用 HTTP/DB/process 使用 OTel 语义，产品指标使用 Aster Drive 命名空间，提供版本化 schema 与生成目录。升级须同步查询、告警和 Grafana，旧别名删除。新增原生池状态、响应体生命周期、本地任务 handler 执行与任务快照新鲜度；Grafana 图例和监控文档使用 v1 标签，任务空闲退避限制为不超过 164 秒，为 180 秒快照新鲜度窗口保留抓取余量；OTLP profile resource 由 wire 测试覆盖。仍为显式 Prometheus pull 和可选 OTLP HTTP/protobuf。
 
 - **Node.js 构建工具链** — 本地开发与 CI 通过 `.nvmrc` 统一选择 Node.js 26.13.0；Docker 前端构建固定同一补丁版本并检查实际二进制版本。前端和文档 package 要求 Node.js >=26.13.0 <27。
 

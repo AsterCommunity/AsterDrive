@@ -43,7 +43,8 @@ pub use crate::config::definitions::{
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_INTERVAL_SECS: u64 = 5;
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 60;
-pub const MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 179;
+/// Leave 15 seconds for the Prometheus scrape cadence inside the 180-second freshness window.
+pub const MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 164;
 pub const DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY: usize = 1;
 pub const DEFAULT_BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY: usize = 2;
 pub const DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY: usize = 1;
@@ -1061,18 +1062,19 @@ mod tests {
         DEFAULT_TASK_LIST_MAX_LIMIT, DEFAULT_TEAM_MEMBER_LIST_MAX_LIMIT,
         DEFAULT_THUMBNAIL_MAX_DIMENSION, FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY,
         IMAGE_PREVIEW_MAX_DIMENSION_KEY, MAX_AVATAR_UPLOAD_SIZE_BYTES,
-        MAX_BACKGROUND_TASK_CONCURRENCY, MAX_DERIVATIVE_MAX_DIMENSION,
-        MAX_SHARE_STREAM_SESSION_TTL_SECS, MIN_SHARE_STREAM_SESSION_TTL_SECS,
-        OFFLINE_DOWNLOAD_ENGINE_KEY, OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
-        OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY, OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY,
-        OFFLINE_DOWNLOAD_TEMP_DIR_KEY, REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
-        SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY, SHARE_STREAM_SESSION_TTL_SECS_KEY,
-        TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
-        archive_compress_enabled, archive_download_share_enabled, archive_download_user_enabled,
-        archive_extract_max_staging_bytes, avatar_max_upload_size_bytes,
-        background_task_archive_max_concurrency, background_task_dispatch_idle_max_interval_secs,
-        background_task_dispatch_interval_secs, background_task_max_attempts,
-        background_task_max_concurrency, background_task_storage_migration_max_concurrency,
+        MAX_BACKGROUND_TASK_CONCURRENCY, MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS,
+        MAX_DERIVATIVE_MAX_DIMENSION, MAX_SHARE_STREAM_SESSION_TTL_SECS,
+        MIN_SHARE_STREAM_SESSION_TTL_SECS, OFFLINE_DOWNLOAD_ENGINE_KEY,
+        OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
+        OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
+        REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
+        SHARE_STREAM_SESSION_TTL_SECS_KEY, TASK_LIST_MAX_LIMIT_KEY, TEAM_MEMBER_LIST_MAX_LIMIT_KEY,
+        THUMBNAIL_MAX_DIMENSION_KEY, archive_compress_enabled, archive_download_share_enabled,
+        archive_download_user_enabled, archive_extract_max_staging_bytes,
+        avatar_max_upload_size_bytes, background_task_archive_max_concurrency,
+        background_task_dispatch_idle_max_interval_secs, background_task_dispatch_interval_secs,
+        background_task_max_attempts, background_task_max_concurrency,
+        background_task_storage_migration_max_concurrency,
         background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
         frontend_image_preview_preference, image_preview_max_dimension,
         normalize_attempts_config_value, normalize_avatar_upload_size_config_value,
@@ -1280,15 +1282,15 @@ mod tests {
         assert_eq!(
             super::normalize_background_task_dispatch_idle_max_interval_config_value(
                 BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
-                "179",
+                "164",
             )
             .unwrap(),
-            "179"
+            "164"
         );
         assert!(
             super::normalize_background_task_dispatch_idle_max_interval_config_value(
                 BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
-                "180",
+                "165",
             )
             .is_err()
         );
@@ -1301,10 +1303,10 @@ mod tests {
             BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
             "30",
         ));
-        assert_eq!(background_task_dispatch_interval_secs(&runtime_config), 179);
+        assert_eq!(background_task_dispatch_interval_secs(&runtime_config), 164);
         assert_eq!(
             background_task_dispatch_idle_max_interval_secs(&runtime_config),
-            179
+            164
         );
 
         runtime_config.apply(config_model(
@@ -1319,6 +1321,12 @@ mod tests {
             background_task_dispatch_idle_max_interval_secs(&runtime_config),
             45
         );
+        const {
+            assert!(
+                MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS + 15 < 180,
+                "one scrape interval must fit inside the snapshot freshness window"
+            );
+        }
 
         runtime_config.apply(config_model(
             BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,

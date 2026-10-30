@@ -267,6 +267,11 @@ fn dashboard_variables_and_layout_are_well_formed() {
 #[test]
 fn dashboard_preserves_unknown_capacity_and_snapshot_failure_boundaries() {
     let dashboard = dashboard();
+    assert_eq!(
+        dashboard["refresh"].as_str(),
+        Some("10s"),
+        "dashboard refresh must stay within the 164-second application budget"
+    );
     for (title, expression) in expressions(&dashboard) {
         if selectors(expression)
             .iter()
