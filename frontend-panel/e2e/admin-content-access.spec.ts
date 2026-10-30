@@ -12,7 +12,7 @@ import { expect, test } from "./support/test";
 
 async function beginAccess(
 	page: import("@playwright/test").Page,
-	remark = "Support case 628",
+	remark: string,
 ) {
 	await page.getByLabel("Remark (optional, up to 500 characters)").fill(remark);
 	await page.getByRole("combobox", { name: "Access reason" }).click();
@@ -65,6 +65,8 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	});
 	await authenticate(page, request);
 	const me = await apiJsonInPage<UserInfo>(page, "/api/v1/auth/me");
+	const personalRemark = uniqueName("Support case 628 personal");
+	const teamRemark = uniqueName("Support case 628 team");
 	const folder = await createFolderViaApi(
 		page,
 		"/api/v1",
@@ -130,7 +132,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		{ method: "PUT", withCsrf: true, body: { value: "true" } },
 	);
 	await page.reload();
-	await beginAccess(page);
+	await beginAccess(page, personalRemark);
 	await page.getByRole("button", { name: "List View", exact: true }).click();
 	await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
 
@@ -434,7 +436,7 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	await expect(page.getByRole("dialog")).toBeVisible();
 	const team = await createTeamViaApi(page, uniqueName("inspect-team"));
 	await page.goto(`/admin/teams/${team.id}/files`);
-	await beginAccess(page);
+	await beginAccess(page, teamRemark);
 	await expect(
 		page.getByText("No matching items in this folder", { exact: true }),
 	).toBeVisible();
@@ -443,25 +445,39 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 		page.getByRole("button", { name: "Begin read-only access" }),
 	).toBeDisabled();
 	await page.goto("/admin/audit?action=admin_workspace_inspect");
-	await expect(
-		page
-			.getByRole("row")
-			.filter({ hasText: "User support" })
-			.filter({ hasText: "Support case 628" })
-			.first(),
-	).toContainText(`(#${me.id})`);
+	// Audit rows sort newest first, and user/team IDs belong to independent sequences.
+	// Select each exact access by its unique remark, then verify its target identity.
+	const expectedAccesses = [
+		{
+			remark: personalRemark,
+			target: `${me.username} (#${me.id})`,
+			kind: "User",
+		},
+		{ remark: teamRemark, target: `${team.name} (#${team.id})`, kind: "Team" },
+	];
+	for (const access of expectedAccesses) {
+		const row = page.getByRole("row").filter({ hasText: access.remark });
+		await expect(row).toHaveCount(1);
+		await expect(row).toContainText(access.target);
+		await expect(
+			row.getByRole("cell", { name: access.kind, exact: true }),
+		).toBeVisible();
+		await expect(row).toContainText("Reason User support");
+		await expect(row).toContainText("Result Inspection authorized");
+	}
 	await page.screenshot({
 		path: testInfo.outputPath("admin-628-audit-readable.png"),
 	});
 	await page.addInitScript(() => localStorage.setItem("aster-language", "zh"));
 	await page.reload();
-	const localized = page
-		.getByRole("row")
-		.filter({ hasText: "原因 用户支持" })
-		.filter({ hasText: "备注：Support case 628" })
-		.first();
-	await expect(localized).toContainText("已授权查看");
-	await expect(localized).toContainText(`(#${me.id})`);
+	for (const access of expectedAccesses) {
+		const localized = page.getByRole("row").filter({ hasText: access.remark });
+		await expect(localized).toHaveCount(1);
+		await expect(localized).toContainText(access.target);
+		await expect(localized).toContainText("原因 用户支持");
+		await expect(localized).toContainText("已授权查看");
+		await expect(localized).toContainText(`备注：${access.remark}`);
+	}
 	await page.screenshot({
 		path: testInfo.outputPath("admin-628-audit-readable-zh.png"),
 		animations: "disabled",

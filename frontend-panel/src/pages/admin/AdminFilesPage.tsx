@@ -725,7 +725,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const { setDetail: setSelectedBlob, onOpenChange: setBlobDialogOpen } =
 		blobDetailDialog;
 	const [blobTargetUnavailable, setBlobTargetUnavailable] = useState(false);
+	const blobSelectionGeneration = useRef(0);
 	useEffect(() => {
+		blobSelectionGeneration.current += 1;
 		setBlobDialogOpen(false);
 		setBlobTargetUnavailable(false);
 		if (!selectedBlobId) return;
@@ -743,6 +745,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			});
 		return () => {
 			active = false;
+			blobSelectionGeneration.current += 1;
 		};
 	}, [selectedBlobId, setSelectedBlob, setBlobDialogOpen]);
 	const selectedFileId = isFiles
@@ -885,6 +888,12 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		blobIds?: number[],
 	) => {
 		if (maintenanceLockRef.current) return;
+		const detailIdAtStart = blobDetailDialog.detail?.id;
+		const selectionAtStart = blobSelectionGeneration.current;
+		const isCurrentDetail = () =>
+			detailIdAtStart != null &&
+			detailIdAtStart === selectedBlobId &&
+			blobSelectionGeneration.current === selectionAtStart;
 		maintenanceLockRef.current = true;
 		setMaintenanceAction(action);
 		try {
@@ -894,10 +903,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			});
 			toast.success(t("admin_blob_maintenance_task_created", { id: task.id }));
 			await reload();
-			if (blobDetailDialog.detail) {
-				blobDetailDialog.setDetail(
-					await adminFileService.getBlob(blobDetailDialog.detail.id),
-				);
+			if (detailIdAtStart != null && isCurrentDetail()) {
+				const detail = await adminFileService.getBlob(detailIdAtStart);
+				if (isCurrentDetail()) blobDetailDialog.setDetail(detail);
 			}
 		} catch (error) {
 			handleApiError(error);

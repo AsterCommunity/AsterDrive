@@ -603,6 +603,9 @@ function LocationProbe() {
 			>
 				other-blob
 			</button>
+			<button type="button" onClick={() => navigate("?blobId=31")}>
+				original-blob
+			</button>
 			<button
 				type="button"
 				onClick={() => navigate("?fileId=22&name=retained")}
@@ -1469,4 +1472,123 @@ it("shows live/deleted and personal/team blob references and closes on a current
 		),
 	);
 	expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+});
+
+it.each(["switch", "close"] as const)(
+	"does not refresh a disposed Blob selection when maintenance finishes after %s",
+	async (action) => {
+		let finish!: (value: { id: number }) => void;
+		mockState.createBlobMaintenanceTask.mockReturnValueOnce(
+			new Promise((done) => {
+				finish = done;
+			}),
+		);
+		mockState.getBlob.mockImplementation(async (id: number) =>
+			createBlobDetail({ id }),
+		);
+		renderPage("blobs", "/admin/file-blobs?blobId=31");
+		await screen.findByText("Blob #31");
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: /admin_blob_action_integrity_check/,
+			})[1],
+		);
+		if (action === "switch") {
+			fireEvent.click(screen.getByRole("button", { name: "other-blob" }));
+			await screen.findByText("Blob #32");
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "close" }));
+		}
+		await act(async () => finish({ id: 9001 }));
+		expect(
+			mockState.getBlob.mock.calls.filter(([id]) => id === 31),
+		).toHaveLength(1);
+		expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+		if (action === "switch")
+			expect(screen.getByText("Blob #32")).toBeInTheDocument();
+	},
+);
+
+it.each(["switch", "close"] as const)(
+	"ignores a maintenance detail response when selection changes during refresh (%s)",
+	async (action) => {
+		let finish!: (value: AdminFileBlobDetail) => void;
+		mockState.getBlob
+			.mockResolvedValueOnce(createBlobDetail())
+			.mockReturnValueOnce(
+				new Promise((done) => {
+					finish = done;
+				}),
+			)
+			.mockResolvedValueOnce(createBlobDetail({ id: 32 }));
+		renderPage("blobs", "/admin/file-blobs?blobId=31");
+		await screen.findByText("Blob #31");
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: /admin_blob_action_integrity_check/,
+			})[1],
+		);
+		await waitFor(() => expect(mockState.getBlob).toHaveBeenCalledTimes(2));
+		if (action === "switch") {
+			fireEvent.click(screen.getByRole("button", { name: "other-blob" }));
+			await screen.findByText("Blob #32");
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "close" }));
+		}
+		await act(async () => finish(createBlobDetail()));
+		expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+		if (action === "switch")
+			expect(screen.getByText("Blob #32")).toBeInTheDocument();
+	},
+);
+
+it("does not replace a newly reopened selection with an older refresh of the same Blob", async () => {
+	let finish!: (value: AdminFileBlobDetail) => void;
+	mockState.getBlob
+		.mockResolvedValueOnce(createBlobDetail())
+		.mockReturnValueOnce(
+			new Promise((done) => {
+				finish = done;
+			}),
+		)
+		.mockResolvedValueOnce(createBlobDetail({ id: 32 }))
+		.mockResolvedValueOnce(createBlobDetail({ hash: "fresh-reopened-object" }));
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	await screen.findByText("Blob #31");
+	fireEvent.click(
+		screen.getAllByRole("button", {
+			name: /admin_blob_action_integrity_check/,
+		})[1],
+	);
+	await waitFor(() => expect(mockState.getBlob).toHaveBeenCalledTimes(2));
+	fireEvent.click(screen.getByRole("button", { name: "other-blob" }));
+	await screen.findByText("Blob #32");
+	fireEvent.click(screen.getByRole("button", { name: "original-blob" }));
+	await screen.findByText("fresh-reopened-object");
+	await act(async () =>
+		finish(createBlobDetail({ hash: "stale-maintenance-object" })),
+	);
+	expect(screen.getByText("fresh-reopened-object")).toBeInTheDocument();
+	expect(
+		screen.queryByText("stale-maintenance-object"),
+	).not.toBeInTheDocument();
+});
+
+it("refreshes the same open Blob after maintenance without changing its URL", async () => {
+	mockState.getBlob
+		.mockResolvedValueOnce(createBlobDetail())
+		.mockResolvedValueOnce(
+			createBlobDetail({ hash: "refreshed-after-maintenance" }),
+		);
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	await screen.findByText("Blob #31");
+	fireEvent.click(
+		screen.getAllByRole("button", {
+			name: /admin_blob_action_integrity_check/,
+		})[1],
+	);
+	expect(
+		await screen.findByText("refreshed-after-maintenance"),
+	).toBeInTheDocument();
+	expect(screen.getByTestId("location-search")).toHaveTextContent("blobId=31");
 });
