@@ -48,7 +48,7 @@ describe("i18n", () => {
 			"初始化状态读取失败",
 		);
 		expect(i18n.t("auth:storage_setup_state_load_failed_desc")).toBe(
-			"暂时没有取得系统初始化状态。检查网络连接后重新读取。",
+			"暂时没有取得系统初始化状态。检查网络连接后重新读取",
 		);
 		expect(i18n.t("auth:storage_setup_retry_state")).toBe("重新读取状态");
 		expect(i18n.getResource("zh", "auth", "login_success")).toBeUndefined();
@@ -144,6 +144,26 @@ describe("i18n", () => {
 		}
 	});
 
+	it("keeps zh translations free of trailing sentence periods", async () => {
+		localStorage.setItem("aster-language", "zh");
+		const module = await loadI18nModule();
+		const i18n = module.default;
+		await module.ensureAllI18nNamespaces("zh");
+
+		const offenders: string[] = [];
+		for (const namespace of module.ALL_NAMESPACES) {
+			const bundle = i18n.getResourceBundle("zh", namespace);
+			for (const [key, value] of Object.entries(bundle)) {
+				if (typeof value !== "string") continue;
+				if (value.trimEnd().endsWith("。")) {
+					offenders.push(`${namespace}:${key}`);
+				}
+			}
+		}
+
+		expect(offenders.sort()).toEqual([]);
+	});
+
 	it.each([
 		{
 			language: "en" as const,
@@ -160,8 +180,8 @@ describe("i18n", () => {
 			language: "zh" as const,
 			expected: {
 				connectionPrompt: "连接测试失败，仍要保存此策略吗？",
-				fieldRequired: "必须填写远程节点。",
-				passwordReset: "密码已重置成功，现在可以使用新密码登录。",
+				fieldRequired: "必须填写远程节点",
+				passwordReset: "密码已重置成功，现在可以使用新密码登录",
 				yes: "是",
 			},
 		},

@@ -1,6 +1,6 @@
 {
 	"settings_security": "安全",
-	"settings_security_desc": "管理登录密码，并查看修改后当前浏览器会话的处理方式。",
+	"settings_security_desc": "管理登录密码，并查看修改后当前浏览器会话的处理方式",
 	"settings_security_tab_account": "账号",
 	"settings_security_tab_mfa": "多因素认证",
 	"settings_security_tab_passkeys": "Passkey",
@@ -15,7 +15,7 @@
 	"settings_security_hide_details": "收起",
 	"settings_security_session_count": "{{count}} 个会话",
 	"settings_security_account": "账号",
-	"settings_security_account_desc": "这会更新 @{{username}} 的本地登录密码。",
+	"settings_security_account_desc": "这会更新 @{{username}} 的本地登录密码",
 	"settings_security_session": "当前会话",
-	"settings_security_session_desc": "修改密码后，当前浏览器会话暂时仍会保持登录。"
+	"settings_security_session_desc": "修改密码后，当前浏览器会话暂时仍会保持登录"
 }

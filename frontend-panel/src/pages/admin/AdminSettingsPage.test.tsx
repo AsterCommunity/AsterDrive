@@ -194,7 +194,7 @@ const translationMap: Record<string, string> = {
 	settings_subcategory_file_processing_offline_download_desc:
 		"Link import limits.",
 	settings_save_hint:
-		"更改会先暂存为草稿，确认无误后再统一保存，⌘/Ctrl + S 保存。",
+		"更改会先暂存为草稿，确认无误后再统一保存，⌘/Ctrl + S 保存",
 	settings_template_variable_reset_url_desc:
 		"settings_template_variable_reset_url_desc",
 	settings_template_variable_reset_url_label:
@@ -2076,7 +2076,7 @@ describe("AdminSettingsPage", () => {
 
 		expect(
 			await screen.findByText(
-				"更改会先暂存为草稿，确认无误后再统一保存，⌘/Ctrl + S 保存。",
+				"更改会先暂存为草稿，确认无误后再统一保存，⌘/Ctrl + S 保存",
 			),
 		).toBeInTheDocument();
 	});

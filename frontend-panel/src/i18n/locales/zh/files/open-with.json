@@ -4,7 +4,7 @@
 	"choose_open_method": "请选择打开方式",
 	"more_open_methods": "更多打开方式",
 	"preview_coming_soon": "这种预览方式暂未开放",
-	"preview_coming_soon_desc": "对应的渲染能力仍在开发中。",
+	"preview_coming_soon_desc": "对应的渲染能力仍在开发中",
 	"open_with_image": "图片预览",
 	"open_with_video": "视频预览",
 	"open_with_custom_video_browser": "自定义视频浏览器",

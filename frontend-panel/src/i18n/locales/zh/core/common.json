@@ -34,7 +34,7 @@
 	"original_location": "原位置",
 	"status": "状态",
 	"are_you_sure": "确定要执行此操作？",
-	"cannot_undo": "此操作不可撤销。",
+	"cannot_undo": "此操作不可撤销",
 	"page_of": "第 {{current}} 页，共 {{total}} 页",
 	"items_count": "{{count}} 个项目",
 	"selected_count": "已选 {{count}} 项",

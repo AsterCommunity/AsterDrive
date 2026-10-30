@@ -14,10 +14,10 @@ const t: Translate = (key, values) => {
 	if (key === "aliyun_oss_access_key_id") return "阿里云 AccessKey ID";
 	if (key === "endpoint") return "端点";
 	if (key === "policy_connector_field_required") {
-		return `必须填写${values?.field}。`;
+		return `必须填写${values?.field}`;
 	}
 	if (key === "policy_connector_field_invalid") {
-		return `请检查${values?.field}的填写内容。`;
+		return `请检查${values?.field}的填写内容`;
 	}
 	return key;
 };
@@ -57,7 +57,7 @@ describe("storage connector connection errors", () => {
 
 		const fieldError = getStorageConnectorFieldError(error, descriptor, t);
 		expect(fieldError).toEqual({
-			message: "必须填写阿里云 AccessKey ID。",
+			message: "必须填写阿里云 AccessKey ID",
 			name: "aliyun_oss_access_key_id",
 			scope: "static_credential",
 		});
@@ -80,7 +80,7 @@ describe("storage connector connection errors", () => {
 		});
 
 		expect(getStorageConnectorFieldError(error, descriptor, t)).toEqual({
-			message: "请检查端点的填写内容。",
+			message: "请检查端点的填写内容",
 			name: "endpoint",
 			scope: "connector_config",
 		});

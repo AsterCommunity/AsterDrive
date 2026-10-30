@@ -24,13 +24,13 @@
 	"archive_preview_name": "名称",
 	"archive_preview_size": "大小",
 	"archive_preview_modified": "修改时间",
-	"archive_preview_empty": "这个压缩包没有可显示的条目。",
-	"archive_preview_no_matches": "没有匹配的压缩包条目。",
-	"archive_preview_disabled": "管理员尚未启用压缩包预览。",
-	"archive_preview_unsupported_type": "压缩包预览目前只支持 ZIP 文件。",
-	"archive_preview_source_too_large": "这个压缩包超过了管理员设置的预览大小上限。",
-	"archive_preview_invalid_archive": "这个文件不是有效的压缩包。",
-	"archive_preview_encoding_failed": "当前文件名编码无法解析这个压缩包，请切换文件名编码后重试。",
-	"archive_preview_rejected": "这个压缩包不符合服务器的预览限制。",
-	"archive_preview_extract_unsupported_entry_names": "这个压缩包包含当前系统不支持解压的文件名，但仍可预览内容。"
+	"archive_preview_empty": "这个压缩包没有可显示的条目",
+	"archive_preview_no_matches": "没有匹配的压缩包条目",
+	"archive_preview_disabled": "管理员尚未启用压缩包预览",
+	"archive_preview_unsupported_type": "压缩包预览目前只支持 ZIP 文件",
+	"archive_preview_source_too_large": "这个压缩包超过了管理员设置的预览大小上限",
+	"archive_preview_invalid_archive": "这个文件不是有效的压缩包",
+	"archive_preview_encoding_failed": "当前文件名编码无法解析这个压缩包，请切换文件名编码后重试",
+	"archive_preview_rejected": "这个压缩包不符合服务器的预览限制",
+	"archive_preview_extract_unsupported_entry_names": "这个压缩包包含当前系统不支持解压的文件名，但仍可预览内容"
 }

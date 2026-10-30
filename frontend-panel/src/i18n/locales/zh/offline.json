@@ -6,8 +6,8 @@
 	"offline_status_short": "离线",
 	"auth_stale_detail": "恢复连接后将重新连接服务器",
 	"offline_boot_title": "AsterDrive 暂时无法连接到服务器",
-	"offline_boot_description": "这次启动暂时没能恢复可用会话，后端也还不可达。应用已经打开，但需要等网络或服务恢复后才能回到正常界面。",
+	"offline_boot_description": "这次启动暂时没能恢复可用会话，后端也还不可达。应用已经打开，但需要等网络或服务恢复后才能回到正常界面",
 	"offline_boot_retry": "重新尝试",
 	"offline_boot_login": "前往登录页",
-	"offline_boot_hint": "如果你之前登录过，等服务恢复后刷新一下，就可以继续之前的使用。"
+	"offline_boot_hint": "如果你之前登录过，等服务恢复后刷新一下，就可以继续之前的使用"
 }
