@@ -140,6 +140,22 @@ impl MigrationTrait for Migration {
                 .col(WorkspaceActivities::Id)
                 .to_owned(),
             Index::create()
+                .name("idx_workspace_activity_team_resource")
+                .table(WorkspaceActivities::Table)
+                .col(WorkspaceActivities::TeamId)
+                .col(WorkspaceActivities::EntityType)
+                .col(WorkspaceActivities::EntityId)
+                .col(WorkspaceActivities::Id)
+                .to_owned(),
+            Index::create()
+                .name("idx_workspace_activity_owner_resource")
+                .table(WorkspaceActivities::Table)
+                .col(WorkspaceActivities::OwnerUserId)
+                .col(WorkspaceActivities::EntityType)
+                .col(WorkspaceActivities::EntityId)
+                .col(WorkspaceActivities::Id)
+                .to_owned(),
+            Index::create()
                 .name("idx_workspace_activity_operation")
                 .table(WorkspaceActivities::Table)
                 .col(WorkspaceActivities::OperationId)

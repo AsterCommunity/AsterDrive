@@ -146,35 +146,25 @@ async fn restore_folder_in_scope(
         aster_drive_model::types::AuditAction::FolderRestore,
     )
     .await?;
+    let mut file_activities = crate::services::workspace::activity::ActivityBatch::new(&ctx);
     for before in &files {
         if before.deleted_at.is_some() {
-            let mut after = before.clone();
-            after.deleted_at = None;
-            crate::services::workspace::activity::file_changed(
-                &txn,
-                &ctx,
-                before,
-                &mut after,
-                aster_drive_model::types::AuditAction::FileRestore,
-            )
-            .await?;
+            file_activities
+                .file_lifecycle(before, aster_drive_model::types::AuditAction::FileRestore);
         }
     }
-    for id in &child_folder_ids {
-        let before = folder_repo::find_by_id(&txn, *id).await?;
+    file_activities.persist(&txn).await?;
+    let mut folder_activities = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+    let child_folders = folder_repo::find_by_ids(&txn, &child_folder_ids).await?;
+    for before in child_folders {
         if before.deleted_at.is_some() {
-            let mut after = before.clone();
-            after.deleted_at = None;
-            crate::services::workspace::activity::folder_changed(
-                &txn,
-                &ctx,
+            folder_activities.folder_lifecycle(
                 &before,
-                &mut after,
                 aster_drive_model::types::AuditAction::FolderRestore,
-            )
-            .await?;
+            );
         }
     }
+    folder_activities.persist(&txn).await?;
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
     file_repo::restore_many(&txn, &file_ids).await?;
     folder_repo::restore_many(&txn, &child_folder_ids).await?;
