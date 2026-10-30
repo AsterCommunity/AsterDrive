@@ -967,7 +967,7 @@ async fn missing_storage_object_fails_without_returning_a_content_body_and_is_au
 }
 
 #[actix_web::test]
-async fn audit_access_exposes_target_reason_and_remark_and_enriches_legacy_rows() {
+async fn audit_access_keeps_target_snapshots_and_never_rewrites_missing_names() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
@@ -1035,7 +1035,7 @@ async fn audit_access_exposes_target_reason_and_remark_and_enriches_legacy_rows(
     .await;
     let body: Value = test::read_body_json(response).await;
     assert_eq!(body["data"]["items"][0]["entity_name"], "supporttarget");
-    // Previously stored rows had no name; repair presentation at read time without rewriting history.
+    // Missing names are represented by stable IDs; do not reattribute history to the current account name.
     let mut legacy = record.into_active_model();
     legacy.entity_name = Set(None);
     legacy.update(state.writer_db()).await.unwrap();
@@ -1049,7 +1049,11 @@ async fn audit_access_exposes_target_reason_and_remark_and_enriches_legacy_rows(
     )
     .await;
     let body: Value = test::read_body_json(response).await;
-    assert_eq!(body["data"]["items"][0]["entity_name"], "renamedtarget");
+    assert!(body["data"]["items"][0]["entity_name"].is_null());
+    assert_eq!(
+        body["data"]["items"][0]["presentation"]["target"]["params"]["id"],
+        target_id
+    );
     let response = test::call_service(
         &app,
         get(
@@ -1061,7 +1065,7 @@ async fn audit_access_exposes_target_reason_and_remark_and_enriches_legacy_rows(
     .await;
     assert_eq!(response.status(), 200);
     let csv = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
-    assert!(csv.contains("renamedtarget"));
+    assert!(!csv.contains("renamedtarget"));
     assert!(csv.contains("security_investigation"));
     assert!(csv.contains("用户报告缺少文件"));
     // The actor is deliberately different from the audited workspace owner.

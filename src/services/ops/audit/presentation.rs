@@ -85,8 +85,12 @@ pub fn build_audit_presentation(
         AuditAction::ServerStart | AuditAction::ServerShutdown => Some(server_target()),
         _ => target_message(entity_type, entity_id, entity_name),
     };
-    if super::content_access_targets::is_content_access(action)
-        && let Some(target) = &mut target
+    if matches!(
+        action,
+        AuditAction::AdminWorkspaceInspect
+            | AuditAction::AdminFileDownload
+            | AuditAction::AdminRevisionDownload
+    ) && let Some(target) = &mut target
     {
         target
             .params

@@ -96,7 +96,8 @@ pub(crate) async fn get_for_file_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<MediaMetadataLookup> {
-    let f = crate::services::files::file::get_info_in_scope(state, scope, file_id).await?;
+    let f = crate::services::workspace::storage::verify_file_access_for_read(state, scope, file_id)
+        .await?;
     get_for_file(state, &f).await
 }
 

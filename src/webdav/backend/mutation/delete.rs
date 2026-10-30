@@ -159,8 +159,7 @@ impl AsterDavFs {
                         vec![outcome.folder.parent_id],
                     ),
                 );
-                folder::invalidate_folder_path_cache_for_ids(&self.state, &[outcome.folder.id])
-                    .await;
+                folder::invalidate_folder_path_chains(&self.state, &[outcome.folder.id]).await;
                 if operation == DavMutationOperation::Delete
                     || role == DavMutationTargetRole::Destination
                 {

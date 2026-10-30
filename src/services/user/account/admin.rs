@@ -449,7 +449,7 @@ pub async fn force_delete(
     )
     .await?;
     folder_repo::delete_many(db, &folder_ids).await?;
-    crate::services::files::folder::invalidate_folder_path_cache(state).await;
+    crate::services::files::folder::invalidate_all_folder_path_chains(state).await;
 
     crate::webdav::auth::invalidate_webdav_auth_for_user(state, target_user_id).await?;
     let webdav_account_count = webdav_account_repo::delete_all_by_user(db, target_user_id).await?;

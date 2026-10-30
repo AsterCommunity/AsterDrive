@@ -9,7 +9,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::{file, file_blob};
 
-use super::{DownloadDisposition, get_info_in_scope};
+use super::DownloadDisposition;
 
 pub(crate) struct FileResourcePathSet {
     pub download: String,
@@ -31,7 +31,9 @@ pub(crate) async fn resolve_file_resource_handle(
     paths: FileResourcePathSet,
     request: &FileResourceHandleRequest,
 ) -> Result<FileResourceHandle> {
-    let authorized = get_info_in_scope(state, scope, file_id).await?;
+    let authorized =
+        crate::services::workspace::storage::verify_file_access_for_read(state, scope, file_id)
+            .await?;
     let (file, blob, revision) =
         crate::db::repository::revision_repo::find_file_blob_and_current_revision(
             state.writer_db(),

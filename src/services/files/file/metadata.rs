@@ -16,20 +16,12 @@ use aster_drive_model::entities::file;
 use aster_forge_api::NullablePatch;
 use aster_forge_db::transaction;
 
-pub(crate) async fn get_info_in_scope(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-    id: i64,
-) -> Result<file::Model> {
-    storage::verify_file_access_for_read(state, scope, id).await
-}
-
 pub(crate) async fn get_info_with_storage_used_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     id: i64,
 ) -> Result<FileInfo> {
-    let file = get_info_in_scope(state, scope, id).await?;
+    let file = storage::verify_file_access_for_read(state, scope, id).await?;
     build_authorized_file_info(state, scope.into(), file).await
 }
 
@@ -216,12 +208,6 @@ pub(crate) async fn update_in_scope(
         "updated file metadata"
     );
     Ok(updated)
-}
-
-/// 获取文件信息
-pub async fn get_info(state: &impl SharedRuntimeState, id: i64, user_id: i64) -> Result<FileInfo> {
-    get_info_with_storage_used_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id)
-        .await
 }
 
 /// 更新文件（重命名/移动）

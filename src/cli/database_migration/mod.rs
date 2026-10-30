@@ -51,6 +51,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "user_profiles",
     "user_invitations",
     "auth_sessions",
+    "admin_content_accesses",
     "passkeys",
     "mfa_factors",
     "mfa_totp_used_steps",

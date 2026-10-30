@@ -244,7 +244,7 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
         .await;
         crate::services::share::invalidate_all_share_token_record_cache(state).await;
     }
-    crate::services::files::folder::invalidate_folder_path_cache(state).await;
+    crate::services::files::folder::invalidate_all_folder_path_chains(state).await;
     tracing::info!(
         team_id,
         team_name = %team_name,

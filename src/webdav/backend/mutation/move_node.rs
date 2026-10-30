@@ -347,7 +347,7 @@ impl AsterDavFs {
             }
         }
         if entity_type == EntityType::Folder {
-            folder::invalidate_folder_path_cache_for_ids(&self.state, &[entity_id]).await;
+            folder::invalidate_folder_path_chains(&self.state, &[entity_id]).await;
         }
         Ok(())
     }

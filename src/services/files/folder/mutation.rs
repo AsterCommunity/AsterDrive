@@ -312,7 +312,7 @@ pub(crate) async fn delete_in_scope(
             vec![folder.parent_id],
         ),
     );
-    super::invalidate_folder_path_cache_for_ids(state, &[folder.id]).await;
+    super::invalidate_folder_path_chains(state, &[folder.id]).await;
     tracing::debug!(
         scope = ?scope,
         folder_id = folder.id,
@@ -460,21 +460,13 @@ pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i6
     .await
 }
 
-pub(crate) async fn get_info_in_scope(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-    folder_id: i64,
-) -> Result<folder::Model> {
-    storage::verify_folder_access_for_read(state, scope, folder_id).await
-}
-
 pub(crate) async fn get_info_with_storage_used_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<FolderInfo> {
     // 先走普通详情权限校验；`storage_used` 只在用户确实能读这个文件夹时计算。
-    let folder = get_info_in_scope(state, scope, folder_id).await?;
+    let folder = storage::verify_folder_access_for_read(state, scope, folder_id).await?;
     build_authorized_folder_info(state, scope.into(), folder).await
 }
 
@@ -676,7 +668,7 @@ pub(crate) async fn update_in_scope(
         ),
     );
     if name.is_some() || parent_id.is_present() {
-        super::invalidate_folder_path_cache_for_ids(state, &[updated.id]).await;
+        super::invalidate_folder_path_chains(state, &[updated.id]).await;
     }
     tracing::debug!(
         scope = ?scope,

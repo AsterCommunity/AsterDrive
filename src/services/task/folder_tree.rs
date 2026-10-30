@@ -624,7 +624,7 @@ async fn finalize_operation(
             affected_parent_ids,
         ),
     );
-    folder::invalidate_folder_path_cache_for_ids(state, &[payload.folder_id]).await;
+    folder::invalidate_folder_path_chains(state, &[payload.folder_id]).await;
     Ok(())
 }
 

@@ -49,7 +49,7 @@ pub(super) async fn invalidate_folder_path_chain(state: &impl SharedRuntimeState
         .await;
 }
 
-pub(super) async fn invalidate_folder_path_chains(
+pub(crate) async fn invalidate_folder_path_chains(
     state: &impl SharedRuntimeState,
     folder_ids: &[i64],
 ) {

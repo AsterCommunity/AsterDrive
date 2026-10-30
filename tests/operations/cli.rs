@@ -15,9 +15,9 @@ use aster_drive::db::repository::{
 };
 use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
 use aster_drive_model::entities::{
-    contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
-    mfa_factor, mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, storage_policy,
-    user_invitation,
+    admin_content_access, auth_session, contact_verification_token, follower_enrollment_session,
+    managed_follower, master_binding, mfa_factor, mfa_login_flow, mfa_recovery_code,
+    mfa_totp_setup_flow, passkey, storage_policy, user_invitation,
 };
 use aster_drive_model::types::{
     EntityType, MfaFirstFactor, MfaPersistentFactorMethod, RemoteDownloadStrategy,
@@ -242,7 +242,47 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
     seed_user_invitation_fixture(state.writer_db()).await;
     seed_tag_fixture(state.writer_db(), file_id).await;
     seed_runtime_coordination_fixture(state.writer_db()).await;
+    seed_admin_content_access_fixture(state.writer_db(), file_id).await;
     file_id
+}
+
+async fn seed_admin_content_access_fixture(db: &DatabaseConnection, file_id: i64) {
+    let session = auth_session::Entity::find().one(db).await.unwrap().unwrap();
+    let expiry = chrono::DateTime::parse_from_rfc3339("2026-10-30T01:02:03Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    // Preserve both payload variants, session binding, and expired rows without interpretation.
+    for (id, payload) in [
+        (
+            "migration-workspace-access",
+            serde_json::json!({
+                "kind": "workspace",
+                "scope": {"scope_kind": "personal", "target_id": session.user_id},
+                "reason": "security_investigation",
+                "remark": "迁移保真 <case-628>"
+            }),
+        ),
+        (
+            "migration-download-access",
+            serde_json::json!({
+                "kind": "download",
+                "scope": {"scope_kind": "personal", "target_id": session.user_id},
+                "file_id": file_id,
+                "revision_id": 628
+            }),
+        ),
+    ] {
+        admin_content_access::ActiveModel {
+            id: Set(id.to_string()),
+            actor_user_id: Set(session.user_id),
+            session_id: Set(session.id.clone()),
+            payload: Set(payload.to_string()),
+            expires_at: Set(expiry),
+        }
+        .insert(db)
+        .await
+        .unwrap();
+    }
 }
 
 async fn seed_file_create_idempotency_fixture(db: &DatabaseConnection, file_id: i64) {
@@ -659,6 +699,36 @@ async fn assert_migrated_fixture(
     let users = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM users").await;
     let folders = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM folders").await;
     let files = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM files").await;
+    let accesses = admin_content_access::Entity::find()
+        .all(&target_db)
+        .await
+        .unwrap();
+    assert_eq!(accesses.len(), 2);
+    for access in accesses {
+        let session = auth_session::Entity::find_by_id(access.session_id.clone())
+            .one(&target_db)
+            .await
+            .unwrap()
+            .expect("bound authentication session should migrate");
+        assert_eq!(access.actor_user_id, session.user_id);
+        assert_eq!(access.expires_at.to_rfc3339(), "2026-10-30T01:02:03+00:00");
+        let expected = match access.id.as_str() {
+            "migration-workspace-access" => serde_json::json!({
+                "kind": "workspace",
+                "scope": {"scope_kind": "personal", "target_id": session.user_id},
+                "reason": "security_investigation",
+                "remark": "迁移保真 <case-628>"
+            }),
+            "migration-download-access" => serde_json::json!({
+                "kind": "download",
+                "scope": {"scope_kind": "personal", "target_id": session.user_id},
+                "file_id": file_id,
+                "revision_id": 628
+            }),
+            other => panic!("unexpected migrated access: {other}"),
+        };
+        assert_eq!(access.payload, expected.to_string());
+    }
     let file_create_idempotencies = scalar_i64(
         &target_db,
         target_backend,
