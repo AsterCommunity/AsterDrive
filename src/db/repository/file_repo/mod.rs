@@ -58,3 +58,5 @@ pub use trash::{
     find_top_level_deleted_by_team_paginated, find_top_level_deleted_paginated, restore,
     restore_many, soft_delete, soft_delete_many,
 };
+
+pub(crate) use query::{FileCursorQuery, find_by_folder_cursor_in_scope};

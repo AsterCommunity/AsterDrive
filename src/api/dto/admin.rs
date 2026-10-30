@@ -757,6 +757,12 @@ pub struct AdminFileBlobReferenceVersion {
     pub size: i64,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
+    pub file_name: Option<String>,
+    pub owner_user_id: Option<i64>,
+    pub team_id: Option<i64>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub is_current: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

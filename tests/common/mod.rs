@@ -2230,3 +2230,56 @@ pub async fn audit_writer(db: &sea_orm::DatabaseConnection) -> Arc<aster_forge_a
         .expect("test audit writer should start");
     writer
 }
+
+/// Initialize governed administrator content access through the production service contract.
+/// Storage/protocol tests share this fixture; route/auth rejection matrices live in operations.
+pub async fn admin_download_init(
+    state: &PrimaryAppState,
+    token: &str,
+    owner_user_id: i64,
+    file_id: i64,
+    revision_id: Option<i64>,
+) -> aster_drive::services::ops::content_access::AdminDownloadInfo {
+    use aster_drive::services::ops::{audit::AuditContext, content_access::*};
+    aster_drive::db::repository::config_repo::upsert(
+        state.writer_db(),
+        "admin_workspace_content_access_enabled",
+        "true",
+        0,
+    )
+    .await
+    .unwrap();
+    let (claims, _) = aster_drive::services::auth::local::authenticate_access_token(state, token)
+        .await
+        .unwrap();
+    let ctx = AuditContext {
+        user_id: claims.user_id,
+        ip_address: None,
+        user_agent: None,
+    };
+    let access = create(
+        state,
+        &claims,
+        &ctx,
+        &CreateAdminContentAccess {
+            scope_kind: AdminScopeKind::Personal,
+            target_id: owner_user_id,
+            reason: Some(AdminAccessReason::DataRecovery),
+            remark: None,
+        },
+    )
+    .await
+    .unwrap();
+    init_download(
+        state,
+        &claims,
+        &ctx,
+        file_id,
+        &AdminDownloadInitRequest {
+            access_id: access.id,
+            revision_id,
+        },
+    )
+    .await
+    .unwrap()
+}

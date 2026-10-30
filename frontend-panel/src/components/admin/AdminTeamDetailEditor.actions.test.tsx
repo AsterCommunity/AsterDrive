@@ -248,3 +248,7 @@ describe("AdminTeamDetailEditor actions", () => {
 		expect(state.handleApiError).toHaveBeenCalledWith(error);
 	});
 });
+
+vi.mock("@/components/admin/content-access/AdminWorkspaceBrowser", () => ({
+	AdminWorkspaceBrowser: () => null,
+}));

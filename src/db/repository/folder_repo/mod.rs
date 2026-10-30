@@ -35,3 +35,5 @@ pub use trash::{
     find_top_level_deleted_cursor, find_top_level_deleted_paginated, restore, restore_many,
     soft_delete, soft_delete_many,
 };
+
+pub(crate) use query::{FolderChildrenQuery, find_children_paginated_in_scope};

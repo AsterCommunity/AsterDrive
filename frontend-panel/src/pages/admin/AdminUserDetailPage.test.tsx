@@ -10,14 +10,18 @@ const mockState = vi.hoisted(() => ({
 	toastSuccess: vi.fn(),
 	updateUser: vi.fn(),
 	userId: "11",
+	section: undefined as string | undefined,
 }));
 
 vi.mock("react-router-dom", () => ({
+	Link: ({ to, children }: { to: string; children: ReactNode }) => (
+		<a href={to}>{children}</a>
+	),
 	Navigate: ({ replace, to }: { replace?: boolean; to: string }) => (
 		<div data-testid="redirect">{`${to}:${String(replace)}`}</div>
 	),
 	useNavigate: () => mockState.navigate,
-	useParams: () => ({ userId: mockState.userId }),
+	useParams: () => ({ userId: mockState.userId, section: mockState.section }),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -126,6 +130,7 @@ function user(overrides: Partial<UserInfo> = {}): UserInfo {
 
 describe("AdminUserDetailPage", () => {
 	beforeEach(() => {
+		mockState.section = undefined;
 		mockState.getUser.mockReset();
 		mockState.navigate.mockReset();
 		mockState.toastSuccess.mockReset();
@@ -182,4 +187,15 @@ describe("AdminUserDetailPage", () => {
 		);
 		expect(mockState.getUser).not.toHaveBeenCalled();
 	});
+	it("opens the URL-addressable personal workspace section instead of the profile editor", async () => {
+		mockState.section = "files";
+		mockState.getUser.mockResolvedValue(user());
+		render(<AdminUserDetailPage />);
+		expect(await screen.findByText("workspace browser")).toBeInTheDocument();
+		expect(screen.queryByText(/editor:/)).not.toBeInTheDocument();
+	});
 });
+
+vi.mock("@/components/admin/content-access/AdminWorkspaceBrowser", () => ({
+	AdminWorkspaceBrowser: () => <div>workspace browser</div>,
+}));

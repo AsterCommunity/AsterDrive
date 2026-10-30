@@ -232,6 +232,8 @@ pub const WOPI_DISCOVERY_CACHE_TTL_SECS_KEY: &str = "wopi_discovery_cache_ttl_se
 pub const AVATAR_DIR_KEY: &str = "avatar_dir";
 
 // ── Audit keys ───────────────────────────────────────────────────────────────
+pub const ADMIN_WORKSPACE_CONTENT_ACCESS_ENABLED_KEY: &str =
+    "admin_workspace_content_access_enabled";
 pub const AUDIT_LOG_ENABLED_KEY: &str = "audit_log_enabled";
 pub const AUDIT_LOG_RETENTION_DAYS_KEY: &str = "audit_log_retention_days";
 pub const AUDIT_LOG_RECORDED_ACTIONS_KEY: &str = "audit_log_recorded_actions";
@@ -578,6 +580,19 @@ fn validate_email_code_mail_settings(
 
 /// 所有运行时配置项
 pub static ALL_CONFIGS: &[ConfigDef] = &[
+    ConfigDef {
+        key: ADMIN_WORKSPACE_CONTENT_ACCESS_ENABLED_KEY,
+        label_i18n_key: "settings_item_admin_workspace_content_access_enabled_label",
+        description_i18n_key: "settings_item_admin_workspace_content_access_enabled_desc",
+        value_type: ConfigValueType::Boolean,
+        default_fn: || "false".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_AUTH,
+        description: "Allow reason-bound, mandatory-audited administrator workspace inspection and download initialization",
+        normalize_fn: Some(normalize_operation_bool),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
     // ── Auth ────────────────────────────────────────────────
     ConfigDef {
         key: AUTH_COOKIE_SECURE_KEY,

@@ -611,3 +611,18 @@ export type ActivityIdentity = components["schemas"]["ActivityIdentity"];
 export type WorkspaceActivity = components["schemas"]["WorkspaceActivity"];
 export type WorkspaceActivityPage =
 	components["schemas"]["WorkspaceActivityPage"];
+
+// Governed administrator workspace access
+export type AdminScopeKind = components["schemas"]["AdminScopeKind"];
+export type AdminAccessReason = components["schemas"]["AdminAccessReason"];
+export type CreateAdminContentAccess =
+	components["schemas"]["CreateAdminContentAccess"];
+export type AdminContentAccessInfo =
+	components["schemas"]["AdminContentAccessInfo"];
+export type AdminContentAccessStatus =
+	components["schemas"]["AdminContentAccessStatus"];
+export type AdminDownloadInfo = components["schemas"]["AdminDownloadInfo"];
+export type AdminDownloadInitRequest =
+	components["schemas"]["AdminDownloadInitRequest"];
+export type AdminWorkspaceContents =
+	components["schemas"]["AdminWorkspaceContents"];

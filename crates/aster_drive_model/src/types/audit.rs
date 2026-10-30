@@ -175,6 +175,9 @@ macro_rules! define_audit_action_list {
             RemoteNodeHeartbeatTimeout,
             AdminCreateStoragePolicyForcedPurgeTask,
             FolderIconChange,
+            AdminWorkspaceInspect,
+            AdminFileDownload,
+            AdminRevisionDownload,
         }
     };
 }
@@ -708,6 +711,12 @@ pub enum AuditAction {
     AdminCreateStoragePolicyForcedPurgeTask,
     #[sea_orm(string_value = "folder_icon_change")]
     FolderIconChange,
+    #[sea_orm(string_value = "admin_workspace_inspect")]
+    AdminWorkspaceInspect,
+    #[sea_orm(string_value = "admin_file_download")]
+    AdminFileDownload,
+    #[sea_orm(string_value = "admin_revision_download")]
+    AdminRevisionDownload,
 }
 
 impl AuditAction {
@@ -897,6 +906,9 @@ impl AuditAction {
             Self::RemoteNodeHeartbeatTimeout => 152,
             Self::AdminCreateStoragePolicyForcedPurgeTask => 153,
             Self::FolderIconChange => 154,
+            Self::AdminWorkspaceInspect => 155,
+            Self::AdminFileDownload => 156,
+            Self::AdminRevisionDownload => 157,
         }
     }
 
@@ -1061,6 +1073,9 @@ impl AuditAction {
                 "admin_create_storage_policy_forced_purge_task"
             }
             Self::FolderIconChange => "folder_icon_change",
+            Self::AdminWorkspaceInspect => "admin_workspace_inspect",
+            Self::AdminFileDownload => "admin_file_download",
+            Self::AdminRevisionDownload => "admin_revision_download",
         }
     }
 
@@ -1225,13 +1240,20 @@ impl AuditAction {
                 Some(Self::AdminCreateStoragePolicyForcedPurgeTask)
             }
             "folder_icon_change" => Some(Self::FolderIconChange),
+            "admin_workspace_inspect" => Some(Self::AdminWorkspaceInspect),
+            "admin_file_download" => Some(Self::AdminFileDownload),
+            "admin_revision_download" => Some(Self::AdminRevisionDownload),
+
             _ => None,
         }
     }
 
     pub const fn group(self) -> &'static str {
         match self {
-            Self::AdminCreateUser
+            Self::AdminWorkspaceInspect
+            | Self::AdminFileDownload
+            | Self::AdminRevisionDownload
+            | Self::AdminCreateUser
             | Self::AdminForceDeleteUser
             | Self::AdminCreateTeam
             | Self::AdminCreatePolicyGroup

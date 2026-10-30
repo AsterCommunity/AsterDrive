@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { AdminFileDownloads } from "@/components/admin/content-access/AdminFileDownloads";
 import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
 	ADMIN_INTERACTIVE_TABLE_ROW_CLASS,
@@ -336,11 +337,13 @@ function DetailRow({
 }
 
 function FileDetailDialog({
+	revisionId,
 	file,
 	open,
 	onOpenChange,
 }: {
 	file: AdminFileDetail | null;
+	revisionId?: number;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -353,6 +356,11 @@ function FileDetailDialog({
 				</DialogHeader>
 				{file ? (
 					<div className="space-y-4">
+						<AdminFileDownloads
+							key={`${file.id}:${revisionId ?? "current"}`}
+							file={file}
+							revisionId={revisionId}
+						/>
 						<div className="rounded-lg bg-muted/30 p-3">
 							<DetailRow label={t("id")} value={file.id} />
 							<DetailRow label={t("admin_blob_id")} value={file.blob_id} />
@@ -400,11 +408,21 @@ function FileDetailDialog({
 									{file.versions.map((version) => (
 										<div
 											key={version.id}
-											className="rounded-lg bg-muted/30 p-3 text-sm"
+											className={
+												revisionId === version.id
+													? "rounded-lg bg-accent p-3 text-sm ring-1 ring-ring"
+													: "rounded-lg bg-muted/30 p-3 text-sm"
+											}
 										>
-											<div className="font-medium">
+											<Link
+												to={`/admin/files?fileId=${file.id}&revisionId=${version.id}`}
+												className="font-medium underline"
+												aria-current={
+													revisionId === version.id ? "true" : undefined
+												}
+											>
 												v{version.version} · {formatBytes(version.size)}
-											</div>
+											</Link>
 											<div className="mt-1 break-all font-mono text-xs text-muted-foreground">
 												#{version.id} · blob #{version.blob_id} ·{" "}
 												{displayValue(version.blob?.hash)}
@@ -528,6 +546,9 @@ function BlobDetailDialog({
 								value={displayValue(blob.storage_path)}
 							/>
 						</div>
+						{blob.files.length === 0 && blob.file_versions.length === 0 ? (
+							<p>{t("content_orphan_explanation")}</p>
+						) : null}
 						<div className="grid gap-4 md:grid-cols-2">
 							<div>
 								<h3 className="mb-2 text-sm font-semibold">
@@ -540,7 +561,26 @@ function BlobDetailDialog({
 												key={file.id}
 												className="rounded-lg bg-muted/30 p-3 text-sm"
 											>
-												<div className="truncate font-medium">{file.name}</div>
+												<Link
+													className="block truncate py-1 font-medium underline"
+													to={`/admin/files?fileId=${file.id}`}
+													onClick={() => onOpenChange(false)}
+												>
+													{file.name}
+												</Link>
+												<p>
+													{file.team_id != null
+														? t("content_team_owner", { id: file.team_id })
+														: t("content_personal_owner", {
+																id: file.owner_user_id,
+															})}{" "}
+													·{" "}
+													{t(
+														file.deleted_at
+															? "content_deleted"
+															: "content_live",
+													)}
+												</p>
 												<div className="mt-1 font-mono text-xs text-muted-foreground">
 													#{file.id} · {formatBytes(file.size)}
 												</div>
@@ -569,9 +609,33 @@ function BlobDetailDialog({
 												key={version.id}
 												className="rounded-lg bg-muted/30 p-3 text-sm"
 											>
-												<div className="font-medium">
-													file #{version.file_id} · v{version.version}
-												</div>
+												<Link
+													className="block py-1 font-medium underline"
+													to={`/admin/files?fileId=${version.file_id}&revisionId=${version.id}`}
+													onClick={() => onOpenChange(false)}
+												>
+													{version.file_name ?? `file #${version.file_id}`} · v
+													{version.version}
+												</Link>
+												<p>
+													{version.team_id != null
+														? t("content_team_owner", { id: version.team_id })
+														: t("content_personal_owner", {
+																id: version.owner_user_id ?? "—",
+															})}{" "}
+													·{" "}
+													{t(
+														version.deleted_at
+															? "content_deleted"
+															: "content_live",
+													)}{" "}
+													·{" "}
+													{t(
+														version.is_current
+															? "content_current"
+															: "content_revision",
+													)}
+												</p>
 												<div className="mt-1 font-mono text-xs text-muted-foreground">
 													#{version.id} · {formatBytes(version.size)}
 												</div>
@@ -641,6 +705,36 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const fileDetailDialog = useManagedAdminListDetailDialog<AdminFileDetail>();
 	const blobDetailDialog =
 		useManagedAdminListDetailDialog<AdminFileBlobDetail>();
+	const selectedFileId = isFiles
+		? parseOptionalNumber(searchParams.get("fileId"))
+		: undefined;
+	const selectedRevisionId = isFiles
+		? parseOptionalNumber(searchParams.get("revisionId"))
+		: undefined;
+	const { setDetail: setSelectedFile, onOpenChange: setFileDialogOpen } =
+		fileDetailDialog;
+	const [fileTargetUnavailable, setFileTargetUnavailable] = useState(false);
+	useEffect(() => {
+		setFileDialogOpen(false);
+		setFileTargetUnavailable(false);
+		if (!selectedFileId) return;
+		let active = true;
+		adminFileService
+			.getFile(selectedFileId)
+			.then((file) => {
+				if (active) setSelectedFile(file);
+			})
+			.catch((error) => {
+				if (active) {
+					setFileTargetUnavailable(true);
+					handleApiError(error);
+				}
+			});
+		return () => {
+			active = false;
+		};
+	}, [selectedFileId, setSelectedFile, setFileDialogOpen]);
+
 	const [maintenanceAction, setMaintenanceAction] =
 		useState<BlobMaintenanceAction | null>(null);
 	const [fullMaintenanceAction, setFullMaintenanceAction] =
@@ -732,11 +826,12 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		});
 	};
 	const openFileDetail = async (id: number) => {
-		try {
-			fileDetailDialog.setDetail(await adminFileService.getFile(id));
-		} catch (error) {
-			handleApiError(error);
-		}
+		setSearchParams((current) => {
+			const next = new URLSearchParams(current);
+			next.set("fileId", String(id));
+			next.delete("revisionId");
+			return next;
+		});
 	};
 	const openBlobDetail = async (id: number) => {
 		try {
@@ -1144,10 +1239,23 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 					totalPages={totalPages}
 				/>
 			</AdminPageShell>
+			{fileTargetUnavailable ? (
+				<p role="alert">{t("content_file_unavailable")}</p>
+			) : null}
 			<FileDetailDialog
 				file={fileDetailDialog.detail}
+				revisionId={selectedRevisionId}
 				open={fileDetailDialog.open}
-				onOpenChange={fileDetailDialog.onOpenChange}
+				onOpenChange={(open) => {
+					if (!open)
+						setSearchParams((current) => {
+							const next = new URLSearchParams(current);
+							next.delete("fileId");
+							next.delete("revisionId");
+							return next;
+						});
+					setFileDialogOpen(open);
+				}}
 			/>
 			<BlobDetailDialog
 				blob={blobDetailDialog.detail}

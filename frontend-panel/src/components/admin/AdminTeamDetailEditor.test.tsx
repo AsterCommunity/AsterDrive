@@ -555,3 +555,7 @@ describe("AdminTeamDetailEditor", () => {
 		expect(mockState.toastError).not.toHaveBeenCalled();
 	});
 });
+
+vi.mock("@/components/admin/content-access/AdminWorkspaceBrowser", () => ({
+	AdminWorkspaceBrowser: () => null,
+}));

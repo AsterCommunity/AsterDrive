@@ -294,6 +294,10 @@ export const router = createBrowserRouter([
 						path: "/admin/users/:userId",
 						element: <AdminUserDetailPage />,
 					},
+					{
+						path: "/admin/users/:userId/:section",
+						element: <AdminUserDetailPage />,
+					},
 					{ path: "/admin/teams", element: <AdminTeamsPage /> },
 					{ path: "/admin/teams/:teamId", element: <AdminTeamDetailPage /> },
 					{

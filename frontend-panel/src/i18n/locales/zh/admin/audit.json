@@ -274,5 +274,9 @@
 	"audit_presentation_resource_force_unlocked": "{{entity_type}} {{entity_id}}",
 	"audit_presentation_blob_maintenance_task_created": "{{action}}，{{blob_count}} 个 blob",
 	"audit_action_admin_create_storage_policy_forced_purge_task": "管理员确认清除存储策略",
-	"audit_presentation_storage_policy_forced_purge_task_created": "任务 {{task_id}}，影响摘要 {{impact_digest}}"
+	"audit_presentation_storage_policy_forced_purge_task_created": "任务 {{task_id}}，影响摘要 {{impact_digest}}",
+	"audit_action_admin_workspace_inspect": "管理员查看工作空间",
+	"audit_action_admin_file_download": "管理员访问文件内容",
+	"audit_action_admin_revision_download": "管理员访问文件版本",
+	"audit_presentation_admin_content_access": "原因 {{reason}} · 结果 {{result}}"
 }

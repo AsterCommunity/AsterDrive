@@ -81,6 +81,13 @@ export const ApiErrorCode = {
 	AuthEmailExists: "auth.email_exists",
 	AuthIdentifierExists: "auth.identifier_exists",
 	AuthAdminRequired: "auth.admin_required",
+	AdminContentDisabled: "admin.content_access_disabled",
+	AdminContentContextRequired: "admin.content_context_required",
+	AdminContentContextInvalid: "admin.content_context_invalid",
+	AdminContentTargetUnavailable: "admin.content_target_unavailable",
+	AdminContentReasonRequired: "admin.content_reason_required",
+	AdminContentAuditUnavailable: "admin.content_audit_unavailable",
+
 	AuthAccountDisabled: "auth.account_disabled",
 	AuthRequestSourceUntrusted: "auth.request_source_untrusted",
 	AuthRequestOriginUntrusted: "auth.request_origin_untrusted",

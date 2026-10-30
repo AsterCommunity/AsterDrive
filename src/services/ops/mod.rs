@@ -9,3 +9,5 @@ pub mod integrity;
 pub mod maintenance;
 
 pub(crate) mod metrics;
+
+pub mod content_access;

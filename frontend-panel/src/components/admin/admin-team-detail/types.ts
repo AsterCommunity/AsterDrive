@@ -1,1 +1,6 @@
-export type AdminTeamDetailTab = "overview" | "members" | "audit" | "danger";
+export type AdminTeamDetailTab =
+	| "files"
+	| "overview"
+	| "members"
+	| "audit"
+	| "danger";

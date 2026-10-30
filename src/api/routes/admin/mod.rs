@@ -25,6 +25,7 @@ pub use crate::api::dto::admin::{
 pub(crate) mod audit_logs;
 pub(crate) mod common;
 pub(crate) mod config;
+pub(crate) mod content_access;
 pub(crate) mod external_auth;
 pub(crate) mod files;
 pub(crate) mod folders;
@@ -305,6 +306,23 @@ pub fn routes(
                     // shares
                     .route("/shares", web::get().to(list_all_shares))
                     .route("/shares/{id}", web::delete().to(admin_delete_share))
+                    .route(
+                        "/content-access/status",
+                        web::get().to(content_access::status),
+                    )
+                    .route("/content-access", web::post().to(content_access::create))
+                    .route(
+                        "/content-access/workspace",
+                        web::get().to(content_access::workspace),
+                    )
+                    .route(
+                        "/content-access/{id}/download",
+                        web::get().to(content_access::download),
+                    )
+                    .route(
+                        "/files/{id}/download-init",
+                        web::post().to(content_access::init_download),
+                    )
                     // files / blobs observability
                     .route("/files", web::get().to(list_files))
                     .route("/files/{id}", web::get().to(get_file))

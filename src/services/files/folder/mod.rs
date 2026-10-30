@@ -488,3 +488,5 @@ mod tests {
         assert!(error.message().contains("must be a JSON object"));
     }
 }
+
+pub(crate) use listing::{FolderListingResult, build_folder_contents};

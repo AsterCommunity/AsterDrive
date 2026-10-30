@@ -558,6 +558,7 @@ function createBlobDetail(
 			{
 				created_at: "2026-05-01T00:20:00Z",
 				file_id: 21,
+				is_current: false,
 				id: 45,
 				size: 2048,
 				version: 3,
@@ -769,6 +770,44 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
 	});
 
+	it("links current and historical blob references to stable logical targets", async () => {
+		renderPage("blobs", "/admin/file-blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		const current = await screen.findByRole("link", {
+			name: "report.txt",
+			exact: true,
+		});
+		expect(current).toHaveAttribute("href", "/admin/files?fileId=21");
+		const revision = screen.getByRole("link", { name: /v3/ });
+		expect(revision).toHaveAttribute(
+			"href",
+			"/admin/files?fileId=21&revisionId=45",
+		);
+		fireEvent.click(revision);
+		await waitFor(() =>
+			expect(screen.getByTestId("location-search")).toHaveTextContent(
+				"fileId=21&revisionId=45",
+			),
+		);
+		expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+	});
+
+	it("keeps orphan blobs maintenance-only without a raw download entry", async () => {
+		mockState.getBlob.mockResolvedValue(
+			createBlobDetail({ files: [], file_versions: [] }),
+		);
+		renderPage("blobs", "/admin/file-blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		expect(
+			await screen.findByText("content_orphan_explanation"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: /download/i }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /download/i }),
+		).not.toBeInTheDocument();
+	});
 	it("updates blob range filters, pagination, and detail dialog visibility", async () => {
 		mockState.listBlobs
 			.mockResolvedValueOnce({
@@ -1245,3 +1284,7 @@ describe("AdminFilesPage", () => {
 		expect(screen.queryByText("admin_file_versions")).not.toBeInTheDocument();
 	});
 });
+
+vi.mock("@/components/admin/content-access/AdminFileDownloads", () => ({
+	AdminFileDownloads: () => null,
+}));

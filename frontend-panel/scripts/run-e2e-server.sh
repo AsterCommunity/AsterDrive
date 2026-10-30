@@ -31,6 +31,14 @@ export CARGO_TARGET_DIR="${ASTER_E2E_TARGET_DIR:-$REPO_ROOT/target/e2e}"
 SERVER_BIN="$CARGO_TARGET_DIR/debug/aster_drive"
 
 cd "$RUNTIME_DIR"
+# A pinned executable avoids another worktree replacing target/debug/aster_drive mid-run.
+if [ -n "${ASTER_E2E_SERVER_BIN:-}" ]; then
+    if [ ! -x "$ASTER_E2E_SERVER_BIN" ]; then
+        echo "ASTER_E2E_SERVER_BIN must name an executable file" >&2
+        exit 1
+    fi
+    exec "$ASTER_E2E_SERVER_BIN"
+fi
 if [ "${ASTER_E2E_SKIP_BUILD:-}" = "1" ] && [ -x "$SERVER_BIN" ]; then
 	exec "$SERVER_BIN"
 fi

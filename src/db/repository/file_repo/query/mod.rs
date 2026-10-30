@@ -32,3 +32,5 @@ pub use policy_purge::{
     StoragePolicyPurgeImpact, find_files_referencing_policy_blobs_paginated,
     summarize_storage_policy_purge_impact,
 };
+
+pub(crate) use cursor::{FileCursorQuery, find_by_folder_cursor_in_scope};

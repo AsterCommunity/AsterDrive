@@ -1083,3 +1083,29 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
   "removed": 3
 }
 ```
+
+## 管理员只读内容访问
+
+`admin_workspace_content_access_enabled` 默认关闭。管理员身份本身不建立内容访问上下文；普通全局文件/blob 元数据观测接口保持原有职责。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/admin/content-access/status` | 当前 writer 配置是否允许内容访问 |
+| `POST` | `/admin/content-access` | 以 `scope_kind`、`target_id`、`reason` 和可选 `remark` 建立短期访问上下文 |
+| `GET` | `/admin/content-access/workspace` | 使用 `access_id`、`folder_id`、`deleted` 与现有目录分页/排序参数读取目录及面包屑 |
+| `POST` | `/admin/files/{id}/download-init` | 使用 `access_id` 和可选 `revision_id` 初始化当前或指定版本的附件下载 |
+| `GET` | `/admin/content-access/{id}/download` | init 返回的同源流式下载；支持 Range 和 If-None-Match |
+
+访问原因限定为 `user_support`、`data_recovery`、`security_investigation`、`other`。备注最多 500 个字符，不接受控制字符；原因和备注只通过 POST body 传递，不能写入导航 URL、下载 URL 或普通日志。
+
+访问上下文保存在 `admin_content_accesses`，有效期为 10 分钟，绑定实际管理员和登录 session。每次 Drive 请求重新检查 writer 侧开关、账号角色/状态、session 撤销与目标用户/团队状态。personal scope 不包含用户所属团队；目录祖先链、文件和 revision 必须始终属于明确的目标范围。过期上下文由认证会话维护任务回收。
+
+目录文件使用 cursor 分页，文件夹使用 offset 分页；`deleted=false` 读取当前目录的未删除条目，`deleted=true` 只读取该目录已删除条目。需要查看某个正常目录的已删除内容时，先导航到该目录再切换过滤。回收站内仍有逻辑归属和保留内容的文件允许受控下载；被清除、退役或失去逻辑文件上下文的内容不开放 blob 旁路。
+
+下载 init 从 writer 的一致快照固定 revision、blob、大小、MIME 和 ETag。附件资源句柄沿现有 connector 能力返回 presigned URL 或绑定该 revision 的同源流地址。**init 即内容访问边界**：presigned 交付时，初始化成功表示管理员已获得内容访问；之后关闭开关或撤销 session 不会撤回供应商已签发的 URL，它只受既有签名期限约束。后续 Drive 流请求仍执行当前授权检查。浏览器直接使用原生附件下载，不将整个响应转为 JavaScript Blob。
+
+`admin_workspace_inspect`、`admin_file_download`、`admin_revision_download` 使用必需的同步持久化审计，不受普通审计开关或动作过滤影响。访问上下文/下载授权和对应审计在同一事务内提交；审计失败时不返回访问上下文、presigned URL 或流响应。审计记录实际管理员、目标、文件/revision、原因、备注、可信来源、结果与 Range 使用情况；团队访问记录也进入团队审计和导出。`initialized` 表示 init 成功，`response_started` 表示流响应已准备，均不宣称客户端已完整接收；presigned 的供应商传输结果不由 Drive 证明。
+
+稳定错误码包括 `admin.content_access_disabled`、`admin.content_context_required`、`admin.content_context_invalid`、`admin.content_target_unavailable`、`admin.content_reason_required`、`admin.content_audit_unavailable`。Range 的非法或不可满足请求沿现有 REST 下载契约返回 400；正常范围返回 206，条件请求命中返回 304。
+
+前端入口为 `/admin/users/:userId/files` 和 `/admin/teams/:teamId/files`；`/admin/files?fileId=...&revisionId=...` 用于可刷新/复制的逻辑文件与版本定位。blob 引用链接交接到此入口，orphan blob 只保留维护操作。

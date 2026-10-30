@@ -5,6 +5,7 @@
 mod common;
 
 mod admin;
+mod admin_content_access;
 mod audit;
 mod audit_writer;
 mod cli;

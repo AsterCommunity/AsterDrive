@@ -54,3 +54,5 @@ pub mod webdav_account;
 pub mod wopi_session;
 
 pub mod workspace_activity;
+
+pub mod admin_content_access;

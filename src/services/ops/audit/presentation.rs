@@ -166,6 +166,24 @@ fn detail_message(
     let mut params = BTreeMap::new();
 
     match action {
+        AuditAction::AdminWorkspaceInspect
+        | AuditAction::AdminFileDownload
+        | AuditAction::AdminRevisionDownload => {
+            copy_params(
+                details,
+                &mut params,
+                &[
+                    "scope_kind",
+                    "target_id",
+                    "file_id",
+                    "revision_id",
+                    "reason",
+                    "result",
+                    "has_range",
+                ],
+            );
+            Some(message("admin_content_access", params))
+        }
         AuditAction::ConfigUpdate => {
             copy_param(details, &mut params, "value");
             Some(message("config_value_updated", params))

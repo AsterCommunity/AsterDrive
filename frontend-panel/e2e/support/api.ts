@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import type { ResourceLockState } from "@/types/api";
+import type { InitUploadResponse, ResourceLockState } from "@/types/api";
 import { type E2eApiResponse, expectApiSuccess } from "./api-response";
 import type { TestFile } from "./fixtures";
 import { apiJsonInPage } from "./network";
@@ -150,26 +150,70 @@ export async function uploadFileViaApi(
 			};
 			const binary = atob(bufferBase64);
 			const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-			const formData = new FormData();
-			formData.append(
-				"file",
-				new File([bytes], file.name, { type: file.mimeType }),
-			);
-			if (folderId !== null) {
-				formData.append("folder_id", String(folderId));
-			}
-			const headers: Record<string, string> = {};
-			const csrfToken = readCookie("aster_csrf");
-			if (csrfToken) {
-				headers["X-CSRF-Token"] = csrfToken;
-			}
 
-			const result = await fetch(requestPath, {
-				body: formData,
-				credentials: "include",
-				headers,
+			const csrfToken = readCookie("aster_csrf");
+			const headers: Record<string, string> = csrfToken
+				? { "X-CSRF-Token": csrfToken }
+				: {};
+			const initialized = await fetch(`${requestPath}/init`, {
 				method: "POST",
+				credentials: "include",
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					filename: file.name,
+					mime_type: file.mimeType,
+					total_size: bytes.length,
+					folder_id: folderId,
+				}),
 			});
+			if (!initialized.ok)
+				return { status: initialized.status, text: await initialized.text() };
+			const payload =
+				(await initialized.json()) as E2eApiResponse<InitUploadResponse>;
+			if (!payload.data?.upload_id)
+				throw new Error("upload init returned no session");
+			const init = payload.data;
+			let result: Response;
+			if (init.mode === "stream") {
+				result = await fetch(`${requestPath}/${init.upload_id}/body`, {
+					method: "PUT",
+					credentials: "include",
+					headers: { ...headers, "Content-Type": "application/octet-stream" },
+					body: bytes,
+				});
+			} else if (init.mode === "chunked") {
+				if (!init.chunk_size || init.chunk_size <= 0)
+					throw new Error("upload init returned invalid chunk size");
+				for (
+					let offset = 0, index = 0;
+					offset < bytes.length;
+					offset += init.chunk_size, index++
+				) {
+					const chunk = await fetch(
+						`${requestPath}/${init.upload_id}/${index}`,
+						{
+							method: "PUT",
+							credentials: "include",
+							headers: {
+								...headers,
+								"Content-Type": "application/octet-stream",
+							},
+							body: bytes.slice(offset, offset + init.chunk_size),
+						},
+					);
+					if (!chunk.ok)
+						return { status: chunk.status, text: await chunk.text() };
+				}
+				result = await fetch(`${requestPath}/${init.upload_id}/complete`, {
+					method: "POST",
+					credentials: "include",
+					headers,
+				});
+			} else {
+				throw new Error(
+					`server upload fixture requires stream or chunked mode, got ${init.mode}`,
+				);
+			}
 
 			return {
 				status: result.status,

@@ -12,6 +12,7 @@ import type { AdminTeamInfo } from "@/types/api";
 import type { AdminTeamDetailTab } from "./types";
 
 interface AdminTeamDetailShellProps {
+	filesSection?: ReactNode;
 	auditSection: ReactNode;
 	contentRef: RefObject<HTMLDivElement | null>;
 	currentPolicyGroupName: string | null;
@@ -35,6 +36,7 @@ interface AdminTeamDetailShellProps {
 }
 
 export function AdminTeamDetailShell({
+	filesSection,
 	auditSection,
 	contentRef,
 	currentPolicyGroupName,
@@ -219,10 +221,22 @@ export function AdminTeamDetailShell({
 									>
 										{t("team_danger_zone")}
 									</TabsTrigger>
+									<TabsTrigger
+										value="files"
+										className="h-10 min-w-0 flex-none rounded-none px-0"
+									>
+										{t("content_workspace")}
+									</TabsTrigger>
 								</TabsList>
 							</div>
 
 							<div className="px-6 pt-4 pb-6 max-lg:px-4 max-lg:pt-3 max-lg:pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+								<TabsContent
+									value="files"
+									className="flex min-h-0 flex-col outline-none"
+								>
+									{currentTab === "files" ? filesSection : null}
+								</TabsContent>
 								<TabsContent
 									value="overview"
 									className={cn(
