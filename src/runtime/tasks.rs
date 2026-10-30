@@ -806,6 +806,50 @@ mod metrics_sampling_tests {
         atomic::{AtomicUsize, Ordering},
     };
 
+    #[cfg(feature = "metrics")]
+    #[tokio::test]
+    async fn follower_background_sampler_publishes_native_pool_and_capacity_then_stops() {
+        use aster_forge_metrics::MetricsProvider;
+        let mut primary = test_support::setup_primary_state().await.get_ref().clone();
+        let mut config = primary.config.as_ref().clone();
+        config.server.upload_temp_dir = std::env::temp_dir().to_string_lossy().into_owned();
+        primary.config = Arc::new(config);
+        let provider = MetricsProvider::builder()
+            .with_prometheus()
+            .unwrap()
+            .build()
+            .unwrap();
+        primary.metrics = aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
+        let state = web::Data::new(primary.follower_view());
+        let stop = CancellationToken::new();
+        let tasks = spawn_follower_background_tasks(state, stop.clone());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let raw = provider
+                    .export_prometheus(Duration::from_secs(1))
+                    .await
+                    .unwrap();
+                if raw.contains(
+                    "db_client_connection_max{db_client_connection_pool_name=\"main.writer\"} 1",
+                ) && raw.contains(
+                    "aster_drive_observability_snapshot_valid{source=\"staging_filesystem\"} 1",
+                ) {
+                    assert!(!raw.contains("db_client_connection_pool_name=\"main.reader\""));
+                    assert!(!raw.contains("aster_drive_upload_sessions_active"));
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), tasks.shutdown())
+            .await
+            .unwrap();
+        assert!(stop.is_cancelled());
+        provider.shutdown(Duration::from_secs(1)).await.unwrap();
+    }
+
     #[tokio::test]
     async fn cancelled_sampler_never_starts_database_work() {
         let calls = Arc::new(AtomicUsize::new(0));

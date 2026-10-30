@@ -217,6 +217,50 @@ fn invalid_hash() -> AsterError {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "metrics")]
+    #[tokio::test]
+    async fn configured_provider_exports_profile_and_role_identity() {
+        use crate::config::node_mode::NodeRuntimeMode;
+        use aster_forge_metrics::{MetricDescriptor, ProductCounter};
+        use std::time::Duration;
+
+        let mut config = ObservabilityConfig::default();
+        config.prometheus.enabled = true;
+        config.environment = "test".into();
+        for role in [NodeRuntimeMode::Primary, NodeRuntimeMode::Follower] {
+            let provider = config.create_provider(role, "profile-test-boot").unwrap();
+            assert!(provider.enabled());
+            let handle = provider
+                .register_batch(&[
+                    MetricDescriptor::counter("test", "events", "Test events.", &[])
+                        .with_unit("{event}"),
+                ])
+                .unwrap()
+                .remove(0);
+            ProductCounter::from_handle(handle).unwrap().inc(&[], 1);
+            let output = provider
+                .export_prometheus(Duration::from_secs(1))
+                .await
+                .unwrap();
+            let sample = output
+                .lines()
+                .find(|line| line.starts_with("test_events_total{"))
+                .unwrap();
+            for attribute in [
+                "service_name=\"asterdrive\"".to_owned(),
+                format!("service_version=\"{}\"", crate::build_info::VERSION),
+                format!("aster_role=\"{}\"", role.as_str()),
+                "deployment_environment_name=\"test\"".into(),
+                "service_instance_id=\"profile-test-boot\"".into(),
+                "service_namespace=\"aster\"".into(),
+                "aster_metrics_schema_version=\"aster-metrics/v1\"".into(),
+            ] {
+                assert!(sample.contains(&attribute), "missing {attribute}: {sample}");
+            }
+            provider.shutdown(Duration::from_secs(1)).await.unwrap();
+        }
+    }
+
     fn valid_auth() -> MetricsBasicAuthConfig {
         use aster_forge_crypto::{
             PasswordHashPolicy, PasswordHashVerificationLimits, PasswordHashWorkFactor,
