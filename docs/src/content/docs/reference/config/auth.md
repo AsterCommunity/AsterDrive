@@ -28,6 +28,8 @@ bootstrap_insecure_cookies = true
 
 首次自动生成配置时，服务会写入一段随机密钥。可以理解成"全站登录签名密钥"。
 
+自定义值必须至少包含 **32 个 UTF-8 字节**。配置文件与环境变量合并后，启动和只读配置检查都会校验最终值；过短会明确报告 `auth.jwt_secret`、所需字节数和实际字节数，不会输出密钥内容或自动替换显式值。使用 `openssl rand -hex 32` 生成随机值并固定保存；这里得到的是 64 个 ASCII 字符，服务直接使用字符串字节，不做十六进制解码。
+
 :::caution[正式环境固定它，避免来回改动]
 一旦修改：
 - 当前所有登录会话失效
@@ -101,7 +103,7 @@ bootstrap_insecure_cookies = true
 
 ```toml
 [auth]
-jwt_secret = "replace-with-your-own-secret"
+jwt_secret = "replace-with-a-random-secret-of-at-least-32-bytes"
 share_cookie_secret = "replace-with-share-cookie-secret"
 direct_link_secret = "replace-with-direct-link-secret"
 mfa_secret_key = "replace-with-another-stable-secret"

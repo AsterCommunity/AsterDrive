@@ -10,7 +10,7 @@ use chrono::Utc;
 use sea_orm::ConnectionTrait;
 use std::sync::Arc;
 
-use super::{auth_policy, auth_signer, auth_verifier, map_forge_auth_error};
+use super::{auth_policy, map_forge_auth_error};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{auth_session_repo, user_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
@@ -37,9 +37,11 @@ pub async fn refresh_tokens(
 ) -> Result<(String, String)> {
     let result = async {
         let policy = auth_policy(state)?;
+        let key = aster_forge_auth::JwtKey::hmac(state.config().auth.jwt_secret.as_bytes())
+            .map_err(map_forge_auth_error)?;
         let service = RefreshTokenService::new(
-            auth_signer(state.config().auth.jwt_secret.as_bytes(), policy.clone())?,
-            auth_verifier(state.config().auth.jwt_secret.as_bytes(), policy)?,
+            aster_forge_auth::JwtSigner::with_system_clock(key.clone(), policy.clone()),
+            aster_forge_auth::JwtVerifier::with_system_clock(key, policy),
             Arc::new(DriveRefreshStore {
                 state: state.clone(),
             }),

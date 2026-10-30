@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JWT signing configuration** — Startup and read-only configuration checks reject `auth.jwt_secret` values shorter than 32 UTF-8 bytes after environment overrides, reporting the field and required/actual lengths without exposing or replacing the secret. Defensive runtime signing diagnostics retain the key-length failure reason. (#661)
 - **Selection shortcuts after list updates** — Ctrl/Cmd+A and Escape use the latest committed list callbacks immediately, including when search results appear before passive effects run.
 - **OneDrive authorization races** — A delayed OAuth callback can no longer overwrite a newer application configuration or recreate a deleted credential. Authorization flows retain the saved credential revision through the final transaction. Unfinished authorization pages opened before the upgrade must restart the flow; existing saved authorizations are retained.
 

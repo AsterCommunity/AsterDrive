@@ -189,6 +189,17 @@ impl Default for AuthConfig {
 }
 
 impl AuthConfig {
+    pub(crate) fn validate(&self) -> crate::errors::Result<()> {
+        let minimum = aster_forge_auth::JwtAlgorithm::Hs256.minimum_key_bytes();
+        let actual = self.jwt_secret.len();
+        if actual < minimum {
+            return Err(crate::errors::AsterError::config_error(format!(
+                "auth.jwt_secret must be at least {minimum} bytes for HS256 (got {actual} bytes)"
+            )));
+        }
+        Ok(())
+    }
+
     fn random_hex_secret() -> String {
         use rand::RngExt;
         let mut rng = rand::rng();

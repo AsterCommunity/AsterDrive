@@ -78,10 +78,10 @@ pub async fn authenticate_access_token(
         expected_type = expected_type.as_str(),
         "authenticating token"
     );
-    let claims = auth_verifier(
-        state.config().auth.jwt_secret.as_bytes(),
+    let claims = JwtVerifier::with_system_clock(
+        JwtKey::hmac(state.config().auth.jwt_secret.as_bytes()).map_err(map_forge_auth_error)?,
         auth_policy(state)?,
-    )?
+    )
     .verify(token, ForgeTokenType::Access)
     .map_err(map_forge_auth_error)?
     .into_claims();
@@ -128,7 +128,8 @@ fn issue_tokens(
         .map(str::to_string)
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let policy = signing_policy(auth_policy)?;
-    let signer = auth_signer(jwt_secret.as_bytes(), policy)?;
+    let key = JwtKey::hmac(jwt_secret.as_bytes()).map_err(map_forge_auth_error)?;
+    let signer = JwtSigner::with_system_clock(key, policy);
     let pair = signer
         .issue(
             ForgeSubject::new(user_id.to_string())
@@ -286,20 +287,6 @@ fn signing_policy(policy: RuntimeAuthPolicy) -> Result<JwtPolicy> {
     .map_err(|_| AsterError::internal_error("invalid auth signing policy"))
 }
 
-/// Validates the signing configuration and maps Forge policy errors to internal product errors.
-fn auth_signer(secret: &[u8], policy: JwtPolicy) -> Result<JwtSigner> {
-    let key =
-        JwtKey::hmac(secret).map_err(|_| AsterError::internal_error("invalid auth signing key"))?;
-    Ok(JwtSigner::with_system_clock(key, policy))
-}
-
-/// Builds the product verifier with the same strict signing domain as the issuer.
-fn auth_verifier(secret: &[u8], policy: JwtPolicy) -> Result<JwtVerifier> {
-    let key =
-        JwtKey::hmac(secret).map_err(|_| AsterError::internal_error("invalid auth signing key"))?;
-    Ok(JwtVerifier::with_system_clock(key, policy))
-}
-
 /// Validates either local token purpose for logout/session-identification callers. Protected-route
 /// authentication instead passes its exact expected purpose directly to the Forge verifier.
 ///
@@ -309,7 +296,8 @@ fn auth_verifier(secret: &[u8], policy: JwtPolicy) -> Result<JwtVerifier> {
 pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
     let policy = JwtPolicy::new("aster-drive", "aster-drive-web", 1, 1)
         .map_err(|_| AsterError::internal_error("invalid auth verification policy"))?;
-    let verifier = auth_verifier(secret.as_bytes(), policy)?;
+    let key = JwtKey::hmac(secret.as_bytes()).map_err(map_forge_auth_error)?;
+    let verifier = JwtVerifier::with_system_clock(key, policy);
     let verified = match verifier.verify(token, ForgeTokenType::Access) {
         Err(ForgeAuthError::WrongTokenType) => verifier.verify(token, ForgeTokenType::Refresh),
         other => other,
@@ -347,6 +335,10 @@ fn product_claims(claims: TokenClaims) -> Result<Claims> {
 fn map_forge_auth_error(error: ForgeAuthError) -> AsterError {
     match error {
         ForgeAuthError::Expired => AsterError::auth_token_expired("token expired"),
+        ForgeAuthError::KeyTooShort => AsterError::internal_error(format!(
+            "auth.jwt_secret must be at least {} bytes for HS256: {error}",
+            aster_forge_auth::JwtAlgorithm::Hs256.minimum_key_bytes()
+        )),
         ForgeAuthError::InvalidPolicy
         | ForgeAuthError::Encoding
         | ForgeAuthError::CryptoProviderNotInitialized
@@ -368,6 +360,42 @@ mod tests {
     use super::*;
 
     const SECRET: &str = "test_secret_32bytes_xxxxxxxxxxxxxxxxx";
+
+    #[test]
+    fn short_signing_keys_report_safe_configuration_diagnostics() {
+        let secret = "short-private-key";
+        for error in [
+            issue_tokens(
+                1,
+                1,
+                secret,
+                RuntimeAuthPolicy {
+                    cookie_secure: true,
+                    allow_user_registration: true,
+                    passkey_login_enabled: true,
+                    password_login_enabled: true,
+                    register_activation_enabled: false,
+                    access_token_ttl_secs: 900,
+                    refresh_token_ttl_secs: 604800,
+                },
+                Some("session-1"),
+                false,
+            )
+            .err()
+            .unwrap(),
+            verify_token("invalid-token", secret).unwrap_err(),
+        ] {
+            let message = error.to_string();
+            assert!(message.contains("auth.jwt_secret"));
+            assert!(message.contains("at least 32 bytes for HS256"));
+            assert!(message.contains("key is too short"));
+            assert!(!message.contains("short-private-key"));
+        }
+        assert!(matches!(
+            map_forge_auth_error(ForgeAuthError::KeyTooShort),
+            AsterError::InternalError(_)
+        ));
+    }
 
     fn pair(password_change: bool) -> IssuedTokens {
         crate::runtime::test_support::initialize_jwt_crypto_provider();
@@ -393,11 +421,10 @@ mod tests {
     #[test]
     fn issued_pair_uses_runtime_lifetimes_and_one_session_identity() {
         let tokens = pair(false);
-        let verifier = auth_verifier(
-            SECRET.as_bytes(),
+        let verifier = JwtVerifier::with_system_clock(
+            JwtKey::hmac(SECRET.as_bytes()).unwrap(),
             JwtPolicy::new("aster-drive", "aster-drive-web", 900, 604800).unwrap(),
-        )
-        .unwrap();
+        );
         let access = verifier
             .verify(&tokens.access_token, ForgeTokenType::Access)
             .unwrap()

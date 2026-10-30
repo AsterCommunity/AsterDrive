@@ -154,6 +154,7 @@ fn load_from_dir(
         .map_err(map_static_config_error)?;
 
     resolve_loaded_paths(base_dir, &config_path, &mut cfg)?;
+    cfg.auth.validate()?;
     cfg.observability.validate()?;
 
     Ok(LoadedConfig {
@@ -184,6 +185,7 @@ fn load_read_only_from_dir(base_dir: &Path, include_env: bool) -> Result<Config>
         .try_deserialize::<Config>()
         .map_err(map_static_config_error)?;
     resolve_loaded_paths(base_dir, &config_path, &mut config)?;
+    config.auth.validate()?;
     config.observability.validate()?;
     Ok(config)
 }
@@ -444,6 +446,114 @@ mod tests {
     }
 
     #[test]
+    fn jwt_secret_file_validation_uses_bytes_and_preserves_explicit_values() {
+        for secret in [
+            String::new(),
+            "short-private-key".to_string(),
+            "x".repeat(31),
+            "x".repeat(32),
+            "x".repeat(33),
+            "猫".repeat(10),
+            format!("{}ab", "猫".repeat(10)),
+            "猫".repeat(11),
+            "0123456789abcdef0123456789abcdef".to_string(),
+        ] {
+            let dir = make_temp_dir("jwt-secret-file-validation");
+            let path = dir.join(DEFAULT_CONFIG_PATH);
+            let mut config = Config::default();
+            config.auth.jwt_secret = secret.clone();
+            let original = toml::to_string_pretty(&config).unwrap();
+            write(&path, original.as_bytes());
+
+            for result in [
+                load_from_dir(&dir, None, false).map(|loaded| loaded.config),
+                load_read_only_from_dir(&dir, false),
+            ] {
+                if secret.len() < 32 {
+                    let error = result.expect_err("short JWT secret must fail").to_string();
+                    assert!(error.contains("auth.jwt_secret"));
+                    assert!(error.contains("at least 32 bytes for HS256"));
+                    assert!(error.contains(&format!("got {} bytes", secret.len())));
+                    if !secret.is_empty() {
+                        assert!(!error.contains(&secret));
+                    }
+                } else {
+                    assert_eq!(result.unwrap().auth.jwt_secret, secret);
+                }
+            }
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn jwt_secret_environment_is_validated_after_overriding_file() {
+        if !is_isolated_environment_child() {
+            for secret in ["", "short-private-key", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"] {
+                run_in_isolated_environment(
+                    "config::loader::tests::jwt_secret_environment_is_validated_after_overriding_file",
+                    &AUTH_SECRET_ENV_NAMES,
+                    &[("ASTER__AUTH__JWT_SECRET", secret)],
+                );
+            }
+            return;
+        }
+        let dir = make_temp_dir("jwt-secret-environment-validation");
+        let path = dir.join(DEFAULT_CONFIG_PATH);
+        let original = toml::to_string_pretty(&Config::default()).unwrap();
+        write(&path, original.as_bytes());
+        let secret = std::env::var("ASTER__AUTH__JWT_SECRET").unwrap();
+        for result in [
+            load_from_dir(&dir, None, true).map(|loaded| loaded.config),
+            load_read_only_from_dir(&dir, true),
+        ] {
+            let error = result
+                .expect_err("short environment secret must fail")
+                .to_string();
+            assert!(error.contains("auth.jwt_secret"));
+            assert!(error.contains(&format!("got {} bytes", secret.len())));
+            if !secret.is_empty() {
+                assert!(!error.contains(&secret));
+            }
+        }
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn valid_jwt_secret_environment_override_accepts_short_file_value() {
+        const SECRET: &str = "0123456789abcdef0123456789abcdef";
+        if !is_isolated_environment_child() {
+            run_in_isolated_environment(
+                "config::loader::tests::valid_jwt_secret_environment_override_accepts_short_file_value",
+                &AUTH_SECRET_ENV_NAMES,
+                &[("ASTER__AUTH__JWT_SECRET", SECRET)],
+            );
+            return;
+        }
+        let dir = make_temp_dir("valid-jwt-secret-environment-override");
+        let path = dir.join(DEFAULT_CONFIG_PATH);
+        let mut config = Config::default();
+        config.auth.jwt_secret = "short-file-secret".into();
+        let original = toml::to_string_pretty(&config).unwrap();
+        write(&path, original.as_bytes());
+        assert_eq!(
+            load_from_dir(&dir, None, true)
+                .unwrap()
+                .config
+                .auth
+                .jwt_secret,
+            SECRET
+        );
+        assert_eq!(
+            load_read_only_from_dir(&dir, true).unwrap().auth.jwt_secret,
+            SECRET
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn load_backfills_missing_auth_secrets_without_reusing_existing_jwt_secret() {
         if !is_isolated_environment_child() {
             run_in_isolated_environment(
@@ -455,7 +565,7 @@ mod tests {
         }
 
         let dir = make_temp_dir("backfill-auth-secrets");
-        let legacy_jwt_secret = "legacy-jwt-secret";
+        let legacy_jwt_secret = "legacy-jwt-secret-at-least-32-bytes";
         write(
             &dir.join(DEFAULT_CONFIG_PATH),
             format!(
@@ -543,7 +653,7 @@ url = "sqlite://asterdrive.db?mode=rwc"
         write(
             &dir.join(DEFAULT_CONFIG_PATH),
             br#"[auth]
-jwt_secret = "file-jwt-secret"
+jwt_secret = "file-jwt-secret-at-least-32-bytes"
 share_cookie_secret = "file-share-secret"
 mfa_secret_key = "file-mfa-secret"
 "#,

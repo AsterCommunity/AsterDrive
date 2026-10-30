@@ -26,6 +26,8 @@ bootstrap_insecure_cookies = true
 
 ### `jwt_secret`
 
+Custom values must contain at least **32 UTF-8 bytes**. Startup and read-only configuration checks validate the final value after file and environment overrides are merged. A short value reports `auth.jwt_secret`, the required length and the actual byte count without exposing or replacing the configured secret. Generate a random value with `openssl rand -hex 32` and keep it stable. This produces 64 ASCII characters; the service uses the string bytes directly without hex decoding.
+
 When the configuration is generated for the first time, the service writes a random secret. You can think of it as the "site-wide login signing secret".
 
 :::caution[Keep it stable in production]
@@ -101,7 +103,7 @@ The default configuration already supports the first login over HTTP; no extra o
 
 ```toml
 [auth]
-jwt_secret = "replace-with-your-own-secret"
+jwt_secret = "replace-with-a-random-secret-of-at-least-32-bytes"
 share_cookie_secret = "replace-with-share-cookie-secret"
 direct_link_secret = "replace-with-direct-link-secret"
 mfa_secret_key = "replace-with-another-stable-secret"
