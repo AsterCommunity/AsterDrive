@@ -141,6 +141,8 @@ Grafana 示例账号是 `admin` / `admin`。生产环境应改成独立强密码
 
 ## Grafana dashboard
 
+本版使用 **Aster Metrics v1**，旧指标不再导出。应用与 Grafana JSON 一起升级，自定义告警/recording rules 按[生成指标目录](/metrics/asterdrive-v1.json)迁移，不能把新旧 schema 相加。CPU 是秒累计 Counter，速率不再除以 1000。HTTP 请求量来自 duration count，状态标签为 http_response_status_code；DB 错误用 error_type 非空。HTTP duration 到响应体结束，长下载与旧 header 完成口径不可直接比较。
+
 AsterDrive 文档站提供可直接导入的 Grafana dashboard JSON。官方文档站和自托管文档站都会在站点根路径下分发这个文件：
 
 ```text
@@ -308,17 +310,17 @@ service:
 
 上线后第一天建议重点看：
 
-- `http_requests_total` 里 5xx 是否持续增长
-- `http_request_duration_seconds` 的 p95/p99 是否随时间抬升
-- `db_queries_total{status="error"}` 是否非零
-- `db_query_duration_seconds` 是否出现异常慢查询分布
-- `storage_driver_operations_total{status="failure",kind!="not_found"}` 是否非零
-- `background_tasks_pending` 是否持续堆积
-- `background_task_retries_total` 是否持续增长
-- `share_download_rollback_pending` 是否持续堆积
-- `process_memory_rss_bytes` 是否单向增长且空闲后不回落
+- `http_server_request_duration_seconds_count` 里 5xx 是否持续增长
+- `http_server_request_duration_seconds` 的 p95/p99 是否随时间抬升
+- `db_client_operation_duration_seconds_count{error_type!=""}` 是否非零
+- `db_client_operation_duration_seconds` 是否出现异常慢查询分布
+- `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}` 是否非零
+- `aster_task_pending` 是否持续堆积
+- `aster_task_retries_total` 是否持续增长
+- `aster_drive_share_download_rollback_pending` 是否持续堆积
+- `process_memory_usage_bytes` 是否单向增长且空闲后不回落
 
-`storage_driver_operations_total{status="failure",kind="not_found"}` 建议单独观察。缩略图、缓存或对象探测场景里，`not_found` 常常只是预期的 miss。告警规则更适合优先关注 `storage_driver_operations_total{status="failure",kind!="not_found"}` 这类硬失败。
+`aster_drive_storage_driver_operations_total{status="failure",kind="not_found"}` 建议单独观察。缩略图、缓存或对象探测场景里，`not_found` 常常只是预期的 miss。告警规则更适合优先关注 `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}` 这类硬失败。
 
 ## 压测期间的指标口径
 
@@ -326,8 +328,8 @@ service:
 
 重点对照：
 
-- `http_request_duration_seconds`：确认慢的是 REST 下载、WebDAV GET 还是 PROPFIND。
-- `db_query_duration_seconds` / `db_queries_total{status="error"}`：确认大目录枚举和权限快照有没有打爆数据库。
-- `storage_driver_operations_total` 与 storage driver latency 指标：区分对象存储限流、range read 延迟和普通 not_found miss。
-- `process_memory_rss_bytes`：长时间并发下载和大目录 PROPFIND 下确认 RSS 是否持续抬升。
+- `http_server_request_duration_seconds`：确认慢的是 REST 下载、WebDAV GET 还是 PROPFIND。
+- `db_client_operation_duration_seconds` / `db_client_operation_duration_seconds_count{error_type!=""}`：确认大目录枚举和权限快照有没有打爆数据库。
+- `aster_drive_storage_driver_operations_total` 与 storage driver latency 指标：区分对象存储限流、range read 延迟和普通 not_found miss。
+- `process_memory_usage_bytes`：长时间并发下载和大目录 PROPFIND 下确认 RSS 是否持续抬升。
 - remote follower 场景：同时采 primary 和 follower，单看一端很容易误判 tunnel 或上游对象存储瓶颈。

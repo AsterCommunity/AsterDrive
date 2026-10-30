@@ -14,6 +14,9 @@ pub(crate) async fn sample_primary(state: &PrimaryAppState) {
         return;
     }
     let now = Utc::now();
+    state
+        .db_handles
+        .record_pool_metrics(state.metrics().forge_recorder().as_ref());
     let result: Result<()> = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         let uploads = observability_repo::upload_backlog(state.writer_db(), now).await?;
         let blobs = observability_repo::blob_backlog(state.writer_db()).await?;
@@ -230,20 +233,25 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "upload_sessions_active",
+                "aster_drive_upload_sessions_active",
                 &["mode=\"offset_staging\"", "state=\"uploading\""]
             )
             .await,
             1.0
         );
         assert_eq!(
-            value(&provider, "remote_nodes", &["status=\"disabled\""]).await,
+            value(
+                &provider,
+                "aster_drive_remote_nodes",
+                &["status=\"disabled\""]
+            )
+            .await,
             1.0
         );
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_valid",
+                "aster_drive_observability_snapshot_valid",
                 &["source=\"database\""]
             )
             .await,
@@ -251,7 +259,7 @@ mod tests {
         );
         let timestamp = value(
             &provider,
-            "observability_snapshot_last_success_timestamp_seconds",
+            "aster_drive_observability_snapshot_last_success_timestamp_seconds",
             &["source=\"database\""],
         )
         .await;
@@ -269,7 +277,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "upload_sessions_active",
+                "aster_drive_upload_sessions_active",
                 &["mode=\"offset_staging\"", "state=\"uploading\""]
             )
             .await,
@@ -278,7 +286,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_valid",
+                "aster_drive_observability_snapshot_valid",
                 &["source=\"database\""]
             )
             .await,
@@ -287,7 +295,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_last_success_timestamp_seconds",
+                "aster_drive_observability_snapshot_last_success_timestamp_seconds",
                 &["source=\"database\""]
             )
             .await,
@@ -298,20 +306,25 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "upload_sessions_active",
+                "aster_drive_upload_sessions_active",
                 &["mode=\"offset_staging\"", "state=\"uploading\""]
             )
             .await,
             0.0
         );
         assert_eq!(
-            value(&provider, "remote_nodes", &["status=\"disabled\""]).await,
+            value(
+                &provider,
+                "aster_drive_remote_nodes",
+                &["status=\"disabled\""]
+            )
+            .await,
             0.0
         );
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_valid",
+                "aster_drive_observability_snapshot_valid",
                 &["source=\"database\""]
             )
             .await,
@@ -338,7 +351,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "upload_sessions_active",
+                "aster_drive_upload_sessions_active",
                 &["mode=\"offset_staging\"", "state=\"uploading\""]
             )
             .await,
@@ -347,7 +360,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_valid",
+                "aster_drive_observability_snapshot_valid",
                 &["source=\"database\""]
             )
             .await,
@@ -369,7 +382,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "storage_capacity_known",
+                "aster_drive_storage_capacity_known",
                 &["scope=\"staging_filesystem\"", "kind=\"available\""]
             )
             .await,
@@ -377,7 +390,7 @@ mod tests {
         );
         let timestamp = value(
             &provider,
-            "observability_snapshot_last_success_timestamp_seconds",
+            "aster_drive_observability_snapshot_last_success_timestamp_seconds",
             &["source=\"staging_filesystem\""],
         )
         .await;
@@ -387,7 +400,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "storage_capacity_known",
+                "aster_drive_storage_capacity_known",
                 &["scope=\"staging_filesystem\"", "kind=\"available\""]
             )
             .await,
@@ -396,7 +409,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_valid",
+                "aster_drive_observability_snapshot_valid",
                 &["source=\"staging_filesystem\""]
             )
             .await,
@@ -405,7 +418,7 @@ mod tests {
         assert_eq!(
             value(
                 &provider,
-                "observability_snapshot_last_success_timestamp_seconds",
+                "aster_drive_observability_snapshot_last_success_timestamp_seconds",
                 &["source=\"staging_filesystem\""]
             )
             .await,

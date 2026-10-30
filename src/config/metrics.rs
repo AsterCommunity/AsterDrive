@@ -132,7 +132,11 @@ impl ObservabilityConfig {
         } else {
             builder
         };
-        builder.build().map_err(metrics_error)
+        builder
+            .with_profile("aster", "aster-metrics/v1")
+            .map_err(metrics_error)?
+            .build()
+            .map_err(metrics_error)
     }
 }
 #[cfg(feature = "otlp-metrics")]

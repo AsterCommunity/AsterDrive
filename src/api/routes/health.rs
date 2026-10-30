@@ -83,13 +83,20 @@ pub async fn health() -> HttpResponse {
 )]
 pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_database_error(error);
     }
     if let Err(error) = check_cache_ready(state.get_ref()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_cache_error(error);
     }
 
-    match health::check_primary_ready(state.get_ref()).await {
+    let result = health::check_primary_ready(state.get_ref()).await;
+    state
+        .metrics
+        .forge_recorder()
+        .role_readiness(result.is_ok());
+    match result {
         Ok(setup_state) => HttpResponse::Ok().json(crate::api::response::success(status_response(
             setup_state.as_str(),
         ))),
@@ -99,13 +106,20 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
 
 pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_database_error(error);
     }
     if let Err(error) = check_cache_ready(state.get_ref()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_cache_error(error);
     }
 
-    match health::check_follower_ready(state.get_ref()).await {
+    let result = health::check_follower_ready(state.get_ref()).await;
+    state
+        .metrics
+        .forge_recorder()
+        .role_readiness(result.is_ok());
+    match result {
         Ok(_) => HttpResponse::Ok().json(crate::api::response::success(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }

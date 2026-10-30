@@ -84,7 +84,40 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         task: &background_task::Model,
         context: aster_forge_tasks::TaskExecutionContext,
     ) -> Result<()> {
-        registry::process_task(&self.state, task, context).await
+        if !self.state.metrics().enabled() {
+            return registry::process_task(&self.state, task, context).await;
+        }
+        struct Observation {
+            recorder: aster_forge_metrics::SharedMetricsRecorder,
+            kind: &'static str,
+            started: std::time::Instant,
+            result: &'static str,
+        }
+        impl Drop for Observation {
+            fn drop(&mut self) {
+                self.recorder.task_handler_active(self.kind, -1);
+                self.recorder.task_handler_finished(
+                    self.kind,
+                    self.result,
+                    self.started.elapsed().as_secs_f64(),
+                );
+            }
+        }
+        let recorder = self.state.metrics().forge_recorder();
+        recorder.task_handler_active(task.kind.as_str(), 1);
+        let mut observation = Observation {
+            recorder,
+            kind: task.kind.as_str(),
+            started: std::time::Instant::now(),
+            result: "dropped",
+        };
+        let result = registry::process_task(&self.state, task, context).await;
+        observation.result = if result.is_ok() {
+            "returned_ok"
+        } else {
+            "returned_error"
+        };
+        result
     }
 
     fn is_lease_lost_error(&self, error: &AsterError) -> bool {

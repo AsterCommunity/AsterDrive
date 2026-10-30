@@ -137,7 +137,7 @@ k6 run tests/performance/k6/mixed-background-rest-webdav.js
 - 前台路径 p95 / p99：REST download、REST upload、WebDAV GET。
 - 后台任务创建延迟：`aster_mixed_*_task_create_duration` 或 thumbnail request duration。
 - 队列积压：`aster_mixed_*_task_backlog`，按 `pending` / `processing` / `retry` 标签看。
-- 服务端指标：`background_tasks_pending`、`background_task_retries_total`、HTTP route p95/p99、DB query p95/p99、storage driver p95/p99。
+- 服务端指标：`aster_task_pending`、`aster_task_retries_total`、HTTP route p95/p99、DB query p95/p99、storage driver p95/p99。
 - 进程 RSS、CPU、网络吞吐、`data/.tmp` 和 `data/.uploads` 增长。
 
 如果前台 p95/p99 随任务 lane 并发上调明显抬升，或者 `retry` 持续增长，就先降低对应运行时并发，再定位 CPU、临时目录、数据库连接池或存储后端吞吐瓶颈。不要在没有混合负载回归结果的情况下改高后台 lane 并发。

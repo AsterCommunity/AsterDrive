@@ -633,6 +633,9 @@ pub fn spawn_follower_background_tasks(
             shutdown_token.clone(),
             |state| async move {
                 crate::services::ops::metrics::sample_capacity(state.get_ref()).await;
+                state
+                    .db_handles
+                    .record_pool_metrics(state.metrics.forge_recorder().as_ref());
             },
         ));
     }

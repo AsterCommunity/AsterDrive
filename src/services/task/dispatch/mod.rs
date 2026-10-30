@@ -77,11 +77,16 @@ async fn refresh_pending_metric(state: &impl SharedRuntimeState) {
     match crate::db::repository::background_task_repo::count_pending_or_retry(state.writer_db())
         .await
     {
-        Ok(pending) => state.metrics().set_background_tasks_pending(pending),
-        Err(error) => tracing::warn!(
-            error = %error,
-            "failed to refresh background task pending metric"
-        ),
+        Ok(pending) => {
+            state.metrics().set_background_tasks_pending(pending);
+            state
+                .metrics()
+                .snapshot_status("tasks", true, chrono::Utc::now().timestamp() as f64);
+        }
+        Err(error) => {
+            state.metrics().snapshot_status("tasks", false, 0.0);
+            tracing::warn!(error = %error,"failed to refresh background task pending metric");
+        }
     }
 }
 

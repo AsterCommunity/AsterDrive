@@ -64,17 +64,17 @@ fn dashboard_selectors_use_registered_names_and_supported_labels() {
     let _recorder = aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
     let mut schema = BTreeMap::new();
     for descriptor in provider.descriptors() {
-        let name = if descriptor.subsystem.is_empty() {
-            descriptor.name.to_owned()
-        } else {
-            format!("{}_{}", descriptor.subsystem, descriptor.name)
-        };
-        let mut labels: BTreeSet<_> = descriptor.labels.iter().copied().collect();
+        let name = descriptor.prometheus_name();
+        let mut labels: BTreeSet<String> = descriptor
+            .labels
+            .iter()
+            .map(|label| label.replace('.', "_"))
+            .collect();
         schema.insert(name.clone(), labels.clone());
         if descriptor.kind == MetricKind::Histogram {
             schema.insert(format!("{name}_count"), labels.clone());
             schema.insert(format!("{name}_sum"), labels.clone());
-            labels.insert("le");
+            labels.insert("le".to_string());
             schema.insert(format!("{name}_bucket"), labels);
         }
     }
@@ -85,6 +85,7 @@ fn dashboard_selectors_use_registered_names_and_supported_labels() {
         "deployment_environment_name",
         "aster_role",
         "service_instance_id",
+        "aster_metrics_schema_version",
     ]);
     let dashboard = dashboard();
     for (title, expression) in expressions(&dashboard) {
@@ -101,7 +102,7 @@ fn dashboard_selectors_use_registered_names_and_supported_labels() {
             // Exporter self-observation is absent in a pull-only binary. The
             // all-features run checks these selectors against real descriptors.
             #[cfg(not(feature = "otlp"))]
-            if name.starts_with("telemetry_export_") {
+            if name.starts_with("aster_telemetry_") {
                 continue;
             }
             let supported = schema
@@ -138,6 +139,8 @@ async fn dashboard_resource_filters_exist_in_actual_prometheus_output() {
             instance_id: "test-boot-id".into(),
         })
         .unwrap()
+        .with_profile("aster", "aster-metrics/v1")
+        .unwrap()
         .with_prometheus()
         .unwrap()
         .build()
@@ -150,7 +153,7 @@ async fn dashboard_resource_filters_exist_in_actual_prometheus_output() {
         .unwrap();
     let sample = body
         .lines()
-        .find(|line| line.starts_with("file_uploads_total{"))
+        .find(|line| line.starts_with("aster_drive_file_uploads_total{"))
         .unwrap();
     for label in [
         "service_name=\"asterdrive\"",
@@ -214,9 +217,9 @@ fn dashboard_preserves_unknown_capacity_and_snapshot_failure_boundaries() {
     for (title, expression) in expressions(&dashboard) {
         if selectors(expression)
             .iter()
-            .any(|(metric, _)| *metric == "storage_capacity_bytes")
+            .any(|(metric, _)| *metric == "aster_drive_storage_capacity_bytes")
         {
-            assert!(expression.contains("storage_capacity_known{"));
+            assert!(expression.contains("aster_drive_storage_capacity_known{"));
             assert!(expression.contains(" == 1"));
             assert!(
                 !expression.contains("sum("),
@@ -229,16 +232,20 @@ fn dashboard_preserves_unknown_capacity_and_snapshot_failure_boundaries() {
         }
         if selectors(expression).iter().any(|(metric, _)| {
             [
-                "upload_sessions_active",
-                "upload_session_oldest_age_seconds",
-                "blob_cleanup_pending",
-                "blob_cleanup_oldest_age_seconds",
-                "remote_nodes",
+                "aster_drive_upload_sessions_active",
+                "aster_drive_upload_session_oldest_age_seconds",
+                "aster_drive_blob_cleanup_pending",
+                "aster_drive_blob_cleanup_oldest_age_seconds",
+                "aster_drive_remote_nodes",
+                "aster_task_pending",
             ]
             .contains(metric)
         }) {
-            assert!(expression.contains("observability_snapshot_valid{"));
-            assert!(expression.contains("observability_snapshot_last_success_timestamp_seconds{"));
+            assert!(expression.contains("aster_drive_observability_snapshot_valid{"));
+            assert!(
+                expression
+                    .contains("aster_drive_observability_snapshot_last_success_timestamp_seconds{")
+            );
             assert!(expression.contains(" < 180"));
             assert!(!expression.contains("sum("), "{title}: shared DB snapshot");
         }
@@ -274,4 +281,36 @@ fn all_jobs_expand_only_the_asterdrive_candidates_for_target_health() {
         .find(|(title, _)| *title == "Target Health")
         .unwrap();
     assert!(target_health.contains("job=~\"$job\""));
+}
+
+#[test]
+#[cfg(feature = "otlp")]
+fn published_catalog_matches_actual_schema() {
+    let catalog: Value = serde_json::from_str(include_str!(
+        "../../../docs/public/metrics/asterdrive-v1.json"
+    ))
+    .unwrap();
+    let provider = MetricsProvider::builder()
+        .with_prometheus()
+        .unwrap()
+        .build()
+        .unwrap();
+    let _recorder = aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
+    let actual = provider.descriptors();
+    assert_eq!(catalog["schema"], "aster-metrics/v1");
+    assert_eq!(
+        catalog["instruments"].as_array().unwrap().len(),
+        actual.len()
+    );
+    for descriptor in actual {
+        let item = catalog["instruments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["prometheus"] == descriptor.prometheus_name())
+            .unwrap();
+        assert_eq!(item["unit"], descriptor.unit);
+        assert_eq!(item["attributes"], serde_json::json!(descriptor.labels));
+        assert_eq!(item["buckets"], serde_json::json!(descriptor.buckets));
+    }
 }

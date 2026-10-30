@@ -137,7 +137,7 @@ When judging whether background tasks interfere with the foreground path, do not
 - Foreground path p95 / p99: REST download, REST upload, WebDAV GET.
 - Background task creation latency: `aster_mixed_*_task_create_duration` or thumbnail request duration.
 - Queue backlog: `aster_mixed_*_task_backlog`, broken down by `pending` / `processing` / `retry` labels.
-- Server metrics: `background_tasks_pending`, `background_task_retries_total`, HTTP route p95/p99, DB query p95/p99, storage driver p95/p99.
+- Server metrics: `aster_task_pending`, `aster_task_retries_total`, HTTP route p95/p99, DB query p95/p99, storage driver p95/p99.
 - Process RSS, CPU, network throughput, and growth of `data/.tmp` and `data/.uploads`.
 
 If foreground p95/p99 rises noticeably as task lane concurrency goes up, or `retry` keeps growing, lower the corresponding runtime concurrency first, then locate the bottleneck among CPU, temporary directories, the database connection pool, or storage backend throughput. Do not raise background lane concurrency without mixed-load regression results.
