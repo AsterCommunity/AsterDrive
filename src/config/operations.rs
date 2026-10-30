@@ -333,6 +333,7 @@ pub fn background_task_dispatch_interval_secs(runtime_config: &RuntimeConfig) ->
         BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY,
         DEFAULT_BACKGROUND_TASK_DISPATCH_INTERVAL_SECS,
     )
+    .min(MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS)
 }
 
 pub fn background_task_dispatch_idle_max_interval_secs(runtime_config: &RuntimeConfig) -> u64 {
@@ -341,6 +342,8 @@ pub fn background_task_dispatch_idle_max_interval_secs(runtime_config: &RuntimeC
         BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
         DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS,
     )
+    .min(MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS)
+    .max(background_task_dispatch_interval_secs(runtime_config))
 }
 
 pub fn background_task_max_concurrency(runtime_config: &RuntimeConfig) -> usize {
@@ -1042,7 +1045,8 @@ mod tests {
         ARCHIVE_COMPRESS_ENABLED_KEY, ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY,
         ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, ARCHIVE_EXTRACT_MAX_STAGING_BYTES_KEY,
         AVATAR_MAX_UPLOAD_SIZE_BYTES_KEY, BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
-        BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
+        BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+        BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY, BACKGROUND_TASK_MAX_ATTEMPTS_KEY,
         BACKGROUND_TASK_MAX_CONCURRENCY_KEY, BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY,
         BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY, BLOB_RECONCILE_INTERVAL_SECS_KEY,
         DEFAULT_ARCHIVE_COMPRESS_ENABLED, DEFAULT_ARCHIVE_EXTRACT_MAX_STAGING_BYTES,
@@ -1067,8 +1071,8 @@ mod tests {
         archive_compress_enabled, archive_download_share_enabled, archive_download_user_enabled,
         archive_extract_max_staging_bytes, avatar_max_upload_size_bytes,
         background_task_archive_max_concurrency, background_task_dispatch_idle_max_interval_secs,
-        background_task_max_attempts, background_task_max_concurrency,
-        background_task_storage_migration_max_concurrency,
+        background_task_dispatch_interval_secs, background_task_max_attempts,
+        background_task_max_concurrency, background_task_storage_migration_max_concurrency,
         background_task_thumbnail_max_concurrency, blob_reconcile_interval_secs,
         frontend_image_preview_preference, image_preview_max_dimension,
         normalize_attempts_config_value, normalize_avatar_upload_size_config_value,
@@ -1290,8 +1294,26 @@ mod tests {
         );
 
         runtime_config.apply(config_model(
+            BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY,
+            "300",
+        ));
+        runtime_config.apply(config_model(
+            BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+            "30",
+        ));
+        assert_eq!(background_task_dispatch_interval_secs(&runtime_config), 179);
+        assert_eq!(
+            background_task_dispatch_idle_max_interval_secs(&runtime_config),
+            179
+        );
+
+        runtime_config.apply(config_model(
             BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
             "45",
+        ));
+        runtime_config.apply(config_model(
+            BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY,
+            "5",
         ));
         assert_eq!(
             background_task_dispatch_idle_max_interval_secs(&runtime_config),

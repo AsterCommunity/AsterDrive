@@ -891,8 +891,8 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
-        description: "Seconds between background task dispatch polls",
-        normalize_fn: Some(normalize_operation_interval),
+        description: "Seconds between background task dispatch polls; must stay below the 180-second task snapshot freshness window",
+        normalize_fn: Some(normalize_background_task_dispatch_idle_max_interval),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
     ConfigDef {

@@ -3595,7 +3595,7 @@
           "editorMode": "code",
           "expr": "max by (status) ((aster_drive_remote_nodes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (aster_drive_observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - aster_drive_observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
           "instant": false,
-          "legendFormat": "{{http_response_status_code}}",
+          "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
         }
