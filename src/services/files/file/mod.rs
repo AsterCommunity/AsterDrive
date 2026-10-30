@@ -154,17 +154,19 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     if created.replayed {
         return Ok(file.into());
     }
-    let details = audit_location_details_for_model(state, scope, &file).await;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::FileCreate,
-        crate::services::ops::audit::AuditEntityType::File,
-        Some(file.id),
-        Some(&file.name),
-        || details.clone(),
-    )
-    .await;
+    if audit::should_record(state, audit::AuditAction::FileCreate) {
+        let details = audit_location_details_for_model(state, scope, &file).await;
+        audit::log_with_details(
+            state,
+            audit_ctx,
+            audit::AuditAction::FileCreate,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(file.id),
+            Some(&file.name),
+            || details,
+        )
+        .await;
+    }
     Ok(file.into())
 }
 
@@ -174,8 +176,15 @@ pub(crate) async fn delete_in_scope_with_audit(
     file_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
-    let file = get_info_in_scope(state, scope, file_id).await?;
-    let details = audit_location_details_for_model(state, scope, &file).await;
+    let audit_file = if audit::should_record(state, audit::AuditAction::FileDelete) {
+        Some(get_info_in_scope(state, scope, file_id).await?)
+    } else {
+        None
+    };
+    let details = match &audit_file {
+        Some(file) => audit_location_details_for_model(state, scope, file).await,
+        None => None,
+    };
     delete_in_scope(
         state,
         scope,
@@ -183,16 +192,18 @@ pub(crate) async fn delete_in_scope_with_audit(
         crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await?;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::FileDelete,
-        crate::services::ops::audit::AuditEntityType::File,
-        Some(file_id),
-        Some(&file.name),
-        || details.clone(),
-    )
-    .await;
+    if let Some(file) = audit_file {
+        audit::log_with_details(
+            state,
+            audit_ctx,
+            audit::AuditAction::FileDelete,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(file_id),
+            Some(&file.name),
+            || details,
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -209,7 +220,11 @@ pub(crate) async fn update_in_scope_with_audit(
     } else {
         audit::AuditAction::FileRename
     };
-    let previous_file = get_info_in_scope(state, scope, file_id).await?;
+    let previous_file = if audit::should_record(state, action) {
+        Some(get_info_in_scope(state, scope, file_id).await?)
+    } else {
+        None
+    };
     let file = update_in_scope(
         state,
         scope,
@@ -219,17 +234,19 @@ pub(crate) async fn update_in_scope_with_audit(
         crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await?;
-    let details = audit_transfer_details_for_models(state, scope, &previous_file, &file).await;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        action,
-        crate::services::ops::audit::AuditEntityType::File,
-        Some(file.id),
-        Some(&file.name),
-        || details.clone(),
-    )
-    .await;
+    if let Some(previous_file) = previous_file {
+        let details = audit_transfer_details_for_models(state, scope, &previous_file, &file).await;
+        audit::log_with_details(
+            state,
+            audit_ctx,
+            action,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(file.id),
+            Some(&file.name),
+            || details,
+        )
+        .await;
+    }
     let lock_states = crate::services::files::lock::load_for_scope(
         state,
         scope.into(),
@@ -266,17 +283,19 @@ pub(crate) async fn update_content_stream_in_scope_with_audit(
         aster_drive_metrics::TransferSource::File,
     )
     .await?;
-    let details = audit_location_details_for_model(state, scope, &file).await;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::FileEdit,
-        crate::services::ops::audit::AuditEntityType::File,
-        Some(file.id),
-        Some(&file.name),
-        || details.clone(),
-    )
-    .await;
+    if audit::should_record(state, audit::AuditAction::FileEdit) {
+        let details = audit_location_details_for_model(state, scope, &file).await;
+        audit::log_with_details(
+            state,
+            audit_ctx,
+            audit::AuditAction::FileEdit,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(file.id),
+            Some(&file.name),
+            || details,
+        )
+        .await;
+    }
     let lock_states = crate::services::files::lock::load_for_scope(
         state,
         scope.into(),
@@ -312,7 +331,7 @@ pub(crate) async fn set_lock_in_scope_with_audit(
         crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        || details.clone(),
+        || details,
     )
     .await;
     let lock_states = crate::services::files::lock::load_for_scope(
@@ -338,19 +357,25 @@ pub(crate) async fn copy_file_in_scope_with_audit(
     target_folder_id: Option<i64>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
-    let source_file = get_info_in_scope(state, scope, file_id).await?;
+    let source_file = if audit::should_record(state, audit::AuditAction::FileCopy) {
+        Some(get_info_in_scope(state, scope, file_id).await?)
+    } else {
+        None
+    };
     let file = copy_file_in_scope(state, scope, file_id, target_folder_id).await?;
-    let details = audit_transfer_details_for_models(state, scope, &source_file, &file).await;
-    audit::log_with_details(
-        state,
-        audit_ctx,
-        audit::AuditAction::FileCopy,
-        crate::services::ops::audit::AuditEntityType::File,
-        Some(file.id),
-        Some(&file.name),
-        || details.clone(),
-    )
-    .await;
+    if let Some(source_file) = source_file {
+        let details = audit_transfer_details_for_models(state, scope, &source_file, &file).await;
+        audit::log_with_details(
+            state,
+            audit_ctx,
+            audit::AuditAction::FileCopy,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(file.id),
+            Some(&file.name),
+            || details,
+        )
+        .await;
+    }
     Ok(file.into())
 }
 
@@ -389,7 +414,7 @@ pub(crate) async fn download_in_scope_with_file_and_audit(
         crate::services::ops::audit::AuditEntityType::File,
         Some(file_id),
         Some(&entity_name),
-        || details.clone(),
+        || details,
     )
     .await;
     Ok(outcome)

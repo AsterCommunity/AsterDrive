@@ -139,3 +139,65 @@ async fn batch_move_activity_query_budget() {
         "tree deletion should bulk-update attribution, got {updates}"
     );
 }
+
+#[actix_web::test]
+async fn no_op_rename_skips_disabled_legacy_audit_path_queries() {
+    let mut state = common::setup().await;
+    let statements = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured = statements.clone();
+    let mut db = state.writer_db().clone();
+    db.set_metric_callback(move |info| captured.lock().unwrap().push(info.statement.sql.clone()));
+    state.db_handles = aster_forge_db::DbHandles::single(db);
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(json!({"name":"no-op-audit-root"}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+    let file_id =
+        common::create_empty_file_via_api(&app, &token, "no-op-audit.txt", Some(folder_id)).await;
+    for (uri, name) in [
+        (format!("/api/v1/folders/{folder_id}"), "no-op-audit-root"),
+        (format!("/api/v1/files/{file_id}"), "no-op-audit.txt"),
+    ] {
+        statements.lock().unwrap().clear();
+        let response = test::call_service(
+            &app,
+            test::TestRequest::patch()
+                .uri(&uri)
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(json!({"name":name}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        let sql = statements.lock().unwrap();
+        let paths = sql
+            .iter()
+            .filter(|sql| {
+                sql.starts_with("SELECT")
+                    && (sql.contains("FROM \"folders\" WHERE \"folders\".\"id\" IN (")
+                        || sql.contains("FROM `folders` WHERE `folders`.`id` IN ("))
+            })
+            .collect::<Vec<_>>();
+        eprintln!(
+            "legacy-audit-noop uri={uri} total={} folder_path_queries={}",
+            sql.len(),
+            paths.len()
+        );
+        assert!(
+            paths.is_empty(),
+            "no-op mutation should not query legacy audit paths: {paths:?}"
+        );
+    }
+}

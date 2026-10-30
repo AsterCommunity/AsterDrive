@@ -797,8 +797,11 @@ impl DavFileSystem for AsterDavFs {
             };
 
             let state = self.app_state();
-            let details =
-                folder::audit_location_details_for_model(&state, self.scope, &folder).await;
+            let details = if audit::should_record(&state, audit::AuditAction::FolderDelete) {
+                folder::audit_location_details_for_model(&state, self.scope, &folder).await
+            } else {
+                None
+            };
             folder::delete_in_scope(
                 &state,
                 self.scope,
@@ -815,7 +818,7 @@ impl DavFileSystem for AsterDavFs {
                 crate::services::ops::audit::AuditEntityType::Folder,
                 Some(folder.id),
                 Some(&folder.name),
-                || details.clone(),
+                || details,
             )
             .await;
 
@@ -972,23 +975,25 @@ impl DavFileSystem for AsterDavFs {
                         )
                         .with_storage_delta(copied.size),
                     );
-                    let details = file_ops::audit_transfer_details_for_models(
-                        &state,
-                        self.scope(),
-                        &f,
-                        &copied,
-                    )
-                    .await;
-                    audit::log_with_details(
-                        &state,
-                        &self.audit_ctx,
-                        audit::AuditAction::FileCopy,
-                        crate::services::ops::audit::AuditEntityType::File,
-                        Some(copied.id),
-                        Some(&copied.name),
-                        || details.clone(),
-                    )
-                    .await;
+                    if audit::should_record(&state, audit::AuditAction::FileCopy) {
+                        let details = file_ops::audit_transfer_details_for_models(
+                            &state,
+                            self.scope(),
+                            &f,
+                            &copied,
+                        )
+                        .await;
+                        audit::log_with_details(
+                            &state,
+                            &self.audit_ctx,
+                            audit::AuditAction::FileCopy,
+                            crate::services::ops::audit::AuditEntityType::File,
+                            Some(copied.id),
+                            Some(&copied.name),
+                            || details,
+                        )
+                        .await;
+                    }
                 }
                 ResolvedNode::Folder(f) => {
                     let (copied, storage_delta) =
@@ -1020,23 +1025,25 @@ impl DavFileSystem for AsterDavFs {
                         copied.id,
                     )
                     .await?;
-                    let details = folder::audit_transfer_details_for_models(
-                        &state,
-                        self.scope(),
-                        &f,
-                        &copied,
-                    )
-                    .await;
-                    audit::log_with_details(
-                        &state,
-                        &self.audit_ctx,
-                        audit::AuditAction::FolderCopy,
-                        crate::services::ops::audit::AuditEntityType::Folder,
-                        Some(copied.id),
-                        Some(&copied.name),
-                        || details.clone(),
-                    )
-                    .await;
+                    if audit::should_record(&state, audit::AuditAction::FolderCopy) {
+                        let details = folder::audit_transfer_details_for_models(
+                            &state,
+                            self.scope(),
+                            &f,
+                            &copied,
+                        )
+                        .await;
+                        audit::log_with_details(
+                            &state,
+                            &self.audit_ctx,
+                            audit::AuditAction::FolderCopy,
+                            crate::services::ops::audit::AuditEntityType::Folder,
+                            Some(copied.id),
+                            Some(&copied.name),
+                            || details,
+                        )
+                        .await;
+                    }
                 }
                 ResolvedNode::Root => return Err(FsError::Forbidden),
             }
@@ -1624,7 +1631,11 @@ async fn delete_existing_destination_for_overwrite(
     traversal_limits: Option<folder::FolderTreeTraversalLimits>,
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
-        let details = file_ops::audit_location_details_for_model(state, scope, &existing).await;
+        let details = if audit::should_record(state, audit::AuditAction::FileDelete) {
+            file_ops::audit_location_details_for_model(state, scope, &existing).await
+        } else {
+            None
+        };
         let txn = aster_forge_db::transaction::begin(state.writer_db())
             .await
             .map_err(|error| to_fs_error(error.into()))?;
@@ -1657,13 +1668,17 @@ async fn delete_existing_destination_for_overwrite(
             crate::services::ops::audit::AuditEntityType::File,
             Some(existing.id),
             Some(&existing.name),
-            || details.clone(),
+            || details,
         )
         .await;
     }
 
     if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
-        let details = folder::audit_location_details_for_model(state, scope, &existing).await;
+        let details = if audit::should_record(state, audit::AuditAction::FolderDelete) {
+            folder::audit_location_details_for_model(state, scope, &existing).await
+        } else {
+            None
+        };
         folder::delete_in_scope(
             state,
             scope,
@@ -1680,7 +1695,7 @@ async fn delete_existing_destination_for_overwrite(
             crate::services::ops::audit::AuditEntityType::Folder,
             Some(existing.id),
             Some(&existing.name),
-            || details.clone(),
+            || details,
         )
         .await;
     }
