@@ -35,6 +35,10 @@ use super::claim::{claim_candidates_for_lane, claim_due_for_lane};
 use super::execute::{BackgroundTaskExecutionStore, run_claimed_tasks};
 use super::lane::{TaskLane, TaskLaneConfig, task_lane};
 
+#[cfg(feature = "metrics")]
+#[path = "tests/metrics.rs"]
+mod metrics;
+
 async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
     let db = db::connect_with_metrics(
         &DatabaseConfig {

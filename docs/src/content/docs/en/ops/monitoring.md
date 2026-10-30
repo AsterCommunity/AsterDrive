@@ -141,6 +141,8 @@ The sample Grafana account is `admin` / `admin`. In production, change it to an 
 
 ## Grafana Dashboard
 
+This version uses **Aster Metrics v1**. Upgrade the application and Grafana JSON together; migrate custom rules using the [generated catalog](/metrics/asterdrive-v1.json), and never sum old and new schemas. CPU is a seconds-based Counter; do not divide its rate by 1000. HTTP volume comes from duration count with http_response_status_code; DB errors have a nonempty error_type. HTTP duration includes response-body completion, changing long-download comparisons with the former header-only boundary.
+
 The AsterDrive docs site provides a Grafana dashboard JSON that can be imported directly. Both the official docs site and self-hosted docs sites distribute this file from the site root:
 
 ```text
@@ -176,11 +178,19 @@ Dashboard queries are based on AsterDrive's current metric labels:
 
 - `job`
 - `instance`
-- `method`
-- `route`
-- `status`
-- `backend`
-- `kind`
+- `service_name`
+- `deployment_environment_name`
+- `aster_role`
+- `service_instance_id`
+- `aster_metrics_schema_version`
+- `http_request_method`
+- `http_route`
+- `http_response_status_code`
+- `error_type`
+- `db_system_name`
+- `db_operation_name`
+- `db_client_connection_pool_name`
+- `db_client_connection_state`
 - `driver`
 - `operation`
 - `mode`
@@ -306,17 +316,17 @@ Handle normal user entry points and the metrics endpoint separately in the rever
 
 On the first day after launch, focus on:
 
-- whether 5xx keeps increasing in `http_requests_total`
-- whether p95/p99 in `http_request_duration_seconds` rises over time
-- whether `db_queries_total{status="error"}` is non-zero
-- whether `db_query_duration_seconds` shows abnormal slow query distributions
-- whether `storage_driver_operations_total{status="failure",kind!="not_found"}` is non-zero
-- whether `background_tasks_pending` keeps accumulating
-- whether `background_task_retries_total` keeps increasing
-- whether `share_download_rollback_pending` keeps accumulating
-- whether `process_memory_rss_bytes` grows in only one direction and does not drop after idle periods
+- whether 5xx keeps increasing in `http_server_request_duration_seconds_count`
+- whether p95/p99 in `http_server_request_duration_seconds` rises over time
+- whether `db_client_operation_duration_seconds_count{error_type!=""}` is non-zero
+- whether `db_client_operation_duration_seconds` shows abnormal slow query distributions
+- whether `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}` is non-zero
+- whether `aster_task_pending` keeps accumulating
+- whether `aster_task_retries_total` keeps increasing
+- whether `aster_drive_share_download_rollback_pending` keeps accumulating
+- whether `process_memory_usage_bytes` grows in only one direction and does not drop after idle periods
 
-Observe `storage_driver_operations_total{status="failure",kind="not_found"}` separately. In thumbnail, cache, or object probing scenarios, `not_found` is often an expected miss. Alert rules should prioritize hard failures such as `storage_driver_operations_total{status="failure",kind!="not_found"}`.
+Observe `aster_drive_storage_driver_operations_total{status="failure",kind="not_found"}` separately. In thumbnail, cache, or object probing scenarios, `not_found` is often an expected miss. Alert rules should prioritize hard failures such as `aster_drive_storage_driver_operations_total{status="failure",kind!="not_found"}`.
 
 ## Metrics Calibration During Load Testing
 
@@ -324,8 +334,8 @@ When running the download, Range download, WebDAV GET, WebDAV Range GET, and Web
 
 Key comparisons:
 
-- `http_request_duration_seconds`: confirm whether the slow path is REST download, WebDAV GET, or PROPFIND.
-- `db_query_duration_seconds` / `db_queries_total{status="error"}`: confirm whether large directory enumeration and permission snapshots are overwhelming the database.
-- `storage_driver_operations_total` and storage driver latency metrics: distinguish object storage throttling, range read latency, and ordinary not_found misses.
-- `process_memory_rss_bytes`: confirm whether RSS keeps climbing under sustained concurrent downloads and large-directory PROPFIND.
+- `http_server_request_duration_seconds`: confirm whether the slow path is REST download, WebDAV GET, or PROPFIND.
+- `db_client_operation_duration_seconds` / `db_client_operation_duration_seconds_count{error_type!=""}`: confirm whether large directory enumeration and permission snapshots are overwhelming the database.
+- `aster_drive_storage_driver_operations_total` and storage driver latency metrics: distinguish object storage throttling, range read latency, and ordinary not_found misses.
+- `process_memory_usage_bytes`: confirm whether RSS keeps climbing under sustained concurrent downloads and large-directory PROPFIND.
 - Remote follower scenarios: scrape both primary and follower. Watching only one side makes it easy to misjudge tunnel or upstream object storage bottlenecks.

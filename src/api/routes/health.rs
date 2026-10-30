@@ -83,13 +83,20 @@ pub async fn health() -> HttpResponse {
 )]
 pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_database_error(error);
     }
     if let Err(error) = check_cache_ready(state.get_ref()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_cache_error(error);
     }
 
-    match health::check_primary_ready(state.get_ref()).await {
+    let result = health::check_primary_ready(state.get_ref()).await;
+    state
+        .metrics
+        .forge_recorder()
+        .role_readiness(result.is_ok());
+    match result {
         Ok(setup_state) => HttpResponse::Ok().json(crate::api::response::success(status_response(
             setup_state.as_str(),
         ))),
@@ -99,13 +106,20 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
 
 pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_database_error(error);
     }
     if let Err(error) = check_cache_ready(state.get_ref()).await {
+        state.metrics.forge_recorder().role_readiness(false);
         return ready_cache_error(error);
     }
 
-    match health::check_follower_ready(state.get_ref()).await {
+    let result = health::check_follower_ready(state.get_ref()).await;
+    state
+        .metrics
+        .forge_recorder()
+        .role_readiness(result.is_ok());
+    match result {
         Ok(_) => HttpResponse::Ok().json(crate::api::response::success(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }
@@ -509,6 +523,98 @@ mod tests {
             backend_name: "redis",
             healthy: true,
         });
+    }
+
+    #[cfg(feature = "metrics")]
+    #[actix_web::test]
+    async fn readiness_metric_matches_both_role_endpoints_and_dependency_failures() {
+        use aster_drive_model::entities::master_binding;
+        use aster_drive_model::types::ResolvedRemoteTransport;
+        use aster_forge_metrics::MetricsProvider;
+        use std::time::Duration;
+
+        for follower in [false, true] {
+            for failure in ["none", "database", "cache", "storage"] {
+                let driver = if failure == "storage" {
+                    ProbeDriver::failing()
+                } else {
+                    ProbeDriver::healthy()
+                };
+                let mut state = build_test_state(Some(driver)).await;
+                let provider = MetricsProvider::builder()
+                    .with_prometheus()
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                state.metrics =
+                    aster_drive_metrics::create_metrics_recorder(provider.clone()).unwrap();
+                if follower && failure != "storage" {
+                    let now = Utc::now();
+                    master_binding::ActiveModel {
+                        name: Set("ready-test".into()),
+                        master_url: Set("https://master.invalid".into()),
+                        access_key: Set("test-access".into()),
+                        secret_key: Set("test-secret".into()),
+                        storage_namespace: Set("test".into()),
+                        is_enabled: Set(true),
+                        resolved_transport: Set(ResolvedRemoteTransport::Direct),
+                        desired_revision: Set(1),
+                        applied_revision: Set(1),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    }
+                    .insert(state.writer_db())
+                    .await
+                    .unwrap();
+                }
+                if failure == "cache" {
+                    configure_cluster(&mut state);
+                    state.cache = Arc::new(FakeCache {
+                        backend_name: "redis",
+                        healthy: false,
+                    });
+                }
+                if failure == "database" {
+                    state.db_handles =
+                        aster_forge_db::DbHandles::single(sea_orm::DatabaseConnection::default());
+                }
+                let before = provider
+                    .export_prometheus(Duration::from_secs(1))
+                    .await
+                    .unwrap();
+                assert!(
+                    !before
+                        .lines()
+                        .any(|line| line.starts_with("aster_runtime_ready "))
+                );
+                let response = if follower {
+                    follower_ready(web::Data::new(state.follower_view())).await
+                } else {
+                    super::primary_ready(web::Data::new(state)).await
+                };
+                let ready = failure == "none";
+                assert_eq!(
+                    response.status(),
+                    if ready {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    },
+                    "follower={follower}, failure={failure}"
+                );
+                let raw = provider
+                    .export_prometheus(Duration::from_secs(1))
+                    .await
+                    .unwrap();
+                let expected = format!("aster_runtime_ready {}", u8::from(ready));
+                assert!(
+                    raw.lines().any(|line| line == expected),
+                    "follower={follower}, failure={failure}: {raw}"
+                );
+                provider.shutdown(Duration::from_secs(1)).await.unwrap();
+            }
+        }
     }
 
     #[actix_web::test]

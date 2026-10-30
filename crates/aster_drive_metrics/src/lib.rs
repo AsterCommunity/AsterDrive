@@ -265,203 +265,147 @@ mod product {
 
     aster_forge_metrics::product_metrics! {
         pub struct DriveProductMetrics {
-            admission_rejections: counter("upload", "admission_rejections_total", "Upload requests rejected by a stable resource boundary.", &["reason"]).with_unit("1"),
-            transfer_bytes: counter("file", "transfer_bytes_total", "Observed bytes consumed at AD data-plane boundaries.", &["direction", "source", "mode"]).with_unit("By"),
-            transfer_active: gauge("file", "transfers_in_flight", "Active AD data-plane streams.", &["direction", "source", "mode"]).with_unit("1"),
-            transfer_duration: histogram_with_buckets("file", "transfer_duration_seconds", "AD stream lifecycle duration through EOF error or drop.", &["direction", "source", "mode", "outcome"], &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 300.0, 900.0, 3600.0]).with_unit("s"),
-            upload_phase: histogram_with_buckets("upload", "phase_duration_seconds", "Upload phase duration, excluding completed retries.", &["mode", "phase", "status"], &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 300.0]).with_unit("s"),
-            upload_backlog: gauge("upload", "sessions_active", "Persisted upload session snapshot by mode and state.", &["mode", "state"]).with_unit("1"),
-            upload_oldest: gauge("upload", "session_oldest_age_seconds", "Oldest persisted session age since creation.", &["mode", "state"]).with_unit("s"),
-            cleanup_pending: gauge("blob", "cleanup_pending", "Unreferenced or claimed blobs pending physical cleanup.", &[]).with_unit("1"),
-            cleanup_oldest: gauge("blob", "cleanup_oldest_age_seconds", "Oldest stored blob cleanup interval age; retained across retries.", &[]).with_unit("s"),
-            cleanup_objects: counter("blob", "cleanup_objects_total", "Claimed blob cleanup outcomes.", &["outcome"]).with_unit("1"),
-            cleanup_retired: counter("blob", "cleanup_retired_backing_bytes_total", "Blob backing bytes retired after deletion acknowledgment and metadata removal.", &[]).with_unit("By"),
-            snapshot_valid: gauge("observability", "snapshot_valid", "Whether the last sampling attempt succeeded.", &["source"]).with_unit("1"),
-            snapshot_updated: gauge("observability", "snapshot_last_success_timestamp_seconds", "Unix timestamp of the last successful sample.", &["source"]).with_unit("s"),
-            capacity_known: gauge("storage", "capacity_known", "Whether this capacity dimension is supported and current.", &["scope", "kind"]).with_unit("1"),
-            capacity: gauge("storage", "capacity_bytes", "Capacity snapshot; targets report independent minima and must not be summed.", &["scope", "kind"]).with_unit("By"),
-            staging: gauge("upload", "staging_bytes", "Persisted staging and reservation snapshot bytes.", &["kind"]).with_unit("By"),
-            remote_nodes: gauge("remote", "nodes", "Persisted node status snapshot.", &["status"]).with_unit("1"),
-            remote_connections: gauge("remote", "tunnel_connections", "Locally established reverse tunnel connections.", &[]).with_unit("1"),
-            remote_reconnects: counter("remote", "tunnel_reconnects_total", "Reverse tunnel connection retry decisions.", &["reason"]).with_unit("1"),
-            remote_requests: counter("remote", "requests_total", "Remote transport requests observed by this node; separate from driver operations.", &["transport", "operation", "status", "reason"]).with_unit("1"),
-            remote_duration: histogram_with_buckets("remote", "request_duration_seconds", "Remote transport request duration.", &["transport", "operation", "status"], &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 300.0, 3600.0]).with_unit("s"),
-            file_uploads: counter(
-                "file",
-                "uploads_total",
+            admission_rejections: counter("aster.drive.upload", "admission.rejections", "Upload requests rejected by a stable resource boundary.", &["reason"]).with_unit("{event}"),
+            transfer_bytes: counter("aster.drive.file", "transfer", "Observed bytes consumed at AD data-plane boundaries.", &["direction", "source", "mode"]).with_unit("By"),
+            transfer_active: gauge("aster.drive.file", "transfers.in.flight", "Active AD data-plane streams.", &["direction", "source", "mode"]).with_unit("{count}"),
+            transfer_duration: histogram_with_buckets("aster.drive.file", "transfer.duration", "AD stream lifecycle duration through EOF error or drop.", &["direction", "source", "mode", "outcome"], &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 300.0, 900.0, 3600.0]).with_unit("s"),
+            upload_phase: histogram_with_buckets("aster.drive.upload", "phase.duration", "Upload phase duration, excluding completed retries.", &["mode", "phase", "status"], &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 300.0]).with_unit("s"),
+            upload_backlog: gauge("aster.drive.upload", "sessions.active", "Persisted upload session snapshot by mode and state.", &["mode", "state"]).with_unit("{count}"),
+            upload_oldest: gauge("aster.drive.upload", "session.oldest.age", "Oldest persisted session age since creation.", &["mode", "state"]).with_unit("s"),
+            cleanup_pending: gauge("aster.drive.blob", "cleanup.pending", "Unreferenced or claimed blobs pending physical cleanup.", &[]).with_unit("{count}"),
+            cleanup_oldest: gauge("aster.drive.blob", "cleanup.oldest.age", "Oldest stored blob cleanup interval age; retained across retries.", &[]).with_unit("s"),
+            cleanup_objects: counter("aster.drive.blob", "cleanup.objects", "Claimed blob cleanup outcomes.", &["outcome"]).with_unit("{event}"),
+            cleanup_retired: counter("aster.drive.blob", "cleanup.retired.backing", "Blob backing bytes retired after deletion acknowledgment and metadata removal.", &[]).with_unit("By"),
+            snapshot_valid: gauge("aster.drive.observability", "snapshot.valid", "Whether the last sampling attempt succeeded.", &["source"]).with_unit("{count}"),
+            snapshot_updated: gauge("aster.drive.observability", "snapshot.last.success.timestamp", "Unix timestamp of the last successful sample.", &["source"]).with_unit("s"),
+            capacity_known: gauge("aster.drive.storage", "capacity.known", "Whether this capacity dimension is supported and current.", &["scope", "kind"]).with_unit("{count}"),
+            capacity: gauge("aster.drive.storage", "capacity", "Capacity snapshot; targets report independent minima and must not be summed.", &["scope", "kind"]).with_unit("By"),
+            staging: gauge("aster.drive.upload", "staging", "Persisted staging and reservation snapshot bytes.", &["kind"]).with_unit("By"),
+            remote_nodes: gauge("aster.drive.remote", "nodes", "Persisted node status snapshot.", &["status"]).with_unit("{count}"),
+            remote_connections: gauge("aster.drive.remote", "tunnel.connections", "Locally established reverse tunnel connections.", &[]).with_unit("{count}"),
+            remote_reconnects: counter("aster.drive.remote", "tunnel.reconnects", "Reverse tunnel connection retry decisions.", &["reason"]).with_unit("{event}"),
+            remote_requests: counter("aster.drive.remote", "requests", "Remote transport requests observed by this node; separate from driver operations.", &["transport", "operation", "status", "reason"]).with_unit("{event}"),
+            remote_duration: histogram_with_buckets("aster.drive.remote", "request.duration", "Remote transport request duration.", &["transport", "operation", "status"], &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 60.0, 300.0, 3600.0]).with_unit("s"),
+            file_uploads: counter("aster.drive.file", "uploads",
                 "Total Drive file upload attempts.",
                 &["mode", "status"],
-            ).with_unit("1"),
-            file_downloads: counter(
-                "file",
-                "downloads_total",
+            ).with_unit("{event}"),
+            file_downloads: counter("aster.drive.file", "downloads",
                 "Total Drive file download attempts.",
                 &["source", "outcome", "range"],
-            ).with_unit("1"),
-            upload_sessions: counter(
-                "upload",
-                "sessions_total",
+            ).with_unit("{event}"),
+            upload_sessions: counter("aster.drive.upload", "sessions",
                 "Total Drive upload sessions created.",
                 &["mode"],
-            ).with_unit("1"),
-            upload_session_events: counter(
-                "upload",
-                "session_events_total",
+            ).with_unit("{event}"),
+            upload_session_events: counter("aster.drive.upload", "session.events",
                 "Total Drive upload session lifecycle events.",
                 &["mode", "event", "status"],
-            ).with_unit("1"),
-            storage_routing_decisions: counter(
-                "storage",
-                "routing_decisions_total",
+            ).with_unit("{event}"),
+            storage_routing_decisions: counter("aster.drive.storage", "routing.decisions",
                 "Total storage placement routing decisions.",
                 &["selection", "outcome"],
-            ).with_unit("1"),
-            storage_routing_details: counter(
-                "storage",
-                "routing_details_total",
+            ).with_unit("{event}"),
+            storage_routing_details: counter("aster.drive.storage", "routing.details",
                 "Storage placement decisions by bounded topology identifiers.",
                 &["profile", "rule", "policy", "selection", "outcome"],
-            ).with_unit("1"),
-            upload_capacity_admissions: counter(
-                "upload",
-                "capacity_admissions_total",
+            ).with_unit("{event}"),
+            upload_capacity_admissions: counter("aster.drive.upload", "capacity.admissions",
                 "Upload target capacity assessment outcomes.",
                 &["outcome"],
-            ).with_unit("1"),
-            upload_staging_capacity_admissions: counter(
-                "upload",
-                "staging_capacity_admissions_total",
+            ).with_unit("{event}"),
+            upload_staging_capacity_admissions: counter("aster.drive.upload", "staging.capacity.admissions",
                 "Physical upload-staging reservation outcomes.",
                 &["outcome"],
-            ).with_unit("1"),
-            storage_capacity_probe_cache: counter(
-                "storage",
-                "capacity_probe_cache_total",
+            ).with_unit("{event}"),
+            storage_capacity_probe_cache: counter("aster.drive.storage", "capacity.probe.cache",
                 "Capacity observation cache decisions.",
                 &["outcome"],
-            ).with_unit("1"),
-            storage_capacity_probe_duration: histogram_with_buckets(
-                "storage",
-                "capacity_probe_duration_seconds",
+            ).with_unit("{event}"),
+            storage_capacity_probe_duration: histogram_with_buckets("aster.drive.storage", "capacity.probe.duration",
                 "Storage capacity probe duration by bounded outcome.",
                 &["outcome"],
                 &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0],
             ).with_unit("s"),
-            upload_data_planes: counter(
-                "upload",
-                "data_planes_total",
+            upload_data_planes: counter("aster.drive.upload", "data.planes",
                 "Upload initialization outcomes by selected data plane.",
                 &["data_plane", "status"],
-            ).with_unit("1"),
-            storage_driver_operations: counter(
-                "storage_driver",
-                "operations_total",
+            ).with_unit("{event}"),
+            storage_driver_operations: counter("aster.drive.storage.driver", "operations",
                 "Total Drive storage driver operations.",
                 &["driver", "operation", "status", "kind"],
-            ).with_unit("1"),
-    storage_driver_operation_duration: histogram_with_buckets(
-                "storage_driver",
-                "operation_duration_seconds",
+            ).with_unit("{event}"),
+    storage_driver_operation_duration: histogram_with_buckets("aster.drive.storage.driver", "operation.duration",
                 "Drive storage driver operation duration in seconds.",
                 &["driver", "operation", "status", "kind"],
                 &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0, 15.0, 60.0],
             ).with_unit("s"),
-            stream_upload_attempts: counter(
-                "stream_upload",
-                "attempts_total",
+            stream_upload_attempts: counter("aster.drive.stream.upload", "attempts",
                 "Total streaming upload attempt lifecycle events.",
                 &["event", "status"],
-            ).with_unit("1"),
-            stream_upload_bytes: histogram_with_buckets(
-                "stream_upload",
-                "bytes",
+            ).with_unit("{event}"),
+            stream_upload_bytes: histogram_with_buckets("aster.drive.stream.upload", "bytes",
                 "Streaming upload attempt byte counts.",
                 &["kind"],
                 &[1024.0, 64.0 * 1024.0, 1024.0 * 1024.0, 5.0 * 1024.0 * 1024.0, 50.0 * 1024.0 * 1024.0, 1024.0 * 1024.0 * 1024.0, 10.0 * 1024.0 * 1024.0 * 1024.0],
             ).with_unit("By"),
-            stream_upload_active: gauge(
-                "stream_upload",
-                "active",
+            stream_upload_active: gauge("aster.drive.stream.upload", "active",
                 "Streaming upload attempts currently in the data plane.",
                 &[],
-            ).with_unit("1"),
-            avatar_uploads: counter(
-                "avatar",
-                "uploads_total",
+            ).with_unit("{count}"),
+            avatar_uploads: counter("aster.drive.avatar", "uploads",
                 "Total synchronous avatar upload outcomes.",
                 &["status"],
-            ).with_unit("1"),
-            avatar_source_bytes: histogram_with_buckets(
-                "avatar",
-                "source_bytes",
+            ).with_unit("{event}"),
+            avatar_source_bytes: histogram_with_buckets("aster.drive.avatar", "source",
                 "Compressed avatar source bytes accepted by staging.",
                 &[],
                 &[1024.0, 64.0 * 1024.0, 1024.0 * 1024.0, 4.0 * 1024.0 * 1024.0, 10.0 * 1024.0 * 1024.0, 16.0 * 1024.0 * 1024.0],
             ).with_unit("By"),
-            avatar_dimensions: histogram_with_buckets(
-                "avatar",
-                "dimension_pixels",
+            avatar_dimensions: histogram_with_buckets("aster.drive.avatar", "dimension",
                 "Validated avatar source dimensions in pixels.",
                 &["axis"],
                 &[128.0, 256.0, 512.0, 1024.0],
             ).with_unit("{pixel}"),
-            avatar_budget_bytes: gauge(
-                "avatar",
-                "budget_bytes",
+            avatar_budget_bytes: gauge("aster.drive.avatar", "budget",
                 "Configured avatar source and decoder allocation boundaries in bytes.",
                 &["budget"],
             ).with_unit("By"),
-            avatar_render_duration: histogram_with_buckets(
-                "avatar",
-                "render_duration_seconds",
+            avatar_render_duration: histogram_with_buckets("aster.drive.avatar", "render.duration",
                 "Synchronous avatar render duration in seconds.",
                 &["processor"],
                 &[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0],
             ).with_unit("s"),
-            avatar_publish_duration: histogram_with_buckets(
-                "avatar",
-                "publish_duration_seconds",
+            avatar_publish_duration: histogram_with_buckets("aster.drive.avatar", "publish.duration",
                 "Filesystem publication duration for rendered avatar variants.",
                 &["status"],
                 &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0],
             ).with_unit("s"),
-            avatar_render_wait_duration: histogram_with_buckets(
-                "avatar",
-                "render_wait_duration_seconds",
+            avatar_render_wait_duration: histogram_with_buckets("aster.drive.avatar", "render.wait.duration",
                 "Time spent waiting for an avatar render concurrency permit.",
                 &[],
                 &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 15.0, 30.0, 60.0],
             ).with_unit("s"),
-            avatar_render_waiting: gauge(
-                "avatar",
-                "render_waiting",
+            avatar_render_waiting: gauge("aster.drive.avatar", "render.waiting",
                 "Avatar renders waiting for a concurrency permit.",
                 &[],
-            ).with_unit("1"),
-            avatar_render_active: gauge(
-                "avatar",
-                "render_active",
+            ).with_unit("{count}"),
+            avatar_render_active: gauge("aster.drive.avatar", "render.active",
                 "Avatar renders currently holding a concurrency permit.",
                 &[],
-            ).with_unit("1"),
-            avatar_rejections: counter(
-                "avatar",
-                "rejections_total",
+            ).with_unit("{count}"),
+            avatar_rejections: counter("aster.drive.avatar", "rejections",
                 "Total avatar upload rejections by boundary.",
                 &["reason"],
-            ).with_unit("1"),
-            share_download_rollback_events: counter(
-                "share_download_rollback",
-                "events_total",
+            ).with_unit("{event}"),
+            share_download_rollback_events: counter("aster.drive.share.download.rollback", "events",
                 "Total shared download rollback queue events.",
                 &["event"],
-            ).with_unit("1"),
-            share_download_rollback_pending: gauge(
-                "share_download_rollback",
-                "pending",
+            ).with_unit("{event}"),
+            share_download_rollback_pending: gauge("aster.drive.share.download.rollback", "pending",
                 "Pending shared download rollback operations.",
                 &[],
-            ).with_unit("1"),
+            ).with_unit("{count}"),
         }
     }
 }
@@ -943,46 +887,20 @@ mod tests {
 
     #[cfg(feature = "metrics")]
     #[test]
-    fn migration_preserves_the_entire_pre_instance_product_schema() {
-        let baseline: serde_json::Value =
-            serde_json::from_str(include_str!("../tests/fixtures/pre_instance_schema.json"))
-                .unwrap();
+    fn product_catalog_is_namespaced_and_has_unique_wire_names() {
         let provider = aster_forge_metrics::MetricsProvider::builder()
+            .with_prometheus()
+            .unwrap()
             .build()
             .unwrap();
         super::product::DriveProductMetrics::register(&provider).unwrap();
         let descriptors = provider.descriptors();
-        for expected in baseline["metrics"].as_array().unwrap() {
-            let actual = descriptors
-                .iter()
-                .find(|descriptor| {
-                    descriptor.subsystem == expected["subsystem"].as_str().unwrap()
-                        && descriptor.name == expected["name"].as_str().unwrap()
-                })
-                .unwrap();
-            assert_eq!(actual.help, expected["help"].as_str().unwrap());
-            assert_eq!(
-                format!("{:?}", actual.kind).to_ascii_lowercase(),
-                expected["kind"].as_str().unwrap()
-            );
-            assert_eq!(
-                actual.labels,
-                expected["labels"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|label| label.as_str().unwrap())
-                    .collect::<Vec<_>>()
-            );
-            assert_eq!(
-                actual.buckets,
-                expected["buckets"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|bucket| bucket.as_f64().unwrap())
-                    .collect::<Vec<_>>()
-            );
+        assert_eq!(descriptors.len(), 49);
+        let mut names = std::collections::BTreeSet::new();
+        for descriptor in descriptors {
+            assert!(descriptor.subsystem.starts_with("aster.drive."));
+            assert!(names.insert(descriptor.prometheus_name()));
+            assert!(!descriptor.name.ends_with("_total"));
         }
     }
 
@@ -1041,29 +959,29 @@ mod tests {
             .export_prometheus(std::time::Duration::from_secs(1))
             .await
             .expect("Drive avatar metrics should export");
-        assert!(body.contains("avatar_uploads_total"));
+        assert!(body.contains("aster_drive_avatar_uploads_total"));
         assert!(body.contains("status=\"applied\""));
-        assert!(body.contains("avatar_source_bytes_bucket"));
-        assert!(body.contains("avatar_source_bytes_count"));
-        assert!(body.contains("avatar_dimension_pixels_bucket"));
+        assert!(body.contains("aster_drive_avatar_source_bytes_bucket"));
+        assert!(body.contains("aster_drive_avatar_source_bytes_count"));
+        assert!(body.contains("aster_drive_avatar_dimension_bucket"));
         assert!(body.contains("axis=\"width\""));
         assert!(body.contains("axis=\"height\""));
-        assert!(body.contains("avatar_budget_bytes"));
+        assert!(body.contains("aster_drive_avatar_budget_bytes"));
         assert!(body.contains("budget=\"decode_alloc\""));
         assert!(body.contains("budget=\"source_configured\""));
         assert!(body.contains("budget=\"source_hard_ceiling\""));
-        assert!(body.contains("avatar_render_duration_seconds_bucket"));
-        assert!(body.contains("avatar_render_duration_seconds_count"));
-        assert!(body.contains("avatar_publish_duration_seconds_bucket"));
-        assert!(body.contains("avatar_publish_duration_seconds_count"));
+        assert!(body.contains("aster_drive_avatar_render_duration_seconds_bucket"));
+        assert!(body.contains("aster_drive_avatar_render_duration_seconds_count"));
+        assert!(body.contains("aster_drive_avatar_publish_duration_seconds_bucket"));
+        assert!(body.contains("aster_drive_avatar_publish_duration_seconds_count"));
         assert!(body.contains("status=\"success\""));
         assert!(body.contains("status=\"conflict\""));
         assert!(body.contains("status=\"failed\""));
-        assert!(body.contains("avatar_render_wait_duration_seconds_bucket"));
-        assert!(body.contains("avatar_render_wait_duration_seconds_count"));
-        assert!(body.contains("avatar_render_waiting 0"));
-        assert!(body.contains("avatar_render_active 0"));
-        assert!(body.contains("avatar_rejections_total"));
+        assert!(body.contains("aster_drive_avatar_render_wait_duration_seconds_bucket"));
+        assert!(body.contains("aster_drive_avatar_render_wait_duration_seconds_count"));
+        assert!(body.contains("aster_drive_avatar_render_waiting 0"));
+        assert!(body.contains("aster_drive_avatar_render_active 0"));
+        assert!(body.contains("aster_drive_avatar_rejections_total"));
         assert!(body.contains("reason=\"source\""));
         assert!(body.contains("reason=\"dimensions\""));
         assert!(body.contains("reason=\"decode_or_render\""));
@@ -1094,17 +1012,17 @@ mod tests {
             .export_prometheus(std::time::Duration::from_secs(1))
             .await
             .expect("Drive stream upload metrics should export");
-        assert!(body.contains("stream_upload_attempts_total"));
+        assert!(body.contains("aster_drive_stream_upload_attempts_total"));
         assert!(body.contains("event=\"attempt\""));
         assert!(body.contains("event=\"commit\""));
         assert!(body.contains("event=\"abort\""));
         assert!(body.contains("status=\"cleaned\""));
         assert!(body.contains("status=\"not_required\""));
         assert!(body.contains("status=\"deferred\""));
-        assert!(body.contains("stream_upload_bytes_bucket"));
+        assert!(body.contains("aster_drive_stream_upload_bytes_bytes_bucket"));
         assert!(body.contains("kind=\"expected\""));
         assert!(body.contains("le=\"10737418240\""));
-        assert!(body.contains("stream_upload_active 0"));
+        assert!(body.contains("aster_drive_stream_upload_active 0"));
     }
 
     #[cfg(feature = "prometheus")]
@@ -1149,20 +1067,20 @@ mod tests {
             .export_prometheus(std::time::Duration::from_secs(1))
             .await
             .expect("Drive upload admission metrics should export");
-        assert!(body.contains("upload_capacity_admissions_total"));
+        assert!(body.contains("aster_drive_upload_capacity_admissions_total"));
         assert!(body.contains("outcome=\"sufficient\""));
         assert!(body.contains("outcome=\"insufficient\""));
         assert!(body.contains("outcome=\"unsupported\""));
         assert!(body.contains("outcome=\"unavailable\""));
-        assert!(body.contains("upload_staging_capacity_admissions_total"));
+        assert!(body.contains("aster_drive_upload_staging_capacity_admissions_total"));
         assert!(body.contains("outcome=\"recovered\""));
-        assert!(body.contains("storage_capacity_probe_cache_total"));
+        assert!(body.contains("aster_drive_storage_capacity_probe_cache_total"));
         assert!(body.contains("outcome=\"stale_sufficient\""));
         assert!(body.contains("outcome=\"stale_after_error\""));
         assert!(body.contains("outcome=\"descriptor_unsupported\""));
-        assert!(body.contains("storage_capacity_probe_duration_seconds_bucket"));
+        assert!(body.contains("aster_drive_storage_capacity_probe_duration_seconds_bucket"));
         assert!(body.contains("outcome=\"timeout\""));
-        assert!(body.contains("upload_data_planes_total"));
+        assert!(body.contains("aster_drive_upload_data_planes_total"));
         assert!(body.contains("data_plane=\"streaming_direct\""));
         assert!(body.contains("data_plane=\"staged\""));
     }
@@ -1211,17 +1129,17 @@ mod tests {
             .await
             .unwrap();
         for expected in [
-            "file_transfer_bytes_total{direction=\"ingress\",mode=\"chunked\",source=\"file\"} 10",
-            "file_transfers_in_flight{direction=\"ingress\",mode=\"chunked\",source=\"file\"} 0",
-            "file_transfer_duration_seconds_count{direction=\"ingress\",mode=\"chunked\",outcome=\"failure\",source=\"file\"} 1",
-            "upload_admission_rejections_total{reason=\"quota\"} 1",
-            "upload_phase_duration_seconds_sum{mode=\"chunked\",phase=\"ingest\",status=\"failure\"} 0.25",
-            "blob_cleanup_retired_backing_bytes_total 42",
-            "remote_nodes{status=\"online\"} 2",
-            "remote_tunnel_connections 0",
-            "remote_tunnel_reconnects_total{reason=\"disconnected\"} 1",
-            "remote_requests_total{operation=\"write\",reason=\"timeout\",status=\"failure\",transport=\"reverse\"} 1",
-            "remote_request_duration_seconds_sum{operation=\"write\",status=\"failure\",transport=\"reverse\"} 0.5",
+            "aster_drive_file_transfer_bytes_total{direction=\"ingress\",mode=\"chunked\",source=\"file\"} 10",
+            "aster_drive_file_transfers_in_flight{direction=\"ingress\",mode=\"chunked\",source=\"file\"} 0",
+            "aster_drive_file_transfer_duration_seconds_count{direction=\"ingress\",mode=\"chunked\",outcome=\"failure\",source=\"file\"} 1",
+            "aster_drive_upload_admission_rejections_total{reason=\"quota\"} 1",
+            "aster_drive_upload_phase_duration_seconds_sum{mode=\"chunked\",phase=\"ingest\",status=\"failure\"} 0.25",
+            "aster_drive_blob_cleanup_retired_backing_bytes_total 42",
+            "aster_drive_remote_nodes{status=\"online\"} 2",
+            "aster_drive_remote_tunnel_connections 0",
+            "aster_drive_remote_tunnel_reconnects_total{reason=\"disconnected\"} 1",
+            "aster_drive_remote_requests_total{operation=\"write\",reason=\"timeout\",status=\"failure\",transport=\"reverse\"} 1",
+            "aster_drive_remote_request_duration_seconds_sum{operation=\"write\",status=\"failure\",transport=\"reverse\"} 0.5",
         ] {
             assert!(
                 body.lines().any(|line| line == expected),
@@ -1256,18 +1174,18 @@ mod tests {
             .await
             .unwrap();
         for expected in [
-            "upload_sessions_active{mode=\"stream\",state=\"expired\"} 3",
-            "upload_session_oldest_age_seconds{mode=\"stream\",state=\"expired\"} 120",
-            "blob_cleanup_pending 2",
-            "blob_cleanup_oldest_age_seconds 240",
-            "observability_snapshot_valid{source=\"database\"} 0",
-            "observability_snapshot_last_success_timestamp_seconds{source=\"database\"} 1234",
-            "storage_capacity_bytes{kind=\"available\",scope=\"staging\"} 80",
-            "storage_capacity_bytes{kind=\"total\",scope=\"staging\"} 100",
-            "storage_capacity_bytes{kind=\"used\",scope=\"staging\"} 20",
-            "storage_capacity_known{kind=\"available\",scope=\"staging\"} 0",
-            "storage_capacity_known{kind=\"total\",scope=\"staging\"} 0",
-            "storage_capacity_known{kind=\"used\",scope=\"staging\"} 0",
+            "aster_drive_upload_sessions_active{mode=\"stream\",state=\"expired\"} 3",
+            "aster_drive_upload_session_oldest_age_seconds{mode=\"stream\",state=\"expired\"} 120",
+            "aster_drive_blob_cleanup_pending 2",
+            "aster_drive_blob_cleanup_oldest_age_seconds 240",
+            "aster_drive_observability_snapshot_valid{source=\"database\"} 0",
+            "aster_drive_observability_snapshot_last_success_timestamp_seconds{source=\"database\"} 1234",
+            "aster_drive_storage_capacity_bytes{kind=\"available\",scope=\"staging\"} 80",
+            "aster_drive_storage_capacity_bytes{kind=\"total\",scope=\"staging\"} 100",
+            "aster_drive_storage_capacity_bytes{kind=\"used\",scope=\"staging\"} 20",
+            "aster_drive_storage_capacity_known{kind=\"available\",scope=\"staging\"} 0",
+            "aster_drive_storage_capacity_known{kind=\"total\",scope=\"staging\"} 0",
+            "aster_drive_storage_capacity_known{kind=\"used\",scope=\"staging\"} 0",
         ] {
             assert!(
                 body.lines().any(|line| line == expected),
@@ -1312,17 +1230,17 @@ mod tests {
             .await
             .unwrap();
         for expected in [
-            "auth_events_total{action=\"login\",reason=\"credentials\",status=\"failure\"} 1",
-            "config_reloads_total{decision=\"applied\",source=\"database\",status=\"success\"} 1",
-            "config_mutations_total{operation=\"update\",source=\"admin\",status=\"success\"} 1",
-            "background_tasks_total{kind=\"cleanup\",status=\"retry\"} 1",
-            "background_task_retries_total{kind=\"cleanup\"} 1",
-            "background_tasks_pending 4",
-            "file_uploads_total{mode=\"stream\",status=\"success\"} 1",
-            "file_downloads_total{outcome=\"success\",range=\"range\",source=\"share\"} 1",
-            "storage_driver_operations_total{driver=\"local\",kind=\"stream\",operation=\"read\",status=\"success\"} 1",
-            "share_download_rollback_events_total{event=\"retried\"} 2",
-            "share_download_rollback_pending 1",
+            "aster_auth_events_total{action=\"login\",reason=\"credentials\",status=\"failure\"} 1",
+            "aster_config_reloads_total{decision=\"applied\",source=\"database\",status=\"success\"} 1",
+            "aster_config_mutations_total{operation=\"update\",source=\"admin\",status=\"success\"} 1",
+            "aster_task_transitions_total{kind=\"cleanup\",status=\"retry\"} 1",
+            "aster_task_retries_total{kind=\"cleanup\"} 1",
+            "aster_task_pending 4",
+            "aster_drive_file_uploads_total{mode=\"stream\",status=\"success\"} 1",
+            "aster_drive_file_downloads_total{outcome=\"success\",range=\"range\",source=\"share\"} 1",
+            "aster_drive_storage_driver_operations_total{driver=\"local\",kind=\"stream\",operation=\"read\",status=\"success\"} 1",
+            "aster_drive_share_download_rollback_events_total{event=\"retried\"} 2",
+            "aster_drive_share_download_rollback_pending 1",
         ] {
             assert!(
                 body.lines().any(|line| line == expected),

@@ -1,0 +1,1262 @@
+{
+  "instruments": [
+    {
+      "attributes": [
+        "category",
+        "event",
+        "status"
+      ],
+      "buckets": [],
+      "description": "aster.application.events under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.application.events",
+      "prometheus": "aster_application_events_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "action",
+        "status",
+        "reason"
+      ],
+      "buckets": [],
+      "description": "aster.auth.events under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.auth.events",
+      "prometheus": "aster_auth_events_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "source",
+        "operation",
+        "status"
+      ],
+      "buckets": [
+        0.0,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        25.0,
+        50.0,
+        100.0
+      ],
+      "description": "aster.config.mutation.changed_keys under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.config.mutation.changed_keys",
+      "prometheus": "aster_config_mutation_changed_keys",
+      "unit": "{key}"
+    },
+    {
+      "attributes": [
+        "source",
+        "operation",
+        "status"
+      ],
+      "buckets": [],
+      "description": "aster.config.mutations under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.config.mutations",
+      "prometheus": "aster_config_mutations_total",
+      "unit": "{operation}"
+    },
+    {
+      "attributes": [
+        "source",
+        "decision",
+        "status"
+      ],
+      "buckets": [
+        0.0,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+        25.0,
+        50.0,
+        100.0,
+        500.0
+      ],
+      "description": "aster.config.reload.changed_keys under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.config.reload.changed_keys",
+      "prometheus": "aster_config_reload_changed_keys",
+      "unit": "{key}"
+    },
+    {
+      "attributes": [
+        "source",
+        "decision",
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        5.0
+      ],
+      "description": "aster.config.reload.duration under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.config.reload.duration",
+      "prometheus": "aster_config_reload_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "source",
+        "decision",
+        "status"
+      ],
+      "buckets": [],
+      "description": "aster.config.reloads under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.config.reloads",
+      "prometheus": "aster_config_reloads_total",
+      "unit": "{operation}"
+    },
+    {
+      "attributes": [
+        "budget"
+      ],
+      "buckets": [],
+      "description": "Configured avatar source and decoder allocation boundaries in bytes.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.avatar.budget",
+      "prometheus": "aster_drive_avatar_budget_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "axis"
+      ],
+      "buckets": [
+        128.0,
+        256.0,
+        512.0,
+        1024.0
+      ],
+      "description": "Validated avatar source dimensions in pixels.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.avatar.dimension",
+      "prometheus": "aster_drive_avatar_dimension",
+      "unit": "{pixel}"
+    },
+    {
+      "attributes": [
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.0025,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        15.0
+      ],
+      "description": "Filesystem publication duration for rendered avatar variants.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.avatar.publish.duration",
+      "prometheus": "aster_drive_avatar_publish_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "reason"
+      ],
+      "buckets": [],
+      "description": "Total avatar upload rejections by boundary.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.avatar.rejections",
+      "prometheus": "aster_drive_avatar_rejections_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Avatar renders currently holding a concurrency permit.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.avatar.render.active",
+      "prometheus": "aster_drive_avatar_render_active",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "processor"
+      ],
+      "buckets": [
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        15.0
+      ],
+      "description": "Synchronous avatar render duration in seconds.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.avatar.render.duration",
+      "prometheus": "aster_drive_avatar_render_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        15.0,
+        30.0,
+        60.0
+      ],
+      "description": "Time spent waiting for an avatar render concurrency permit.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.avatar.render.wait.duration",
+      "prometheus": "aster_drive_avatar_render_wait_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Avatar renders waiting for a concurrency permit.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.avatar.render.waiting",
+      "prometheus": "aster_drive_avatar_render_waiting",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [],
+      "buckets": [
+        1024.0,
+        65536.0,
+        1048576.0,
+        4194304.0,
+        10485760.0,
+        16777216.0
+      ],
+      "description": "Compressed avatar source bytes accepted by staging.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.avatar.source",
+      "prometheus": "aster_drive_avatar_source_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "status"
+      ],
+      "buckets": [],
+      "description": "Total synchronous avatar upload outcomes.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.avatar.uploads",
+      "prometheus": "aster_drive_avatar_uploads_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "outcome"
+      ],
+      "buckets": [],
+      "description": "Claimed blob cleanup outcomes.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.blob.cleanup.objects",
+      "prometheus": "aster_drive_blob_cleanup_objects_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Oldest stored blob cleanup interval age; retained across retries.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.blob.cleanup.oldest.age",
+      "prometheus": "aster_drive_blob_cleanup_oldest_age_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Unreferenced or claimed blobs pending physical cleanup.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.blob.cleanup.pending",
+      "prometheus": "aster_drive_blob_cleanup_pending",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Blob backing bytes retired after deletion acknowledgment and metadata removal.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.blob.cleanup.retired.backing",
+      "prometheus": "aster_drive_blob_cleanup_retired_backing_bytes_total",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "source",
+        "outcome",
+        "range"
+      ],
+      "buckets": [],
+      "description": "Total Drive file download attempts.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.file.downloads",
+      "prometheus": "aster_drive_file_downloads_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "direction",
+        "source",
+        "mode"
+      ],
+      "buckets": [],
+      "description": "Observed bytes consumed at AD data-plane boundaries.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.file.transfer",
+      "prometheus": "aster_drive_file_transfer_bytes_total",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "direction",
+        "source",
+        "mode",
+        "outcome"
+      ],
+      "buckets": [
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        15.0,
+        60.0,
+        300.0,
+        900.0,
+        3600.0
+      ],
+      "description": "AD stream lifecycle duration through EOF error or drop.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.file.transfer.duration",
+      "prometheus": "aster_drive_file_transfer_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "direction",
+        "source",
+        "mode"
+      ],
+      "buckets": [],
+      "description": "Active AD data-plane streams.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.file.transfers.in.flight",
+      "prometheus": "aster_drive_file_transfers_in_flight",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "mode",
+        "status"
+      ],
+      "buckets": [],
+      "description": "Total Drive file upload attempts.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.file.uploads",
+      "prometheus": "aster_drive_file_uploads_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "source"
+      ],
+      "buckets": [],
+      "description": "Unix timestamp of the last successful sample.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.observability.snapshot.last.success.timestamp",
+      "prometheus": "aster_drive_observability_snapshot_last_success_timestamp_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "source"
+      ],
+      "buckets": [],
+      "description": "Whether the last sampling attempt succeeded.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.observability.snapshot.valid",
+      "prometheus": "aster_drive_observability_snapshot_valid",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "status"
+      ],
+      "buckets": [],
+      "description": "Persisted node status snapshot.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.remote.nodes",
+      "prometheus": "aster_drive_remote_nodes",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "transport",
+        "operation",
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        15.0,
+        60.0,
+        300.0,
+        3600.0
+      ],
+      "description": "Remote transport request duration.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.remote.request.duration",
+      "prometheus": "aster_drive_remote_request_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "transport",
+        "operation",
+        "status",
+        "reason"
+      ],
+      "buckets": [],
+      "description": "Remote transport requests observed by this node; separate from driver operations.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.remote.requests",
+      "prometheus": "aster_drive_remote_requests_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Locally established reverse tunnel connections.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.remote.tunnel.connections",
+      "prometheus": "aster_drive_remote_tunnel_connections",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "reason"
+      ],
+      "buckets": [],
+      "description": "Reverse tunnel connection retry decisions.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.remote.tunnel.reconnects",
+      "prometheus": "aster_drive_remote_tunnel_reconnects_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "event"
+      ],
+      "buckets": [],
+      "description": "Total shared download rollback queue events.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.share.download.rollback.events",
+      "prometheus": "aster_drive_share_download_rollback_events_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Pending shared download rollback operations.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.share.download.rollback.pending",
+      "prometheus": "aster_drive_share_download_rollback_pending",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "scope",
+        "kind"
+      ],
+      "buckets": [],
+      "description": "Capacity snapshot; targets report independent minima and must not be summed.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.storage.capacity",
+      "prometheus": "aster_drive_storage_capacity_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "scope",
+        "kind"
+      ],
+      "buckets": [],
+      "description": "Whether this capacity dimension is supported and current.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.storage.capacity.known",
+      "prometheus": "aster_drive_storage_capacity_known",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "outcome"
+      ],
+      "buckets": [],
+      "description": "Capacity observation cache decisions.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.storage.capacity.probe.cache",
+      "prometheus": "aster_drive_storage_capacity_probe_cache_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "outcome"
+      ],
+      "buckets": [
+        0.001,
+        0.0025,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0
+      ],
+      "description": "Storage capacity probe duration by bounded outcome.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.storage.capacity.probe.duration",
+      "prometheus": "aster_drive_storage_capacity_probe_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "driver",
+        "operation",
+        "status",
+        "kind"
+      ],
+      "buckets": [
+        0.001,
+        0.0025,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        5.0,
+        15.0,
+        60.0
+      ],
+      "description": "Drive storage driver operation duration in seconds.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.storage.driver.operation.duration",
+      "prometheus": "aster_drive_storage_driver_operation_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "driver",
+        "operation",
+        "status",
+        "kind"
+      ],
+      "buckets": [],
+      "description": "Total Drive storage driver operations.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.storage.driver.operations",
+      "prometheus": "aster_drive_storage_driver_operations_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "selection",
+        "outcome"
+      ],
+      "buckets": [],
+      "description": "Total storage placement routing decisions.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.storage.routing.decisions",
+      "prometheus": "aster_drive_storage_routing_decisions_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "profile",
+        "rule",
+        "policy",
+        "selection",
+        "outcome"
+      ],
+      "buckets": [],
+      "description": "Storage placement decisions by bounded topology identifiers.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.storage.routing.details",
+      "prometheus": "aster_drive_storage_routing_details_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Streaming upload attempts currently in the data plane.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.stream.upload.active",
+      "prometheus": "aster_drive_stream_upload_active",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "event",
+        "status"
+      ],
+      "buckets": [],
+      "description": "Total streaming upload attempt lifecycle events.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.stream.upload.attempts",
+      "prometheus": "aster_drive_stream_upload_attempts_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "kind"
+      ],
+      "buckets": [
+        1024.0,
+        65536.0,
+        1048576.0,
+        5242880.0,
+        52428800.0,
+        1073741824.0,
+        10737418240.0
+      ],
+      "description": "Streaming upload attempt byte counts.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.stream.upload.bytes",
+      "prometheus": "aster_drive_stream_upload_bytes_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "reason"
+      ],
+      "buckets": [],
+      "description": "Upload requests rejected by a stable resource boundary.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.upload.admission.rejections",
+      "prometheus": "aster_drive_upload_admission_rejections_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "outcome"
+      ],
+      "buckets": [],
+      "description": "Upload target capacity assessment outcomes.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.upload.capacity.admissions",
+      "prometheus": "aster_drive_upload_capacity_admissions_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "data_plane",
+        "status"
+      ],
+      "buckets": [],
+      "description": "Upload initialization outcomes by selected data plane.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.upload.data.planes",
+      "prometheus": "aster_drive_upload_data_planes_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "mode",
+        "phase",
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.5,
+        5.0,
+        15.0,
+        60.0,
+        300.0
+      ],
+      "description": "Upload phase duration, excluding completed retries.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.drive.upload.phase.duration",
+      "prometheus": "aster_drive_upload_phase_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "mode",
+        "event",
+        "status"
+      ],
+      "buckets": [],
+      "description": "Total Drive upload session lifecycle events.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.upload.session.events",
+      "prometheus": "aster_drive_upload_session_events_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "mode",
+        "state"
+      ],
+      "buckets": [],
+      "description": "Oldest persisted session age since creation.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.upload.session.oldest.age",
+      "prometheus": "aster_drive_upload_session_oldest_age_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "mode"
+      ],
+      "buckets": [],
+      "description": "Total Drive upload sessions created.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.upload.sessions",
+      "prometheus": "aster_drive_upload_sessions_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "mode",
+        "state"
+      ],
+      "buckets": [],
+      "description": "Persisted upload session snapshot by mode and state.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.upload.sessions.active",
+      "prometheus": "aster_drive_upload_sessions_active",
+      "unit": "{count}"
+    },
+    {
+      "attributes": [
+        "kind"
+      ],
+      "buckets": [],
+      "description": "Persisted staging and reservation snapshot bytes.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.drive.upload.staging",
+      "prometheus": "aster_drive_upload_staging_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "outcome"
+      ],
+      "buckets": [],
+      "description": "Physical upload-staging reservation outcomes.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.drive.upload.staging.capacity.admissions",
+      "prometheus": "aster_drive_upload_staging_capacity_admissions_total",
+      "unit": "{event}"
+    },
+    {
+      "attributes": [
+        "system",
+        "operation",
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.05,
+        0.1,
+        0.5,
+        1.0,
+        5.0,
+        15.0,
+        60.0
+      ],
+      "description": "aster.external.operation.duration under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.external.operation.duration",
+      "prometheus": "aster_external_operation_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "system",
+        "operation",
+        "status"
+      ],
+      "buckets": [],
+      "description": "aster.external.operations under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.external.operations",
+      "prometheus": "aster_external_operations_total",
+      "unit": "{operation}"
+    },
+    {
+      "attributes": [
+        "aster.request.outcome"
+      ],
+      "buckets": [],
+      "description": "aster.http.server.requests under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.http.server.requests",
+      "prometheus": "aster_http_server_requests_total",
+      "unit": "{request}"
+    },
+    {
+      "attributes": [
+        "component",
+        "operation"
+      ],
+      "buckets": [],
+      "description": "aster.observability.failures under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "ObservableCounter",
+      "name": "aster.observability.failures",
+      "prometheus": "aster_observability_failures_total",
+      "unit": "{failure}"
+    },
+    {
+      "attributes": [
+        "kind"
+      ],
+      "buckets": [],
+      "description": "aster.process.heap under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.process.heap",
+      "prometheus": "aster_process_heap_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [
+        "scope",
+        "component",
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.05,
+        0.1,
+        0.5,
+        1.0,
+        5.0
+      ],
+      "description": "aster.runtime.component.health.duration under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.runtime.component.health.duration",
+      "prometheus": "aster_runtime_component_health_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "scope",
+        "component"
+      ],
+      "buckets": [],
+      "description": "Component health: healthy=0, degraded=1, unhealthy=2.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.runtime.component.health.status",
+      "prometheus": "aster_runtime_component_health_status",
+      "unit": "{state}"
+    },
+    {
+      "attributes": [
+        "scope",
+        "status"
+      ],
+      "buckets": [
+        0.001,
+        0.005,
+        0.01,
+        0.05,
+        0.1,
+        0.5,
+        1.0,
+        5.0
+      ],
+      "description": "aster.runtime.health.duration under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.runtime.health.duration",
+      "prometheus": "aster_runtime_health_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "scope"
+      ],
+      "buckets": [],
+      "description": "Aggregate health report: healthy=0, degraded=1, unhealthy=2.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.runtime.health.status",
+      "prometheus": "aster_runtime_health_status",
+      "unit": "{state}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Current role ready endpoint result.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.runtime.ready",
+      "prometheus": "aster_runtime_ready",
+      "unit": "{state}"
+    },
+    {
+      "attributes": [
+        "kind"
+      ],
+      "buckets": [],
+      "description": "Actually active local task handlers.",
+      "integer_attributes": [],
+      "kind": "UpDownCounter",
+      "name": "aster.task.handler.active",
+      "prometheus": "aster_task_handler_active",
+      "unit": "{execution}"
+    },
+    {
+      "attributes": [
+        "kind",
+        "result"
+      ],
+      "buckets": [
+        0.01,
+        0.1,
+        1.0,
+        5.0,
+        15.0,
+        60.0,
+        300.0,
+        900.0,
+        3600.0
+      ],
+      "description": "Local handler lifetime; return does not independently prove persistence.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "aster.task.handler.duration",
+      "prometheus": "aster_task_handler_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "aster.task.pending under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.task.pending",
+      "prometheus": "aster_task_pending",
+      "unit": "{task}"
+    },
+    {
+      "attributes": [
+        "kind"
+      ],
+      "buckets": [],
+      "description": "aster.task.retries under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.task.retries",
+      "prometheus": "aster_task_retries_total",
+      "unit": "{retry}"
+    },
+    {
+      "attributes": [
+        "kind",
+        "status"
+      ],
+      "buckets": [],
+      "description": "aster.task.transitions under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.task.transitions",
+      "prometheus": "aster_task_transitions_total",
+      "unit": "{transition}"
+    },
+    {
+      "attributes": [
+        "exporter"
+      ],
+      "buckets": [],
+      "description": "aster.telemetry.export.failures under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "ObservableCounter",
+      "name": "aster.telemetry.export.failures",
+      "prometheus": "aster_telemetry_export_failures_total",
+      "unit": "{failure}"
+    },
+    {
+      "attributes": [
+        "exporter"
+      ],
+      "buckets": [],
+      "description": "aster.telemetry.export.last_success under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.telemetry.export.last_success",
+      "prometheus": "aster_telemetry_export_last_success_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "exporter"
+      ],
+      "buckets": [],
+      "description": "aster.telemetry.exports under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "ObservableCounter",
+      "name": "aster.telemetry.exports",
+      "prometheus": "aster_telemetry_exports_total",
+      "unit": "{export}"
+    },
+    {
+      "attributes": [
+        "db.client.connection.pool.name",
+        "db.client.connection.state"
+      ],
+      "buckets": [],
+      "description": "Native idle/used connection count.",
+      "integer_attributes": [],
+      "kind": "ObservableUpDownCounter",
+      "name": "db.client.connection.count",
+      "prometheus": "db_client_connection_count",
+      "unit": "{connection}"
+    },
+    {
+      "attributes": [
+        "db.client.connection.pool.name"
+      ],
+      "buckets": [],
+      "description": "Actual finite connection pool limit.",
+      "integer_attributes": [],
+      "kind": "ObservableUpDownCounter",
+      "name": "db.client.connection.max",
+      "prometheus": "db_client_connection_max",
+      "unit": "{connection}"
+    },
+    {
+      "attributes": [
+        "db.system.name",
+        "db.operation.name",
+        "error.type"
+      ],
+      "buckets": [
+        0.0005,
+        0.001,
+        0.0025,
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        5.0
+      ],
+      "description": "db.client.operation.duration under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Histogram",
+      "name": "db.client.operation.duration",
+      "prometheus": "db_client_operation_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "http.request.method",
+        "url.scheme"
+      ],
+      "buckets": [],
+      "description": "http.server.active_requests under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "UpDownCounter",
+      "name": "http.server.active_requests",
+      "prometheus": "http_server_active_requests",
+      "unit": "{request}"
+    },
+    {
+      "attributes": [
+        "http.request.method",
+        "url.scheme",
+        "http.route",
+        "http.response.status_code",
+        "error.type"
+      ],
+      "buckets": [
+        0.005,
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.5,
+        5.0,
+        7.5,
+        10.0
+      ],
+      "description": "http.server.request.duration under aster-metrics/v1.",
+      "integer_attributes": [
+        "http.response.status_code"
+      ],
+      "kind": "Histogram",
+      "name": "http.server.request.duration",
+      "prometheus": "http_server_request_duration_seconds",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "process.cpu.time under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "ObservableCounter",
+      "name": "process.cpu.time",
+      "prometheus": "process_cpu_time_seconds_total",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "process.memory.usage under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "ObservableUpDownCounter",
+      "name": "process.memory.usage",
+      "prometheus": "process_memory_usage_bytes",
+      "unit": "By"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "process.uptime under aster-metrics/v1.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "process.uptime",
+      "prometheus": "process_uptime_seconds",
+      "unit": "s"
+    }
+  ],
+  "schema": "aster-metrics/v1",
+  "semantic_conventions": "1.44.0"
+}

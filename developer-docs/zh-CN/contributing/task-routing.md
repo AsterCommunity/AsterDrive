@@ -12,6 +12,7 @@
 | Service 或领域规则 | [后端服务所有权](../architecture/backend-service-ownership.md)、对应 `design/` | `src/services/<domain>/`、相邻测试 | domain unit tests、相关 integration target、`cargo check` |
 | Repository / SQL / migration | [测试与数据库后端](../testing/index.md) | `src/db/repository/`、`crates/aster_drive_model/`、`crates/aster_drive_migration/` | SQLite focused tests；有跨库语义时补 PostgreSQL/MySQL |
 | 静态或运行时配置 | [架构概览](../architecture/index.md) | `src/config/`、runtime startup、admin config API/frontend | 默认值、normalize、读写和权限测试；必要时 OpenAPI/frontend tests |
+| 指标、Prometheus、OTLP 或 Grafana | [Metrics profile](../architecture/metrics-profile.md) | `crates/aster_drive_metrics/`、`src/services/ops/metrics.rs`、Forge recorder、Grafana JSON | 实际导出、生成目录、schema/query、Noop/pull/OTLP、取消/新鲜度测试 |
 | AsterForge 接入或抽取 | [项目契约](../architecture/project-contract.md) | 当前 Drive adapter、对应 Forge crate/API | 先写“旧模块 -> Forge API -> Drive 保留职责 -> 必测行为”；相关 crate/Drive 编译和集成测试 |
 | Code review fixes | [工程工作流](./engineering-workflow.md) | review 引用路径、当前 diff、相邻测试 | 逐条验证真伪；每批 focused compile/test |
 | GitHub Actions、PR 标签、CI 评论和合并流程 | [GitHub 自动化](./github-automation.md) | `.github/workflows/`、`.github/aster-automation.json`、`scripts/github/check-actionlint.mjs`、仓库 labels / ruleset；共享引擎见 `AsterCommunity/aster-automation` | 配置验证、workflow 静态检查、`git diff --check` |
