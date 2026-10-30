@@ -1,0 +1,583 @@
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
+import { EmptyState } from "@/components/common/EmptyState";
+import { SkeletonFileGrid } from "@/components/common/SkeletonFileGrid";
+import { SkeletonFileTable } from "@/components/common/SkeletonFileTable";
+import {
+	type FileBrowserContextValue,
+	FileBrowserProvider,
+} from "@/components/files/FileBrowserContext";
+import { FileBrowserNavigationBar } from "@/components/files/FileBrowserNavigationBar";
+import { FileGrid } from "@/components/files/FileGrid";
+import { FileInfoDialog } from "@/components/files/FileInfoDialog";
+import { FileTable } from "@/components/files/FileTable";
+import { VersionHistoryDialog } from "@/components/files/VersionHistoryDialog";
+import { AppLayout } from "@/components/layout/AppLayout";
+import {
+	buildTrashMetaMap,
+	toBrowserFiles,
+	toBrowserFolders,
+} from "@/components/trash/trashBrowserItems";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { handleApiError } from "@/hooks/useApiError";
+import { adminContentAccessService } from "@/services/adminContentAccessService";
+import { startAdminContentDownload } from "@/services/adminContentDownload";
+import { useFileStore } from "@/stores/fileStore";
+import type {
+	AdminFolderInfo,
+	AdminScopeKind,
+	AdminWorkspaceContents,
+	FileInfo,
+	TrashContents,
+} from "@/types/api";
+import { AdminContentAccessGate } from "./AdminContentAccessGate";
+import {
+	type AdminWorkspaceIdentity,
+	AdminWorkspaceSidebar,
+} from "./AdminWorkspaceSidebar";
+
+const PAGE_SIZE = 50;
+function positiveId(value: string | null) {
+	const id = Number(value);
+	return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+}
+function WorkspaceContents({
+	accessId,
+	end,
+	user,
+	team,
+}: AdminWorkspaceIdentity & { accessId: string; end: () => void }) {
+	const { t } = useTranslation("admin");
+	const [search, setSearch] = useSearchParams();
+	const [refreshKey, setRefreshKey] = useState(0);
+	const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+		null,
+	);
+	const selectedId = positiveId(search.get("fileId"));
+	const selectedFolderId =
+		selectedId == null ? positiveId(search.get("infoFolderId")) : undefined;
+	const versionsOpen =
+		search.get("panel") === "versions" || search.has("revisionId");
+	const [selectedFile, setSelectedFile] = useState<FileInfo | undefined>();
+	const [selectedFolder, setSelectedFolder] = useState<AdminFolderInfo>();
+	const activeFile = selectedFile?.id === selectedId ? selectedFile : undefined;
+	const activeFolder =
+		selectedFolder?.folder.id === selectedFolderId ? selectedFolder : undefined;
+	const selectionKey =
+		selectedId != null
+			? `file:${selectedId}`
+			: selectedFolderId != null
+				? `folder:${selectedFolderId}`
+				: null;
+	const [failedSelection, setFailedSelection] = useState<string | null>(null);
+	const selectedFailed =
+		selectionKey != null && failedSelection === selectionKey;
+	const viewMode = useFileStore((state) => state.viewMode);
+	const setViewMode = useFileStore((state) => state.setViewMode);
+	const [data, setData] = useState<AdminWorkspaceContents | null>(null);
+	const [trash, setTrash] = useState<TrashContents | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [failed, setFailed] = useState(false);
+	const folderId = positiveId(search.get("folderId"));
+	const inTrash = search.get("view") === "trash";
+	const offset = Math.max(0, Number(search.get("folderOffset")) || 0);
+	const cursorValue = search.get("fileAfterValue") ?? undefined;
+	const cursorId = positiveId(search.get("fileAfterId"));
+	const sortBy =
+		(["name", "size", "created_at", "updated_at", "type"] as const).find(
+			(value) => value === search.get("sortBy"),
+		) ?? "name";
+	const sortOrder = search.get("sortOrder") === "desc" ? "desc" : "asc";
+	const update = (values: Record<string, string | undefined>) => {
+		setSearch((current) => {
+			const next = new URLSearchParams(current);
+			for (const [key, value] of Object.entries(values)) {
+				if (value === undefined) next.delete(key);
+				else next.set(key, value);
+			}
+			return next;
+		});
+	};
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the explicit refresh counter intentionally reloads this resource without changing navigation.
+	useEffect(() => {
+		let active = true;
+		setLoading(true);
+		setData(null);
+		setFailed(false);
+		setTrash(null);
+		const request = inTrash
+			? adminContentAccessService
+					.trash({
+						access_id: accessId,
+						folder_limit: PAGE_SIZE,
+						folder_offset: offset,
+						file_limit: PAGE_SIZE,
+						file_after_expires_at: cursorValue,
+						file_after_id: cursorId,
+					})
+					.then((result) => {
+						if (!active) return;
+						setTrash(result);
+						setData({
+							contents: {
+								folders: toBrowserFolders(result.folders),
+								files: toBrowserFiles(result.files),
+								folders_total: result.folders_total,
+								files_total: result.files_total,
+								next_file_cursor: result.next_file_cursor
+									? {
+											id: result.next_file_cursor.id,
+											value: result.next_file_cursor.expires_at,
+										}
+									: null,
+							},
+							ancestors: [],
+							deleted: true,
+						});
+					})
+			: adminContentAccessService
+					.list({
+						access_id: accessId,
+						folder_id: folderId,
+						deleted: false,
+						folder_limit: PAGE_SIZE,
+						folder_offset: offset,
+						file_limit: PAGE_SIZE,
+						file_after_value: cursorValue,
+						file_after_id: cursorId,
+						sort_by: sortBy,
+						sort_order: sortOrder,
+					})
+					.then((result) => {
+						if (active) setData(result);
+					});
+		request
+			.catch((error) => {
+				if (active) {
+					setFailed(true);
+					handleApiError(error);
+				}
+			})
+			.finally(() => {
+				if (active) setLoading(false);
+			});
+		return () => {
+			active = false;
+		};
+	}, [
+		accessId,
+		folderId,
+		inTrash,
+		offset,
+		cursorValue,
+		cursorId,
+		sortBy,
+		sortOrder,
+		refreshKey,
+	]);
+	const openFolder = (id?: number) =>
+		update({
+			fileId: undefined,
+			infoFolderId: undefined,
+			panel: undefined,
+			revisionId: undefined,
+			view: undefined,
+			deleted: undefined,
+			folderId: id?.toString(),
+			folderOffset: undefined,
+			fileAfterValue: undefined,
+			fileAfterId: undefined,
+		});
+	const download = async (id: number) => {
+		try {
+			await startAdminContentDownload(accessId, id);
+		} catch (error) {
+			handleApiError(error);
+		}
+	};
+	const openFile = (id: number, panel = "info") =>
+		update({
+			fileId: String(id),
+			infoFolderId: undefined,
+			panel,
+			revisionId: undefined,
+		});
+	const closeFile = () =>
+		update({
+			fileId: undefined,
+			infoFolderId: undefined,
+			panel: undefined,
+			revisionId: undefined,
+		});
+	const openFolderInfo = (id: number) =>
+		update({
+			fileId: undefined,
+			infoFolderId: String(id),
+			panel: "info",
+			revisionId: undefined,
+		});
+
+	useEffect(() => {
+		let active = true;
+		setSelectedFile(undefined);
+		setSelectedFolder(undefined);
+		setFailedSelection(null);
+		const request =
+			selectedId != null
+				? adminContentAccessService
+						.getFile(accessId, selectedId)
+						.then((detail) => {
+							if (active) setSelectedFile(detail);
+						})
+				: selectedFolderId != null
+					? adminContentAccessService
+							.getFolder(accessId, selectedFolderId)
+							.then((detail) => {
+								if (active) setSelectedFolder(detail);
+							})
+					: null;
+		request?.catch((error) => {
+			if (active) {
+				setFailedSelection(selectionKey);
+				handleApiError(error);
+			}
+		});
+		return () => {
+			active = false;
+		};
+	}, [accessId, selectedId, selectedFolderId, selectionKey]);
+
+	const versionSource = useMemo(
+		() => ({
+			list: (fileId: number, after?: number) =>
+				adminContentAccessService.listVersions(accessId, fileId, after),
+			download: (revisionId: number) =>
+				selectedId == null
+					? Promise.reject(new Error("missing file"))
+					: startAdminContentDownload(accessId, selectedId, revisionId),
+		}),
+		[accessId, selectedId],
+	);
+	const trashMeta = useMemo(
+		() => (trash ? buildTrashMetaMap(trash) : new Map()),
+		[trash],
+	);
+	const showTrash = () =>
+		update({
+			view: "trash",
+			deleted: undefined,
+			folderId: undefined,
+			fileId: undefined,
+			infoFolderId: undefined,
+			panel: undefined,
+			revisionId: undefined,
+			folderOffset: undefined,
+			fileAfterValue: undefined,
+			fileAfterId: undefined,
+		});
+	const browserContext: FileBrowserContextValue = {
+		folders: data?.contents.folders ?? [],
+		files: data?.contents.files ?? [],
+		browserOpenMode: "single_click",
+		readOnly: true,
+		selectionEnabled: false,
+		contextMenusEnabled: true,
+		trashMode: inTrash,
+		showAttribution: !inTrash,
+		getTrashMeta: inTrash
+			? (type, id) => trashMeta.get(`${type}:${id}`)
+			: undefined,
+		breadcrumbPathIds: data?.ancestors.map((item) => item.id) ?? [],
+		getThumbnailPath: (file) =>
+			adminContentAccessService.thumbnailPath(accessId, file.id),
+		sorting: inTrash
+			? undefined
+			: {
+					sortBy,
+					sortOrder,
+					onSort: (column, order) =>
+						update({
+							sortBy: column,
+							sortOrder: order,
+							folderOffset: undefined,
+							fileAfterValue: undefined,
+							fileAfterId: undefined,
+						}),
+				},
+		onFolderOpen: (id) => {
+			if (!inTrash) openFolder(id);
+		},
+		onFileClick: (file) => openFile(file.id),
+		onDownload: (id) => {
+			void download(id);
+		},
+		onVersions: (id) => openFile(id, "versions"),
+		onInfo: (type, id) => {
+			if (type === "file") openFile(id);
+			else openFolderInfo(id);
+		},
+	};
+
+	return (
+		<AppLayout
+			sidebarContent={
+				<AdminWorkspaceSidebar
+					accessId={accessId}
+					user={user}
+					team={team}
+					currentId={folderId}
+					inTrash={inTrash}
+					onTrash={showTrash}
+					onNavigate={openFolder}
+					onEnd={end}
+				/>
+			}
+		>
+			<FileBrowserNavigationBar
+				icon={inTrash ? "Trash" : folderId == null ? "House" : "FolderOpen"}
+				breadcrumb={{
+					items: [
+						{ id: null, name: t("files:root") },
+						...(inTrash
+							? [{ id: null, name: t("core:trash") }]
+							: (data?.ancestors ?? [])),
+					],
+					onNavigate: (id) => openFolder(id ?? undefined),
+				}}
+				onRefresh={() => setRefreshKey((value) => value + 1)}
+				viewMode={viewMode}
+				onViewModeChange={setViewMode}
+				sorting={
+					inTrash
+						? undefined
+						: {
+								sortBy,
+								sortOrder,
+								onSortBy: (value) =>
+									update({
+										sortBy: value,
+										folderOffset: undefined,
+										fileAfterId: undefined,
+										fileAfterValue: undefined,
+									}),
+								onSortOrder: (value) =>
+									update({
+										sortOrder: value,
+										folderOffset: undefined,
+										fileAfterId: undefined,
+										fileAfterValue: undefined,
+									}),
+							}
+				}
+			/>
+			<div className="flex min-h-0 flex-1">
+				<ScrollArea ref={setScrollElement} className="min-h-0 min-w-0 flex-1">
+					{loading ? (
+						viewMode === "grid" ? (
+							<SkeletonFileGrid />
+						) : (
+							<SkeletonFileTable />
+						)
+					) : failed ? (
+						<p role="alert" className="p-5">
+							{t("content_workspace_unavailable")}
+						</p>
+					) : data ? (
+						<>
+							{data.contents.files.length + data.contents.folders.length ===
+							0 ? (
+								<EmptyState
+									icon={
+										<Icon
+											name={inTrash ? "Trash" : "FolderOpen"}
+											className="size-10"
+										/>
+									}
+									title={t(
+										inTrash ? "files:trash_empty_title" : "content_empty",
+									)}
+									description={
+										inTrash ? t("files:trash_empty_desc") : undefined
+									}
+								/>
+							) : (
+								<FileBrowserProvider value={browserContext}>
+									{viewMode === "grid" ? (
+										<FileGrid scrollElement={scrollElement} />
+									) : (
+										<FileTable scrollElement={scrollElement} />
+									)}
+								</FileBrowserProvider>
+							)}
+							<div className="flex flex-wrap gap-2 p-4 md:px-5">
+								{data.contents.folders_total > PAGE_SIZE ? (
+									<>
+										<Button
+											variant="ghost"
+											disabled={offset === 0}
+											onClick={() =>
+												update({
+													folderOffset: Math.max(
+														0,
+														offset - PAGE_SIZE,
+													).toString(),
+												})
+											}
+										>
+											{t("content_previous_folders")}
+										</Button>
+										<Button
+											variant="ghost"
+											disabled={
+												offset + PAGE_SIZE >= data.contents.folders_total
+											}
+											onClick={() =>
+												update({
+													folderOffset: (offset + PAGE_SIZE).toString(),
+												})
+											}
+										>
+											{t("content_next_folders")}
+										</Button>
+									</>
+								) : null}
+								{cursorId != null ? (
+									<Button
+										variant="ghost"
+										onClick={() =>
+											update({
+												fileAfterValue: undefined,
+												fileAfterId: undefined,
+											})
+										}
+									>
+										{t("content_first_files")}
+									</Button>
+								) : null}
+								{data.contents.next_file_cursor ? (
+									<Button
+										variant="ghost"
+										onClick={() =>
+											update({
+												fileAfterValue: data.contents.next_file_cursor?.value,
+												fileAfterId:
+													data.contents.next_file_cursor?.id.toString(),
+											})
+										}
+									>
+										{t("content_next_files")}
+									</Button>
+								) : null}
+							</div>
+						</>
+					) : null}
+				</ScrollArea>
+				{(selectedId != null || selectedFolderId != null) && selectedFailed ? (
+					<p role="alert" className="p-5">
+						{t(
+							selectedFolderId != null
+								? "content_workspace_unavailable"
+								: "content_file_unavailable",
+						)}
+					</p>
+				) : null}
+				<FileInfoDialog
+					metadataOnly
+					thumbnailPath={
+						activeFile
+							? adminContentAccessService.thumbnailPath(accessId, activeFile.id)
+							: null
+					}
+					file={
+						activeFile ??
+						data?.contents.files.find((file) => file.id === selectedId)
+					}
+					folder={
+						activeFolder?.folder ??
+						(selectedId == null
+							? data?.contents.folders.find(
+									(folder) => folder.id === selectedFolderId,
+								)
+							: undefined)
+					}
+					loading={
+						selectionKey != null &&
+						!activeFile &&
+						!activeFolder &&
+						!selectedFailed
+					}
+					childCount={activeFolder?.child_count}
+					open={selectionKey != null && !selectedFailed}
+					onOpenChange={(open) => {
+						if (!open) closeFile();
+					}}
+					actions={
+						activeFile ? (
+							<>
+								<Button onClick={() => void download(activeFile.id)}>
+									{t("files:download")}
+								</Button>
+								<Button
+									variant="outline"
+									onClick={() => openFile(activeFile.id, "versions")}
+								>
+									{t("admin:admin_file_versions")}
+								</Button>
+							</>
+						) : undefined
+					}
+				/>
+				<VersionHistoryDialog
+					open={activeFile != null && versionsOpen}
+					onOpenChange={(open) => {
+						if (!open) update({ panel: "info", revisionId: undefined });
+					}}
+					fileId={activeFile?.id ?? 0}
+					fileName={activeFile?.name ?? ""}
+					mimeType={activeFile?.mime_type}
+					readOnlySource={versionSource}
+				/>
+			</div>
+		</AppLayout>
+	);
+}
+
+export function AdminWorkspaceBrowser({
+	scopeKind,
+	targetId,
+	user,
+	team,
+}: AdminWorkspaceIdentity & {
+	scopeKind: AdminScopeKind;
+	targetId: number;
+	targetLabel?: string;
+}) {
+	const shell = (children: ReactNode) => (
+		<AppLayout
+			sidebarContent={<AdminWorkspaceSidebar user={user} team={team} />}
+		>
+			<div className="mx-auto w-full max-w-xl p-5">{children}</div>
+		</AppLayout>
+	);
+	return (
+		<AdminContentAccessGate
+			key={`${scopeKind}:${targetId}`}
+			scopeKind={scopeKind}
+			targetId={targetId}
+			shell={shell}
+		>
+			{(accessId, end) => (
+				<WorkspaceContents
+					key={accessId}
+					accessId={accessId}
+					end={end}
+					user={user}
+					team={team}
+				/>
+			)}
+		</AdminContentAccessGate>
+	);
+}

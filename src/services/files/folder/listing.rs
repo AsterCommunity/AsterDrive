@@ -43,14 +43,14 @@ impl From<&crate::api::pagination::FolderListQuery> for FolderListParams {
     }
 }
 
-struct FolderListingResult {
-    folders: Vec<aster_drive_model::entities::folder::Model>,
-    folders_total: u64,
-    files: Vec<aster_drive_model::entities::file::Model>,
-    files_total: u64,
+pub(crate) struct FolderListingResult {
+    pub(crate) folders: Vec<aster_drive_model::entities::folder::Model>,
+    pub(crate) folders_total: u64,
+    pub(crate) files: Vec<aster_drive_model::entities::file::Model>,
+    pub(crate) files_total: u64,
 }
 
-async fn build_folder_contents(
+pub(crate) async fn build_folder_contents(
     state: &impl SharedRuntimeState,
     scope: WorkspaceResourceScope,
     listing: FolderListingResult,

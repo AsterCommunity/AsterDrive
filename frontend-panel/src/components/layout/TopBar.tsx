@@ -8,7 +8,7 @@ import { Icon } from "@/components/ui/icon";
 interface TopBarProps {
 	onSidebarToggle: () => void;
 	mobileOpen: boolean;
-	onSearchOpen: () => void;
+	onSearchOpen?: () => void;
 }
 
 export function TopBar({
@@ -18,7 +18,7 @@ export function TopBar({
 }: TopBarProps) {
 	const { t } = useTranslation(["core", "search"]);
 
-	const searchButton = (
+	const searchButton = onSearchOpen ? (
 		<Button
 			type="button"
 			variant="outline"
@@ -36,7 +36,7 @@ export function TopBar({
 				<span>K</span>
 			</span>
 		</Button>
-	);
+	) : null;
 
 	return (
 		<TopBarShell
@@ -53,16 +53,18 @@ export function TopBar({
 			right={
 				<HeaderControls
 					mobileSearchAction={
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							onClick={onSearchOpen}
-							aria-label={t("search:open_search")}
-							className="sm:hidden"
-						>
-							<Icon name="MagnifyingGlass" className="size-4" />
-						</Button>
+						onSearchOpen ? (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-sm"
+								onClick={onSearchOpen}
+								aria-label={t("search:open_search")}
+								className="sm:hidden"
+							>
+								<Icon name="MagnifyingGlass" className="size-4" />
+							</Button>
+						) : undefined
 					}
 					showAdminEntry
 				/>

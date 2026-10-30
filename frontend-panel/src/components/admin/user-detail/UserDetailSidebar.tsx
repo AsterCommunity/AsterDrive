@@ -5,12 +5,15 @@ import {
 	getStatusBadgeClass,
 } from "@/components/common/userBadgeClasses";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
 import { Progress } from "@/components/ui/progress";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import { getNormalizedDisplayName, getUserDisplayName } from "@/lib/user";
 import type { UserInfo } from "@/types/api";
 
 interface UserDetailSidebarProps {
+	onViewWorkspace?: () => void;
 	quota: number;
 	usagePercentage: number;
 	used: number;
@@ -18,6 +21,7 @@ interface UserDetailSidebarProps {
 }
 
 export function UserDetailSidebar({
+	onViewWorkspace,
 	quota,
 	usagePercentage,
 	used,
@@ -104,6 +108,23 @@ export function UserDetailSidebar({
 						) : null}
 					</div>
 				</div>
+				{onViewWorkspace ? (
+					<div className="border-t pt-4">
+						<Button
+							variant="outline"
+							className="w-full justify-start"
+							onClick={onViewWorkspace}
+						>
+							<Icon name="Folder" className="mr-2 size-4" />
+							{t("content_view_workspace")}
+							<Icon
+								name="ArrowSquareOut"
+								className="ml-auto size-3.5 shrink-0 text-muted-foreground"
+								aria-hidden="true"
+							/>
+						</Button>
+					</div>
+				) : null}
 			</div>
 		</aside>
 	);

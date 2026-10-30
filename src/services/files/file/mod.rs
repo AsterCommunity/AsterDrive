@@ -7,6 +7,7 @@ mod download;
 mod download_audit;
 mod lock;
 mod metadata;
+pub(crate) use metadata::build_authorized_file_info;
 mod resource_handle;
 mod thumbnail;
 mod transfer;
@@ -51,14 +52,15 @@ pub(crate) use download_audit::{
 };
 pub use lock::set_lock;
 pub(crate) use lock::set_lock_in_scope;
-pub use metadata::{get_info, move_file, update};
-pub(crate) use metadata::{
-    get_info_in_scope, get_info_with_storage_used_in_scope, update_in_scope,
+pub(crate) use metadata::{get_info_with_storage_used_in_scope, update_in_scope};
+pub use metadata::{move_file, update};
+pub(crate) use resource_handle::{
+    FileResourcePathSet, resolve_file_resource_handle, resolve_file_resource_handle_for_file,
 };
-pub(crate) use resource_handle::{FileResourcePathSet, resolve_file_resource_handle};
-pub use thumbnail::{ImagePreviewResult, ThumbnailResult, get_thumbnail_data};
+pub use thumbnail::{ImagePreviewResult, ThumbnailResult};
 pub(crate) use thumbnail::{
     get_image_preview_data_in_scope, get_thumbnail_data_in_scope, image_preview_for_file,
+    thumbnail_for_file,
 };
 pub(crate) use transfer::{
     BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec, CopiedFilePropertyMode,
@@ -177,7 +179,7 @@ pub(crate) async fn delete_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<()> {
     let audit_file = if audit::should_record(state, audit::AuditAction::FileDelete) {
-        Some(get_info_in_scope(state, scope, file_id).await?)
+        Some(storage::verify_file_access_for_read(state, scope, file_id).await?)
     } else {
         None
     };
@@ -221,7 +223,7 @@ pub(crate) async fn update_in_scope_with_audit(
         audit::AuditAction::FileRename
     };
     let previous_file = if audit::should_record(state, action) {
-        Some(get_info_in_scope(state, scope, file_id).await?)
+        Some(storage::verify_file_access_for_read(state, scope, file_id).await?)
     } else {
         None
     };
@@ -358,7 +360,7 @@ pub(crate) async fn copy_file_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let source_file = if audit::should_record(state, audit::AuditAction::FileCopy) {
-        Some(get_info_in_scope(state, scope, file_id).await?)
+        Some(storage::verify_file_access_for_read(state, scope, file_id).await?)
     } else {
         None
     };

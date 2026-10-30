@@ -119,6 +119,7 @@ function buildSidebarNavLinks(
 }
 
 export function Sidebar({
+	content,
 	mobileOpen,
 	onMobileClose,
 	onTrashDrop,
@@ -337,24 +338,26 @@ export function Sidebar({
 						: "-translate-x-full pointer-events-none shadow-none md:pointer-events-auto",
 				)}
 			>
-				<SidebarContent
-					activeTeam={activeTeam}
-					locationPathname={location.pathname}
-					navLinks={navLinks}
-					onMobileClose={onMobileClose}
-					onMoveToFolder={onMoveToFolder}
-					onScrollViewport={handleScrollViewport}
-					onTrashDragLeave={handleTrashDragLeave}
-					onTrashDragOver={handleTrashDragOver}
-					onTrashDropEvent={handleTrashDrop}
-					scrollViewportRef={scrollViewportRef}
-					storageQuota={storageQuota}
-					storageUsed={storageUsed}
-					trashDragOver={trashDragOver}
-					trashPath={trashPath}
-					user={user}
-					workspace={workspace}
-				/>
+				{content ?? (
+					<SidebarContent
+						activeTeam={activeTeam}
+						locationPathname={location.pathname}
+						navLinks={navLinks}
+						onMobileClose={onMobileClose}
+						onMoveToFolder={onMoveToFolder}
+						onScrollViewport={handleScrollViewport}
+						onTrashDragLeave={handleTrashDragLeave}
+						onTrashDragOver={handleTrashDragOver}
+						onTrashDropEvent={handleTrashDrop}
+						scrollViewportRef={scrollViewportRef}
+						storageQuota={storageQuota}
+						storageUsed={storageUsed}
+						trashDragOver={trashDragOver}
+						trashPath={trashPath}
+						user={user}
+						workspace={workspace}
+					/>
+				)}
 				<SidebarResizeHandle
 					resizing={sidebarResizing}
 					width={sidebarWidth}

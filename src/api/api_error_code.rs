@@ -57,6 +57,12 @@ define_api_error_codes! {
     ConfigPublicSiteUrlInvalid => "config.public_site_url_invalid",
 
     // auth/session: coarse authentication and session lifecycle errors.
+    AdminContentDisabled => "admin.content_access_disabled",
+    AdminContentContextRequired => "admin.content_context_required",
+    AdminContentContextInvalid => "admin.content_context_invalid",
+    AdminContentTargetUnavailable => "admin.content_target_unavailable",
+    AdminContentReasonRequired => "admin.content_reason_required",
+    AdminContentAuditUnavailable => "admin.content_audit_unavailable",
     AuthFailed => "auth.failed",
     TokenExpired => "auth.token_expired",
     TokenInvalid => "auth.token_invalid",

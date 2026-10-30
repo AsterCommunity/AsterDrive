@@ -32,7 +32,7 @@ interface FileCardProps {
 	draggable?: boolean;
 	selectable?: boolean;
 	selectionActive?: boolean;
-	thumbnailPath?: string;
+	thumbnailPath?: string | null;
 	actionMenu?: React.ReactNode;
 	alwaysShowActionMenu?: boolean;
 	/** 覆盖默认副标题（大小），回收站模式用来展示过期时间 */

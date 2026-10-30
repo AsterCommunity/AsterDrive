@@ -15,6 +15,16 @@ use utoipa::{Modify, OpenApi};
     ),
     modifiers(&SecurityAddon),
     paths(
+        crate::api::routes::admin::content_access::status,
+        crate::api::routes::admin::content_access::list_trash,
+        crate::api::routes::admin::content_access::get_file,
+        crate::api::routes::admin::content_access::get_folder,
+        crate::api::routes::admin::content_access::get_thumbnail,
+        crate::api::routes::admin::content_access::list_versions,
+        crate::api::routes::admin::content_access::create,
+        crate::api::routes::admin::content_access::workspace,
+        crate::api::routes::admin::content_access::init_download,
+        crate::api::routes::admin::content_access::download,
         crate::api::routes::workspace_activities::file,
         crate::api::routes::workspace_activities::folder,
         crate::api::routes::workspace_activities::team_file,
@@ -432,6 +442,14 @@ use utoipa::{Modify, OpenApi};
     ),
     components(
         schemas(
+            crate::services::ops::content_access::AdminScopeKind,
+            crate::services::ops::content_access::AdminAccessReason,
+            crate::services::ops::content_access::CreateAdminContentAccess,
+            crate::services::ops::content_access::AdminContentAccessInfo,
+            crate::services::ops::content_access::AdminContentAccessStatus,
+            crate::services::ops::content_access::AdminDownloadInfo,
+            crate::services::ops::content_access::AdminDownloadInitRequest,
+            crate::services::ops::content_access::AdminWorkspaceContents,
             crate::services::workspace::activity::WorkspaceActivityPage,
             crate::services::workspace::activity::ActivityListQuery,
             // api::api_error_code / api::pagination / api::response：统一错误码、产品分页查询和通用响应模型。

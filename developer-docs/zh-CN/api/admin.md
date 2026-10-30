@@ -1083,3 +1083,50 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
   "removed": 3
 }
 ```
+
+## 管理员只读内容访问
+
+`admin_workspace_content_access_enabled` 默认关闭。管理员身份本身不建立内容访问上下文；普通全局文件/blob 元数据观测接口保持原有职责。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/admin/content-access/status` | 当前 writer 配置是否允许内容访问 |
+| `POST` | `/admin/content-access` | 以 `scope_kind`、`target_id`、`reason` 和可选 `remark` 建立短期访问上下文 |
+| `GET` | `/admin/content-access/folders/{id}` | 在当前访问上下文内读取目录详情、占用空间和直接子项计数（含保留的回收站目录） |
+| `GET` | `/admin/content-access/files/{id}` | 在当前访问上下文内读取逻辑文件详情 |
+| `GET` | `/admin/content-access/files/{id}/thumbnail` | 使用当前 `access_id` 读取缩略图；200 WebP、202 + Retry-After 或 304 |
+| `GET` | `/admin/content-access/files/{id}/versions` | 在当前上下文内按 sequence 分页读取版本 |
+| `GET` | `/admin/content-access/trash` | 使用当前 `access_id` 读取目标空间完整回收站，沿用回收站分页与到期时间 cursor |
+| `GET` | `/admin/content-access/workspace` | 使用 `access_id`、`folder_id`、`deleted` 与现有目录分页/排序参数读取目录及面包屑 |
+| `POST` | `/admin/files/{id}/download-init` | 可选 `access_id` 与 `revision_id`；文件详情直接下载，空间内可沿用当前上下文 |
+| `GET` | `/admin/content-access/{id}/download` | init 返回的同源流式下载；支持 Range 和 If-None-Match |
+
+访问原因限定为 `user_support`、`data_recovery`、`security_investigation`、`other`。备注最多 500 个字符，不接受控制字符；原因和备注只通过 POST body 传递，不能写入导航 URL、下载 URL 或普通日志。
+
+访问上下文保存在 `admin_content_accesses`，有效期为 10 分钟，绑定实际管理员和登录 session。每次 Drive 请求重新检查 writer 侧开关、账号角色/状态、session 撤销与目标用户/团队状态。personal scope 不包含用户所属团队；目录祖先链、文件和 revision 必须始终属于明确的目标范围。过期上下文由认证会话维护任务回收。
+
+目录文件使用 cursor 分页，文件夹使用 offset 分页。管理员文件页左侧「回收站」使用同一访问上下文展示目标个人或团队空间的完整回收站，不按当前目录过滤；复用既有顶层删除资源规则，避免已删除目录与其子项重复展开。列表显示原位置与到期时间，文件按到期时间 cursor 分页。管理员回收站只读，不提供恢复、永久删除或清空；保留内容的逻辑文件仍可受控下载，被清除、退役或失去逻辑文件上下文的内容不开放 blob 旁路。原目录 listing 的 `deleted` 参数保留协议行为，但管理 UI 不再使用它实现回收站。
+
+下载 init 从 writer 的一致快照固定 revision、blob、大小、MIME 和 ETag。附件资源句柄沿现有 connector 能力返回 presigned URL 或绑定该 revision 的同源流地址。**init 即内容访问边界**：presigned 交付时，初始化成功表示管理员已获得内容访问；之后关闭开关或撤销 session 不会撤回供应商已签发的 URL，它只受既有签名期限约束。后续 Drive 流请求仍执行当前授权检查。浏览器直接使用原生附件下载，不将整个响应转为 JavaScript Blob。
+
+`admin_workspace_inspect`、`admin_file_download`、`admin_revision_download` 使用必需的同步持久化审计，不受普通审计开关或动作过滤影响。访问上下文/下载授权和对应审计在同一事务内提交；审计失败时不返回新的访问上下文或下载 init 地址。已经成功 init 的流请求继续检查当前授权，不再次依赖审计写入。审计记录实际管理员、目标、文件/revision、可信来源与 init 结果；沿用空间上下文时附带已填原因与备注，直接下载不写空的原因/备注字段；团队访问记录也进入团队审计和导出。`initialized` 表示 init 成功；后续流响应和 Range 分段不再新增下载审计，传输指标和错误日志继续记录结果。init 成功不宣称客户端已完整接收；presigned 的供应商传输结果不由 Drive 证明。
+
+稳定错误码包括 `admin.content_access_disabled`、`admin.content_context_required`、`admin.content_context_invalid`、`admin.content_target_unavailable`、`admin.content_reason_required`、`admin.content_audit_unavailable`。Range 的非法或不可满足请求沿现有 REST 下载契约返回 400；正常范围返回 206，条件请求命中返回 304。
+
+前端入口为 `/admin/users/:userId/files` 和 `/admin/teams/:teamId/files`；`/admin/files?fileId=...&revisionId=...` 用于可刷新/复制的逻辑文件与版本定位。blob 引用链接交接到此入口，orphan blob 只保留维护操作。
+
+管理员 workspace UI 复用 `FileBrowserProvider`、`FileTable`、`FileGrid`、`FileBrowserNavigationBar`、`FolderTreeRow`、`SidebarNavigation` 和 `WorkspaceSidebarLayout`，只提供读取、导航、排序和受控下载回调。只读排序使用上下文的受控排序接口，不改写普通 workspace 的排序状态；列表、网格、悬停和详情中的缩略图通过当前访问上下文读取，复用现有缩略图生成与展示管线；保留的回收站文件同样支持。缩略图读取不增加下载审计，每次请求（包括条件请求）仍检查当前上下文、会话和目标空间。用户详情左侧基础信息下的操作在新标签页打开独立文件页，团队入口也打开新标签页；普通文件页、普通回收站和管理员文件页共用文件导航工具栏，刷新按钮位于地址区域末端；管理员与用户侧共用完整目录行、导航和 sidebar 布局，目录行整块可点且展开按钮独立。两种管理员入口使用用户端 AppLayout 和文件详情/版本组件，侧栏左下角替换为目标身份。详情、版本和下载复用当前访问上下文，不再弹第二次原因确认。文件和文件夹详情始终挂载共享 `FileInfoDialog`，由其控制进出动画及退出内容保留；版本历史是独立弹窗，打开和关闭都保留详情。目录详情通过共享 `build_authorized_folder_info` 投影读取，统计直接子项数量，URL 的 `infoFolderId` 只选择详情，不改变当前浏览目录。
+
+`database-migrate` 将 `admin_content_accesses` 与认证会话一起迁移，原样保留访问 payload、会话绑定和到期时间，不延长授权，也不重新授权。
+
+管理员内容访问审计写入时保存目标名称快照，查询和导出只读取原始证据，不以当前账号名称重建历史。缺少名称时以稳定 ID 展示；不保留未发布旧记录的兼容补名查询。原因与结果在前端翻译，自由备注以普通文本显示。
+
+“退出视图”清除当前页面的访问状态，不撤销服务端的短期上下文；原上下文仍受到期时间、实例开关与会话状态约束，界面同步提示该语义。
+
+### 内容与动画的所有权
+
+文件详情页直接调用 download-init，不再填原因。不提交 access_id 时由服务端按逻辑文件确定范围；显式提交无效上下文时拒绝，不降级成直接下载。空间查看仍要求原因。持久化授权明确区分 workspace 和 download：前者保存 scope、原因和可选备注，后者仅保存 scope、file_id、revision_id；没有未发布旧格式的兼容解析。
+
+Blob 详情 URL 为 /admin/file-blobs?blobId=...，刷新恢复详情。版本及引用卡片整块可点击，上传用户与其他字段左右对齐。侧栏目标身份复用 UserIdentity 和通用头像兜底。
+
+共享 FileInfoDialog 持有面板，切换目标只替换内部数据和加载态。关闭立即取消或失效化请求，内容保持到退出完成再卸载；VersionHistoryDialog 使用 Base UI 的 onOpenChangeComplete，桌面详情等待实际动画 finished。没有与 CSS 时长平行的清理定时器。

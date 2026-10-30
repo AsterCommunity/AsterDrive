@@ -14,11 +14,13 @@ import { userDetailDraftKey } from "./user-detail/userDetailEditorState";
 
 interface UserDetailEditorProps {
 	onBack: () => void;
+	onViewWorkspace?: () => void;
 	onUpdate: (id: number, data: UpdateUserRequest) => Promise<UserInfo>;
 	user: UserInfo;
 }
 
 export function UserDetailEditor({
+	onViewWorkspace,
 	onBack,
 	onUpdate,
 	user,
@@ -57,6 +59,7 @@ export function UserDetailEditor({
 
 	return (
 		<UserDetailEditorBody
+			onViewWorkspace={onViewWorkspace}
 			key={userDetailDraftKey(user)}
 			onBack={onBack}
 			onRefreshPolicyGroups={() => loadPolicyGroups({ force: true })}

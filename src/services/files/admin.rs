@@ -156,6 +156,15 @@ pub async fn get_blob(
     let blob = file_repo::find_blob_by_id(state.reader_db(), blob_id).await?;
     let files = file_repo::find_by_blob_id(state.reader_db(), blob_id).await?;
     let versions = revision_repo::find_by_blob_id(state.reader_db(), blob_id).await?;
+    let reference_file_ids = versions
+        .iter()
+        .filter_map(|(_, history)| history.file_id)
+        .collect::<Vec<_>>();
+    let reference_files = file_repo::find_by_ids(state.reader_db(), &reference_file_ids)
+        .await?
+        .into_iter()
+        .map(|file| (file.id, file))
+        .collect::<HashMap<_, _>>();
     let file_ref_count = i64::try_from(files.len())
         .map_err(|_| AsterError::internal_error("blob file reference count overflow"))?;
     let version_ref_count = i64::try_from(
@@ -187,7 +196,9 @@ pub async fn get_blob(
             .collect(),
         file_versions: versions
             .into_iter()
-            .map(|(revision, history)| to_blob_reference_version(revision, history))
+            .map(|(revision, history)| {
+                to_blob_reference_version(revision, history, &reference_files)
+            })
             .collect::<Result<Vec<_>>>()?,
     })
 }
@@ -400,8 +411,15 @@ fn to_blob_reference_file(
 fn to_blob_reference_version(
     version: file_revision::Model,
     history: file_revision_history::Model,
+    files: &HashMap<i64, file::Model>,
 ) -> Result<AdminFileBlobReferenceVersion> {
+    let file = history.file_id.and_then(|id| files.get(&id));
     Ok(AdminFileBlobReferenceVersion {
+        file_name: file.map(|file| file.name.clone()),
+        owner_user_id: file.and_then(|file| file.owner_user_id),
+        team_id: file.and_then(|file| file.team_id),
+        deleted_at: file.and_then(|file| file.deleted_at),
+        is_current: history.current_revision_id == Some(version.id),
         id: version.id,
         file_id: history.file_id.ok_or_else(|| {
             AsterError::internal_error("active revision references a retired file history")

@@ -361,6 +361,7 @@ describe("FileTable", () => {
 
 		fireEvent.click(screen.getByText("translated:core:name"));
 		fireEvent.click(screen.getByText("translated:core:size"));
+		fireEvent.click(screen.getByText("translated:core:date"));
 
 		expect(mockState.store.setSortOrder).toHaveBeenCalledWith("desc");
 		expect(mockState.store.setSortBy).toHaveBeenCalledWith("size");
@@ -642,4 +643,29 @@ describe("FileTable", () => {
 		expect(screen.getByText("actions:Docs")).toBeInTheDocument();
 		expect(screen.getByText("actions:report.pdf")).toBeInTheDocument();
 	});
+});
+
+it("sorts an isolated read-only browser without writing ordinary workspace preferences", () => {
+	const onSort = vi.fn();
+	const context =
+		mockState.browserContext as typeof mockState.browserContext & {
+			sorting?: {
+				sortBy: "name";
+				sortOrder: "asc" | "desc";
+				onSort: typeof onSort;
+			};
+		};
+	context.readOnly = true;
+	context.sorting = { sortBy: "name", sortOrder: "asc", onSort };
+	const view = render(<FileTable />);
+	fireEvent.click(screen.getByText("translated:core:name"));
+	expect(onSort).toHaveBeenCalledWith("name", "desc");
+	context.sorting.sortOrder = "desc";
+	view.rerender(<FileTable scrollElement={document.createElement("div")} />);
+	fireEvent.click(screen.getByText("translated:core:name"));
+	expect(onSort).toHaveBeenLastCalledWith("name", "asc");
+
+	expect(mockState.store.setSortBy).not.toHaveBeenCalled();
+	expect(mockState.store.setSortOrder).not.toHaveBeenCalled();
+	delete context.sorting;
 });

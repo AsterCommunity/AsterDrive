@@ -233,9 +233,9 @@ describe("useFileInfoDialogData", () => {
 
 		rerender({ open: false });
 		await waitFor(() => {
-			expect(result.current.resolvedFile).toBeNull();
-			expect(result.current.resolvedFolder).toBeNull();
-			expect(result.current.childCount).toBeNull();
+			expect(result.current.resolvedFile?.name).toBe("Resolved.mp3");
+			expect(result.current.resolvedFolder?.name).toBe("Resolved Folder");
+			expect(result.current.childCount).toEqual({ files: 1, folders: 0 });
 		});
 
 		rerender({ open: true });
@@ -405,4 +405,29 @@ describe("useFileInfoDialogData", () => {
 		});
 		expect(mockState.getMediaMetadata).toHaveBeenCalledTimes(1);
 	});
+});
+
+it("does not use ordinary user metadata, folder counts or media endpoints in metadata-only mode", () => {
+	for (const request of [
+		mockState.getFile,
+		mockState.getFolderInfo,
+		mockState.getMediaMetadata,
+		mockState.listFolder,
+	])
+		request.mockClear();
+	mockState.mediaDataSupportStore.load.mockClear();
+	mockState.mediaDataSupportStore.isLoaded = false;
+	const target = {
+		id: 99,
+		name: "target.jpg",
+		mime_type: "image/jpeg",
+	} as FileListItem;
+	renderHook(() =>
+		useFileInfoDialogData({ open: true, enabled: false, renderedFile: target }),
+	);
+	expect(mockState.getFile).not.toHaveBeenCalled();
+	expect(mockState.getFolderInfo).not.toHaveBeenCalled();
+	expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
+	expect(mockState.listFolder).not.toHaveBeenCalled();
+	expect(mockState.mediaDataSupportStore.load).not.toHaveBeenCalled();
 });

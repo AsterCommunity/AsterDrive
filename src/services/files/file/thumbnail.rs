@@ -6,7 +6,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, task, workspace::storage::WorkspaceStorageScope};
 use bytes::Bytes;
 
-use super::get_info_in_scope;
+use crate::services::workspace::storage;
 
 /// 缩略图查询结果：有数据直接返回，正在生成则标记 pending
 pub struct ThumbnailResult {
@@ -28,7 +28,15 @@ pub(crate) async fn get_thumbnail_data_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<Option<ThumbnailResult>> {
-    let f = get_info_in_scope(state, scope, file_id).await?;
+    let f = storage::verify_file_access_for_read(state, scope, file_id).await?;
+    thumbnail_for_file(state, &f).await
+}
+
+/// The caller has already authorized the logical file (including retained trash entries).
+pub(crate) async fn thumbnail_for_file(
+    state: &PrimaryAppState,
+    f: &aster_drive_model::entities::file::Model,
+) -> Result<Option<ThumbnailResult>> {
     let blob = file_repo::find_blob_by_id(state.reader_db(), f.blob_id).await?;
     let thumbnail = processing::load_thumbnail_if_exists(state, &blob, &f.name, &f.mime_type)
         .await
@@ -55,7 +63,7 @@ pub(crate) async fn get_image_preview_data_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<Option<ImagePreviewResult>> {
-    let f = get_info_in_scope(state, scope, file_id).await?;
+    let f = storage::verify_file_access_for_read(state, scope, file_id).await?;
     image_preview_for_file(state, &f).await
 }
 
@@ -82,13 +90,4 @@ pub(crate) async fn image_preview_for_file(
             Ok(None)
         }
     }
-}
-
-/// 获取文件缩略图。返回 `Ok(Some(data))` 直接有图；`Ok(None)` 表示正在后台生成。
-pub async fn get_thumbnail_data(
-    state: &PrimaryAppState,
-    file_id: i64,
-    user_id: i64,
-) -> Result<Option<ThumbnailResult>> {
-    get_thumbnail_data_in_scope(state, WorkspaceStorageScope::Personal { user_id }, file_id).await
 }

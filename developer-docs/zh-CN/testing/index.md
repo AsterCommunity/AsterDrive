@@ -163,3 +163,11 @@ ASTER_SFTP_TEST_DOCKER=0 cargo nextest run --test storage sftp::
 关闭后测试会跳过容器 round-trip。不要把这个变量作为默认 CI 行为；SFTP 是真实存储驱动，PR 改到驱动、connector、descriptor 或上传下载链路时应优先保留默认 Docker 测试。
 
 `src/storage/drivers/sftp.rs` 里还有一个手动真实服务器用例，需要 `ASTER_SFTP_TEST_*` 和 `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`。它不替代 `tests/storage/sftp.rs` 的默认 Docker 覆盖，主要用于排查特定 SFTP 服务器兼容性。
+
+## 并发工作树的浏览器验收
+
+多个 worktree 共用 Cargo `target` 时，其他 checkout 的构建可能替换无 hash 的 `target/debug/aster_drive`。Playwright 验收应使用当前 checkout 构建后复制出的独立可执行文件，通过 `ASTER_E2E_SERVER_BIN=/absolute/path/to/aster_drive` 指定；`frontend-panel/scripts/run-e2e-server.sh` 会校验并直接运行它，避免前端与服务端 revision 混用。
+
+先完成前端构建再启动 E2E；运行期间不要重新生成同一份 `frontend-panel/dist`。验收服务通过 `frontend-override` 指向该目录，覆盖构建会移除已打开页面引用的带 hash 资源，使页面刷新或懒加载出现 404。确需同时运行多个独立实例时，除分配不同 `ASTER_E2E_PORT` 外，还要用 Playwright `--output=/absolute/unique/path` 隔离 trace、截图及测试产物，避免互相清理。
+
+E2E 通过 `e2e/support/api.ts` 创建文件时使用当前 upload init → stream/chunk → complete 链路；不要恢复已移除的 multipart `/files/upload` 入口。

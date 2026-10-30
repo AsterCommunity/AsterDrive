@@ -142,7 +142,10 @@ pub async fn revoke_other_auth_sessions(
 /// # Errors
 /// Returns the writer repository error; this operation makes no authorization decision.
 pub async fn cleanup_expired_auth_sessions(state: &impl SharedRuntimeState) -> Result<u64> {
-    auth_session_repo::delete_expired(state.writer_db()).await
+    let sessions = auth_session_repo::delete_expired(state.writer_db()).await?;
+    let accesses =
+        crate::db::repository::admin_content_access_repo::delete_expired(state.writer_db()).await?;
+    Ok(sessions + accesses)
 }
 
 /// Atomically advances the account generation and purges all refresh sessions, then commits the security change. Access authorization checks the writer generation and cannot be restored by

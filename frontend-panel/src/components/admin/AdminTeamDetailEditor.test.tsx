@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTeamDetailEditor } from "@/components/admin/AdminTeamDetailEditor";
 import { formatStorageQuotaDraft } from "@/lib/storageQuota";
@@ -101,6 +107,37 @@ describe("AdminTeamDetailEditor", () => {
 			items: [],
 			total: 0,
 		});
+	});
+
+	it("withholds the workspace link until team lookup completes", async () => {
+		const team = await adminTeamServiceMocks.get(14);
+		let resolve!: (value: unknown) => void;
+		adminTeamServiceMocks.get.mockReturnValueOnce(
+			new Promise((done) => {
+				resolve = done;
+			}),
+		);
+		render(
+			<AdminTeamDetailEditor
+				teamId={14}
+				onBack={vi.fn()}
+				onPageTabChange={vi.fn()}
+				onRefreshPolicyGroups={async () => {}}
+				pageTab="overview"
+				policyGroups={[]}
+				policyGroupsLoading={false}
+			/>,
+		);
+		expect(
+			screen.queryByRole("link", { name: "content_view_workspace" }),
+		).not.toBeInTheDocument();
+		await act(async () => resolve(team));
+		const link = await screen.findByRole("link", {
+			name: "content_view_workspace",
+		});
+		expect(link).toHaveAttribute("href", "/admin/teams/14/files");
+		expect(link).toHaveAttribute("target", "_blank");
+		expect(link).toHaveAttribute("rel", "noopener noreferrer");
 	});
 
 	it("uses a fixed shell and a native scrollable detail column in page layout", async () => {
@@ -555,3 +592,7 @@ describe("AdminTeamDetailEditor", () => {
 		expect(mockState.toastError).not.toHaveBeenCalled();
 	});
 });
+
+vi.mock("@/components/admin/content-access/AdminWorkspaceBrowser", () => ({
+	AdminWorkspaceBrowser: () => null,
+}));

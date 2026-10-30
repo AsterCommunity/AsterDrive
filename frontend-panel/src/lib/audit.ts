@@ -197,6 +197,38 @@ function formatAuditPresentationMessage(
 	}
 
 	const params = presentationParams(message);
+	if (prefer === "presentation" && message.code === "admin_content_access") {
+		const reason = stringParam(params, "reason");
+		const result = stringParam(params, "result");
+		const localized = {
+			...params,
+			reason: reason
+				? resolveAuditTranslation(
+						t,
+						`content_reason_${reason}`,
+						"admin",
+						reason,
+					)
+				: "—",
+			result: result
+				? resolveAuditTranslation(
+						t,
+						`content_result_${result}`,
+						"admin",
+						result,
+					)
+				: "—",
+		};
+		const description = t("audit_presentation_admin_content_access", {
+			ns: "admin",
+			...localized,
+		});
+		const remark = stringParam(params, "remark")?.trim();
+		return remark
+			? `${description} · ${t("content_audit_remark", { ns: "admin" })}${remark}`
+			: description;
+	}
+
 	if (prefer === "action") {
 		if (message.code.startsWith("audit_action_")) {
 			// Old backend responses may already use an action code here; keep that path working.
@@ -246,6 +278,13 @@ function formatAuditPresentationMessage(
 	);
 	if (entityLabel) {
 		const name = stringParam(params, "name");
+		const id = stringParam(params, "id");
+		if (prefer === "target" && params.display_identity === true)
+			return name
+				? `${name}${id ? ` (#${id})` : ""}`
+				: id
+					? `#${id}`
+					: entityLabel;
 		return name ? `${name} · ${entityLabel}` : entityLabel;
 	}
 

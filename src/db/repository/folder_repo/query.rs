@@ -266,17 +266,33 @@ pub(crate) async fn find_child_ids_in_parents<C: ConnectionTrait>(
 }
 
 /// 查询子文件夹（排除已删除，分页）
-async fn find_children_paginated_in_scope<C: ConnectionTrait>(
+pub(crate) struct FolderChildrenQuery {
+    pub parent_id: Option<i64>,
+    pub limit: u64,
+    pub offset: u64,
+    pub sort_by: SortBy,
+    pub sort_order: SortOrder,
+    pub deleted: bool,
+}
+pub(crate) async fn find_children_paginated_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: FolderScope,
-    parent_id: Option<i64>,
-    limit: u64,
-    offset: u64,
-    sort_by: SortBy,
-    sort_order: SortOrder,
+    query: FolderChildrenQuery,
 ) -> Result<(Vec<folder::Model>, u64)> {
+    let FolderChildrenQuery {
+        parent_id,
+        limit,
+        offset,
+        sort_by,
+        sort_order,
+        deleted,
+    } = query;
     let base = Folder::find().filter(apply_parent_condition(
-        active_scope_condition(scope),
+        scope_condition(scope).add(if deleted {
+            folder::Column::DeletedAt.is_not_null()
+        } else {
+            folder::Column::DeletedAt.is_null()
+        }),
         parent_id,
     ));
 
@@ -336,11 +352,14 @@ pub async fn find_children_paginated<C: ConnectionTrait>(
     find_children_paginated_in_scope(
         db,
         FolderScope::Personal { user_id },
-        parent_id,
-        limit,
-        offset,
-        sort_by,
-        sort_order,
+        FolderChildrenQuery {
+            parent_id,
+            limit,
+            offset,
+            sort_by,
+            sort_order,
+            deleted: false,
+        },
     )
     .await
 }
@@ -357,11 +376,14 @@ pub async fn find_team_children_paginated<C: ConnectionTrait>(
     find_children_paginated_in_scope(
         db,
         FolderScope::Team { team_id },
-        parent_id,
-        limit,
-        offset,
-        sort_by,
-        sort_order,
+        FolderChildrenQuery {
+            parent_id,
+            limit,
+            offset,
+            sort_by,
+            sort_order,
+            deleted: false,
+        },
     )
     .await
 }

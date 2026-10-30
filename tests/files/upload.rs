@@ -8900,3 +8900,136 @@ async fn test_metrics_quota_rejection_is_reported_once_without_a_session() {
         vec![aster_drive_metrics::AdmissionReason::Quota]
     );
 }
+
+#[actix_web::test]
+async fn test_admin_download_init_preserves_s3_presigned_current_and_historical_content() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .unwrap()
+            .unwrap();
+    let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
+        .with_exposed_port(testcontainers::core::IntoContainerPort::tcp(9000))
+        .with_env_var("RUSTFS_ACCESS_KEY", "rustfsadmin")
+        .with_env_var("RUSTFS_SECRET_KEY", "rustfsadmin123")
+        .start()
+        .await
+        .expect("rustfs should start");
+    let port = container.get_host_port_ipv4(9000).await.unwrap();
+    let endpoint = format!("http://127.0.0.1:{port}");
+    wait_for_s3_bucket(&endpoint, "admin-init").await;
+    create_s3_default_policy(
+        &state,
+        user.id,
+        "Admin Presigned",
+        &endpoint,
+        "admin-init",
+        S3TestTransferStrategies::PRESIGNED_DOWNLOAD,
+        TEST_CHUNK_SIZE as i64,
+    )
+    .await;
+    let file_id =
+        store_temp_file_in_personal_space(&state, user.id, "admin report.txt", b"old content")
+            .await;
+    let original = common::admin_download_init(&state, &token, user.id, file_id, None).await;
+    assert!(original.resource.request.url.starts_with(&endpoint));
+    assert_eq!(
+        original.resource.request.credentials,
+        aster_drive::api::dto::files::FileResourceCredentials::Omit
+    );
+    assert_eq!(
+        original.resource.request.conditional_headers,
+        aster_drive::api::dto::files::FileResourceConditionalHeaders::Forbidden
+    );
+    aster_drive::services::files::file::update_content(
+        &state,
+        file_id,
+        user.id,
+        bytes::Bytes::from_static(b"new content"),
+        None,
+    )
+    .await
+    .unwrap();
+    for revision in [Some(original.revision_id), None] {
+        let info = common::admin_download_init(&state, &token, user.id, file_id, revision).await;
+        let response = reqwest::Client::new()
+            .get(&info.resource.request.url)
+            .header("Range", "bytes=0-2")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 206);
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            if revision.is_some() {
+                &b"old"[..]
+            } else {
+                &b"new"[..]
+            }
+        );
+        let response = reqwest::get(&info.resource.request.url).await.unwrap();
+        assert!(response.status().is_success());
+        assert!(
+            response.headers()[reqwest::header::CONTENT_DISPOSITION]
+                .to_str()
+                .unwrap()
+                .contains("admin%20report.txt")
+        );
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            if revision.is_some() {
+                &b"old content"[..]
+            } else {
+                &b"new content"[..]
+            }
+        );
+    }
+    // A direct URL already issued by init remains content access, even if the switch changes.
+    aster_drive::db::repository::config_repo::upsert(
+        state.writer_db(),
+        "admin_workspace_content_access_enabled",
+        "false",
+        user.id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        reqwest::get(&original.resource.request.url)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap()
+            .as_ref(),
+        b"old content"
+    );
+    let audits = aster_drive::db::repository::audit_log_repo::find_with_filters(
+        state.writer_db(),
+        aster_drive::db::repository::audit_log_repo::AuditLogQuery {
+            user_id: Some(user.id),
+            action: Some("admin_file_download"),
+            entity_type: None,
+            entity_id: None,
+            after: None,
+            before: None,
+            limit: 20,
+            offset: 0,
+            sort_by: aster_drive::api::pagination::AdminAuditLogSortBy::CreatedAt,
+            sort_order: aster_forge_api::SortOrder::Desc,
+        },
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(!audits.is_empty());
+    assert!(audits.iter().all(|audit| {
+        !audit
+            .details
+            .as_deref()
+            .unwrap_or_default()
+            .contains("X-Amz")
+    }));
+}

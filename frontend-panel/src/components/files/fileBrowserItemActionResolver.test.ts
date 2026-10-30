@@ -99,7 +99,7 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(handlers.onInfo).toHaveBeenCalledWith("file", 7);
 	});
 
-	it("limits read-only file actions to open and download", () => {
+	it("limits read-only file actions to open, download and explicitly provided inspection", () => {
 		const handlers = createHandlers();
 		handlers.onFileOpen = undefined;
 		const file = {
@@ -122,7 +122,9 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(props.onDownload).toBeTypeOf("function");
 		expect(props.onArchiveCompress).toBeUndefined();
 		expect(props.onDelete).toBeUndefined();
-		expect(props.onVersions).toBeUndefined();
+		expect(props.onVersions).toBeDefined();
+		props.onVersions?.();
+		expect(handlers.onVersions).toHaveBeenCalledWith(file.id);
 		expect(props.isLocked).toBe(false);
 		expect(handlers.onFileClick).toHaveBeenCalledWith(file);
 		expect(handlers.onDownload).toHaveBeenCalledWith(7, "bundle.zip");
@@ -180,7 +182,7 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(handlers.onInfo).toHaveBeenCalledWith("folder", 3);
 	});
 
-	it("limits read-only folder actions to open and archive download", () => {
+	it("limits read-only folder actions to navigation, details and archive download", () => {
 		const handlers = createHandlers();
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
@@ -196,12 +198,14 @@ describe("fileBrowserItemActionResolver", () => {
 
 		props.onOpen?.();
 		props.onArchiveDownload?.();
+		props.onInfo?.();
 
 		expect(props.isLocked).toBe(false);
 		expect(props.onDelete).toBeUndefined();
 		expect(handlers.onFolderOpen).toHaveBeenCalledWith(3, "Docs");
 		expect(handlers.onArchiveDownload).toHaveBeenCalledWith(3);
 		expect(handlers.onDelete).not.toHaveBeenCalled();
+		expect(handlers.onInfo).toHaveBeenCalledExactlyOnceWith("folder", 3);
 	});
 
 	it("omits optional writable actions when handlers are unavailable", () => {
@@ -451,3 +455,41 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(onPurge).toHaveBeenCalledTimes(1);
 	});
 });
+
+it.each([true, false])(
+	"routes read-only information and version callbacks without exposing writes (folder=%s)",
+	(isFolder) => {
+		const handlers = createHandlers();
+		const item = {
+			id: 7,
+			name: "read-only",
+			lock_state: { state: "unlocked" },
+		};
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder,
+			item,
+			readOnly: true,
+			selection: emptySelection(),
+		} as Parameters<typeof resolveFileBrowserItemMenuProps>[0]);
+		props.onInfo?.();
+		expect(handlers.onInfo).toHaveBeenCalledWith(
+			isFolder ? "folder" : "file",
+			7,
+		);
+		if (!isFolder) {
+			props.onVersions?.();
+			expect(handlers.onVersions).toHaveBeenCalledWith(7);
+		}
+		expect(props.onDelete).toBeUndefined();
+		const without = resolveFileBrowserItemMenuProps({
+			handlers: { ...handlers, onInfo: undefined, onVersions: undefined },
+			isFolder,
+			item,
+			readOnly: true,
+			selection: emptySelection(),
+		} as Parameters<typeof resolveFileBrowserItemMenuProps>[0]);
+		expect(without.onInfo).toBeUndefined();
+		expect(without.onVersions).toBeUndefined();
+	},
+);

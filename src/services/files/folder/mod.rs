@@ -24,7 +24,7 @@ use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::task::types::TaskInfo;
 use crate::services::workspace::models::FolderInfo;
-use crate::services::workspace::storage::WorkspaceStorageScope;
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::folder;
 use aster_forge_api::NullablePatch;
 use serde_json::json;
@@ -49,21 +49,23 @@ pub use tree::{
 pub(crate) use access::{
     ensure_folder_model_in_scope, ensure_personal_folder_scope, verify_folder_in_scope,
 };
-pub(crate) use cache::{FOLDER_PATH_CACHE_PREFIX, folder_path_cache_key};
+pub(crate) use cache::{
+    FOLDER_PATH_CACHE_PREFIX, folder_path_cache_key, invalidate_all_folder_path_chains,
+    invalidate_folder_path_chains,
+};
 #[cfg(test)]
 pub(crate) use copy::copy_folder_tree_in_scope;
 pub(crate) use copy::{
     copy_folder_between_scopes, copy_folder_in_scope,
     copy_folder_tree_in_scope_with_user_properties,
 };
-pub(crate) use hierarchy::{
-    get_ancestors_in_scope, invalidate_folder_path_cache, invalidate_folder_path_cache_for_ids,
-};
-pub(crate) use listing::list_in_scope;
+pub(crate) use hierarchy::get_ancestors_in_scope;
+pub(crate) use listing::{FolderListingResult, build_folder_contents, list_in_scope};
 pub(crate) use mutation::{
-    FolderTreeDeletion, admin_set_policy, apply_locked_tree_deletion_on, create_in_scope,
-    delete_in_scope, get_info_in_scope, get_info_with_storage_used_in_scope,
-    lock_tree_for_deletion_on, set_icon_in_scope, set_lock_in_scope, update_in_scope,
+    FolderTreeDeletion, admin_set_policy, apply_locked_tree_deletion_on,
+    build_authorized_folder_info, create_in_scope, delete_in_scope,
+    get_info_with_storage_used_in_scope, lock_tree_for_deletion_on, set_icon_in_scope,
+    set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
     FOLDER_TREE_RESOURCE_LIMIT_MESSAGE, FolderTreeTraversalLimits, REST_FOLDER_TREE_LIMITS,
@@ -117,7 +119,7 @@ pub(crate) async fn delete_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderTreeMutationDispatch> {
     let audit_folder = if audit::should_record(state, audit::AuditAction::FolderDelete) {
-        Some(get_info_in_scope(state, scope, folder_id).await?)
+        Some(storage::verify_folder_access_for_read(state, scope, folder_id).await?)
     } else {
         None
     };
@@ -200,7 +202,7 @@ pub(crate) async fn update_in_scope_with_audit(
         audit::AuditAction::FolderRename
     };
     let previous_folder = if audit::should_record(state, action) {
-        Some(get_info_in_scope(state, scope, folder_id).await?)
+        Some(storage::verify_folder_access_for_read(state, scope, folder_id).await?)
     } else {
         None
     };
@@ -365,7 +367,7 @@ pub(crate) async fn copy_folder_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let source_folder = if audit::should_record(state, audit::AuditAction::FolderCopy) {
-        Some(get_info_in_scope(state, scope, folder_id).await?)
+        Some(storage::verify_folder_access_for_read(state, scope, folder_id).await?)
     } else {
         None
     };

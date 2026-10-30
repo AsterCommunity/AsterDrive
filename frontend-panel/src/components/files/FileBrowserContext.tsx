@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, use } from "react";
-import type { BrowserOpenMode } from "@/stores/fileStore";
+import type { BrowserOpenMode, SortBy, SortOrder } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 export interface FileBrowserSelectionDownloadAction {
@@ -38,16 +38,24 @@ export interface FileBrowserContextValue {
 	files: FileListItem[];
 	browserOpenMode: BrowserOpenMode;
 	readOnly?: boolean;
+	/** Enables controlled sorting without mutating the ordinary workspace store. */
+	sorting?: {
+		sortBy: SortBy;
+		sortOrder: SortOrder;
+		onSort: (sortBy: SortBy, sortOrder: SortOrder) => void;
+	};
+
 	showAttribution?: boolean;
 	selectionEnabled?: boolean;
+	contextMenusEnabled?: boolean;
 	breadcrumbPathIds: number[];
 	batchSelectionActions?: FileBrowserBatchSelectionActions | null;
-	getThumbnailPath?: (file: FileListItem) => string;
+	getThumbnailPath?: (file: FileListItem) => string | null;
 	onFolderOpen: (id: number, name: string) => void;
 	onFileClick: (file: FileListItem) => void;
 	onFileOpen?: (file: FileListItem) => void;
 	onFileChooseOpenMethod?: (file: FileListItem) => void;
-	onShare: (target: FileBrowserShareTarget) => void;
+	onShare?: (target: FileBrowserShareTarget) => void;
 	onDownload: (fileId: number, fileName: string) => void;
 	onArchiveDownload?: (folderId: number) => void;
 	onArchiveCompress?: (type: "file" | "folder", id: number) => void;
@@ -58,12 +66,12 @@ export interface FileBrowserContextValue {
 	onFolderPolicy?: (folder: FolderListItem) => void;
 	onFolderIcon?: (folder: FolderListItem) => void;
 	onGoToLocation?: (file: FileListItem) => void;
-	onToggleLock: (
+	onToggleLock?: (
 		type: "file" | "folder",
 		id: number,
 		locked: boolean,
 	) => boolean | Promise<boolean> | undefined;
-	onDelete: (type: "file" | "folder", id: number) => Promise<void> | undefined;
+	onDelete?: (type: "file" | "folder", id: number) => Promise<void> | undefined;
 	onRename?: (type: "file" | "folder", id: number, name: string) => void;
 	onVersions?: (fileId: number) => void;
 	onInfo?: (type: "file" | "folder", id: number) => void;

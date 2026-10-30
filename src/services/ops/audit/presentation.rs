@@ -81,10 +81,21 @@ pub fn build_audit_presentation(
         entity_name,
         parsed_details.as_ref(),
     ));
-    let target = match action {
+    let mut target = match action {
         AuditAction::ServerStart | AuditAction::ServerShutdown => Some(server_target()),
         _ => target_message(entity_type, entity_id, entity_name),
     };
+    if matches!(
+        action,
+        AuditAction::AdminWorkspaceInspect
+            | AuditAction::AdminFileDownload
+            | AuditAction::AdminRevisionDownload
+    ) && let Some(target) = &mut target
+    {
+        target
+            .params
+            .insert("display_identity".to_string(), Value::Bool(true));
+    }
     let detail = detail_message(action, parsed_details.as_ref());
 
     Some(AuditPresentation {
@@ -166,6 +177,24 @@ fn detail_message(
     let mut params = BTreeMap::new();
 
     match action {
+        AuditAction::AdminWorkspaceInspect
+        | AuditAction::AdminFileDownload
+        | AuditAction::AdminRevisionDownload => {
+            copy_params(
+                details,
+                &mut params,
+                &[
+                    "scope_kind",
+                    "target_id",
+                    "file_id",
+                    "revision_id",
+                    "reason",
+                    "remark",
+                    "result",
+                ],
+            );
+            Some(message("admin_content_access", params))
+        }
         AuditAction::ConfigUpdate => {
             copy_param(details, &mut params, "value");
             Some(message("config_value_updated", params))

@@ -4524,6 +4524,56 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .await;
     assert_eq!(downloaded_bytes, upload_bytes);
 
+    // Administrator initialization must retain the remote streaming chain and exact revision.
+    let admin_app = create_test_app!(consumer_state.clone());
+    let (admin_token, _) = login_user!(admin_app, "remoteuser", "pass1234");
+    let (claims, _) = local::authenticate_access_token(&consumer_state, &admin_token)
+        .await
+        .unwrap();
+    for revision_id in [
+        None,
+        Some(
+            aster_drive::db::repository::revision_repo::find_current_by_file_id(
+                consumer_state.writer_db(),
+                created_file.id,
+            )
+            .await
+            .unwrap()
+            .id,
+        ),
+    ] {
+        let info = common::admin_download_init(
+            &consumer_state,
+            &admin_token,
+            user.id,
+            created_file.id,
+            revision_id,
+        )
+        .await;
+        let grant_id = info.resource.request.url.split('/').rev().nth(1).unwrap();
+        let full = aster_drive::services::ops::content_access::download(
+            &consumer_state,
+            &claims,
+            grant_id,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(collect_download_body(full).await, upload_bytes);
+        let range = actix_web::http::header::HeaderValue::from_static("bytes=0-4");
+        let partial = aster_drive::services::ops::content_access::download(
+            &consumer_state,
+            &claims,
+            grant_id,
+            None,
+            Some(&range),
+        )
+        .await
+        .unwrap();
+        assert_eq!(collect_download_body(partial).await, b"hello");
+    }
+
     file::delete(&consumer_state, created_file.id, user.id)
         .await
         .expect("remote file soft delete should succeed");

@@ -35,6 +35,8 @@ vi.mock("@/pages/TrashPage", () => ({
 	default: () => null,
 }));
 
+vi.mock("@/pages/admin/AdminWorkspacePage", () => ({ default: () => null }));
+
 vi.mock("@/pages/admin/AdminTeamDetailPage", () => ({
 	default: () => null,
 }));
@@ -361,6 +363,18 @@ describe("router", () => {
 		expect(
 			routes.some((route) => route.path === "/s/:token/folder/:folderId"),
 		).toBe(false);
+	});
+
+	it("loads both protected administrator workspace routes through the shared lazy page", async () => {
+		const routes = flattenRoutes((await loadRoutes()) as TestRoute[]);
+		for (const path of [
+			"/admin/users/:userId/files",
+			"/admin/teams/:teamId/files",
+		]) {
+			const route = routes.find((item) => item.path === path);
+			expect(route).toBeDefined();
+			await resolveLazyElement(route?.element);
+		}
 	});
 
 	it("loads deferred i18n namespaces before localized lazy route pages", async () => {

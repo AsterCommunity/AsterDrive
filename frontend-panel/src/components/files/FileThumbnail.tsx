@@ -22,7 +22,7 @@ interface FileThumbnailProps {
 	iconClassName?: string;
 	imageClassName?: string;
 	size?: "sm" | "md" | "lg";
-	thumbnailPath?: string;
+	thumbnailPath?: string | null;
 }
 
 export function FileThumbnail({
@@ -39,14 +39,15 @@ export function FileThumbnail({
 	);
 	const loadThumbnailSupport = useThumbnailSupportStore((state) => state.load);
 	const canRequestThumbnail =
+		thumbnailPath !== null &&
 		thumbnailSupportLoaded &&
 		supportsGeneratedThumbnailFile(file.name, thumbnailSupport);
 
 	useEffect(() => {
-		if (!thumbnailSupportLoaded) {
+		if (thumbnailPath !== null && !thumbnailSupportLoaded) {
 			void loadThumbnailSupport();
 		}
-	}, [loadThumbnailSupport, thumbnailSupportLoaded]);
+	}, [loadThumbnailSupport, thumbnailSupportLoaded, thumbnailPath]);
 
 	const { ref, isInViewport } = useEnteredViewport<HTMLDivElement>({
 		enabled: canRequestThumbnail,

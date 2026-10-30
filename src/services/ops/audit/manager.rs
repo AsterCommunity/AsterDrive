@@ -228,3 +228,32 @@ pub async fn log_with_details<S, F>(
     )
     .await;
 }
+
+/// Mandatory content-access evidence: never buffered or filtered by optional audit settings.
+pub async fn log_required<C: ConnectionTrait>(
+    db: &C,
+    input: AuditLogInput<'_>,
+    details: serde_json::Value,
+) -> crate::errors::Result<()> {
+    let request = audit_log_request(
+        input.ctx,
+        input.action,
+        input.entity_type,
+        input.entity_id,
+        input.entity_name,
+        Some(details),
+    );
+    aster_forge_db::create_audit_log_row(db, request)
+        .await
+        .map_err(|_| {
+            tracing::error!(
+                action = input.action.as_str(),
+                "required content access audit persistence failed"
+            );
+            crate::errors::auth_forbidden_with_code(
+                crate::api::api_error_code::ApiErrorCode::AdminContentAuditUnavailable,
+                "content access audit unavailable",
+            )
+        })?;
+    Ok(())
+}

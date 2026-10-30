@@ -623,7 +623,7 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(screen.queryByRole("button", { name: "delete" })).toBeNull();
 	});
 
-	it("limits read-only file menus to opening and downloading the file", () => {
+	it("limits read-only file menus to reading and explicitly supplied inspection actions", () => {
 		mockState.browserContext.readOnly = true;
 
 		render(
@@ -659,7 +659,9 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(screen.queryByRole("button", { name: "share-page" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "share-direct" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "delete" })).toBeNull();
-		expect(screen.queryByRole("button", { name: "versions" })).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "versions" }),
+		).toBeInTheDocument();
 	});
 
 	it("falls back to regular item actions when the current item is not selected", () => {

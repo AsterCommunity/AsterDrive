@@ -124,3 +124,15 @@ describe("TopBar", () => {
 		expect(mockState.onSearchOpen).toHaveBeenCalledTimes(2);
 	});
 });
+
+it("omits desktop and mobile search controls when inspecting another workspace", () => {
+	render(
+		<MemoryRouter>
+			<TopBar onSidebarToggle={vi.fn()} mobileOpen={false} />
+		</MemoryRouter>,
+	);
+	expect(
+		screen.queryByRole("button", { name: "translated:search:open_search" }),
+	).not.toBeInTheDocument();
+	expect(screen.getByText("HeaderControls")).toBeInTheDocument();
+});

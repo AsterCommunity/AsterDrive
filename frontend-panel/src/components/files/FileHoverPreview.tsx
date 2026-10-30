@@ -14,7 +14,7 @@ interface FileHoverPreviewProps {
 	/** 由 useDelayedHoverPreview 给出的悬停意向结果 */
 	open: boolean;
 	onClose: () => void;
-	thumbnailPath?: string;
+	thumbnailPath?: string | null;
 	align?: "start" | "center" | "end";
 	/**
 	 * 覆盖模式（网格卡片）：底边对齐锚点底部——大图直接盖在缩略图
@@ -49,14 +49,15 @@ export function FileHoverPreview({
 	);
 	const loadThumbnailSupport = useThumbnailSupportStore((state) => state.load);
 	const canRequestThumbnail =
+		thumbnailPath !== null &&
 		thumbnailSupportLoaded &&
 		supportsGeneratedThumbnailFile(file.name, thumbnailSupport);
 
 	useEffect(() => {
-		if (!thumbnailSupportLoaded) {
+		if (thumbnailPath !== null && !thumbnailSupportLoaded) {
 			void loadThumbnailSupport();
 		}
-	}, [loadThumbnailSupport, thumbnailSupportLoaded]);
+	}, [loadThumbnailSupport, thumbnailSupportLoaded, thumbnailPath]);
 
 	// open 前不订阅 blob：悬停意向成立时 FileThumbnail 通常已加载同一路径，
 	// useBlobUrl 缓存命中零额外请求；缓存未中则等 blob 就绪后再展开

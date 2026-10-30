@@ -2,10 +2,10 @@ use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::file::{
-    DownloadDisposition, ensure_personal_file_scope, get_info_in_scope, if_none_match_matches,
-    inline_sandbox_csp, requires_inline_sandbox,
+    DownloadDisposition, ensure_personal_file_scope, if_none_match_matches, inline_sandbox_csp,
+    requires_inline_sandbox,
 };
-use crate::services::workspace::storage::WorkspaceStorageScope;
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use actix_web::http::header::HeaderValue;
 use aster_drive_model::entities::{file, file_blob, file_revision};
 use aster_forge_utils::numbers;
@@ -66,7 +66,7 @@ pub(crate) async fn download_in_scope_with_range_header_and_file(
     );
     let authorized = match file {
         Some(file) => file,
-        None => get_info_in_scope(state, scope, id).await?,
+        None => storage::verify_file_access_for_read(state, scope, id).await?,
     };
     crate::services::workspace::storage::ensure_active_file_scope(&authorized, scope)?;
     let (file, blob, revision) = load_current_download_snapshot(state, authorized.id).await?;

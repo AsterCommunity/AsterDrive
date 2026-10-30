@@ -811,7 +811,9 @@ pub(crate) async fn direct_link_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    let file = file::get_info_in_scope(state, scope, file_id).await?;
+    let file =
+        crate::services::workspace::storage::verify_file_access_for_read(state, scope, file_id)
+            .await?;
     let token = direct_link::create_token_in_scope(state, scope, file_id).await?;
     let ctx = AuditContext::from_request(req, claims);
     audit::log_with_details(
@@ -839,7 +841,9 @@ pub(crate) async fn preview_link_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    let file = file::get_info_in_scope(state, scope, file_id).await?;
+    let file =
+        crate::services::workspace::storage::verify_file_access_for_read(state, scope, file_id)
+            .await?;
     let (scheme, host) = request_origin_parts(req);
     let link = preview_link::create_token_for_file_in_scope_for_origin(
         state,
@@ -878,7 +882,9 @@ pub(crate) async fn open_wopi_response(
     file_id: i64,
     app_key: &str,
 ) -> Result<HttpResponse> {
-    let file = file::get_info_in_scope(state, scope, file_id).await?;
+    let file =
+        crate::services::workspace::storage::verify_file_access_for_read(state, scope, file_id)
+            .await?;
     let (scheme, host) = request_origin_parts(req);
     let session = wopi::create_launch_session_in_scope(
         state,
@@ -922,7 +928,9 @@ pub(crate) async fn download_response(
         .headers()
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
-    let file = file::get_info_in_scope(state, scope, file_id).await?;
+    let file =
+        crate::services::workspace::storage::verify_file_access_for_read(state, scope, file_id)
+            .await?;
     let range_header = req.headers().get(header::RANGE);
     let ctx = AuditContext::from_request(req, claims);
     let outcome = file::download_in_scope_with_file_and_audit(
@@ -1065,6 +1073,7 @@ mod tests {
     use crate::db::repository::{background_task_repo, file_repo};
     use crate::runtime::PrimaryAppState;
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
+    use crate::services::workspace::storage::WorkspaceStorageScope;
     use crate::services::{auth::local, mail::sender, media::processing};
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -1565,9 +1574,13 @@ mod tests {
         )
         .await;
 
-        let info = crate::services::files::file::get_info(&state, file.id, user.id)
-            .await
-            .expect("image preview route file info should load");
+        let info = crate::services::files::file::get_info_with_storage_used_in_scope(
+            &state,
+            WorkspaceStorageScope::Personal { user_id: user.id },
+            file.id,
+        )
+        .await
+        .expect("image preview route file info should load");
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "2");
         let task = background_task_repo::find_latest_by_kind_and_display_name(
@@ -1592,9 +1605,13 @@ mod tests {
     async fn get_image_preview_route_returns_cached_webp_and_honors_if_none_match() {
         let (state, user, file) = build_image_preview_route_state().await;
         let token = access_token_for(&state, &user).await;
-        let info = crate::services::files::file::get_info(&state, file.id, user.id)
-            .await
-            .expect("image preview route file info should load");
+        let info = crate::services::files::file::get_info_with_storage_used_in_scope(
+            &state,
+            WorkspaceStorageScope::Personal { user_id: user.id },
+            file.id,
+        )
+        .await
+        .expect("image preview route file info should load");
         let blob = file_repo::find_blob_by_id(state.writer_db(), info.blob_id)
             .await
             .expect("image preview route blob should load");

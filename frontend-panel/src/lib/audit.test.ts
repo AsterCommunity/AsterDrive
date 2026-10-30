@@ -262,3 +262,105 @@ describe("audit i18n formatting", () => {
 		);
 	});
 });
+
+describe("administrator content inspection presentation", () => {
+	it("shows a distinct target account and localizes reason/result while retaining the supplied remark", () => {
+		const t = createMockTWithInterpolation({
+			"admin:audit_entity_type_user": "用户",
+			"admin:content_reason_security_investigation": "安全调查",
+			"admin:content_result_authorized": "已授权查看",
+			"admin:audit_presentation_admin_content_access":
+				"原因 {{reason}} · 结果 {{result}}",
+			"admin:content_audit_remark": "备注：",
+		});
+		expect(
+			formatAuditTarget(t, {
+				entity_name: "target-user",
+				entity_type: "user",
+				presentation: {
+					target: {
+						code: "user",
+						params: { id: 42, name: "target-user", display_identity: true },
+					},
+				},
+			}),
+		).toBe("target-user (#42)");
+		expect(
+			formatAuditTarget(t, {
+				entity_name: null,
+				entity_type: "user",
+				presentation: {
+					target: { code: "user", params: { id: 42, display_identity: true } },
+				},
+			}),
+		).toBe("#42");
+		expect(
+			formatAuditDetail(t, {
+				action: "admin_workspace_inspect",
+				presentation: {
+					detail: {
+						code: "admin_content_access",
+						params: {
+							reason: "security_investigation",
+							result: "authorized",
+							remark: "用户报告 <case-42>",
+						},
+					},
+				},
+			}),
+		).toBe("原因 安全调查 · 结果 已授权查看 · 备注：用户报告 <case-42>");
+	});
+	it("omits absent remarks and preserves unknown historical enum values", () => {
+		const t = createMockTWithInterpolation({
+			"admin:audit_presentation_admin_content_access":
+				"{{reason}} · {{result}}",
+		});
+		expect(
+			formatAuditDetail(t, {
+				action: "admin_workspace_inspect",
+				presentation: {
+					detail: {
+						code: "admin_content_access",
+						params: {
+							reason: "historical_reason",
+							result: "historical_result",
+							remark: "  ",
+						},
+					},
+				},
+			}),
+		).toBe("historical_reason · historical_result");
+	});
+});
+
+it("renders missing inspection reason/result and partial target identity without inventing evidence", () => {
+	const t = createMockTWithInterpolation({
+		"admin:audit_entity_type_user": "用户",
+		"admin:audit_presentation_admin_content_access": "{{reason}} · {{result}}",
+	});
+	expect(
+		formatAuditDetail(t, {
+			action: "admin_file_download",
+			presentation: { detail: { code: "admin_content_access", params: {} } },
+		}),
+	).toBe("— · —");
+	expect(
+		formatAuditTarget(t, {
+			entity_type: "user",
+			presentation: {
+				target: {
+					code: "user",
+					params: { display_identity: true, name: "snapshot-name" },
+				},
+			},
+		}),
+	).toBe("snapshot-name");
+	expect(
+		formatAuditTarget(t, {
+			entity_type: "user",
+			presentation: {
+				target: { code: "user", params: { display_identity: true } },
+			},
+		}),
+	).toBe("用户");
+});

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 
 interface UseRetainedDialogValueResult<T> {
 	handleOpenChangeComplete: (open: boolean) => void;
@@ -9,6 +15,10 @@ export function useRetainedDialogValue<T>(
 	value: T | null,
 	open: boolean,
 ): UseRetainedDialogValueResult<T> {
+	const openRef = useRef(open);
+	useLayoutEffect(() => {
+		openRef.current = open;
+	}, [open]);
 	const [retainedValue, setRetainedValue] = useState<T | null>(value);
 
 	useEffect(() => {
@@ -26,7 +36,7 @@ export function useRetainedDialogValue<T>(
 	const visibleValue = value ?? (open ? null : retainedValue);
 
 	const handleOpenChangeComplete = useCallback((nextOpen: boolean) => {
-		if (!nextOpen) {
+		if (!nextOpen && !openRef.current) {
 			setRetainedValue(null);
 		}
 	}, []);

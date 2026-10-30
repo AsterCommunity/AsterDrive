@@ -28,6 +28,8 @@ export function ViewToggle({ value, onChange }: ViewToggleProps) {
 								"size-7 rounded-r-sm sm:h-8 sm:w-8",
 								value === "list" && "bg-accent",
 							)}
+							aria-label={t("list_view")}
+							aria-pressed={value === "list"}
 							onClick={() => onChange("list")}
 						/>
 					}
@@ -46,6 +48,8 @@ export function ViewToggle({ value, onChange }: ViewToggleProps) {
 								"size-7 rounded-l-sm sm:h-8 sm:w-8",
 								value === "grid" && "bg-accent",
 							)}
+							aria-label={t("grid_view")}
+							aria-pressed={value === "grid"}
 							onClick={() => onChange("grid")}
 						/>
 					}

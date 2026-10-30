@@ -433,11 +433,22 @@ export default function AdminAuditPage() {
 								</TableCell>
 								<TableCell className="max-w-0">
 									<div className="flex min-w-0 flex-col gap-0.5 text-left">
-										<span className="truncate text-sm text-muted-foreground">
+										<span
+											className="break-words whitespace-normal text-sm text-muted-foreground"
+											title={formatAuditTarget(t, item)}
+										>
 											{formatAuditTarget(t, item)}
 										</span>
 										{detail ? (
-											<span className="truncate text-xs text-muted-foreground/80">
+											<span
+												className={
+													item.presentation?.detail?.code ===
+													"admin_content_access"
+														? "break-words whitespace-normal text-xs text-muted-foreground/80"
+														: "truncate text-xs text-muted-foreground/80"
+												}
+												title={detail}
+											>
 												{detail}
 											</span>
 										) : null}

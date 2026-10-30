@@ -44,5 +44,7 @@
 	"settings_item_default_storage_quota_label": "Default quota for new users",
 	"settings_item_default_storage_quota_desc": "The default storage quota assigned to newly created users. Use 0 for unlimited.",
 	"settings_item_gravatar_base_url_label": "Gravatar base URL",
-	"settings_item_gravatar_base_url_desc": "The base URL used to build Gravatar avatar requests. Replace it with a reachable proxy or mirror if the default service is inaccessible."
+	"settings_item_gravatar_base_url_desc": "The base URL used to build Gravatar avatar requests. Replace it with a reachable proxy or mirror if the default service is inaccessible.",
+	"settings_item_admin_workspace_content_access_enabled_label": "Administrator content access",
+	"settings_item_admin_workspace_content_access_enabled_desc": "Allow reason-bound read-only inspection and downloads of personal or team files. Access and download initialization require persisted audit evidence. Disabled by default"
 }

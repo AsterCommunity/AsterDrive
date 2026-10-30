@@ -14,6 +14,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
 import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { runWhenIdle } from "@/lib/idleTask";
@@ -33,7 +34,6 @@ import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserB
 import { useFileBrowserContextValue } from "@/pages/file-browser/useFileBrowserContextValue";
 import { useFileBrowserDragAndDrop } from "@/pages/file-browser/useFileBrowserDragAndDrop";
 import { useFileBrowserPageState } from "@/pages/file-browser/useFileBrowserPageState";
-import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import {
 	createBatchService,
 	resolveMoveDispatch,

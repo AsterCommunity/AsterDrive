@@ -21,7 +21,7 @@ export function FileNameCell({
 	thumbnailRef,
 }: {
 	file: FileListItem;
-	thumbnailPath?: string;
+	thumbnailPath?: string | null;
 	/** 悬停预览的触发与锚点：缩略图展示区域（悬停文件名不触发预览） */
 	thumbnailRef?: Ref<HTMLSpanElement>;
 }) {

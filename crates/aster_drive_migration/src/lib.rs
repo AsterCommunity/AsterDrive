@@ -80,6 +80,7 @@ mod m20260917_000001_folder_icons;
 mod m20261016_000001_metrics_backlog_observations;
 mod m20261024_000001_add_mfa_totp_used_steps;
 mod m20261030_000001_workspace_activities;
+mod m20261030_000002_admin_content_access;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -235,6 +236,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20261016_000001_metrics_backlog_observations::Migration),
             Box::new(m20261024_000001_add_mfa_totp_used_steps::Migration),
             Box::new(m20261030_000001_workspace_activities::Migration),
+            Box::new(m20261030_000002_admin_content_access::Migration),
         ]
     }
 }

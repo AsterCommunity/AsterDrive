@@ -11,6 +11,7 @@ import { useTeamStore } from "@/stores/teamStore";
 
 interface AppLayoutProps {
 	children: ReactNode;
+	sidebarContent?: ReactNode;
 	onTrashDrop?: (data: InternalDragData) => void | Promise<void>;
 	onMoveToFolder?: (
 		fileIds: number[],
@@ -21,6 +22,7 @@ interface AppLayoutProps {
 
 export function AppLayout({
 	children,
+	sidebarContent,
 	onTrashDrop,
 	onMoveToFolder,
 }: AppLayoutProps) {
@@ -42,10 +44,12 @@ export function AppLayout({
 	}, []);
 
 	useEffect(() => {
+		if (sidebarContent != null) return;
 		void ensureTeamsLoaded(userId).catch(() => undefined);
-	}, [ensureTeamsLoaded, userId]);
+	}, [ensureTeamsLoaded, userId, sidebarContent]);
 
 	useEffect(() => {
+		if (sidebarContent != null) return;
 		function handleKeyDown(event: KeyboardEvent) {
 			if (
 				shouldIgnoreKeyboardTarget(event.target) ||
@@ -63,17 +67,18 @@ export function AppLayout({
 
 		document.addEventListener("keydown", handleKeyDown);
 		return () => document.removeEventListener("keydown", handleKeyDown);
-	}, []);
+	}, [sidebarContent]);
 
 	return (
 		<div className="flex h-dvh flex-col">
 			<TopBar
 				onSidebarToggle={handleMobileToggle}
 				mobileOpen={mobileOpen}
-				onSearchOpen={handleSearchOpen}
+				onSearchOpen={sidebarContent == null ? handleSearchOpen : undefined}
 			/>
 			<div className="flex flex-1 overflow-hidden">
 				<Sidebar
+					content={sidebarContent}
 					mobileOpen={mobileOpen}
 					onMobileClose={handleMobileClose}
 					onTrashDrop={onTrashDrop}
@@ -83,7 +88,9 @@ export function AppLayout({
 					{children}
 				</main>
 			</div>
-			<GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+			{sidebarContent == null ? (
+				<GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+			) : null}
 		</div>
 	);
 }

@@ -273,42 +273,45 @@ async fn test_auth_local_verify_token() {
 // ─── File Service ─────────────────────────────────────────────────
 
 #[actix_web::test]
-async fn test_file_service_get_info() {
+async fn test_file_details_authorize_personal_owner_and_reject_another_user() {
+    use actix_web::test;
+    use serde_json::Value;
     let state = common::setup().await;
-
-    let user = common::create_test_account(&state, "user1", "u1@example.com", "pass1234")
-        .await
-        .unwrap();
-
-    // 上传临时文件
-    let temp_dir = format!("/tmp/asterdrive-svc-test-{}", uuid::Uuid::new_v4());
-    std::fs::create_dir_all(&temp_dir).unwrap();
-    let temp_path = format!("{}/test.txt", temp_dir);
-    std::fs::write(&temp_path, "hello service test").unwrap();
-
-    let file = aster_drive::services::files::file::store_from_temp(
-        &state,
-        user.id,
-        StoreFromTempRequest::new(None, "service_test.txt", &temp_path, 18),
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "service_test.txt");
+    let response = actix_web::test::call_service(
+        &app,
+        actix_web::test::TestRequest::get()
+            .uri(&format!("/api/v1/files/{file_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
     )
-    .await
-    .unwrap();
-
-    // get_info
-    let info = aster_drive::services::files::file::get_info(&state, file.id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(info.name, "service_test.txt");
-    assert_eq!(info.owner_user_id, Some(user.id));
-    assert_eq!(info.created_by_user_id, Some(user.id));
-    assert_eq!(info.created_by_username, user.username);
-
-    // 别人的文件
-    let user2 = common::create_test_account(&state, "user2", "u2@example.com", "pass1234")
-        .await
-        .unwrap();
-    let err = aster_drive::services::files::file::get_info(&state, file.id, user2.id).await;
-    assert!(err.is_err());
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = actix_web::test::read_body_json(response).await;
+    let info = &body["data"];
+    assert_eq!(info["name"], "service_test.txt");
+    assert_eq!(info["owner_user_id"], info["created_by_user_id"]);
+    assert_eq!(info["created_by_username"], "testuser");
+    assert!(info["owner_user_id"].is_i64());
+    admin_create_user!(
+        app,
+        token,
+        "another_reader",
+        "another@example.com",
+        "password123"
+    );
+    let (other, _) = login_user!(app, "another_reader", "password123");
+    let response = actix_web::test::call_service(
+        &app,
+        actix_web::test::TestRequest::get()
+            .uri(&format!("/api/v1/files/{file_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&other)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
 }
 
 #[actix_web::test]

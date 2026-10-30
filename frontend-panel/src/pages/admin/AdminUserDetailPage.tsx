@@ -16,7 +16,9 @@ import type { UpdateUserRequest, UserInfo } from "@/types/api";
 export default function AdminUserDetailPage() {
 	const { t } = useTranslation("admin");
 	const navigate = useNavigate();
-	const { userId } = useParams<{ userId?: string }>();
+	const { userId } = useParams<{
+		userId?: string;
+	}>();
 	const parsedUserId = Number(userId);
 	const isValidRoute = Number.isSafeInteger(parsedUserId) && parsedUserId > 0;
 	const [user, setUser] = useState<UserInfo | null>(null);
@@ -99,6 +101,13 @@ export default function AdminUserDetailPage() {
 						onBack={backToList}
 						onUpdate={updateUser}
 						user={user}
+						onViewWorkspace={() =>
+							window.open(
+								`/admin/users/${parsedUserId}/files`,
+								"_blank",
+								"noopener,noreferrer",
+							)
+						}
 					/>
 				)}
 			</AdminPageShell>

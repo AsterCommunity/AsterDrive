@@ -1,90 +1,95 @@
-import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { useDesktopInfoPanelMount } from "./useDesktopInfoPanelMount";
 
-describe("useDesktopInfoPanelMount", () => {
-	it("syncs immediately outside desktop mode", () => {
-		const { rerender, result } = renderHook(
-			(props: { isDesktop: boolean; open: boolean }) =>
-				useDesktopInfoPanelMount(props.open, props.isDesktop),
-			{ initialProps: { isDesktop: false, open: true } },
-		);
-
-		expect(result.current).toEqual({
-			desktopMounted: true,
-			desktopVisible: true,
-		});
-
-		rerender({ isDesktop: false, open: false });
-
-		expect(result.current).toEqual({
-			desktopMounted: false,
-			desktopVisible: false,
-		});
+function Presence({
+	open,
+	desktop = true,
+	onExit,
+}: {
+	open: boolean;
+	desktop?: boolean;
+	onExit: (open: boolean) => void;
+}) {
+	const { desktopMounted, desktopVisible, panelRef } = useDesktopInfoPanelMount(
+		open,
+		desktop,
+		onExit,
+	);
+	return desktopMounted ? (
+		<div ref={panelRef} data-testid="panel" data-visible={desktopVisible} />
+	) : null;
+}
+it("disposes only after the actual exit animations finish, without a timer", async () => {
+	let finish: () => void = () => {};
+	const finished = new Promise<void>((resolve) => {
+		finish = resolve;
 	});
-
-	it("delays desktop enter and exit states for animation", () => {
-		vi.useFakeTimers();
-		const { rerender, result } = renderHook(
-			(props: { open: boolean }) => useDesktopInfoPanelMount(props.open, true),
-			{ initialProps: { open: false } },
-		);
-
-		expect(result.current).toEqual({
-			desktopMounted: false,
-			desktopVisible: false,
-		});
-
-		rerender({ open: true });
-		expect(result.current.desktopMounted).toBe(true);
-		expect(result.current.desktopVisible).toBe(false);
-
-		act(() => {
-			vi.advanceTimersByTime(0);
-		});
-		expect(result.current).toEqual({
-			desktopMounted: true,
-			desktopVisible: true,
-		});
-
-		rerender({ open: false });
-		expect(result.current).toEqual({
-			desktopMounted: true,
-			desktopVisible: false,
-		});
-
-		act(() => {
-			vi.advanceTimersByTime(219);
-		});
-		expect(result.current.desktopMounted).toBe(true);
-
-		act(() => {
-			vi.advanceTimersByTime(1);
-		});
-		expect(result.current).toEqual({
-			desktopMounted: false,
-			desktopVisible: false,
-		});
+	const spy = vi
+		.spyOn(Element.prototype, "getAnimations")
+		.mockReturnValue([{ finished } as Animation]);
+	const exit = vi.fn();
+	const view = render(<Presence open onExit={exit} />);
+	view.rerender(<Presence open={false} onExit={exit} />);
+	expect(screen.getByTestId("panel")).toHaveAttribute("data-visible", "false");
+	expect(exit).not.toHaveBeenCalled();
+	await act(async () => {
+		finish();
+		await finished;
 	});
-
-	it("clears stale desktop animation timers when open state changes quickly", () => {
-		vi.useFakeTimers();
-		const { rerender, result } = renderHook(
-			(props: { open: boolean }) => useDesktopInfoPanelMount(props.open, true),
-			{ initialProps: { open: false } },
-		);
-
-		rerender({ open: true });
-		rerender({ open: false });
-		rerender({ open: true });
-
-		act(() => {
-			vi.advanceTimersByTime(220);
-		});
-
-		expect(result.current).toEqual({
-			desktopMounted: true,
-			desktopVisible: true,
-		});
+	expect(screen.queryByTestId("panel")).not.toBeInTheDocument();
+	expect(exit).toHaveBeenCalledExactlyOnceWith(false);
+	spy.mockRestore();
+});
+it("ignores an old animation completion after reopening and switching content", async () => {
+	let finish: () => void = () => {};
+	const finished = new Promise<void>((resolve) => {
+		finish = resolve;
 	});
+	const spy = vi
+		.spyOn(Element.prototype, "getAnimations")
+		.mockReturnValue([{ finished } as Animation]);
+	const exit = vi.fn();
+	const view = render(<Presence open onExit={exit} />);
+	const panel = screen.getByTestId("panel");
+	view.rerender(<Presence open={false} onExit={exit} />);
+	view.rerender(<Presence open onExit={exit} />);
+	await act(async () => {
+		finish();
+		await finished;
+	});
+	expect(screen.getByTestId("panel")).toBe(panel);
+	expect(panel).toHaveAttribute("data-visible", "true");
+	expect(exit).not.toHaveBeenCalled();
+	spy.mockRestore();
+});
+it("finishes immediately when reduced motion produces no animations", async () => {
+	const exit = vi.fn();
+	const spy = vi.spyOn(Element.prototype, "getAnimations").mockReturnValue([]);
+	const view = render(<Presence open onExit={exit} />);
+	view.rerender(<Presence open={false} onExit={exit} />);
+	await waitFor(() =>
+		expect(screen.queryByTestId("panel")).not.toBeInTheDocument(),
+	);
+	expect(exit).toHaveBeenCalledExactlyOnceWith(false);
+	spy.mockRestore();
+});
+it("does not deliver stale completion after unmount", async () => {
+	let finish: () => void = () => {};
+	const finished = new Promise<void>((resolve) => {
+		finish = resolve;
+	});
+	const spy = vi
+		.spyOn(Element.prototype, "getAnimations")
+		.mockReturnValue([{ finished } as Animation]);
+	const exit = vi.fn();
+	const view = render(<Presence open onExit={exit} />);
+	view.rerender(<Presence open={false} onExit={exit} />);
+	view.unmount();
+	await act(async () => {
+		finish();
+		await finished;
+	});
+	expect(exit).not.toHaveBeenCalled();
+	spy.mockRestore();
 });

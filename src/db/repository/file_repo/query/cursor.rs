@@ -9,21 +9,37 @@ use aster_drive_model::entities::file::{self, Entity as File};
 use aster_forge_api::SortOrder;
 
 use crate::db::repository::file_repo::common::{
-    FileScope, active_scope_condition, apply_folder_condition,
+    FileScope, apply_folder_condition, scope_condition,
 };
 
-/// 查询文件夹下的文件（排除已删除，cursor 分页，支持多字段排序）
-pub(super) async fn find_by_folder_cursor_in_scope<C: ConnectionTrait>(
+/// Resource-scoped cursor selection shared by ordinary and governed administrator reads.
+pub(crate) struct FileCursorQuery {
+    pub folder_id: Option<i64>,
+    pub limit: u64,
+    pub after: Option<(String, i64)>,
+    pub sort_by: SortBy,
+    pub sort_order: SortOrder,
+    pub deleted: bool,
+}
+pub(crate) async fn find_by_folder_cursor_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: FileScope,
-    folder_id: Option<i64>,
-    limit: u64,
-    after: Option<(String, i64)>,
-    sort_by: SortBy,
-    sort_order: SortOrder,
+    query: FileCursorQuery,
 ) -> Result<(Vec<file::Model>, u64)> {
+    let FileCursorQuery {
+        folder_id,
+        limit,
+        after,
+        sort_by,
+        sort_order,
+        deleted,
+    } = query;
     let base = File::find().filter(apply_folder_condition(
-        active_scope_condition(scope),
+        scope_condition(scope).add(if deleted {
+            file::Column::DeletedAt.is_not_null()
+        } else {
+            file::Column::DeletedAt.is_null()
+        }),
         folder_id,
     ));
     let total = base.clone().count(db).await.map_err(AsterError::from)?;
@@ -70,11 +86,14 @@ pub async fn find_by_folder_cursor<C: ConnectionTrait>(
     find_by_folder_cursor_in_scope(
         db,
         FileScope::Personal { user_id },
-        folder_id,
-        limit,
-        after,
-        sort_by,
-        sort_order,
+        FileCursorQuery {
+            folder_id,
+            limit,
+            after,
+            sort_by,
+            sort_order,
+            deleted: false,
+        },
     )
     .await
 }
@@ -91,11 +110,14 @@ pub async fn find_by_team_folder_cursor<C: ConnectionTrait>(
     find_by_folder_cursor_in_scope(
         db,
         FileScope::Team { team_id },
-        folder_id,
-        limit,
-        after,
-        sort_by,
-        sort_order,
+        FileCursorQuery {
+            folder_id,
+            limit,
+            after,
+            sort_by,
+            sort_order,
+            deleted: false,
+        },
     )
     .await
 }

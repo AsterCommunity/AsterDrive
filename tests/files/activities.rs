@@ -794,10 +794,18 @@ async fn migration_preserves_existing_resources_and_does_not_invent_modifiers() 
     let (token, _) = register_and_login!(app);
     let id = common::create_empty_file_via_api(&app, &token, "historical-657.txt", None).await;
     let before = file_repo::find_by_id(state.writer_db(), id).await.unwrap();
-    CurrentMigrator::down(state.writer_db(), Some(1))
+    let migrations = CurrentMigrator::migrations();
+    let activity_migration = migrations
+        .iter()
+        .position(|migration| migration.name() == "m20261030_000001_workspace_activities")
+        .expect("workspace activity migration should be registered");
+    // Later migrations must not change which historical schema this test exercises.
+    let rollback_steps = u32::try_from(migrations.len() - activity_migration)
+        .expect("migration rollback step count should fit u32");
+    CurrentMigrator::down(state.writer_db(), Some(rollback_steps))
         .await
         .unwrap();
-    CurrentMigrator::up(state.writer_db(), Some(1))
+    CurrentMigrator::up(state.writer_db(), Some(rollback_steps))
         .await
         .unwrap();
     let after = file_repo::find_by_id(state.writer_db(), id).await.unwrap();

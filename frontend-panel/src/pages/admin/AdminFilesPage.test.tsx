@@ -1,6 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { useEffect, useState } from "react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminFilesPage from "@/pages/admin/AdminFilesPage";
 import type {
@@ -558,6 +564,7 @@ function createBlobDetail(
 			{
 				created_at: "2026-05-01T00:20:00Z",
 				file_id: 21,
+				is_current: false,
 				id: 45,
 				size: 2048,
 				version: 3,
@@ -586,8 +593,27 @@ function createBlobDetail(
 
 function LocationProbe() {
 	const location = useLocation();
-
-	return <div data-testid="location-search">{location.search}</div>;
+	const navigate = useNavigate();
+	return (
+		<>
+			<div data-testid="location-search">{location.search}</div>
+			<button
+				type="button"
+				onClick={() => navigate("?blobId=32&hash=retained")}
+			>
+				other-blob
+			</button>
+			<button type="button" onClick={() => navigate("?blobId=31")}>
+				original-blob
+			</button>
+			<button
+				type="button"
+				onClick={() => navigate("?fileId=22&name=retained")}
+			>
+				other-file
+			</button>
+		</>
+	);
 }
 
 function renderPage(kind: "files" | "blobs", initialEntry = "/admin/files") {
@@ -599,28 +625,28 @@ function renderPage(kind: "files" | "blobs", initialEntry = "/admin/files") {
 	);
 }
 
-describe("AdminFilesPage", () => {
-	beforeEach(() => {
-		mockState.createBlobMaintenanceTask.mockReset();
-		mockState.getBlob.mockReset();
-		mockState.getFile.mockReset();
-		mockState.handleApiError.mockReset();
-		mockState.listBlobs.mockReset();
-		mockState.listFiles.mockReset();
+beforeEach(() => {
+	mockState.createBlobMaintenanceTask.mockReset();
+	mockState.getBlob.mockReset();
+	mockState.getFile.mockReset();
+	mockState.handleApiError.mockReset();
+	mockState.listBlobs.mockReset();
+	mockState.listFiles.mockReset();
 
-		mockState.createBlobMaintenanceTask.mockResolvedValue({ id: 9001 });
-		mockState.getBlob.mockResolvedValue(createBlobDetail());
-		mockState.getFile.mockResolvedValue(createFileDetail());
-		mockState.listBlobs.mockResolvedValue({
-			items: [createBlob()],
-			total: 1,
-		});
-		mockState.listFiles.mockResolvedValue({
-			items: [createFile()],
-			total: 1,
-		});
+	mockState.createBlobMaintenanceTask.mockResolvedValue({ id: 9001 });
+	mockState.getBlob.mockResolvedValue(createBlobDetail());
+	mockState.getFile.mockResolvedValue(createFileDetail());
+	mockState.listBlobs.mockResolvedValue({
+		items: [createBlob()],
+		total: 1,
 	});
+	mockState.listFiles.mockResolvedValue({
+		items: [createFile()],
+		total: 1,
+	});
+});
 
+describe("AdminFilesPage", () => {
 	it("lists files, syncs filters to the url, and opens file details", async () => {
 		renderPage("files", "/admin/files?name=report&deleted=live");
 
@@ -769,6 +795,43 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
 	});
 
+	it("links current and historical blob references to stable logical targets", async () => {
+		renderPage("blobs", "/admin/file-blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		const current = await screen.findByRole("link", {
+			name: /report\.txt/,
+		});
+		expect(current).toHaveAttribute("href", "/admin/files?fileId=21");
+		const revision = screen.getByRole("link", { name: /v3/ });
+		expect(revision).toHaveAttribute(
+			"href",
+			"/admin/files?fileId=21&revisionId=45",
+		);
+		fireEvent.click(revision);
+		await waitFor(() =>
+			expect(screen.getByTestId("location-search")).toHaveTextContent(
+				"fileId=21&revisionId=45",
+			),
+		);
+		expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+	});
+
+	it("keeps orphan blobs maintenance-only without a raw download entry", async () => {
+		mockState.getBlob.mockResolvedValue(
+			createBlobDetail({ files: [], file_versions: [] }),
+		);
+		renderPage("blobs", "/admin/file-blobs");
+		fireEvent.click(await screen.findByText("fedcba9876...fedcba"));
+		expect(
+			await screen.findByText("content_orphan_explanation"),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("link", { name: /download/i }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /download/i }),
+		).not.toBeInTheDocument();
+	});
 	it("updates blob range filters, pagination, and detail dialog visibility", async () => {
 		mockState.listBlobs
 			.mockResolvedValueOnce({
@@ -1244,4 +1307,288 @@ describe("AdminFilesPage", () => {
 		});
 		expect(screen.queryByText("admin_file_versions")).not.toBeInTheDocument();
 	});
+});
+
+vi.mock("@/components/admin/content-access/AdminFileDownloads", () => ({
+	AdminFileDownloads: () => null,
+}));
+
+it("restores blob details from URL, keeps filters, and clears the id on close", async () => {
+	renderPage("blobs", "/admin/file-blobs?blobId=31&policyId=4&hash=fedcba");
+	await screen.findByText("Blob #31");
+	expect(mockState.getBlob).toHaveBeenCalledWith(31);
+	expect(screen.getByTestId("location-search")).toHaveTextContent("blobId=31");
+	const label = screen
+		.getAllByText("admin_uploaded_by")
+		.find((node) => node.tagName === "DIV");
+	if (!label) throw new Error("uploader detail missing");
+	expect(label.parentElement).toHaveClass(
+		"grid",
+		"grid-cols-[140px_minmax(0,1fr)]",
+	);
+	fireEvent.click(screen.getByRole("button", { name: "close" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+			"blobId=",
+		),
+	);
+	expect(screen.getByTestId("location-search")).toHaveTextContent("policyId=4");
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"hash=fedcba",
+	);
+});
+it("makes the version metadata and card padding part of the navigation link", async () => {
+	renderPage("files", "/admin/files?fileId=21");
+	const link = await screen.findByRole("link", { name: /v2/ });
+	expect(link).toHaveClass("block", "p-3");
+	expect(link).toHaveTextContent("#44");
+	fireEvent.click(link);
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"revisionId=44",
+		),
+	);
+});
+
+it("removes file and revision selectors on close while retaining list filters", async () => {
+	renderPage("files", "/admin/files?fileId=21&revisionId=44&name=report");
+	await screen.findByText("admin_file_versions");
+	fireEvent.click(screen.getByRole("button", { name: "close" }));
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+			"fileId",
+		),
+	);
+	expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+		"revisionId",
+	);
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"name=report",
+	);
+	expect(screen.queryByText("admin_file_versions")).not.toBeInTheDocument();
+});
+
+it("shows blob URL lookup failure without offering raw content access", async () => {
+	const error = new Error("blob missing");
+	mockState.getBlob.mockRejectedValueOnce(error);
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	expect(await screen.findByRole("alert")).toHaveTextContent(
+		"content_blob_unavailable",
+	);
+	expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+	expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+	expect(
+		screen.queryByRole("button", { name: /download/ }),
+	).not.toBeInTheDocument();
+});
+
+it.each(["files", "blobs"] as const)(
+	"ignores late %s detail success and failure after changing URL selection",
+	async (kind) => {
+		const service = kind === "files" ? mockState.getFile : mockState.getBlob;
+		let resolve!: (value: unknown) => void;
+		let reject!: (error: Error) => void;
+		service
+			.mockReturnValueOnce(
+				new Promise((yes) => {
+					resolve = yes;
+				}),
+			)
+			.mockReturnValueOnce(
+				new Promise((_, no) => {
+					reject = no;
+				}),
+			)
+			.mockResolvedValueOnce(
+				kind === "files" ? createFileDetail() : createBlobDetail(),
+			);
+		const view = renderPage(
+			kind,
+			kind === "files"
+				? "/admin/files?fileId=21"
+				: "/admin/file-blobs?blobId=31",
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: kind === "files" ? "other-file" : "other-blob",
+			}),
+		);
+		await waitFor(() =>
+			expect(service).toHaveBeenCalledWith(kind === "files" ? 22 : 32),
+		);
+		await act(async () =>
+			resolve(
+				kind === "files"
+					? createFileDetail({ name: "stale-file" })
+					: createBlobDetail({ id: 999 }),
+			),
+		);
+		expect(screen.queryByText("stale-file")).not.toBeInTheDocument();
+		expect(screen.queryByText("Blob #999")).not.toBeInTheDocument();
+		view.unmount();
+		await act(async () => reject(new Error("stale failure")));
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	},
+);
+
+it("shows live/deleted and personal/team blob references and closes on a current-file link", async () => {
+	const base = createBlobDetail();
+	mockState.getBlob.mockResolvedValueOnce(
+		createBlobDetail({
+			files: [
+				base.files[0],
+				{
+					...base.files[0],
+					id: 22,
+					name: "team-deleted",
+					team_id: 9,
+					deleted_at: "2026-10-30T00:00:00Z",
+				},
+			],
+			file_versions: [
+				base.file_versions[0],
+				{
+					...base.file_versions[0],
+					id: 46,
+					team_id: 9,
+					is_current: true,
+					deleted_at: "2026-10-30T00:00:00Z",
+					file_name: "team-current",
+				},
+			],
+		}),
+	);
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	const team = await screen.findByRole("link", { name: /team-deleted/ });
+	expect(team).toHaveTextContent("content_team_owner");
+	expect(team).toHaveTextContent("content_deleted");
+	const current = screen.getByRole("link", { name: /team-current/ });
+	expect(current).toHaveTextContent("content_current");
+	expect(current).toHaveTextContent("content_deleted");
+	fireEvent.click(screen.getByRole("link", { name: /report.txt/ }));
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"fileId=21",
+		),
+	);
+	expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+});
+
+it.each(["switch", "close"] as const)(
+	"does not refresh a disposed Blob selection when maintenance finishes after %s",
+	async (action) => {
+		let finish!: (value: { id: number }) => void;
+		mockState.createBlobMaintenanceTask.mockReturnValueOnce(
+			new Promise((done) => {
+				finish = done;
+			}),
+		);
+		mockState.getBlob.mockImplementation(async (id: number) =>
+			createBlobDetail({ id }),
+		);
+		renderPage("blobs", "/admin/file-blobs?blobId=31");
+		await screen.findByText("Blob #31");
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: /admin_blob_action_integrity_check/,
+			})[1],
+		);
+		if (action === "switch") {
+			fireEvent.click(screen.getByRole("button", { name: "other-blob" }));
+			await screen.findByText("Blob #32");
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "close" }));
+		}
+		await act(async () => finish({ id: 9001 }));
+		expect(
+			mockState.getBlob.mock.calls.filter(([id]) => id === 31),
+		).toHaveLength(1);
+		expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+		if (action === "switch")
+			expect(screen.getByText("Blob #32")).toBeInTheDocument();
+	},
+);
+
+it.each(["switch", "close"] as const)(
+	"ignores a maintenance detail response when selection changes during refresh (%s)",
+	async (action) => {
+		let finish!: (value: AdminFileBlobDetail) => void;
+		mockState.getBlob
+			.mockResolvedValueOnce(createBlobDetail())
+			.mockReturnValueOnce(
+				new Promise((done) => {
+					finish = done;
+				}),
+			)
+			.mockResolvedValueOnce(createBlobDetail({ id: 32 }));
+		renderPage("blobs", "/admin/file-blobs?blobId=31");
+		await screen.findByText("Blob #31");
+		fireEvent.click(
+			screen.getAllByRole("button", {
+				name: /admin_blob_action_integrity_check/,
+			})[1],
+		);
+		await waitFor(() => expect(mockState.getBlob).toHaveBeenCalledTimes(2));
+		if (action === "switch") {
+			fireEvent.click(screen.getByRole("button", { name: "other-blob" }));
+			await screen.findByText("Blob #32");
+		} else {
+			fireEvent.click(screen.getByRole("button", { name: "close" }));
+		}
+		await act(async () => finish(createBlobDetail()));
+		expect(screen.queryByText("Blob #31")).not.toBeInTheDocument();
+		if (action === "switch")
+			expect(screen.getByText("Blob #32")).toBeInTheDocument();
+	},
+);
+
+it("does not replace a newly reopened selection with an older refresh of the same Blob", async () => {
+	let finish!: (value: AdminFileBlobDetail) => void;
+	mockState.getBlob
+		.mockResolvedValueOnce(createBlobDetail())
+		.mockReturnValueOnce(
+			new Promise((done) => {
+				finish = done;
+			}),
+		)
+		.mockResolvedValueOnce(createBlobDetail({ id: 32 }))
+		.mockResolvedValueOnce(createBlobDetail({ hash: "fresh-reopened-object" }));
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	await screen.findByText("Blob #31");
+	fireEvent.click(
+		screen.getAllByRole("button", {
+			name: /admin_blob_action_integrity_check/,
+		})[1],
+	);
+	await waitFor(() => expect(mockState.getBlob).toHaveBeenCalledTimes(2));
+	fireEvent.click(screen.getByRole("button", { name: "other-blob" }));
+	await screen.findByText("Blob #32");
+	fireEvent.click(screen.getByRole("button", { name: "original-blob" }));
+	await screen.findByText("fresh-reopened-object");
+	await act(async () =>
+		finish(createBlobDetail({ hash: "stale-maintenance-object" })),
+	);
+	expect(screen.getByText("fresh-reopened-object")).toBeInTheDocument();
+	expect(
+		screen.queryByText("stale-maintenance-object"),
+	).not.toBeInTheDocument();
+});
+
+it("refreshes the same open Blob after maintenance without changing its URL", async () => {
+	mockState.getBlob
+		.mockResolvedValueOnce(createBlobDetail())
+		.mockResolvedValueOnce(
+			createBlobDetail({ hash: "refreshed-after-maintenance" }),
+		);
+	renderPage("blobs", "/admin/file-blobs?blobId=31");
+	await screen.findByText("Blob #31");
+	fireEvent.click(
+		screen.getAllByRole("button", {
+			name: /admin_blob_action_integrity_check/,
+		})[1],
+	);
+	expect(
+		await screen.findByText("refreshed-after-maintenance"),
+	).toBeInTheDocument();
+	expect(screen.getByTestId("location-search")).toHaveTextContent("blobId=31");
 });

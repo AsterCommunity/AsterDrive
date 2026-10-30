@@ -1,10 +1,10 @@
 import { FolderTree } from "@/components/folders/FolderTree";
 import { WorkspaceSwitcher } from "@/components/layout/WorkspaceSwitcher";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarNavigation } from "./SidebarNavigation";
 import { SidebarQuickCategories } from "./SidebarQuickCategories";
 import { SidebarStorageUsage } from "./SidebarStorageUsage";
 import type { SidebarContentProps } from "./sidebarTypes";
+import { WorkspaceSidebarLayout } from "./WorkspaceSidebarLayout";
 
 export function SidebarContent({
 	activeTeam,
@@ -25,46 +25,43 @@ export function SidebarContent({
 	workspace,
 }: SidebarContentProps) {
 	return (
-		<div className="flex h-full min-h-0 flex-col overflow-hidden overscroll-contain">
-			<div className="shrink-0 px-3 py-2 sm:py-2.5">
-				<WorkspaceSwitcher variant="sidebar" />
-			</div>
-
-			<ScrollArea
-				ref={scrollViewportRef}
-				data-testid="user-sidebar-scroll"
-				className="min-h-0 flex-1"
-				viewportProps={{ onScroll: onScrollViewport }}
-			>
-				<div className="flex min-h-full flex-col">
-					<FolderTree onMoveToFolder={onMoveToFolder} />
-
-					<div className="mt-auto space-y-5 pt-4">
-						<SidebarQuickCategories
-							onMobileClose={onMobileClose}
-							workspace={workspace}
-						/>
-						<SidebarNavigation
-							locationPathname={locationPathname}
-							navLinks={navLinks}
-							onMobileClose={onMobileClose}
-							onTrashDragLeave={onTrashDragLeave}
-							onTrashDragOver={onTrashDragOver}
-							onTrashDropEvent={onTrashDropEvent}
-							trashDragOver={trashDragOver}
-							trashPath={trashPath}
-						/>
-					</div>
-				</div>
-			</ScrollArea>
-
-			<SidebarStorageUsage
-				activeTeam={activeTeam}
-				storageQuota={storageQuota}
-				storageUsed={storageUsed}
-				user={user}
-				workspace={workspace}
-			/>
-		</div>
+		<WorkspaceSidebarLayout
+			header={<WorkspaceSwitcher variant="sidebar" />}
+			tree={<FolderTree onMoveToFolder={onMoveToFolder} />}
+			scrollProps={{
+				ref: scrollViewportRef,
+				"data-testid": "user-sidebar-scroll",
+				viewportProps: { onScroll: onScrollViewport },
+			}}
+			navigation={
+				<>
+					<SidebarQuickCategories
+						onMobileClose={onMobileClose}
+						workspace={workspace}
+					/>
+					<SidebarNavigation
+						items={navLinks.map((link) => ({
+							...link,
+							key: link.to,
+							active: locationPathname === link.to,
+							onClick: onMobileClose,
+							dragOver: link.to === trashPath && trashDragOver,
+							onDragOver: link.to === trashPath ? onTrashDragOver : undefined,
+							onDragLeave: link.to === trashPath ? onTrashDragLeave : undefined,
+							onDrop: link.to === trashPath ? onTrashDropEvent : undefined,
+						}))}
+					/>
+				</>
+			}
+			footer={
+				<SidebarStorageUsage
+					activeTeam={activeTeam}
+					storageQuota={storageQuota}
+					storageUsed={storageUsed}
+					user={user}
+					workspace={workspace}
+				/>
+			}
+		/>
 	);
 }

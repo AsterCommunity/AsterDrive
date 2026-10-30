@@ -10,14 +10,18 @@ const mockState = vi.hoisted(() => ({
 	toastSuccess: vi.fn(),
 	updateUser: vi.fn(),
 	userId: "11",
+	section: undefined as string | undefined,
 }));
 
 vi.mock("react-router-dom", () => ({
+	Link: ({ to, children }: { to: string; children: ReactNode }) => (
+		<a href={to}>{children}</a>
+	),
 	Navigate: ({ replace, to }: { replace?: boolean; to: string }) => (
 		<div data-testid="redirect">{`${to}:${String(replace)}`}</div>
 	),
 	useNavigate: () => mockState.navigate,
-	useParams: () => ({ userId: mockState.userId }),
+	useParams: () => ({ userId: mockState.userId, section: mockState.section }),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -36,14 +40,19 @@ vi.mock("@/components/admin/UserDetailEditor", () => ({
 	UserDetailEditor: ({
 		onBack,
 		onUpdate,
+		onViewWorkspace,
 		user,
 	}: {
+		onViewWorkspace?: () => void;
 		onBack: () => void;
 		onUpdate: (id: number, data: UpdateUserRequest) => Promise<UserInfo>;
 		user: UserInfo;
 	}) => (
 		<div>
 			<span>{`editor:${user.username}:${user.role}`}</span>
+			<button type="button" onClick={onViewWorkspace}>
+				sidebar-workspace
+			</button>
 			<button type="button" onClick={onBack}>
 				back
 			</button>
@@ -126,6 +135,7 @@ function user(overrides: Partial<UserInfo> = {}): UserInfo {
 
 describe("AdminUserDetailPage", () => {
 	beforeEach(() => {
+		mockState.section = undefined;
 		mockState.getUser.mockReset();
 		mockState.navigate.mockReset();
 		mockState.toastSuccess.mockReset();
@@ -182,4 +192,27 @@ describe("AdminUserDetailPage", () => {
 		);
 		expect(mockState.getUser).not.toHaveBeenCalled();
 	});
+
+	it("opens an isolated workspace tab from the sidebar without navigating the admin detail", async () => {
+		const openTab = vi.spyOn(window, "open").mockReturnValue(null);
+		mockState.getUser.mockResolvedValue(user());
+		render(<AdminUserDetailPage />);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "sidebar-workspace" }),
+		);
+		expect(openTab).toHaveBeenCalledWith(
+			"/admin/users/11/files",
+			"_blank",
+			"noopener,noreferrer",
+		);
+		expect(mockState.navigate).not.toHaveBeenCalled();
+		openTab.mockRestore();
+		expect(
+			screen.queryByRole("navigation", { name: "user_details" }),
+		).not.toBeInTheDocument();
+	});
 });
+
+vi.mock("@/components/admin/content-access/AdminWorkspaceBrowser", () => ({
+	AdminWorkspaceBrowser: () => <div>workspace browser</div>,
+}));
