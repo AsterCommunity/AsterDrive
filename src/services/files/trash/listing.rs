@@ -5,7 +5,7 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::lock,
-    workspace::storage::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use aster_forge_utils::numbers::usize_to_u64;
 
@@ -40,10 +40,30 @@ async fn list_trash_in_scope(
         "listing trash contents"
     );
     storage::require_scope_access(state, scope).await?;
+    list_authorized_trash(
+        state,
+        scope.into(),
+        folder_limit,
+        folder_offset,
+        file_limit,
+        file_cursor,
+    )
+    .await
+}
+
+/// Shared recycle-bin projection after the caller's own workspace authorization.
+pub(crate) async fn list_authorized_trash(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceResourceScope,
+    folder_limit: u64,
+    folder_offset: u64,
+    file_limit: u64,
+    file_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)>,
+) -> Result<TrashContents> {
     let retention_days = load_retention_days(state);
 
     let (raw_folders, folders_total) = match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             folder_repo::find_top_level_deleted_paginated(
                 state.reader_db(),
                 user_id,
@@ -52,7 +72,7 @@ async fn list_trash_in_scope(
             )
             .await?
         }
-        WorkspaceStorageScope::Team { team_id, .. } => {
+        WorkspaceResourceScope::Team { team_id } => {
             folder_repo::find_top_level_deleted_by_team_paginated(
                 state.reader_db(),
                 team_id,
@@ -64,7 +84,7 @@ async fn list_trash_in_scope(
     };
 
     let (raw_files, files_total) = match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
+        WorkspaceResourceScope::Personal { user_id } => {
             file_repo::find_top_level_deleted_paginated(
                 state.reader_db(),
                 user_id,
@@ -73,7 +93,7 @@ async fn list_trash_in_scope(
             )
             .await?
         }
-        WorkspaceStorageScope::Team { team_id, .. } => {
+        WorkspaceResourceScope::Team { team_id } => {
             file_repo::find_top_level_deleted_by_team_paginated(
                 state.reader_db(),
                 team_id,
@@ -85,7 +105,7 @@ async fn list_trash_in_scope(
     };
 
     let folder_paths = build_trash_path_cache(state.reader_db(), &raw_folders, &raw_files).await?;
-    let lock_states = lock::load_for_scope(state, scope.into(), &raw_files, &raw_folders).await?;
+    let lock_states = lock::load_for_scope(state, scope, &raw_files, &raw_folders).await?;
 
     let raw_file_count = usize_to_u64(raw_files.len(), "trash file count")?;
     let next_file_cursor = if file_limit > 0 && raw_file_count == file_limit {

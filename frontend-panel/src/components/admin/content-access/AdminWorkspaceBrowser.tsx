@@ -14,6 +14,11 @@ import { FileTable } from "@/components/files/FileTable";
 import { FolderBreadcrumb } from "@/components/files/FolderBreadcrumb";
 import { VersionHistoryDialog } from "@/components/files/VersionHistoryDialog";
 import { AppLayout } from "@/components/layout/AppLayout";
+import {
+	buildTrashMetaMap,
+	toBrowserFiles,
+	toBrowserFolders,
+} from "@/components/trash/trashBrowserItems";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,6 +30,7 @@ import type {
 	AdminScopeKind,
 	AdminWorkspaceContents,
 	FileInfo,
+	TrashContents,
 } from "@/types/api";
 import { AdminContentAccessGate } from "./AdminContentAccessGate";
 import {
@@ -57,10 +63,11 @@ function WorkspaceContents({
 	const viewMode = useFileStore((state) => state.viewMode);
 	const setViewMode = useFileStore((state) => state.setViewMode);
 	const [data, setData] = useState<AdminWorkspaceContents | null>(null);
+	const [trash, setTrash] = useState<TrashContents | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [failed, setFailed] = useState(false);
 	const folderId = positiveId(search.get("folderId"));
-	const deleted = search.get("deleted") === "true";
+	const inTrash = search.get("view") === "trash";
 	const offset = Math.max(0, Number(search.get("folderOffset")) || 0);
 	const cursorValue = search.get("fileAfterValue") ?? undefined;
 	const cursorId = positiveId(search.get("fileAfterId"));
@@ -85,22 +92,54 @@ function WorkspaceContents({
 		setLoading(true);
 		setData(null);
 		setFailed(false);
-		adminContentAccessService
-			.list({
-				access_id: accessId,
-				folder_id: folderId,
-				deleted,
-				folder_limit: PAGE_SIZE,
-				folder_offset: offset,
-				file_limit: PAGE_SIZE,
-				file_after_value: cursorValue,
-				file_after_id: cursorId,
-				sort_by: sortBy,
-				sort_order: sortOrder,
-			})
-			.then((result) => {
-				if (active) setData(result);
-			})
+		setTrash(null);
+		const request = inTrash
+			? adminContentAccessService
+					.trash({
+						access_id: accessId,
+						folder_limit: PAGE_SIZE,
+						folder_offset: offset,
+						file_limit: PAGE_SIZE,
+						file_after_expires_at: cursorValue,
+						file_after_id: cursorId,
+					})
+					.then((result) => {
+						if (!active) return;
+						setTrash(result);
+						setData({
+							contents: {
+								folders: toBrowserFolders(result.folders),
+								files: toBrowserFiles(result.files),
+								folders_total: result.folders_total,
+								files_total: result.files_total,
+								next_file_cursor: result.next_file_cursor
+									? {
+											id: result.next_file_cursor.id,
+											value: result.next_file_cursor.expires_at,
+										}
+									: null,
+							},
+							ancestors: [],
+							deleted: true,
+						});
+					})
+			: adminContentAccessService
+					.list({
+						access_id: accessId,
+						folder_id: folderId,
+						deleted: false,
+						folder_limit: PAGE_SIZE,
+						folder_offset: offset,
+						file_limit: PAGE_SIZE,
+						file_after_value: cursorValue,
+						file_after_id: cursorId,
+						sort_by: sortBy,
+						sort_order: sortOrder,
+					})
+					.then((result) => {
+						if (active) setData(result);
+					});
+		request
 			.catch((error) => {
 				if (active) {
 					setFailed(true);
@@ -116,7 +155,7 @@ function WorkspaceContents({
 	}, [
 		accessId,
 		folderId,
-		deleted,
+		inTrash,
 		offset,
 		cursorValue,
 		cursorId,
@@ -129,6 +168,8 @@ function WorkspaceContents({
 			fileId: undefined,
 			panel: undefined,
 			revisionId: undefined,
+			view: undefined,
+			deleted: undefined,
 			folderId: id?.toString(),
 			folderOffset: undefined,
 			fileAfterValue: undefined,
@@ -177,6 +218,22 @@ function WorkspaceContents({
 		}),
 		[accessId, selectedId],
 	);
+	const trashMeta = useMemo(
+		() => (trash ? buildTrashMetaMap(trash) : new Map()),
+		[trash],
+	);
+	const showTrash = () =>
+		update({
+			view: "trash",
+			deleted: undefined,
+			folderId: undefined,
+			fileId: undefined,
+			panel: undefined,
+			revisionId: undefined,
+			folderOffset: undefined,
+			fileAfterValue: undefined,
+			fileAfterId: undefined,
+		});
 	const browserContext: FileBrowserContextValue = {
 		folders: data?.contents.folders ?? [],
 		files: data?.contents.files ?? [],
@@ -184,21 +241,30 @@ function WorkspaceContents({
 		readOnly: true,
 		selectionEnabled: false,
 		contextMenusEnabled: true,
+		trashMode: inTrash,
+		showAttribution: !inTrash,
+		getTrashMeta: inTrash
+			? (type, id) => trashMeta.get(`${type}:${id}`)
+			: undefined,
 		breadcrumbPathIds: data?.ancestors.map((item) => item.id) ?? [],
 		getThumbnailPath: () => null,
-		sorting: {
-			sortBy,
-			sortOrder,
-			onSort: (column, order) =>
-				update({
-					sortBy: column,
-					sortOrder: order,
-					folderOffset: undefined,
-					fileAfterValue: undefined,
-					fileAfterId: undefined,
-				}),
+		sorting: inTrash
+			? undefined
+			: {
+					sortBy,
+					sortOrder,
+					onSort: (column, order) =>
+						update({
+							sortBy: column,
+							sortOrder: order,
+							folderOffset: undefined,
+							fileAfterValue: undefined,
+							fileAfterId: undefined,
+						}),
+				},
+		onFolderOpen: (id) => {
+			if (!inTrash) openFolder(id);
 		},
-		onFolderOpen: (id) => openFolder(id),
 		onFileClick: (file) => openFile(file.id),
 		onDownload: (id) => {
 			void download(id);
@@ -217,6 +283,8 @@ function WorkspaceContents({
 					user={user}
 					team={team}
 					currentId={folderId}
+					inTrash={inTrash}
+					onTrash={showTrash}
 					onNavigate={openFolder}
 					onEnd={end}
 				/>
@@ -226,13 +294,17 @@ function WorkspaceContents({
 				left={
 					<>
 						<Icon
-							name={folderId == null ? "House" : "FolderOpen"}
+							name={
+								inTrash ? "Trash" : folderId == null ? "House" : "FolderOpen"
+							}
 							className="size-4 shrink-0"
 						/>
 						<FolderBreadcrumb
 							items={[
 								{ id: null, name: t("files:root") },
-								...(data?.ancestors ?? []),
+								...(inTrash
+									? [{ id: null, name: t("core:trash") }]
+									: (data?.ancestors ?? [])),
 							]}
 							onNavigate={(id) => openFolder(id ?? undefined)}
 						/>
@@ -248,40 +320,28 @@ function WorkspaceContents({
 				}
 				right={
 					<>
-						<Button
-							variant={deleted ? "secondary" : "ghost"}
-							size="sm"
-							onClick={() =>
-								update({
-									deleted: deleted ? undefined : "true",
-									folderOffset: undefined,
-									fileAfterId: undefined,
-									fileAfterValue: undefined,
-								})
-							}
-						>
-							{t(deleted ? "content_show_live" : "content_show_deleted")}
-						</Button>
-						<SortMenu
-							sortBy={sortBy}
-							sortOrder={sortOrder}
-							onSortBy={(value) =>
-								update({
-									sortBy: value,
-									folderOffset: undefined,
-									fileAfterId: undefined,
-									fileAfterValue: undefined,
-								})
-							}
-							onSortOrder={(value) =>
-								update({
-									sortOrder: value,
-									folderOffset: undefined,
-									fileAfterId: undefined,
-									fileAfterValue: undefined,
-								})
-							}
-						/>
+						{!inTrash ? (
+							<SortMenu
+								sortBy={sortBy}
+								sortOrder={sortOrder}
+								onSortBy={(value) =>
+									update({
+										sortBy: value,
+										folderOffset: undefined,
+										fileAfterId: undefined,
+										fileAfterValue: undefined,
+									})
+								}
+								onSortOrder={(value) =>
+									update({
+										sortOrder: value,
+										folderOffset: undefined,
+										fileAfterId: undefined,
+										fileAfterValue: undefined,
+									})
+								}
+							/>
+						) : null}
 						<ViewToggle value={viewMode} onChange={setViewMode} />
 					</>
 				}
@@ -298,7 +358,9 @@ function WorkspaceContents({
 						<>
 							{data.contents.files.length + data.contents.folders.length ===
 							0 ? (
-								<p className="p-5">{t("content_empty")}</p>
+								<p className="p-5">
+									{t(inTrash ? "files:trash_empty_title" : "content_empty")}
+								</p>
 							) : (
 								<FileBrowserProvider value={browserContext}>
 									{viewMode === "grid" ? (

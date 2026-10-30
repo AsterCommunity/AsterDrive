@@ -169,3 +169,37 @@ pub async fn list_versions(
     )?;
     crate::services::content::version::list_authorized_versions(state, file_id, query).await
 }
+
+/// The target's entire recycle bin, independent of the currently browsed directory.
+pub async fn list_trash(
+    state: &impl SharedRuntimeState,
+    claims: &Claims,
+    access_id: &str,
+    query: crate::api::pagination::TrashListQuery,
+) -> Result<crate::services::files::trash::TrashContents> {
+    let payload = load(state, claims, access_id).await?;
+    if payload.download.is_some() {
+        return Err(denied(ApiErrorCode::AdminContentContextInvalid));
+    }
+    let scope = super::require_target(state, &payload).await?;
+    let has_cursor = query.file_after_expires_at.is_some() || query.file_after_id.is_some();
+    if query.file_after_id.is_some_and(|id| id <= 0)
+        || (has_cursor && query.file_cursor().is_none())
+    {
+        return Err(crate::errors::AsterError::validation_error(
+            "invalid recycle bin cursor",
+        ));
+    }
+    let cursor = query.file_cursor().map(|(expiry, id)| {
+        crate::services::files::trash::expires_cursor_to_deleted_cursor(state, expiry, id)
+    });
+    crate::services::files::trash::list_authorized_trash(
+        state,
+        scope,
+        query.folder_limit(),
+        query.folder_offset(),
+        query.file_limit(),
+        cursor,
+    )
+    .await
+}

@@ -137,11 +137,15 @@ export function AdminWorkspaceSidebar({
 	currentId,
 	onNavigate,
 	onEnd,
+	inTrash = false,
+	onTrash,
 }: AdminWorkspaceIdentity & {
 	accessId?: string;
 	currentId?: number;
 	onNavigate?: (id?: number) => void;
 	onEnd?: () => void;
+	inTrash?: boolean;
+	onTrash?: () => void;
 }) {
 	const { t } = useTranslation(["admin", "files"]);
 	const [expanded, setExpanded] = useState(true);
@@ -156,7 +160,7 @@ export function AdminWorkspaceSidebar({
 			<ScrollArea className="min-h-0 flex-1">
 				{accessId && onNavigate ? (
 					<div className="px-3 py-2">
-						<div className={folderTreeRowClass(currentId == null)}>
+						<div className={folderTreeRowClass(!inTrash && currentId == null)}>
 							<FolderTreeItemContent
 								expanded={expanded}
 								label={t("files:root")}
@@ -177,6 +181,18 @@ export function AdminWorkspaceSidebar({
 								onNavigate={onNavigate}
 							/>
 						) : null}
+					</div>
+				) : null}
+				{accessId && onTrash ? (
+					<div className="px-3 py-2">
+						<Button
+							variant={inTrash ? "secondary" : "ghost"}
+							className="w-full justify-start"
+							onClick={onTrash}
+						>
+							<Icon name="Trash" className="mr-2 size-4" />
+							{t("core:trash")}
+						</Button>
 					</div>
 				) : null}
 			</ScrollArea>

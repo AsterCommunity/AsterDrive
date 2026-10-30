@@ -45,3 +45,15 @@ it("reads metadata and revision pages using the existing access id without anoth
 		"/admin/content-access/files/42/versions?access_id=context&after_sequence=7&limit=100",
 	);
 });
+
+it("requests a workspace recycle bin with an encoded expiry cursor and no folder query", () => {
+	adminContentAccessService.trash({
+		access_id: "grant",
+		file_after_id: 9,
+		file_after_expires_at: "2026-11-06T00:00:00+08:00",
+	});
+	const uri = mocks.get.mock.calls.at(-1)?.[0] as string;
+	expect(uri).toContain("/admin/content-access/trash?");
+	expect(uri).toContain("%2B08%3A00");
+	expect(uri).not.toContain("folder_id");
+});

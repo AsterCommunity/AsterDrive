@@ -8,6 +8,7 @@ import { AdminWorkspaceBrowser } from "./AdminWorkspaceBrowser";
 
 const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
+	trash: vi.fn(),
 	download: vi.fn(),
 	error: vi.fn(),
 }));
@@ -84,16 +85,16 @@ describe("administrator read-only workspace", () => {
 		useFileStore.getState().setViewMode("list");
 		mocks.list.mockResolvedValue(empty);
 	});
-	it("restores folder, deleted and pagination state from URL without creating mutation entry points", async () => {
+	it("restores folder and pagination state from URL without creating mutation entry points", async () => {
 		mount(
-			"/admin/users/7/files?folderId=19&deleted=true&folderOffset=50&fileAfterId=9&fileAfterValue=z&sortBy=size&sortOrder=desc",
+			"/admin/users/7/files?folderId=19&folderOffset=50&fileAfterId=9&fileAfterValue=z&sortBy=size&sortOrder=desc",
 		);
 		expect(await screen.findByText("content_empty")).toBeInTheDocument();
 		expect(mocks.list).toHaveBeenCalledWith(
 			expect.objectContaining({
 				access_id: "personal:7",
 				folder_id: 19,
-				deleted: true,
+				deleted: false,
 				folder_offset: 50,
 				file_after_id: 9,
 				file_after_value: "z",
@@ -208,3 +209,65 @@ vi.mock("@tanstack/react-virtual", () => ({
 		scrollToIndex: () => {},
 	}),
 }));
+
+it("loads the full recycle bin without folder filtering and shows original locations without mutation actions", async () => {
+	mocks.trash.mockResolvedValue({
+		files: [
+			{
+				id: 51,
+				name: "deleted.txt",
+				size: 12,
+				mime_type: "text/plain",
+				created_at: "2026-10-30T00:00:00Z",
+				updated_at: "2026-10-30T00:00:00Z",
+				expires_at: "2026-11-06T00:00:00Z",
+				original_path: "/other-directory",
+				lock_state: { state: "unlocked" },
+			},
+		],
+		folders: [],
+		files_total: 1,
+		folders_total: 0,
+		next_file_cursor: null,
+	});
+	const views = mount("/admin/users/7/files?view=trash&folderId=19");
+	expect(await screen.findByText("deleted.txt")).toBeInTheDocument();
+	expect(screen.getByText("/other-directory")).toBeInTheDocument();
+	expect(mocks.trash).toHaveBeenCalledWith(
+		expect.objectContaining({ access_id: "personal:7" }),
+	);
+	expect(mocks.trash.mock.calls.at(-1)?.[0]).not.toHaveProperty("folder_id");
+	expect(mocks.list).not.toHaveBeenCalled();
+	expect(
+		screen.queryByRole("button", { name: /restore|purge|empty_trash/i }),
+	).not.toBeInTheDocument();
+	fireEvent.click(screen.getByRole("button", { name: "navigate-root" }));
+	await waitFor(() =>
+		expect(mocks.list).toHaveBeenCalledWith(
+			expect.objectContaining({ folder_id: undefined, deleted: false }),
+		),
+	);
+	views.unmount();
+});
+
+it("uses the recycle-bin expiry cursor instead of ordinary file sorting cursors", async () => {
+	mocks.trash.mockResolvedValue({
+		files: [],
+		folders: [],
+		files_total: 10,
+		folders_total: 0,
+		next_file_cursor: { expires_at: "2026-11-06T00:00:00Z", id: 51 },
+	});
+	mount("/admin/users/7/files?view=trash");
+	fireEvent.click(
+		await screen.findByRole("button", { name: "content_next_files" }),
+	);
+	await waitFor(() =>
+		expect(mocks.trash).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				file_after_expires_at: "2026-11-06T00:00:00Z",
+				file_after_id: 51,
+			}),
+		),
+	);
+});

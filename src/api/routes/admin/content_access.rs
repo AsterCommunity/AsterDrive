@@ -150,3 +150,24 @@ pub async fn list_versions(
         .insert_header(("Cache-Control", "no-store"))
         .json(crate::api::response::success(versions)))
 }
+
+#[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/trash", tag = "admin", operation_id = "admin_workspace_trash",
+ params(("access_id" = String, Query), ("folder_limit" = Option<u64>, Query), ("folder_offset" = Option<u64>, Query), ("file_limit" = Option<u64>, Query), ("file_after_expires_at" = Option<String>, Query), ("file_after_id" = Option<i64>, Query)),
+ responses((status = 200, body = inline(ApiResponse<crate::services::files::trash::TrashContents>))), security(("bearer" = [])))]
+pub async fn list_trash(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    access: web::Query<ContentFileQuery>,
+    query: web::Query<crate::api::pagination::TrashListQuery>,
+) -> Result<HttpResponse> {
+    let contents = content_access::list_trash(
+        state.get_ref(),
+        &claims,
+        &access.access_id,
+        query.into_inner(),
+    )
+    .await?;
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .json(crate::api::response::success(contents)))
+}

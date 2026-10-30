@@ -312,6 +312,10 @@ pub fn routes(
                     )
                     .route("/content-access", web::post().to(content_access::create))
                     .route(
+                        "/content-access/trash",
+                        web::get().to(content_access::list_trash),
+                    )
+                    .route(
                         "/content-access/files/{id}",
                         web::get().to(content_access::get_file),
                     )

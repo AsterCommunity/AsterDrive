@@ -6,7 +6,8 @@ mod workspace;
 pub use download::{download, init_download};
 pub use types::*;
 pub use workspace::{
-    AdminWorkspaceContents, AdminWorkspaceQuery, get_file, list_versions, list_workspace,
+    AdminWorkspaceContents, AdminWorkspaceQuery, get_file, list_trash, list_versions,
+    list_workspace,
 };
 
 use crate::{

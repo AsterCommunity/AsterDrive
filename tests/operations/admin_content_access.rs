@@ -841,6 +841,10 @@ async fn every_content_endpoint_requires_administrator_authentication_and_post_r
     for (method, uri) in [
         (
             actix_web::http::Method::GET,
+            "/api/v1/admin/content-access/trash?access_id=unknown",
+        ),
+        (
+            actix_web::http::Method::GET,
             "/api/v1/admin/content-access/files/1?access_id=unknown",
         ),
         (
@@ -1162,4 +1166,210 @@ async fn workspace_file_and_revision_reads_reuse_access_without_reauthorization(
         1
     );
     assert_ne!(uid, other_id);
+}
+
+#[actix_web::test]
+async fn recycle_bin_lists_all_target_directories_with_scope_and_top_level_boundaries() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let uid = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let other_id = admin_create_user!(
+        app,
+        token,
+        "trashowner",
+        "trashowner@example.com",
+        "password123"
+    );
+    let (other_token, _) = login_user!(app, "trashowner", "password123");
+    enable(&state).await;
+    // Files deleted from two live directories belong in one recycle bin.
+    let mut expected_files = Vec::new();
+    for name in ["first-dir", "second-dir"] {
+        let folder = aster_drive::services::files::folder::create(&state, other_id, name, None)
+            .await
+            .unwrap();
+        let id = upload_test_file_to_folder!(app, other_token, folder.id);
+        aster_drive::services::files::file::delete(&state, id, other_id)
+            .await
+            .unwrap();
+        expected_files.push(id);
+    }
+    let deleted_parent =
+        aster_drive::services::files::folder::create(&state, other_id, "deleted-parent", None)
+            .await
+            .unwrap();
+    let hidden_child = upload_test_file_to_folder!(app, other_token, deleted_parent.id);
+    aster_drive::services::files::file::delete(&state, hidden_child, other_id)
+        .await
+        .unwrap();
+    let mut deleted = aster_drive_model::entities::folder::Entity::find_by_id(deleted_parent.id)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    deleted.deleted_at = Set(Some(chrono::Utc::now()));
+    deleted.update(state.writer_db()).await.unwrap();
+    let own = upload_test_file_named!(app, token, "admin-trash.txt");
+    aster_drive::services::files::file::delete(&state, own, uid)
+        .await
+        .unwrap();
+    let access = grant!(app, token, other_id);
+    let root = format!("/api/v1/admin/content-access/trash?access_id={access}");
+    let response = test::call_service(&app, get(&token, &root).to_request()).await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    let contents = &body["data"];
+    assert_eq!(contents["files_total"], 2);
+    assert_eq!(contents["folders_total"], 1);
+    assert_eq!(contents["folders"][0]["id"], deleted_parent.id);
+    assert!(contents["files"].as_array().unwrap().iter().all(|f| {
+        expected_files.contains(&f["id"].as_i64().unwrap()) && f["expires_at"].is_string()
+    }));
+    let paths = contents["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["original_path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(paths.contains(&"/first-dir"));
+    assert!(paths.contains(&"/second-dir"));
+    // Shared recycle-bin cursor pagination, no dependency on folder_id.
+    let response = test::call_service(
+        &app,
+        get(&token, &format!("{root}&file_limit=1&folder_limit=0")).to_request(),
+    )
+    .await;
+    let first: Value = test::read_body_json(response).await;
+    let cursor = &first["data"]["next_file_cursor"];
+    let uri = format!(
+        "{root}&file_limit=1&file_after_expires_at={}&file_after_id={}",
+        urlencoding::encode(cursor["expires_at"].as_str().unwrap()),
+        cursor["id"]
+    );
+    let response = test::call_service(&app, get(&token, &uri).to_request()).await;
+    let second: Value = test::read_body_json(response).await;
+    assert_ne!(
+        first["data"]["files"][0]["id"],
+        second["data"]["files"][0]["id"]
+    );
+    for suffix in [
+        "&file_after_id=1",
+        "&file_after_expires_at=bad&file_after_id=1",
+        "&file_after_expires_at=2026-01-01T00:00:00Z",
+        "&file_after_expires_at=2026-01-01T00:00:00Z&file_after_id=-1",
+    ] {
+        let response =
+            test::call_service(&app, get(&token, &format!("{root}{suffix}")).to_request()).await;
+        assert_eq!(response.status(), 400);
+    }
+    // A personal context must not include team-owned recycle-bin items.
+    let response = test::call_service(
+        &app,
+        post(
+            &token,
+            "/api/v1/admin/teams",
+            json!({"name":"Recycle team", "admin_user_id": other_id}),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+    let (status, uploaded) = common::upload_via_server_session(
+        &app,
+        &other_token,
+        &format!("/api/v1/teams/{team_id}/files"),
+        "team-trash.txt",
+        "text/plain",
+        b"team trash",
+    )
+    .await;
+    assert_eq!(status, 201);
+    let team_file = uploaded["data"]["id"].as_i64().unwrap();
+    let mut deleted = file::Entity::find_by_id(team_file)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    deleted.deleted_at = Set(Some(chrono::Utc::now()));
+    deleted.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(
+        &app,
+        post(
+            &token,
+            "/api/v1/admin/content-access",
+            json!({"scope_kind":"team", "target_id":team_id,"reason":"data_recovery"}),
+        )
+        .to_request(),
+    )
+    .await;
+    let grant: Value = test::read_body_json(response).await;
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            &format!(
+                "/api/v1/admin/content-access/trash?access_id={}",
+                grant["data"]["id"].as_str().unwrap()
+            ),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["files_total"], 1);
+    assert_eq!(body["data"]["files"][0]["id"], team_file);
+    let response = test::call_service(&app, get(&token, &root).to_request()).await;
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["data"]["files_total"], 2);
+    let init = init_download!(app, token, access, expected_files[0], None::<i64>);
+    let download_id = init["resource"]["request"]["url"]
+        .as_str()
+        .unwrap()
+        .split('/')
+        .rev()
+        .nth(1)
+        .unwrap();
+    let response = test::call_service(
+        &app,
+        get(
+            &token,
+            &format!("/api/v1/admin/content-access/trash?access_id={download_id}"),
+        )
+        .to_request(),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a file-download grant cannot be reused to enumerate the recycle bin"
+    );
+    assert_eq!(
+        audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq("admin_workspace_inspect"))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        2,
+        "recycle-bin reads reuse the two existing personal/team contexts"
+    );
+    config_repo::upsert(
+        state.writer_db(),
+        "admin_workspace_content_access_enabled",
+        "false",
+        uid,
+    )
+    .await
+    .unwrap();
+    let response = test::call_service(&app, get(&token, &root).to_request()).await;
+    assert_eq!(response.status(), 403);
 }

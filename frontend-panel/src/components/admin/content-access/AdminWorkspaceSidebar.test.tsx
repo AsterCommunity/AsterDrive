@@ -56,3 +56,13 @@ describe("scoped workspace sidebar", () => {
 		);
 	});
 });
+
+it("provides the target recycle-bin entry alongside the tree using the current access", async () => {
+	const onTrash = vi.fn();
+	render(<AdminWorkspaceSidebar accessId="grant" onTrash={onTrash} inTrash />);
+	fireEvent.click(screen.getByRole("button", { name: "core:trash" }));
+	expect(onTrash).toHaveBeenCalledOnce();
+	expect(
+		screen.queryByRole("button", { name: /restore|purge/i }),
+	).not.toBeInTheDocument();
+});

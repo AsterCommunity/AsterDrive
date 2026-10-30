@@ -1094,6 +1094,7 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 | `POST` | `/admin/content-access` | 以 `scope_kind`、`target_id`、`reason` 和可选 `remark` 建立短期访问上下文 |
 | `GET` | `/admin/content-access/files/{id}` | 在当前访问上下文内读取逻辑文件详情 |
 | `GET` | `/admin/content-access/files/{id}/versions` | 在当前上下文内按 sequence 分页读取版本 |
+| `GET` | `/admin/content-access/trash` | 使用当前 `access_id` 读取目标空间完整回收站，沿用回收站分页与到期时间 cursor |
 | `GET` | `/admin/content-access/workspace` | 使用 `access_id`、`folder_id`、`deleted` 与现有目录分页/排序参数读取目录及面包屑 |
 | `POST` | `/admin/files/{id}/download-init` | 使用 `access_id` 和可选 `revision_id` 初始化当前或指定版本的附件下载 |
 | `GET` | `/admin/content-access/{id}/download` | init 返回的同源流式下载；支持 Range 和 If-None-Match |
@@ -1102,7 +1103,7 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 
 访问上下文保存在 `admin_content_accesses`，有效期为 10 分钟，绑定实际管理员和登录 session。每次 Drive 请求重新检查 writer 侧开关、账号角色/状态、session 撤销与目标用户/团队状态。personal scope 不包含用户所属团队；目录祖先链、文件和 revision 必须始终属于明确的目标范围。过期上下文由认证会话维护任务回收。
 
-目录文件使用 cursor 分页，文件夹使用 offset 分页；`deleted=false` 读取当前目录的未删除条目，`deleted=true` 只读取该目录已删除条目。需要查看某个正常目录的已删除内容时，先导航到该目录再切换过滤。回收站内仍有逻辑归属和保留内容的文件允许受控下载；被清除、退役或失去逻辑文件上下文的内容不开放 blob 旁路。
+目录文件使用 cursor 分页，文件夹使用 offset 分页。管理员文件页左侧「回收站」使用同一访问上下文展示目标个人或团队空间的完整回收站，不按当前目录过滤；复用既有顶层删除资源规则，避免已删除目录与其子项重复展开。列表显示原位置与到期时间，文件按到期时间 cursor 分页。管理员回收站只读，不提供恢复、永久删除或清空；保留内容的逻辑文件仍可受控下载，被清除、退役或失去逻辑文件上下文的内容不开放 blob 旁路。原目录 listing 的 `deleted` 参数保留协议行为，但管理 UI 不再使用它实现回收站。
 
 下载 init 从 writer 的一致快照固定 revision、blob、大小、MIME 和 ETag。附件资源句柄沿现有 connector 能力返回 presigned URL 或绑定该 revision 的同源流地址。**init 即内容访问边界**：presigned 交付时，初始化成功表示管理员已获得内容访问；之后关闭开关或撤销 session 不会撤回供应商已签发的 URL，它只受既有签名期限约束。后续 Drive 流请求仍执行当前授权检查。浏览器直接使用原生附件下载，不将整个响应转为 JavaScript Blob。
 

@@ -10,6 +10,7 @@ import type {
 	FileInfo,
 	FileVersion,
 	operations,
+	TrashContents,
 } from "@/types/api";
 
 export type AdminWorkspaceParams = NonNullable<
@@ -24,6 +25,11 @@ export const adminContentAccessService = {
 		api.get<AdminWorkspaceContents>(
 			withQuery("/admin/content-access/workspace", params),
 		),
+	trash: (
+		params: NonNullable<
+			operations["admin_workspace_trash"]["parameters"]["query"]
+		>,
+	) => api.get<TrashContents>(withQuery("/admin/content-access/trash", params)),
 	getFile: (accessId: string, fileId: number) =>
 		api.get<FileInfo>(
 			withQuery(`/admin/content-access/files/${fileId}`, {

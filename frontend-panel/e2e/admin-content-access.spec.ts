@@ -188,6 +188,60 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	);
 	const revision = detail.versions[0];
 
+	// The recycle bin spans all target directories, even when entered from a nested folder.
+	const otherFolder = await createFolderViaApi(
+		adminPage,
+		"/api/v1",
+		uniqueName("trash-location"),
+	);
+	const recycledName = `${uniqueName("recycled")}.txt`;
+	const recycled = await uploadFileViaApi(
+		adminPage,
+		"/api/v1",
+		{
+			name: recycledName,
+			mimeType: "text/plain",
+			buffer: Buffer.from("recycle bytes"),
+		},
+		otherFolder.id,
+	);
+	await apiJsonInPage(adminPage, `/api/v1/files/${recycled.id}`, {
+		method: "DELETE",
+		withCsrf: true,
+	});
+	await history.getByRole("button", { name: "Close", exact: true }).click();
+	await page.getByRole("button", { name: "Trash", exact: true }).click();
+	await expect(page).toHaveURL(/view=trash/);
+	await expect(
+		page.getByRole("cell", { name: recycledName, exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("columnheader", { name: "Original location", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("cell", { name: `/${otherFolder.name}`, exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", {
+			name: /Restore|Permanently delete|Empty trash/,
+		}),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: /Show deleted items in this folder/ }),
+	).toHaveCount(0);
+	expect(
+		(
+			await apiJsonInPage<{ total: number }>(
+				page,
+				"/api/v1/admin/audit-logs?action=admin_workspace_inspect",
+			)
+		).total,
+	).toBe(inspectionCount);
+	await page.screenshot({
+		path: "/private/tmp/admin628-target-trash.png",
+		animations: "disabled",
+	});
+
 	// Blob observability hands off to the same logical revision URL.
 	await page.goto(
 		`/admin/file-blobs?hash=${encodeURIComponent(detail.blob.hash)}`,

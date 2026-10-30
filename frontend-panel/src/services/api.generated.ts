@@ -196,6 +196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/content-access/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["admin_workspace_trash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/content-access/workspace": {
         parameters: {
             query?: never;
@@ -11036,6 +11052,45 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             enabled: boolean;
+                        };
+                        error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
+                        msg: string;
+                    };
+                };
+            };
+        };
+    };
+    admin_workspace_trash: {
+        parameters: {
+            query: {
+                access_id: string;
+                folder_limit?: number;
+                folder_offset?: number;
+                file_limit?: number;
+                file_after_expires_at?: string;
+                file_after_id?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            files: components["schemas"]["TrashFileItem"][];
+                            /** Format: int64 */
+                            files_total: number;
+                            folders: components["schemas"]["TrashFolderItem"][];
+                            /** Format: int64 */
+                            folders_total: number;
+                            next_file_cursor?: components["schemas"]["TrashFileCursor"] | null;
                         };
                         error?: components["schemas"]["ApiErrorInfo_ApiErrorDiagnostic"];
                         msg: string;
