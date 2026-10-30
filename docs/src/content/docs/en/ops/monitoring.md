@@ -178,11 +178,19 @@ Dashboard queries are based on AsterDrive's current metric labels:
 
 - `job`
 - `instance`
-- `method`
-- `route`
-- `status`
-- `backend`
-- `kind`
+- `service_name`
+- `deployment_environment_name`
+- `aster_role`
+- `service_instance_id`
+- `aster_metrics_schema_version`
+- `http_request_method`
+- `http_route`
+- `http_response_status_code`
+- `error_type`
+- `db_system_name`
+- `db_operation_name`
+- `db_client_connection_pool_name`
+- `db_client_connection_state`
 - `driver`
 - `operation`
 - `mode`

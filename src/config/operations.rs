@@ -43,6 +43,7 @@ pub use crate::config::definitions::{
 pub const DEFAULT_MAIL_OUTBOX_DISPATCH_INTERVAL_SECS: u64 = 5;
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_INTERVAL_SECS: u64 = 5;
 pub const DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 60;
+pub const MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS: u64 = 179;
 pub const DEFAULT_BACKGROUND_TASK_MAX_CONCURRENCY: usize = 1;
 pub const DEFAULT_BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY: usize = 2;
 pub const DEFAULT_BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY: usize = 1;
@@ -148,6 +149,23 @@ pub fn parse_offline_download_engine(value: &str) -> Option<OfflineDownloadEngin
 
 pub fn normalize_interval_config_value(key: &str, value: &str) -> Result<String> {
     normalize_positive_u64_config_value(key, value)
+}
+
+pub fn normalize_background_task_dispatch_idle_max_interval_config_value(
+    key: &str,
+    value: &str,
+) -> Result<String> {
+    let parsed = parse_positive_u64(value).ok_or_else(|| {
+        AsterError::validation_error(format!(
+            "{key} must be a positive integer below 180 seconds"
+        ))
+    })?;
+    if parsed > MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS {
+        return Err(AsterError::validation_error(format!(
+            "{key} must be at most {MAX_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS} seconds"
+        )));
+    }
+    Ok(parsed.to_string())
 }
 
 pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<String> {
@@ -1253,6 +1271,22 @@ mod tests {
         assert_eq!(
             background_task_dispatch_idle_max_interval_secs(&runtime_config),
             DEFAULT_BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS
+        );
+
+        assert_eq!(
+            super::normalize_background_task_dispatch_idle_max_interval_config_value(
+                BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+                "179",
+            )
+            .unwrap(),
+            "179"
+        );
+        assert!(
+            super::normalize_background_task_dispatch_idle_max_interval_config_value(
+                BACKGROUND_TASK_DISPATCH_IDLE_MAX_INTERVAL_SECS_KEY,
+                "180",
+            )
+            .is_err()
         );
 
         runtime_config.apply(config_model(

@@ -344,6 +344,10 @@ keyed_normalizer!(
     normalize_operation_interval,
     operations::normalize_interval_config_value
 );
+keyed_normalizer!(
+    normalize_background_task_dispatch_idle_max_interval,
+    operations::normalize_background_task_dispatch_idle_max_interval_config_value
+);
 value_normalizer!(
     normalize_offline_download_engine,
     operations::normalize_offline_download_engine_config_value
@@ -903,8 +907,8 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
-        description: "Maximum seconds between background task dispatch polls after idle backoff",
-        normalize_fn: Some(normalize_operation_interval),
+        description: "Maximum seconds between background task dispatch polls after idle backoff; must stay below the 180-second task snapshot freshness window",
+        normalize_fn: Some(normalize_background_task_dispatch_idle_max_interval),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
     ConfigDef {

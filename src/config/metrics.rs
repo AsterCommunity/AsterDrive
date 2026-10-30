@@ -261,6 +261,84 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "otlp-metrics")]
+    #[tokio::test]
+    async fn configured_otlp_payload_contains_profile_resource_attributes() {
+        use crate::config::node_mode::NodeRuntimeMode;
+        use aster_forge_metrics::{MetricDescriptor, ProductCounter};
+        use std::time::Duration;
+        use std::{
+            io::{Read, Write},
+            net::TcpListener,
+        };
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}/v1/metrics", listener.local_addr().unwrap());
+        let receiver = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0);
+                request.extend_from_slice(&buffer[..read]);
+                let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+                else {
+                    continue;
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]).to_ascii_lowercase();
+                let length = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length: "))
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap();
+                if request.len() >= header_end + 4 + length {
+                    let body = &request[header_end + 4..header_end + 4 + length];
+                    assert!(
+                        body.windows("service.namespace".len())
+                            .any(|w| w == b"service.namespace")
+                    );
+                    assert!(
+                        body.windows("aster.metrics.schema.version".len())
+                            .any(|w| w == b"aster.metrics.schema.version")
+                    );
+                    assert!(
+                        body.windows("aster-metrics/v1".len())
+                            .any(|w| w == b"aster-metrics/v1")
+                    );
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
+                    return;
+                }
+            }
+        });
+
+        let mut config = ObservabilityConfig::default();
+        config.prometheus.enabled = false;
+        config.otlp_metrics.enabled = true;
+        config.otlp_metrics.endpoint = endpoint;
+        config.otlp_metrics.interval_seconds = 60;
+        config.otlp_metrics.timeout_seconds = 2;
+        let provider = config
+            .create_provider(NodeRuntimeMode::Primary, "otlp-profile-test")
+            .unwrap();
+        let handle = provider
+            .register_batch(&[
+                MetricDescriptor::counter("test", "events", "Test events.", &[])
+                    .with_unit("{event}"),
+            ])
+            .unwrap()
+            .remove(0);
+        ProductCounter::from_handle(handle).unwrap().inc(&[], 1);
+        provider.force_flush(Duration::from_secs(3)).await.unwrap();
+        receiver.join().unwrap();
+        let _ = provider.shutdown(Duration::from_secs(1)).await;
+    }
+
     fn valid_auth() -> MetricsBasicAuthConfig {
         use aster_forge_crypto::{
             PasswordHashPolicy, PasswordHashVerificationLimits, PasswordHashWorkFactor,

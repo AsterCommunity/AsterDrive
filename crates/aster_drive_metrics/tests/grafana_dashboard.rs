@@ -54,6 +54,29 @@ fn selectors(expression: &str) -> Vec<(&str, Vec<&str>)> {
         .collect()
 }
 
+fn aggregate_labels(expression: &str) -> BTreeSet<&str> {
+    expression
+        .match_indices(" by (")
+        .filter_map(|(index, _)| {
+            let start = index + 5;
+            let end = expression[start..].find(')')? + start;
+            Some(expression[start..end].split(',').map(str::trim))
+        })
+        .flatten()
+        .collect()
+}
+
+fn legend_labels(legend: &str) -> Vec<&str> {
+    legend
+        .match_indices("{{")
+        .filter_map(|(index, _)| {
+            let start = index + 2;
+            let end = legend[start..].find("}}")? + start;
+            Some(legend[start..end].trim())
+        })
+        .collect()
+}
+
 #[test]
 fn dashboard_selectors_use_registered_names_and_supported_labels() {
     let provider = MetricsProvider::builder()
@@ -123,6 +146,36 @@ fn dashboard_selectors_use_registered_names_and_supported_labels() {
                 "service_instance_id=~\"$runtime_instance\"",
             ] {
                 assert!(expression.contains(filter), "{title} missing {filter}");
+            }
+        }
+    }
+    let schema_label_panels = BTreeSet::from([
+        "Request Rate By Route",
+        "HTTP Status Mix",
+        "Slow Routes P95",
+        "DB Queries",
+        "DB Query Latency P95",
+        "DB Errors",
+        "DB QPS",
+        "DB Average Latency",
+    ]);
+    for panel in dashboard["panels"].as_array().unwrap() {
+        if !schema_label_panels.contains(panel["title"].as_str().unwrap()) {
+            continue;
+        }
+        for target in panel["targets"].as_array().into_iter().flatten() {
+            let legend = target["legendFormat"].as_str().unwrap_or_default();
+            let labels = legend_labels(legend);
+            if labels.is_empty() {
+                continue;
+            }
+            let aggregates = aggregate_labels(target["expr"].as_str().unwrap());
+            for label in labels {
+                assert!(
+                    aggregates.contains(label) || common_labels.contains(label) || label == "le",
+                    "{} legend references {label}, absent from its target aggregation",
+                    panel["title"]
+                );
             }
         }
     }

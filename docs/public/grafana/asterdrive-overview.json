@@ -587,7 +587,7 @@
           "editorMode": "code",
           "expr": "sum by (http_request_method, http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
-          "legendFormat": "{{method}} {{route}} {{status}}",
+          "legendFormat": "{{http_request_method}} {{http_route}} {{http_response_status_code}}",
           "range": true,
           "refId": "A"
         }
@@ -761,7 +761,7 @@
           "editorMode": "code",
           "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
-          "legendFormat": "{{status}}",
+          "legendFormat": "{{http_response_status_code}}",
           "range": true,
           "refId": "A"
         }
@@ -846,7 +846,7 @@
           "editorMode": "code",
           "expr": "topk(10, histogram_quantile(0.95, sum by (le, http_request_method, http_route) (rate(http_server_request_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))))",
           "instant": false,
-          "legendFormat": "{{method}} {{route}}",
+          "legendFormat": "{{http_request_method}} {{http_route}}",
           "range": true,
           "refId": "A"
         }
@@ -1036,7 +1036,7 @@
           "editorMode": "code",
           "expr": "sum by (db_system_name, db_operation_name, error_type) (rate(db_client_operation_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
-          "legendFormat": "{{backend}} {{kind}} {{status}}",
+          "legendFormat": "{{db_system_name}} {{db_operation_name}} {{error_type}}",
           "range": true,
           "refId": "A"
         }
@@ -1121,7 +1121,7 @@
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (le, db_system_name, db_operation_name) (rate(db_client_operation_duration_seconds_bucket{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])))",
           "instant": false,
-          "legendFormat": "{{backend}} {{kind}} p95",
+          "legendFormat": "{{db_system_name}} {{db_operation_name}} p95",
           "range": true,
           "refId": "A"
         }
@@ -1202,7 +1202,7 @@
           "editorMode": "code",
           "expr": "sum by (db_system_name, db_operation_name) (rate(db_client_operation_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", error_type!=\"\"}[$__rate_interval]))",
           "instant": false,
-          "legendFormat": "{{backend}} {{kind}}",
+          "legendFormat": "{{db_system_name}} {{db_operation_name}}",
           "range": true,
           "refId": "A"
         }
@@ -1279,7 +1279,7 @@
           "editorMode": "code",
           "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval]))",
           "instant": false,
-          "legendFormat": "{{backend}}",
+          "legendFormat": "{{db_system_name}}",
           "range": true,
           "refId": "A"
         }
@@ -1364,7 +1364,7 @@
           "editorMode": "code",
           "expr": "sum by (db_system_name, db_operation_name) (rate(db_client_operation_duration_seconds_sum{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])) / clamp_min(sum by (db_system_name, db_operation_name) (rate(db_client_operation_duration_seconds_count{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"}[$__rate_interval])), 1e-9)",
           "instant": false,
-          "legendFormat": "{{backend}} {{kind}} avg",
+          "legendFormat": "{{db_system_name}} {{db_operation_name}} avg",
           "range": true,
           "refId": "A"
         }
@@ -3595,7 +3595,7 @@
           "editorMode": "code",
           "expr": "max by (status) ((aster_drive_remote_nodes{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\"} and on(job, instance, service_instance_id) (aster_drive_observability_snapshot_valid{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} == 1 and on(job, instance, service_instance_id, source) (time() - aster_drive_observability_snapshot_last_success_timestamp_seconds{job=~\"$job\", instance=~\"$instance\", service_name=\"asterdrive\", aster_metrics_schema_version=\"aster-metrics/v1\", deployment_environment_name=~\"$environment\", aster_role=~\"$role\", service_instance_id=~\"$runtime_instance\", source=\"database\"} < 180))))",
           "instant": false,
-          "legendFormat": "{{status}}",
+          "legendFormat": "{{http_response_status_code}}",
           "range": true,
           "refId": "A"
         }
