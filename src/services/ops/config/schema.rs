@@ -121,6 +121,7 @@ fn config_schema_options(key: &str) -> Vec<ConfigSchemaOption> {
         // Keep enum-set options backend-authored so the UI cannot drift from AuditAction.
         AUDIT_LOG_RECORDED_ACTIONS_KEY => AuditAction::ALL
             .iter()
+            .filter(|action| !action.is_workspace_mutation())
             .map(|action| ConfigSchemaOption {
                 value: action.as_str().to_string(),
                 label_i18n_key: format!("audit_action_{}", action.as_str()),
@@ -262,9 +263,13 @@ mod tests {
             .expect("audit action scope config should be in schema");
 
         assert_eq!(item.value_type, ConfigValueType::StringEnumSet);
-        assert_eq!(item.options.len(), AuditAction::COUNT);
+        let actions = AuditAction::ALL
+            .into_iter()
+            .filter(|action| !action.is_workspace_mutation())
+            .collect::<Vec<_>>();
+        assert_eq!(item.options.len(), actions.len());
 
-        for (option, action) in item.options.iter().zip(AuditAction::ALL) {
+        for (option, action) in item.options.iter().zip(actions) {
             assert_eq!(option.value, action.as_str());
             assert_eq!(
                 option.label_i18n_key,

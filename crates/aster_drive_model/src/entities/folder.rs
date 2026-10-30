@@ -1,6 +1,7 @@
 //! SeaORM 实体定义：`folder`。
 
 use sea_orm::entity::prelude::*;
+use sea_orm::{ConnectionTrait, Set};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -20,6 +21,10 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
+    pub modified_by_user_id: Option<i64>,
+    pub modified_by_username: Option<String>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub modified_at: Option<DateTimeUtc>,
     pub policy_id: Option<i64>, // 覆盖存储策略
     pub icon_kind: crate::types::FolderIconKind,
     pub icon_value: Option<String>,
@@ -86,4 +91,28 @@ impl Related<super::file::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {}
+#[async_trait::async_trait]
+impl ActiveModelBehavior for ActiveModel {
+    async fn before_save<C>(mut self, _db: &C, insert: bool) -> Result<Self, DbErr>
+    where
+        C: ConnectionTrait,
+    {
+        if insert {
+            self.initialize_attribution();
+        }
+        Ok(self)
+    }
+}
+
+impl ActiveModel {
+    /// Initialize attribution only for genuinely new resources, never for migrated rows.
+    pub fn initialize_attribution(&mut self) {
+        self.modified_by_user_id = self.created_by_user_id.clone();
+        if let Some(name) = self.created_by_username.clone().take() {
+            self.modified_by_username = Set(Some(name));
+        }
+        if let Some(at) = self.created_at.clone().take() {
+            self.modified_at = Set(Some(at));
+        }
+    }
+}

@@ -172,6 +172,7 @@ pub(crate) async fn create_in_scope(
     name: &str,
     parent_id: Option<i64>,
     lock_credentials: crate::services::files::lock::LockMutationCredentials,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<folder::Model> {
     tracing::debug!(
         scope = ?scope,
@@ -222,7 +223,7 @@ pub(crate) async fn create_in_scope(
             return Err(folder_repo::duplicate_name_error(&name));
         }
 
-        folder_repo::create(
+        crate::services::workspace::activity::create_folder(
             txn,
             folder::ActiveModel {
                 name: Set(name),
@@ -236,6 +237,7 @@ pub(crate) async fn create_in_scope(
                 updated_at: Set(now),
                 ..Default::default()
             },
+            source,
         )
         .await
     })
@@ -272,6 +274,7 @@ pub async fn create(
         name,
         parent_id,
         crate::services::files::lock::LockMutationCredentials::None,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)
@@ -282,6 +285,7 @@ pub(crate) async fn delete_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id, "soft deleting folder tree");
     let now = Utc::now();
@@ -289,7 +293,7 @@ pub(crate) async fn delete_in_scope(
     // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
     // 可能导致只删除到遍历时看到的一部分节点。
     let outcome = transaction::with_transaction(state.writer_db(), async |txn| {
-        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false).await
+        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false, source).await
     })
     .await?;
     let FolderTreeDeletion {
@@ -329,6 +333,7 @@ pub(crate) struct FolderTreeDeletion {
 /// Locked folder-tree snapshot used by protocol adapters that must validate another persistence
 /// invariant before applying the deletion on the same transaction.
 pub(crate) struct LockedFolderTreeDeletion {
+    pub(crate) actor_user_id: i64,
     pub(crate) folder: folder::Model,
     pub(crate) file_ids: Vec<i64>,
     pub(crate) folder_ids: Vec<i64>,
@@ -377,6 +382,7 @@ pub(crate) async fn lock_tree_for_deletion_on<C: ConnectionTrait>(
         }
     }
     Ok(LockedFolderTreeDeletion {
+        actor_user_id: scope.actor_user_id(),
         folder,
         file_ids: files.into_iter().map(|file| file.id).collect(),
         folder_ids,
@@ -387,9 +393,32 @@ pub(crate) async fn apply_locked_tree_deletion_on<C: ConnectionTrait>(
     db: &C,
     locked: LockedFolderTreeDeletion,
     now: chrono::DateTime<Utc>,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<FolderTreeDeletion> {
     let file_count = locked.file_ids.len();
     let folder_count = locked.folder_ids.len();
+    let ctx = crate::services::workspace::activity::ActivityContext::actor(
+        db,
+        locked.actor_user_id,
+        source,
+    )
+    .await?;
+    for ids in locked.file_ids.chunks(200) {
+        let files = file_repo::find_by_ids(db, ids).await?;
+        let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+        for before in &files {
+            batch.file_lifecycle(before, aster_drive_model::types::AuditAction::FileDelete)?;
+        }
+        batch.persist(db).await?;
+    }
+    for ids in locked.folder_ids.chunks(200) {
+        let folders = folder_repo::find_by_ids(db, ids).await?;
+        let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+        for before in &folders {
+            batch.folder_lifecycle(before, aster_drive_model::types::AuditAction::FolderDelete)?;
+        }
+        batch.persist(db).await?;
+    }
     file_repo::soft_delete_many(db, &locked.file_ids, now).await?;
     folder_repo::soft_delete_many(db, &locked.folder_ids, now).await?;
     Ok(FolderTreeDeletion {
@@ -410,16 +439,24 @@ pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
     now: chrono::DateTime<Utc>,
     allow_locked_root: bool,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<FolderTreeDeletion> {
     let locked =
         lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, allow_locked_root)
             .await?;
-    apply_locked_tree_deletion_on(db, locked, now).await
+    apply_locked_tree_deletion_on(db, locked, now, source).await
 }
 
 /// 删除文件夹（软删除 → 回收站，递归标记子项）
 pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i64) -> Result<()> {
-    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id, None).await
+    delete_in_scope(
+        state,
+        WorkspaceStorageScope::Personal { user_id },
+        id,
+        None,
+        crate::services::workspace::activity::ActivitySource::Rest,
+    )
+    .await
 }
 
 pub(crate) async fn get_info_in_scope(
@@ -455,11 +492,20 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
         aster_drive_model::types::EntityType::Folder,
         folder.id,
     );
-    Ok(
-        FolderInfo::from_model_with_storage_used(folder, storage_used)
-            .with_tags(tags)
-            .with_lock_state(lock_state),
+    let names = crate::services::workspace::activity::display_names(
+        state,
+        &[folder.created_by_user_id, folder.modified_by_user_id]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
     )
+    .await?;
+    let mut info = FolderInfo::from_model_with_storage_used(folder, storage_used)
+        .with_tags(tags)
+        .with_lock_state(lock_state);
+    crate::services::workspace::activity::resolve_identity(&mut info.created_by, &names);
+    crate::services::workspace::activity::resolve_identity(&mut info.modified_by, &names);
+    Ok(info)
 }
 
 pub(crate) async fn update_in_scope(
@@ -469,6 +515,7 @@ pub(crate) async fn update_in_scope(
     name: Option<String>,
     parent_id: NullablePatch<i64>,
     policy_id: NullablePatch<i64>,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<folder::Model> {
     let db = state.writer_db();
     tracing::debug!(
@@ -562,6 +609,10 @@ pub(crate) async fn update_in_scope(
             return Err(folder_repo::duplicate_name_error(&final_name));
         }
 
+        if final_name == current.name && target_parent == current.parent_id {
+            return Ok((current.clone(), current.parent_id));
+        }
+        let before = current.clone();
         let previous_parent_id = current.parent_id;
         let mut active: folder::ActiveModel = current.into();
         if let Some(n) = name.clone() {
@@ -578,10 +629,29 @@ pub(crate) async fn update_in_scope(
             NullablePatch::Value(pid) => active.policy_id = Set(Some(pid)),
         }
         active.updated_at = Set(Utc::now());
-        let updated = active
+        let mut updated = active
             .update(txn)
             .await
             .map_err(|err| folder_repo::map_name_db_err(err, &final_name))?;
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
+            txn,
+            scope.actor_user_id(),
+            source,
+        )
+        .await?;
+        let action = if before.parent_id != updated.parent_id {
+            aster_drive_model::types::AuditAction::FolderMove
+        } else {
+            aster_drive_model::types::AuditAction::FolderRename
+        };
+        crate::services::workspace::activity::folder_changed(
+            txn,
+            &ctx,
+            &before,
+            &mut updated,
+            action,
+        )
+        .await?;
         Ok((updated, previous_parent_id))
     })
     .await?;
@@ -635,28 +705,26 @@ pub(crate) async fn set_icon_in_scope(
         }
 
         let previous = current.clone();
-        let updated =
-            folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await?;
-        if let Some(audit_context) = audit_context {
-            let previous_icon = super::FolderIcon::from_model(&previous);
-            let next_icon = super::FolderIcon::from_model(&updated);
-            crate::services::ops::audit::log_with_transaction(
-                txn,
-                state.runtime_config(),
-                crate::services::ops::audit::AuditLogInput {
-                    ctx: audit_context,
-                    action: crate::services::ops::audit::AuditAction::FolderIconChange,
-                    entity_type: crate::services::ops::audit::AuditEntityType::Folder,
-                    entity_id: Some(updated.id),
-                    entity_name: Some(&updated.name),
-                },
-                || Some(super::folder_icon_audit_details(&previous_icon, &next_icon)),
-            )
-            .await
-            .map_err(|error| {
-                AsterError::database_operation(format!("write folder icon audit: {error}"))
-            })?;
+        if current.icon_kind == icon_kind && current.icon_value == icon_value {
+            return Ok((previous, current));
         }
+        let mut updated =
+            folder_repo::update_icon(txn, current, icon_kind, icon_value, Utc::now()).await?;
+        let _ = audit_context; // Request metadata stays in the security audit boundary.
+        let ctx = crate::services::workspace::activity::ActivityContext::actor(
+            txn,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await?;
+        crate::services::workspace::activity::folder_changed(
+            txn,
+            &ctx,
+            &previous,
+            &mut updated,
+            aster_drive_model::types::AuditAction::FolderIconChange,
+        )
+        .await?;
         Ok((previous, updated))
     })
     .await?;
@@ -826,6 +894,7 @@ pub async fn update(
         name,
         parent_id,
         policy_id,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)
@@ -852,6 +921,7 @@ pub async fn move_folder(
             None => NullablePatch::Null,
         },
         NullablePatch::Absent,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)

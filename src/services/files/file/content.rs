@@ -329,6 +329,11 @@ pub(crate) async fn update_content_in_scope(
                 .with_expected_revision(expected_revision)
                 .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
             StoreFromTempHints {
+                operation_context: storage::StorageOperationContext::default()
+                    .with_content_edit()
+                    .with_activity_source(
+                        crate::services::workspace::activity::ActivitySource::Rest,
+                    ),
                 resolved_policy: Some(resolved_policy),
                 precomputed_hash: precomputed_hash.as_deref(),
                 actor_username: Some(&actor_username),
@@ -361,6 +366,11 @@ pub(crate) async fn update_content_in_scope(
                 .with_expected_revision(expected_revision)
                 .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
             StoreFromTempHints {
+                operation_context: storage::StorageOperationContext::default()
+                    .with_content_edit()
+                    .with_activity_source(
+                        crate::services::workspace::activity::ActivitySource::Rest,
+                    ),
                 actor_username: Some(&actor_username),
                 revision_etag: Some(&revision_etag),
                 ..Default::default()
@@ -467,6 +477,17 @@ pub(crate) async fn update_content_stream_in_scope(
             .with_expected_revision(expected_revision)
             .with_expected_revision_etag(if_match.map(|etag| etag.trim_matches('"'))),
         StoreFromTempHints {
+            operation_context: storage::StorageOperationContext::default()
+                .with_content_edit()
+                .with_activity_source(match transfer_source {
+                    aster_drive_metrics::TransferSource::Wopi => {
+                        crate::services::workspace::activity::ActivitySource::Wopi
+                    }
+                    aster_drive_metrics::TransferSource::Webdav => {
+                        crate::services::workspace::activity::ActivitySource::Webdav
+                    }
+                    _ => crate::services::workspace::activity::ActivitySource::Rest,
+                }),
             resolved_policy,
             precomputed_hash: precomputed_hash.as_deref(),
             actor_username: Some(&actor_username),

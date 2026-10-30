@@ -607,3 +607,7 @@ export type BrowserUploadInstruction =
 export type BrowserUploadObservation =
 	components["schemas"]["BrowserUploadObservation"];
 export type BrowserUploadReport = components["schemas"]["BrowserUploadReport"];
+export type ActivityIdentity = components["schemas"]["ActivityIdentity"];
+export type WorkspaceActivity = components["schemas"]["WorkspaceActivity"];
+export type WorkspaceActivityPage =
+	components["schemas"]["WorkspaceActivityPage"];

@@ -14,6 +14,9 @@ impl AsterDavFs {
     }
 
     pub(super) async fn log_deleted_file(&self, path: &DavPath, file: &file_entity::Model) {
+        if !audit::should_record(&self.state, audit::AuditAction::FileDelete) {
+            return;
+        }
         let details = Some(serde_json::json!({
             "folder_id": file.folder_id,
             "path": path.as_str(),
@@ -26,7 +29,7 @@ impl AsterDavFs {
             crate::services::ops::audit::AuditEntityType::File,
             Some(file.id),
             Some(&file.name),
-            || details.clone(),
+            || details,
         )
         .await;
     }
@@ -36,6 +39,9 @@ impl AsterDavFs {
         path: &DavPath,
         folder: &aster_drive_model::entities::folder::Model,
     ) {
+        if !audit::should_record(&self.state, audit::AuditAction::FolderDelete) {
+            return;
+        }
         let details = Some(serde_json::json!({
             "parent_id": folder.parent_id,
             "path": path.as_str(),
@@ -48,7 +54,7 @@ impl AsterDavFs {
             crate::services::ops::audit::AuditEntityType::Folder,
             Some(folder.id),
             Some(&folder.name),
-            || details.clone(),
+            || details,
         )
         .await;
     }
@@ -61,6 +67,9 @@ impl AsterDavFs {
         previous: &file_entity::Model,
         current: &file_entity::Model,
     ) {
+        if !audit::should_record(&self.state, action) {
+            return;
+        }
         let details = Some(serde_json::json!({
             "source_folder_id": previous.folder_id,
             "source_path": source.as_str(),
@@ -77,7 +86,7 @@ impl AsterDavFs {
             crate::services::ops::audit::AuditEntityType::File,
             Some(current.id),
             Some(&current.name),
-            || details.clone(),
+            || details,
         )
         .await;
     }
@@ -90,6 +99,9 @@ impl AsterDavFs {
         previous: &aster_drive_model::entities::folder::Model,
         current: &aster_drive_model::entities::folder::Model,
     ) {
+        if !audit::should_record(&self.state, action) {
+            return;
+        }
         let details = Some(serde_json::json!({
             "source_parent_id": previous.parent_id,
             "source_path": source.as_str(),
@@ -106,7 +118,7 @@ impl AsterDavFs {
             crate::services::ops::audit::AuditEntityType::Folder,
             Some(current.id),
             Some(&current.name),
-            || details.clone(),
+            || details,
         )
         .await;
     }

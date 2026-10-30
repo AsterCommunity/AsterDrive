@@ -1,10 +1,11 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TagChips } from "@/components/files/TagChips";
 import {
 	TagManagerDialog,
 	type TagManagerTarget,
 } from "@/components/files/TagManagerDialog";
+import { WorkspaceActivityFeed } from "@/components/files/WorkspaceActivityFeed";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -18,6 +19,9 @@ import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { formatBytes, formatDateAbsolute } from "@/lib/format";
 import { isResourceLocked } from "@/lib/resourceLock";
 import { cn } from "@/lib/utils";
+import { workspaceKey } from "@/lib/workspace";
+import type { ActivityTarget } from "@/services/workspaceActivityService";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type {
 	EntityType,
 	FileInfo,
@@ -106,6 +110,18 @@ function buildOverviewRows({
 	if (renderedFile) {
 		const fileStorageUsed = activeFile?.storage_used;
 		return [
+			{
+				label: t("info_created_by"),
+				value:
+					(activeFile ?? renderedFile).created_by?.name ||
+					t("info_unknown_actor"),
+			},
+			{
+				label: t("info_modified_by"),
+				value:
+					(activeFile ?? renderedFile).modified_by?.name ||
+					t("info_unknown_actor"),
+			},
 			{ label: t("info_type"), value: t("core:file") },
 			{
 				label: t("info_size"),
@@ -135,7 +151,10 @@ function buildOverviewRows({
 			},
 			{
 				label: t("info_modified"),
-				value: formatDateAbsolute((activeFile ?? renderedFile).updated_at),
+				value: formatDateAbsolute(
+					(activeFile ?? renderedFile).modified_at ??
+						(activeFile ?? renderedFile).updated_at,
+				),
 			},
 		];
 	}
@@ -146,6 +165,18 @@ function buildOverviewRows({
 
 	const folderStorageUsed = activeFolder?.storage_used;
 	return [
+		{
+			label: t("info_created_by"),
+			value:
+				(activeFolder ?? renderedFolder).created_by?.name ||
+				t("info_unknown_actor"),
+		},
+		{
+			label: t("info_modified_by"),
+			value:
+				(activeFolder ?? renderedFolder).modified_by?.name ||
+				t("info_unknown_actor"),
+		},
 		{ label: t("info_type"), value: t("core:folder") },
 		{
 			label: t("info_storage_used"),
@@ -177,7 +208,10 @@ function buildOverviewRows({
 		},
 		{
 			label: t("info_modified"),
-			value: formatDateAbsolute((activeFolder ?? renderedFolder).updated_at),
+			value: formatDateAbsolute(
+				(activeFolder ?? renderedFolder).modified_at ??
+					(activeFolder ?? renderedFolder).updated_at,
+			),
 		},
 	];
 }
@@ -304,6 +338,34 @@ function TagsSection({
 	);
 }
 
+function ResourceActivitySection({
+	target,
+	enabled,
+}: {
+	target: ActivityTarget;
+	enabled: boolean;
+}) {
+	const { t } = useTranslation(["files"]);
+	const [expanded, setExpanded] = useState(false);
+	const contentId = useId();
+	return (
+		<section className="space-y-3">
+			<Button
+				variant="outline"
+				size="sm"
+				aria-expanded={expanded}
+				aria-controls={contentId}
+				onClick={() => setExpanded((previous) => !previous)}
+			>
+				{t(expanded ? "activity_hide" : "activity_view")}
+			</Button>
+			<div id={contentId}>
+				{enabled && expanded ? <WorkspaceActivityFeed target={target} /> : null}
+			</div>
+		</section>
+	);
+}
+
 export function FileInfoDialog({
 	open,
 	onOpenChange,
@@ -344,6 +406,18 @@ export function FileInfoDialog({
 	const title = renderedFile
 		? (activeFile ?? renderedFile).name
 		: ((activeFolder ?? renderedFolder)?.name ?? "");
+	const workspace = useWorkspaceStore((state) => state.workspace);
+	const activityEntityType = renderedFile ? "file" : "folder";
+	const activityEntityId = renderedFile?.id ?? renderedFolder?.id ?? 0;
+	const activityTarget = useMemo<ActivityTarget>(
+		() => ({
+			kind: "resource",
+			workspace,
+			entityType: activityEntityType,
+			entityId: activityEntityId,
+		}),
+		[workspace, activityEntityType, activityEntityId],
+	);
 	const currentLocked = renderedFile
 		? isResourceLocked((activeFile ?? renderedFile).lock_state)
 		: renderedFolder
@@ -435,6 +509,13 @@ export function FileInfoDialog({
 			summaryLabel={summaryLabel}
 			summarySubtitle={summarySubtitle}
 			tagsSection={tagsSection}
+			activitySection={
+				<ResourceActivitySection
+					key={`${open}:${workspaceKey(workspace)}:${renderedFile ? "file" : "folder"}:${renderedFile?.id ?? renderedFolder?.id}`}
+					target={activityTarget}
+					enabled={open}
+				/>
+			}
 			targetIcon={
 				renderedFile
 					? {

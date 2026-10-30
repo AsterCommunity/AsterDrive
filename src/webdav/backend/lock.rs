@@ -333,7 +333,8 @@ impl DavLockSystem for DbLockSystem {
                         parent_id,
                         &filename,
                         EmptyFileNameMode::Exact,
-                    )
+crate::services::workspace::activity::ActivitySource::Webdav,
+)
                     .map_err(|error| {
                         tracing::warn!(error = %error, path = %path_str, "failed to stage WebDAV lock-null resource");
                         DavLockError::Backend
@@ -484,7 +485,8 @@ impl DavLockSystem for DbLockSystem {
                                 parent_id,
                                 &filename,
                                 EmptyFileNameMode::Exact,
-                            )
+crate::services::workspace::activity::ActivitySource::Webdav,
+)
                             .map_err(|error| {
                                 tracing::warn!(error = %error, path = %path_str, "failed to stage raced WebDAV lock-null resource");
                                 DavLockError::Backend

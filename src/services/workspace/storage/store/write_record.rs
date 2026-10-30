@@ -13,6 +13,8 @@ use super::prepare::OverwriteContext;
 
 pub(super) struct WriteFileRecordFromTempParams<'a> {
     pub scope: WorkspaceStorageScope,
+    pub activity_action: aster_drive_model::types::AuditAction,
+    pub activity_source: crate::services::workspace::activity::ActivitySource,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub mime: &'a str,
@@ -35,6 +37,8 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
 ) -> Result<file::Model> {
     let WriteFileRecordFromTempParams {
         scope,
+        activity_source,
+        activity_action,
         folder_id,
         filename,
         mime,
@@ -80,6 +84,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
                 .await?
                 .current_revision_id;
         let current_name = current_file.name.clone();
+        let before_activity = current_file.clone();
         let mut active: file::ActiveModel = current_file.into();
         active.blob_id = Set(blob.id);
         active.size = Set(blob.size);
@@ -89,7 +94,21 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         active.compound_extension = Set(classification.compound_extension);
         active.file_category = Set(classification.category);
         active.updated_at = Set(now);
-        let updated = active.update(txn).await.map_err(AsterError::from)?;
+        let mut updated = active.update(txn).await.map_err(AsterError::from)?;
+        let activity = crate::services::workspace::activity::ActivityContext::actor(
+            txn,
+            scope.actor_user_id(),
+            activity_source,
+        )
+        .await?;
+        crate::services::workspace::activity::file_changed(
+            txn,
+            &activity,
+            &before_activity,
+            &mut updated,
+            activity_action,
+        )
+        .await?;
         let actor_username = match actor_username {
             Some(username) => username.to_owned(),
             None => {
@@ -134,6 +153,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
             txn,
             CreateFileFromBlobWithMimeParams {
                 scope,
+                activity_source,
                 folder_id,
                 filename,
                 mime_type: mime,

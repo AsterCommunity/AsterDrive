@@ -19,3 +19,9 @@ mod tags;
 mod thumbnail;
 mod trash;
 mod upload;
+
+mod activities;
+
+mod activity_contract;
+
+mod activity_performance;

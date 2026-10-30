@@ -190,7 +190,7 @@ fn is_sensitive_detail_key(key: &str) -> bool {
     .any(|sensitive| normalized.contains(sensitive))
 }
 
-fn neutralize_csv_formula(value: String) -> String {
+pub(crate) fn neutralize_csv_formula(value: String) -> String {
     if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
         format!("'{value}")
     } else {

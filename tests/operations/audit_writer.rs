@@ -15,7 +15,7 @@ async fn record(state: &aster_drive::runtime::PrimaryAppState) {
     audit::log_with_details(
         state,
         &audit::AuditContext::system(),
-        audit::AuditAction::FileUpload,
+        audit::AuditAction::FileDownload,
         audit::AuditEntityType::File,
         Some(7),
         Some("report.txt"),
@@ -180,7 +180,7 @@ async fn mandatory_audit_failure_rolls_back_the_product_transaction() {
         &state.runtime_config,
         audit::AuditLogInput {
             ctx: &audit::AuditContext::system(),
-            action: audit::AuditAction::FileUpload,
+            action: audit::AuditAction::FileDownload,
             entity_type: audit::AuditEntityType::File,
             entity_id: Some(1),
             entity_name: Some(&"x".repeat(256)),
@@ -222,7 +222,7 @@ async fn direct_failure_stays_owned_and_does_not_replay_successful_batch_records
     audit::log(
         &state,
         &audit::AuditContext::system(),
-        audit::AuditAction::FileUpload,
+        audit::AuditAction::FileDownload,
         audit::AuditEntityType::File,
         Some(8),
         Some(&"x".repeat(256)),
@@ -333,7 +333,7 @@ async fn best_effort_failures_log_safe_action_and_reason_without_request_details
             &state.runtime_config,
             audit::AuditLogInput {
                 ctx: &audit::AuditContext::system(),
-                action: audit::AuditAction::FileUpload,
+                action: audit::AuditAction::FileDownload,
                 entity_type: audit::AuditEntityType::File,
                 entity_id: Some(1),
                 entity_name: Some(&sensitive),
@@ -349,7 +349,7 @@ async fn best_effort_failures_log_safe_action_and_reason_without_request_details
         "writer not running",
         "writer full",
         "best-effort direct audit write failed",
-        "file_upload",
+        "file_download",
     ] {
         assert!(
             logs.contains(expected),

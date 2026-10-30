@@ -34,9 +34,11 @@
 	"settings_item_task_retention_hours_label": "任务保留时长",
 	"settings_item_task_retention_hours_desc": "后台任务的临时产物在过期前最多保留多久；任务记录本身会继续留作留档。",
 	"settings_item_audit_log_enabled_label": "启用审计日志",
-	"settings_item_audit_log_enabled_desc": "控制是否记录后台操作等审计事件。关闭后将不会继续产生新的审计记录。",
+	"settings_item_audit_log_enabled_desc": "控制系统、管理与安全审计日志。必需的工作空间文件活动独立记录，不受此开关影响。",
 	"settings_item_audit_log_retention_days_label": "审计日志保留时长",
 	"settings_item_audit_log_retention_days_desc": "审计日志在被永久删除前最多保留多久。设为 0 表示永久保留，不自动清理。",
 	"settings_item_audit_log_recorded_actions_label": "记录的审计操作范围",
-	"settings_item_audit_log_recorded_actions_desc": "选择哪些审计操作会被写入日志。空集合表示审计日志开关开启，但不记录任何操作。"
+	"settings_item_audit_log_recorded_actions_desc": "选择写入系统审计日志的操作。空集合表示不写入这些日志；必需的工作空间文件活动仍独立记录。",
+	"settings_item_workspace_activity_retention_days_label": "文件活动保留天数",
+	"settings_item_workspace_activity_retention_days_desc": "独立于系统审计日志；0 表示永久保留。清理活动不会删除文件的创建者和最后修改者。"
 }

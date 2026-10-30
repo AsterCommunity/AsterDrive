@@ -71,8 +71,15 @@ pub(crate) async fn copy_file_in_scope(
     let mut copied = None;
     let mut candidate_name = copy_name;
     for _ in 0..MAX_COPY_NAME_RETRIES {
-        match duplicate_file_record_in_scope(state, scope, &src, dest_folder_id, &candidate_name)
-            .await
+        match duplicate_file_record_in_scope(
+            state,
+            scope,
+            &src,
+            dest_folder_id,
+            &candidate_name,
+            crate::services::workspace::activity::ActivitySource::Rest,
+        )
+        .await
         {
             Ok(file) => {
                 copied = Some(file);
@@ -155,6 +162,7 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
     scope: WorkspaceStorageScope,
     copy_specs: &[BatchDuplicateFileRecordSpec<'_>],
     dest_folder_id: Option<i64>,
+    activity: Option<&crate::services::workspace::activity::ActivityContext>,
 ) -> Result<Vec<file::Model>> {
     if copy_specs.is_empty() {
         return Ok(vec![]);
@@ -227,6 +235,22 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
             "failed to load all copied files after batch insert",
         ));
     }
+    let context = match activity {
+        Some(context) => context.clone(),
+        None => {
+            crate::services::workspace::activity::ActivityContext::actor(
+                &txn,
+                scope.actor_user_id(),
+                crate::services::workspace::activity::ActivitySource::Rest,
+            )
+            .await?
+        }
+    };
+    let source_by_name = copy_specs
+        .iter()
+        .map(|spec| (spec.dest_name.as_ref(), spec.src))
+        .collect::<HashMap<_, _>>();
+    let mut activities = crate::services::workspace::activity::ActivityBatch::new(&context);
     for created in &created_files {
         crate::db::repository::revision_repo::create_initial(
             &txn,
@@ -234,8 +258,13 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
             crate::db::repository::revision_repo::RevisionReason::Copy,
         )
         .await?;
+        let source = *source_by_name
+            .get(created.name.as_str())
+            .ok_or_else(|| AsterError::internal_error("copied file source missing"))?;
+        activities.file_copied(source, created);
     }
 
+    activities.persist(&txn).await?;
     transaction::commit(txn).await?;
     Ok(created_files)
 }
@@ -246,10 +275,12 @@ pub(crate) async fn duplicate_file_record_in_scope(
     src: &file::Model,
     dest_folder_id: Option<i64>,
     dest_name: &str,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     let txn = transaction::begin(state.writer_db()).await?;
     let new_file =
-        duplicate_file_record_in_scope_on(&txn, scope, src, dest_folder_id, dest_name).await?;
+        duplicate_file_record_in_scope_on(&txn, scope, src, dest_folder_id, dest_name, source)
+            .await?;
     transaction::commit(txn).await?;
     Ok(new_file)
 }
@@ -260,6 +291,7 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
     src: &file::Model,
     dest_folder_id: Option<i64>,
     dest_name: &str,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     let new_file = duplicate_file_record_without_initial_revision_in_scope_on(
         db,
@@ -267,6 +299,7 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
         src,
         dest_folder_id,
         dest_name,
+        source,
     )
     .await?;
 
@@ -292,6 +325,7 @@ pub(crate) async fn duplicate_file_record_without_initial_revision_in_scope_on<
     src: &file::Model,
     dest_folder_id: Option<i64>,
     dest_name: &str,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     let blob = file_repo::find_blob_by_id(db, src.blob_id).await?;
     let now = Utc::now();
@@ -325,6 +359,12 @@ pub(crate) async fn duplicate_file_record_without_initial_revision_in_scope_on<
     .await
     .map_err(|err| file_repo::map_name_db_err(err, dest_name))?;
 
+    let mut context = crate::services::workspace::activity::ActivityContext::creator(
+        new_file.created_by_user_id,
+        &new_file.created_by_username,
+    );
+    context.source = source;
+    crate::services::workspace::activity::file_copied(db, &context, src, &new_file).await?;
     storage::update_storage_used(db, scope, blob_size).await?;
 
     Ok(new_file)
@@ -349,6 +389,7 @@ pub async fn duplicate_file_record(
         src,
         dest_folder_id,
         dest_name,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await?;
     storage_change::publish(
@@ -383,8 +424,14 @@ pub(crate) async fn batch_duplicate_file_records_in_scope(
         })
         .collect();
 
-    batch_duplicate_file_records_with_specs_in_scope(state, scope, &copy_specs, dest_folder_id)
-        .await
+    batch_duplicate_file_records_with_specs_in_scope(
+        state,
+        scope,
+        &copy_specs,
+        dest_folder_id,
+        None,
+    )
+    .await
 }
 
 pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
@@ -392,6 +439,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     scope: WorkspaceStorageScope,
     copy_specs: &[BatchDuplicateFileRecordTargetSpec<'_>],
     property_mode: CopiedFilePropertyMode,
+    activity: &crate::services::workspace::activity::ActivityContext,
 ) -> Result<i64> {
     if copy_specs.is_empty() {
         return Ok(0);
@@ -523,6 +571,11 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     )
     .await?;
 
+    let mut activities = crate::services::workspace::activity::ActivityBatch::new(activity);
+    for (created, spec) in created_in_spec_order.iter().zip(copy_specs) {
+        activities.file_copied(spec.src, created);
+    }
+    activities.persist(&txn).await?;
     storage::update_storage_used(&txn, scope, total_size).await?;
 
     transaction::commit(txn).await?;

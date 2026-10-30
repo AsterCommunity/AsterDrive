@@ -118,10 +118,16 @@ impl AsterDavFs {
         let destination_folder = match destination_node {
             Some(ResolvedNode::Folder(folder)) => Some(folder),
             Some(ResolvedNode::File(file)) => {
-                file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
-                    .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                file_ops::delete_in_scope_on(
+                    &txn,
+                    self.scope,
+                    file.id,
+                    true,
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
                 None
             }
             None => None,
@@ -138,7 +144,7 @@ impl AsterDavFs {
                     .map_err(to_fs_error)
                     .map_err(AsterDavMutationError::FileSystem)?;
             let now = chrono::Utc::now();
-            let folder = folder_repo::create(
+            let folder = crate::services::workspace::activity::create_folder(
                 &txn,
                 aster_drive_model::entities::folder::ActiveModel {
                     name: Set(destination_name),
@@ -152,6 +158,7 @@ impl AsterDavFs {
                     updated_at: Set(now),
                     ..Default::default()
                 },
+                crate::services::workspace::activity::ActivitySource::Webdav,
             )
             .await
             .map_err(to_fs_error)

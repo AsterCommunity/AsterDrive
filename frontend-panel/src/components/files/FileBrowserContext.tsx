@@ -38,6 +38,7 @@ export interface FileBrowserContextValue {
 	files: FileListItem[];
 	browserOpenMode: BrowserOpenMode;
 	readOnly?: boolean;
+	showAttribution?: boolean;
 	selectionEnabled?: boolean;
 	breadcrumbPathIds: number[];
 	batchSelectionActions?: FileBrowserBatchSelectionActions | null;

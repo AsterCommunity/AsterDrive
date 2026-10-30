@@ -141,3 +141,16 @@ export function TrashExpiresAtCell({ expiresAt }: { expiresAt: string }) {
 		</TableCell>
 	);
 }
+
+export function AttributionCell({ name }: { name?: string | null }) {
+	const { t } = useTranslation("files");
+	const label = name?.trim() || t("info_unknown_actor");
+	return (
+		<TableCell
+			className="max-w-40 truncate text-muted-foreground"
+			title={label}
+		>
+			{label}
+		</TableCell>
+	);
+}

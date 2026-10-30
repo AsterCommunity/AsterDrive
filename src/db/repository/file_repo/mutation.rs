@@ -46,7 +46,7 @@ pub async fn create_with_blob<C: ConnectionTrait>(
     } = input;
     let classification = aster_forge_file_classification::classify_file(name, mime_type);
 
-    File::insert(file::ActiveModel {
+    let mut model = file::ActiveModel {
         name: Set(name.to_string()),
         folder_id: Set(folder_id),
         team_id: Set(team_id),
@@ -62,10 +62,12 @@ pub async fn create_with_blob<C: ConnectionTrait>(
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
-    })
-    .exec_with_returning(db)
-    .await
-    .map_err(|err| map_name_db_err(err, name))
+    };
+    model.initialize_attribution();
+    File::insert(model)
+        .exec_with_returning(db)
+        .await
+        .map_err(|err| map_name_db_err(err, name))
 }
 
 /// 批量插入文件记录（不返回创建的 Model，批量复制用）
@@ -73,6 +75,13 @@ pub async fn create_many<C: ConnectionTrait>(db: &C, models: Vec<file::ActiveMod
     if models.is_empty() {
         return Ok(());
     }
+    let models = models
+        .into_iter()
+        .map(|mut model| {
+            model.initialize_attribution();
+            model
+        })
+        .collect::<Vec<_>>();
     File::insert_many(models).exec(db).await.map_err(|err| {
         map_bulk_name_db_err(err, "one or more files already exist in this folder")
     })?;

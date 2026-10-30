@@ -544,3 +544,42 @@ async fn team_upload_uses_team_quota_instead_of_actor_quota() {
     );
     handle.abort().await.unwrap();
 }
+
+#[tokio::test]
+async fn webdav_temp_and_direct_writes_commit_the_authenticated_activity_source() {
+    let (state, user, _, _) = build_s3_direct_test_state().await;
+    for (name, declared_size) in [
+        ("activity-temp.txt", None),
+        ("activity-direct.txt", Some(4)),
+    ] {
+        let mut input = context(user.id, name);
+        input.declared_size = declared_size;
+        let mut handle = AsterDavWriteHandle::for_write_with_audit(state.clone(), input)
+            .await
+            .unwrap();
+        assert_eq!(
+            matches!(handle.mode, super::super::WriteMode::WriteDirect { .. }),
+            declared_size.is_some()
+        );
+        handle
+            .write_bytes(Bytes::from_static(b"data"))
+            .await
+            .unwrap();
+        handle.finish().await.unwrap();
+        let file = file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, name)
+            .await
+            .unwrap()
+            .unwrap();
+        let records = aster_drive_model::entities::workspace_activity::Entity::find()
+            .filter(aster_drive_model::entities::workspace_activity::Column::EntityType.eq("file"))
+            .filter(aster_drive_model::entities::workspace_activity::Column::EntityId.eq(file.id))
+            .all(state.writer_db())
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, "webdav");
+        assert_eq!(records[0].actor_user_id, Some(user.id));
+        assert_eq!(records[0].actor_name, user.username);
+        assert_eq!(file.modified_by_user_id, Some(user.id));
+    }
+}

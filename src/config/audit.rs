@@ -31,7 +31,7 @@ impl AuditLogRuntimeSettings {
     }
 
     pub fn should_record(&self, action: AuditAction) -> bool {
-        self.enabled && mask_contains(self.action_mask, action)
+        self.enabled && !action.is_workspace_mutation() && mask_contains(self.action_mask, action)
     }
 }
 
@@ -48,6 +48,7 @@ pub fn default_recorded_actions_value() -> String {
     // Keep the stored default in authoritative action order so schema and storage stay stable.
     let values: Vec<&'static str> = AuditAction::ALL
         .iter()
+        .filter(|action| !action.is_workspace_mutation())
         .map(|action| action.as_str())
         .collect();
     serde_json::to_string(&values).unwrap_or_else(|error| {
@@ -62,6 +63,7 @@ pub fn default_recorded_actions_value() -> String {
 fn full_recorded_actions_json_fallback() -> String {
     let values: Vec<&'static str> = AuditAction::ALL
         .iter()
+        .filter(|action| !action.is_workspace_mutation())
         .map(|action| action.as_str())
         .collect();
     serde_json::json!(values).to_string()
@@ -71,6 +73,12 @@ pub fn normalize_recorded_actions_config_value(value: &str) -> Result<String> {
     let actions = parse_recorded_actions_config_value(value)?;
     let mut selected = [false; AuditAction::COUNT];
     for action in actions {
+        if action.is_workspace_mutation() {
+            return Err(AsterError::validation_error(format!(
+                "{} is a required workspace activity, not a configurable audit action",
+                action.as_str()
+            )));
+        }
         selected[action.index()] = true;
     }
 
@@ -78,6 +86,7 @@ pub fn normalize_recorded_actions_config_value(value: &str) -> Result<String> {
         .iter()
         .copied()
         .filter(|action| selected[action.index()])
+        .filter(|action| !action.is_workspace_mutation())
         .map(|action| action.as_str())
         .collect();
     serde_json::to_string(&normalized).map_err(|error| {
@@ -148,7 +157,10 @@ fn empty_action_mask() -> [u64; AUDIT_ACTION_MASK_WORDS] {
 
 fn all_actions_mask() -> [u64; AUDIT_ACTION_MASK_WORDS] {
     let mut mask = empty_action_mask();
-    for action in AuditAction::ALL {
+    for action in AuditAction::ALL
+        .into_iter()
+        .filter(|action| !action.is_workspace_mutation())
+    {
         set_mask_bit(&mut mask, action);
     }
     mask
@@ -183,16 +195,23 @@ mod tests {
     }
 
     #[test]
-    fn default_recorded_actions_contains_every_audit_action() {
+    fn default_recorded_actions_contains_only_system_audit_actions() {
         let actions = parse_recorded_actions_config_value(&default_recorded_actions_value())
             .expect("default audit action scope should parse");
-        assert_eq!(actions, AuditAction::ALL);
+        assert_eq!(
+            actions,
+            AuditAction::ALL
+                .into_iter()
+                .filter(|action| !action.is_workspace_mutation())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn full_recorded_actions_json_fallback_matches_serialized_all_actions() {
         let values: Vec<&'static str> = AuditAction::ALL
             .iter()
+            .filter(|action| !action.is_workspace_mutation())
             .map(|action| action.as_str())
             .collect();
         assert_eq!(
@@ -204,16 +223,28 @@ mod tests {
     #[test]
     fn normalize_recorded_actions_rejects_unknown_and_duplicate_values() {
         assert!(normalize_recorded_actions_config_value(r#"["user_login","unknown"]"#).is_err());
+        assert!(normalize_recorded_actions_config_value(r#"["file_upload"]"#).is_err());
         assert!(normalize_recorded_actions_config_value(r#"["user_login","user_login"]"#).is_err());
     }
 
     #[test]
     fn normalize_recorded_actions_preserves_authoritative_order_and_empty_set() {
         assert_eq!(
-            normalize_recorded_actions_config_value(r#"["file_upload","user_login"]"#).unwrap(),
-            r#"["file_upload","user_login"]"#
+            normalize_recorded_actions_config_value(r#"["user_login","file_download"]"#).unwrap(),
+            r#"["file_download","user_login"]"#
         );
         assert_eq!(normalize_recorded_actions_config_value("[]").unwrap(), "[]");
+    }
+
+    #[test]
+    fn legacy_workspace_selection_does_not_expand_system_audit_scope() {
+        let settings = AuditLogRuntimeSettings::from_raw_values(
+            Some("true"),
+            Some(r#"["file_upload","user_login"]"#),
+        );
+        assert!(settings.should_record(AuditAction::UserLogin));
+        assert!(!settings.should_record(AuditAction::FileUpload));
+        assert!(!settings.should_record(AuditAction::FileDownload));
     }
 
     #[test]
@@ -288,7 +319,7 @@ mod tests {
         assert!(!settings.should_record(AuditAction::UserLogin));
         assert!(!settings.should_record(AuditAction::MailSend));
         assert!(!settings.should_record(AuditAction::MailDeliveryFailed));
-        assert!(settings.should_record(AuditAction::FileUpload));
+        assert!(!settings.should_record(AuditAction::FileUpload));
     }
 
     #[test]

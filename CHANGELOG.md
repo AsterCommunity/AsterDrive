@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Workspace file attribution and activity** — File and folder lists, search and details show creators and last business modifiers. Durable workspace activities commit with each mutation, remain independent of optional audit logging and retention, and provide authorized team/resource history with CSV export. Upgrades add `workspace_activities` and nullable business-modification fields; historical modifiers remain unknown rather than inferred from content revisions. All writer instances must be upgraded for complete attribution and activity capture.
+- **Workspace activity performance boundaries** — Resource activity loads only after the user opens it, uses bounded keyset pages, and cancels stale requests. Batch moves, copies, deletes, and folder-tree mutations reuse locked snapshots and bulk-write attribution/activity records; exports and retention cleanup remain streaming/bounded.
 - **Google Drive storage backend** — Administrators can authorize an encrypted Google OAuth application and use a folder, shared drive, or appDataFolder as an AsterDrive blob pool, with an optional relative base path created beneath the selected root on writes. Existing blobs and unfinished uploads prevent pool relocation. Uploads support bounded server relay and backend-coordinated browser-direct resumable transfer; account quota observation uses Google's cross-service usage and reports unavailable shared-drive bounds honestly. Downloads and Range reads retain the current AsterDrive filename through server relay. Administrator OAuth tokens stay on the server; only browser-direct uploads receive a temporary capability URL for their own session.
 - **Extensible browser upload coordination** — Resumable drivers own response parsing and generate bounded HTTP instructions; the frontend executes uploads without provider-specific parsers. Protocol snapshots, private state and request IDs survive reloads, with authoritative recovery after lost responses and guarded updates during cancellation or concurrent coordination. Progress and recovery lists read stored snapshots; transfers explicitly reconcile authoritative provider state before sending bytes. Existing OneDrive and Google Drive sessions remain recoverable. The matching latest frontend is required; standalone `upload_url` and `next_expected_ranges` response fields are removed.
 
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Selection shortcuts after list updates** — Ctrl/Cmd+A and Escape use the latest committed list callbacks immediately, including when search results appear before passive effects run.
 - **OneDrive authorization races** — A delayed OAuth callback can no longer overwrite a newer application configuration or recreate a deleted credential. Authorization flows retain the saved credential revision through the final transaction. Unfinished authorization pages opened before the upgrade must restart the flow; existing saved authorizations are retained.
 
 ### Security

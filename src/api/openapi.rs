@@ -15,6 +15,14 @@ use utoipa::{Modify, OpenApi};
     ),
     modifiers(&SecurityAddon),
     paths(
+        crate::api::routes::workspace_activities::file,
+        crate::api::routes::workspace_activities::folder,
+        crate::api::routes::workspace_activities::team_file,
+        crate::api::routes::workspace_activities::team_folder,
+        crate::api::routes::workspace_activities::team,
+        crate::api::routes::workspace_activities::export_team,
+        crate::api::routes::workspace_activities::admin_team,
+        crate::api::routes::workspace_activities::admin_export_team,
         // auth::public：无需登录即可访问的安装检查、初始化、注册验证与密码找回接口。
         crate::api::routes::auth::public::check,
         crate::api::routes::auth::public::setup,
@@ -424,6 +432,8 @@ use utoipa::{Modify, OpenApi};
     ),
     components(
         schemas(
+            crate::services::workspace::activity::WorkspaceActivityPage,
+            crate::services::workspace::activity::ActivityListQuery,
             // api::api_error_code / api::pagination / api::response：统一错误码、产品分页查询和通用响应模型。
             crate::api::api_error_code::ApiErrorCode,
             crate::api::pagination::SortBy,

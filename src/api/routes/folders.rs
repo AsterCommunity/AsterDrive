@@ -33,6 +33,10 @@ pub fn routes(
         .route("", web::get().to(list_root))
         .route("", web::post().to(create_folder))
         .route("/{id}", web::get().to(list_folder))
+        .route(
+            "/{id}/activities",
+            web::get().to(super::workspace_activities::folder),
+        )
         .route("/{id}/info", web::get().to(get_folder_info))
         .route("/{id}/ancestors", web::get().to(get_ancestors))
         .route("/{id}/lock", web::post().to(set_lock))
@@ -47,6 +51,10 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/folders", web::get().to(team_list_root))
         .route("/folders", web::post().to(team_create_folder))
         .route("/folders/{id}", web::get().to(team_list_folder))
+        .route(
+            "/folders/{id}/activities",
+            web::get().to(super::workspace_activities::team_folder),
+        )
         .route("/folders/{id}/info", web::get().to(team_get_folder_info))
         .route("/folders/{id}", web::patch().to(team_patch_folder))
         .route("/folders/{id}", web::delete().to(team_delete_folder))

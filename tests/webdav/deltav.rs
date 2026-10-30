@@ -16,18 +16,18 @@ async fn property_audit_count(
     state: &aster_drive::runtime::PrimaryAppState,
     entity_id: i64,
 ) -> u64 {
-    use aster_drive_model::entities::audit_log;
+    use aster_drive_model::entities::workspace_activity;
     use aster_drive_model::types::{AuditAction, AuditEntityType};
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
     aster_drive::services::ops::audit::flush(state)
         .await
         .unwrap();
-    audit_log::Entity::find()
-        .filter(audit_log::Column::EntityId.eq(entity_id))
-        .filter(audit_log::Column::EntityType.eq(AuditEntityType::File.as_str()))
+    workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::EntityId.eq(entity_id))
+        .filter(workspace_activity::Column::EntityType.eq(AuditEntityType::File.as_str()))
         .filter(
-            audit_log::Column::Action
+            workspace_activity::Column::Action
                 .is_in([AuditAction::PropertySet, AuditAction::PropertyDelete]),
         )
         .count(state.writer_db())

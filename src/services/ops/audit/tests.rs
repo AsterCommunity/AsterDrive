@@ -369,7 +369,7 @@ async fn log_uses_owned_writer_and_flush_keeps_admission_open() {
             ip_address: None,
             user_agent: None,
         },
-        AuditAction::FileUpload,
+        AuditAction::FileDownload,
         crate::services::ops::audit::AuditEntityType::File,
         Some(7),
         Some("report.txt"),
@@ -379,7 +379,7 @@ async fn log_uses_owned_writer_and_flush_keeps_admission_open() {
 
     super::flush(&state).await.unwrap();
     let count = audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FileUpload))
+        .filter(audit_log::Column::Action.eq(AuditAction::FileDownload))
         .count(&db)
         .await
         .expect("audit query should succeed");
@@ -531,7 +531,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
             ip_address: None,
             user_agent: None,
         },
-        AuditAction::FileUpload,
+        AuditAction::FileDownload,
         crate::services::ops::audit::AuditEntityType::File,
         Some(7),
         Some("report.txt"),
@@ -545,7 +545,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     super::flush(&state).await.unwrap();
     let count = audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FileUpload))
+        .filter(audit_log::Column::Action.eq(AuditAction::FileDownload))
         .count(&db)
         .await
         .expect("audit query should succeed");

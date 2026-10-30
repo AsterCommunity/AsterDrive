@@ -38,12 +38,20 @@ pub struct SystemConfig {
 
 impl From<system_config::Model> for SystemConfig {
     fn from(model: system_config::Model) -> Self {
-        let presented = aster_forge_db::present_system_config(model, |error| {
+        let mut presented = aster_forge_db::present_system_config(model, |error| {
             tracing::warn!(
                 error = %error,
                 "invalid stored config value; returning an empty presentation value"
             );
         });
+        if presented.key == crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY
+            && let ConfigValue::StringArray(values) = &mut presented.value
+        {
+            values.retain(|value| {
+                aster_drive_model::types::AuditAction::from_str_name(value)
+                    .is_some_and(|action| !action.is_workspace_mutation())
+            });
+        }
         Self {
             id: presented.id,
             key: presented.key,

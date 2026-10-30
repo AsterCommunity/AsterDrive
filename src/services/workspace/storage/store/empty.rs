@@ -6,8 +6,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::events::storage_change;
 use crate::services::workspace::storage::{
-    BlobPolicyRequest, WorkspaceStorageScope, create_exact_file_from_blob,
-    create_new_file_from_blob, lock_folder_access_on, resolve_blob_policy_for_write,
+    BlobPolicyRequest, WorkspaceStorageScope, lock_folder_access_on, resolve_blob_policy_for_write,
     resolve_verified_folder_policy_hint_on,
 };
 use aster_drive_model::entities::{file, file_blob};
@@ -23,6 +22,7 @@ pub(crate) enum EmptyFileNameMode {
 #[derive(Clone)]
 pub(crate) struct PreparedEmptyFile {
     scope: WorkspaceStorageScope,
+    activity_source: crate::services::workspace::activity::ActivitySource,
     folder_id: Option<i64>,
     filename: String,
     name_mode: EmptyFileNameMode,
@@ -35,10 +35,12 @@ impl PreparedEmptyFile {
         folder_id: Option<i64>,
         filename: &str,
         name_mode: EmptyFileNameMode,
+        activity_source: crate::services::workspace::activity::ActivitySource,
     ) -> Result<Self> {
         let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
         Ok(Self {
             scope,
+            activity_source,
             folder_id,
             filename,
             name_mode,
@@ -56,6 +58,7 @@ impl PreparedEmptyFile {
         let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
         Ok(Self {
             scope,
+            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             folder_id,
             filename,
             name_mode,
@@ -121,30 +124,29 @@ impl PreparedEmptyFile {
         txn: &C,
         blob: &file_blob::Model,
     ) -> Result<file::Model> {
-        match self.name_mode {
-            EmptyFileNameMode::ResolveUnique => {
-                create_new_file_from_blob(
-                    txn,
-                    self.scope,
-                    self.folder_id,
-                    &self.filename,
-                    blob,
-                    Utc::now(),
-                )
-                .await
-            }
-            EmptyFileNameMode::Exact => {
-                create_exact_file_from_blob(
-                    txn,
-                    self.scope,
-                    self.folder_id,
-                    &self.filename,
-                    blob,
-                    Utc::now(),
-                )
-                .await
-            }
-        }
+        crate::services::workspace::storage_core::create_file_from_blob_with_name_mode(
+            txn,
+            crate::services::workspace::storage_core::CreateFileFromBlobParams {
+                scope: self.scope,
+                folder_id: self.folder_id,
+                filename: &self.filename,
+                blob,
+                now: Utc::now(),
+                creation_action: aster_drive_model::types::AuditAction::FileCreate,
+                activity_source: self.activity_source,
+                name_mode: match self.name_mode {
+                    EmptyFileNameMode::ResolveUnique => {
+                        crate::services::workspace::storage_core::NewFileNameMode::ResolveUnique
+                    }
+                    EmptyFileNameMode::Exact => {
+                        crate::services::workspace::storage_core::NewFileNameMode::Exact
+                    }
+                },
+                actor_username: None,
+                mime_type: None,
+            },
+        )
+        .await
     }
 
     pub(crate) fn publish_created(&self, state: &PrimaryAppState, created: &file::Model) {

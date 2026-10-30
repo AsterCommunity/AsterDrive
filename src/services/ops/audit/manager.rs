@@ -22,11 +22,11 @@ pub async fn flush(state: &impl SharedRuntimeState) -> crate::errors::Result<()>
 }
 
 pub fn should_record<S: SharedRuntimeState>(state: &S, action: AuditAction) -> bool {
-    state.runtime_config().should_record_audit_action(action)
+    !action.is_workspace_mutation() && state.runtime_config().should_record_audit_action(action)
 }
 
 pub fn should_record_with_config(runtime_config: &RuntimeConfig, action: AuditAction) -> bool {
-    runtime_config.should_record_audit_action(action)
+    !action.is_workspace_mutation() && runtime_config.should_record_audit_action(action)
 }
 
 #[derive(Debug, Clone, Copy)]

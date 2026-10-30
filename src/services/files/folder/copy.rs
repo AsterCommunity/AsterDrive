@@ -44,6 +44,7 @@ struct FolderTreeCopySnapshot {
 struct FolderTreeCopyOptions {
     traversal_limits: Option<FolderTreeTraversalLimits>,
     copy_user_properties: bool,
+    activity: Option<crate::services::workspace::activity::ActivityContext>,
 }
 
 async fn copy_frontier_files_between_scopes(
@@ -53,6 +54,7 @@ async fn copy_frontier_files_between_scopes(
     frontier: &[FrontierFolderCopy],
     snapshot: Option<&FolderTreeCopySnapshot>,
     copy_user_properties: bool,
+    activity: &crate::services::workspace::activity::ActivityContext,
 ) -> Result<i64> {
     if frontier.is_empty() {
         return Ok(0);
@@ -120,6 +122,7 @@ async fn copy_frontier_files_between_scopes(
         } else {
             crate::services::files::file::CopiedFilePropertyMode::None
         },
+        activity,
     )
     .await
 }
@@ -197,6 +200,7 @@ async fn create_frontier_children_from_plans_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     child_plans: Vec<PlannedChildFolderCopy>,
+    activity: &crate::services::workspace::activity::ActivityContext,
 ) -> Result<Vec<FrontierFolderCopy>> {
     if child_plans.is_empty() {
         return Ok(vec![]);
@@ -227,16 +231,46 @@ async fn create_frontier_children_from_plans_in_scope(
             ..Default::default()
         })
         .collect();
-    folder_repo::create_many(db, models).await?;
+    let txn = aster_forge_db::transaction::begin(db).await?;
+    folder_repo::create_many(&txn, models).await?;
 
     let created_children = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
-            folder_repo::find_children_in_parents(db, user_id, &dest_parent_ids).await?
+            folder_repo::find_children_in_parents(&txn, user_id, &dest_parent_ids).await?
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
-            folder_repo::find_team_children_in_parents(db, team_id, &dest_parent_ids).await?
+            folder_repo::find_team_children_in_parents(&txn, team_id, &dest_parent_ids).await?
         }
     };
+    let source_ids = child_plans
+        .iter()
+        .map(|plan| plan.src_folder_id)
+        .collect::<Vec<_>>();
+    let sources = folder_repo::find_by_ids(&txn, &source_ids)
+        .await?
+        .into_iter()
+        .map(|folder| (folder.id, folder))
+        .collect::<HashMap<_, _>>();
+    let expected = child_plans
+        .iter()
+        .map(|plan| {
+            (
+                (Some(plan.dest_parent_id), plan.dest_name.as_str()),
+                plan.src_folder_id,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let mut activities = crate::services::workspace::activity::ActivityBatch::new(activity);
+    for child in &created_children {
+        if let Some(source_id) = expected.get(&(child.parent_id, child.name.as_str())) {
+            let source = sources
+                .get(source_id)
+                .ok_or_else(|| AsterError::internal_error("copied folder source missing"))?;
+            activities.folder_copied(source, child);
+        }
+    }
+    activities.persist(&txn).await?;
+    aster_forge_db::transaction::commit(txn).await?;
     let created_by_parent_and_name: HashMap<(i64, String), i64> = created_children
         .into_iter()
         .filter_map(|child| {
@@ -286,6 +320,14 @@ pub(crate) async fn copy_folder_tree_in_scope_with_user_properties(
         FolderTreeCopyOptions {
             traversal_limits,
             copy_user_properties: true,
+            activity: Some(
+                crate::services::workspace::activity::ActivityContext::actor(
+                    state.writer_db(),
+                    scope.actor_user_id(),
+                    crate::services::workspace::activity::ActivitySource::Webdav,
+                )
+                .await?,
+            ),
         },
     )
     .await
@@ -310,6 +352,7 @@ pub(crate) async fn copy_folder_tree_in_scope(
         FolderTreeCopyOptions {
             traversal_limits,
             copy_user_properties: false,
+            activity: None,
         },
     )
     .await
@@ -369,8 +412,20 @@ async fn copy_folder_tree_between_scopes(
     let created_by_username = load_scope_actor_username(db, dest_scope).await?;
     let preserve_policy_id = same_workspace_resource(source_scope, dest_scope);
 
+    let creation_txn = aster_forge_db::transaction::begin(db).await?;
+    let activity = match options.activity {
+        Some(ref context) => context.clone(),
+        None => {
+            crate::services::workspace::activity::ActivityContext::actor(
+                &creation_txn,
+                dest_scope.actor_user_id(),
+                crate::services::workspace::activity::ActivitySource::Rest,
+            )
+            .await?
+        }
+    };
     let new_folder = folder_repo::create(
-        db,
+        &creation_txn,
         folder::ActiveModel {
             name: Set(dest_name.to_string()),
             parent_id: Set(dest_parent_id),
@@ -387,7 +442,15 @@ async fn copy_folder_tree_between_scopes(
         },
     )
     .await?;
+    crate::services::workspace::activity::folder_copied(
+        &creation_txn,
+        &activity,
+        &src_folder,
+        &new_folder,
+    )
+    .await?;
 
+    aster_forge_db::transaction::commit(creation_txn).await?;
     let mut frontier = vec![FrontierFolderCopy {
         src_folder_id,
         dest_folder_id: new_folder.id,
@@ -404,6 +467,7 @@ async fn copy_folder_tree_between_scopes(
                 &frontier,
                 snapshot.as_ref(),
                 options.copy_user_properties,
+                &activity
             ),
             load_frontier_child_plans_between_scopes(
                 state,
@@ -417,7 +481,8 @@ async fn copy_folder_tree_between_scopes(
             .checked_add(frontier_storage_delta)
             .ok_or_else(|| AsterError::internal_error("folder copy storage delta overflow"))?;
         frontier =
-            create_frontier_children_from_plans_in_scope(state, dest_scope, child_plans).await?;
+            create_frontier_children_from_plans_in_scope(state, dest_scope, child_plans, &activity)
+                .await?;
     }
 
     Ok((new_folder, storage_delta))
@@ -429,7 +494,7 @@ pub(crate) async fn copy_folder_in_scope(
     src_id: i64,
     dest_parent_id: Option<i64>,
 ) -> Result<folder::Model> {
-    copy_folder_between_scopes(state, scope, scope, src_id, dest_parent_id).await
+    copy_folder_between_scopes(state, scope, scope, src_id, dest_parent_id, None).await
 }
 
 pub(crate) async fn copy_folder_between_scopes(
@@ -438,6 +503,7 @@ pub(crate) async fn copy_folder_between_scopes(
     dest_scope: WorkspaceStorageScope,
     src_id: i64,
     dest_parent_id: Option<i64>,
+    activity: Option<&crate::services::workspace::activity::ActivityContext>,
 ) -> Result<folder::Model> {
     let db = state.writer_db();
     tracing::debug!(
@@ -497,6 +563,7 @@ pub(crate) async fn copy_folder_between_scopes(
             FolderTreeCopyOptions {
                 traversal_limits: None,
                 copy_user_properties: false,
+                activity: activity.cloned(),
             },
         )
         .await

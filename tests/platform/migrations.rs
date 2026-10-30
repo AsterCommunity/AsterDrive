@@ -4,7 +4,8 @@ use crate::common;
 
 use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
 use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, Statement,
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr,
+    FromQueryResult, Statement,
 };
 
 const ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION: &str = "m20260604_000001_allow_shared_webdav_locks";
@@ -664,9 +665,9 @@ async fn canonical_revision_ledger_backfills_history_head_and_user_properties() 
     ))
     .await
     .expect("post-migration file fixture should insert");
-    let post_migration_file = aster_drive::db::repository::file_repo::find_by_id(&db, 302)
+    let post_migration_file = aster_drive_model::entities::file::Model::find_by_statement(Statement::from_string(DbBackend::Sqlite,"SELECT *, NULL AS modified_by_user_id, NULL AS modified_by_username, NULL AS modified_at FROM files WHERE id = 302")).one(&db)
         .await
-        .expect("post-migration file should load");
+        .expect("post-migration file should load").expect("post-migration file should exist");
     let post_migration_revision = aster_drive::db::repository::revision_repo::create_initial(
         &db,
         &post_migration_file,
@@ -824,9 +825,9 @@ async fn assert_canonical_revision_ledger_upgrade_on_backend(db: &DatabaseConnec
             .await
             .expect("post-upgrade fixture statement should execute");
     }
-    let file = aster_drive::db::repository::file_repo::find_by_id(db, 9302)
+    let file = aster_drive_model::entities::file::Model::find_by_statement(Statement::from_string(db.get_database_backend(),"SELECT *, NULL AS modified_by_user_id, NULL AS modified_by_username, NULL AS modified_at FROM files WHERE id = 9302")).one(db)
         .await
-        .expect("post-upgrade file should load");
+        .expect("post-upgrade file should load").expect("post-upgrade file should exist");
     let revision = aster_drive::db::repository::revision_repo::create_initial(
         db,
         &file,

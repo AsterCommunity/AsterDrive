@@ -400,6 +400,7 @@ pub async fn rename_file(
         resolved.file.id,
         Some(final_name.clone()),
         NullablePatch::Absent,
+        crate::services::workspace::activity::ActivitySource::Wopi,
     )
     .await
     {
@@ -420,6 +421,7 @@ pub async fn rename_file(
                 resolved.file.id,
                 Some(final_name),
                 NullablePatch::Absent,
+                crate::services::workspace::activity::ActivitySource::Wopi,
             )
             .await?
         }

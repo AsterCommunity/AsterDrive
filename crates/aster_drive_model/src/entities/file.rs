@@ -23,6 +23,10 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
+    pub modified_by_user_id: Option<i64>,
+    pub modified_by_username: Option<String>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub modified_at: Option<DateTimeUtc>,
     pub mime_type: String,
     /// Lowercase final extension without a leading dot. Empty when the file name has no extension.
     pub extension: String,
@@ -105,6 +109,9 @@ impl ActiveModelBehavior for ActiveModel {
     where
         C: ConnectionTrait,
     {
+        if insert {
+            self.initialize_attribution();
+        }
         if self.name.is_set() || self.mime_type.is_set() {
             let mut name = active_string_value(&self.name).map(ToOwned::to_owned);
             let mut mime_type = active_string_value(&self.mime_type).map(ToOwned::to_owned);
@@ -145,5 +152,18 @@ fn active_i64_value(value: &ActiveValue<i64>) -> Option<i64> {
     match value {
         ActiveValue::Set(value) | ActiveValue::Unchanged(value) => Some(*value),
         ActiveValue::NotSet => None,
+    }
+}
+
+impl ActiveModel {
+    /// Initialize attribution only for genuinely new resources, never for migrated rows.
+    pub fn initialize_attribution(&mut self) {
+        self.modified_by_user_id = self.created_by_user_id.clone();
+        if let Some(name) = self.created_by_username.clone().take() {
+            self.modified_by_username = Set(Some(name));
+        }
+        if let Some(at) = self.created_at.clone().take() {
+            self.modified_at = Set(Some(at));
+        }
     }
 }

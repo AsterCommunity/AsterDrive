@@ -357,7 +357,8 @@ pub async fn find_export_page(
 
 /// Cursor page for admin overview daily aggregation.
 ///
-/// Overview only needs `action` and `created_at`, but the cursor also carries
+/// Overview reads `action` and `created_at`, plus batch-delete details for operation
+/// correlation (other potentially large payloads stay in the database). The cursor carries
 /// `id` so rows sharing the same timestamp are scanned exactly once without
 /// offset pagination. This keeps memory bounded even when the audit retention
 /// window contains a large number of events.
@@ -367,12 +368,20 @@ pub async fn find_action_page_in_range(
     end: DateTime<Utc>,
     after: Option<(DateTime<Utc>, i64)>,
     limit: u64,
-) -> Result<Vec<(i64, String, DateTime<Utc>)>> {
+) -> Result<Vec<(i64, String, DateTime<Utc>, Option<String>)>> {
     let mut query = AuditLog::find()
         .select_only()
         .column(audit_log::Column::Id)
         .column(audit_log::Column::Action)
         .column(audit_log::Column::CreatedAt)
+        .expr_as(
+            sea_orm::sea_query::Expr::case(
+                audit_log::Column::Action.eq(AuditAction::BatchDelete.as_str()),
+                sea_orm::sea_query::Expr::col(audit_log::Column::Details),
+            )
+            .finally(Option::<String>::None),
+            "details",
+        )
         .filter(audit_log::Column::CreatedAt.gte(start))
         .filter(audit_log::Column::CreatedAt.lt(end))
         .order_by_asc(audit_log::Column::CreatedAt)
@@ -392,7 +401,7 @@ pub async fn find_action_page_in_range(
     }
 
     query
-        .into_tuple::<(i64, String, DateTime<Utc>)>()
+        .into_tuple::<(i64, String, DateTime<Utc>, Option<String>)>()
         .all(db)
         .await
         .map_err(AsterError::from)

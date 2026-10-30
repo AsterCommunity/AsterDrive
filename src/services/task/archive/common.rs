@@ -147,8 +147,9 @@ pub(super) async fn create_folder_exact_in_scope(
 
     let now = Utc::now();
     let created_by_username = load_scope_actor_username(state.writer_db(), scope).await?;
-    folder_repo::create(
-        state.writer_db(),
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    let folder = crate::services::workspace::activity::create_folder(
+        &txn,
         folder::ActiveModel {
             name: Set(name),
             parent_id: Set(parent_id),
@@ -161,8 +162,11 @@ pub(super) async fn create_folder_exact_in_scope(
             updated_at: Set(now),
             ..Default::default()
         },
+        crate::services::workspace::activity::ActivitySource::Task,
     )
-    .await
+    .await?;
+    aster_forge_db::transaction::commit(txn).await?;
+    Ok(folder)
 }
 
 async fn resolve_unique_folder_name_in_scope(

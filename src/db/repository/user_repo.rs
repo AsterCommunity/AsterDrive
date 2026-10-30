@@ -100,6 +100,43 @@ pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<
         .map_err(AsterError::from)
 }
 
+/// Public identity projection only: do not load password/config/profile payloads for file lists.
+pub async fn find_public_display_names<C: ConnectionTrait>(
+    db: &C,
+    ids: &[i64],
+) -> Result<std::collections::HashMap<i64, String>> {
+    use aster_drive_model::entities::user_profile;
+    use sea_orm::{JoinType, RelationTrait};
+    let ids = ids
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut names = std::collections::HashMap::with_capacity(ids.len());
+    for chunk in ids.chunks(400) {
+        let rows = User::find()
+            .select_only()
+            .column(user::Column::Id)
+            .column(user::Column::Username)
+            .column(user_profile::Column::DisplayName)
+            .join(JoinType::LeftJoin, user_profile::Relation::User.def().rev())
+            .filter(user::Column::Id.is_in(chunk.iter().copied()))
+            .into_tuple::<(i64, String, Option<String>)>()
+            .all(db)
+            .await?;
+        for (id, username, display_name) in rows {
+            names.insert(
+                id,
+                display_name
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or(username),
+            );
+        }
+    }
+    Ok(names)
+}
+
 pub async fn find_by_username<C: ConnectionTrait>(
     db: &C,
     username: &str,

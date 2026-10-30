@@ -9,7 +9,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileInfoDialog } from "@/components/files/FileInfoDialog";
 import { ApiPendingError } from "@/services/http";
 
+vi.mock("@/components/files/WorkspaceActivityFeed", () => ({
+	WorkspaceActivityFeed: ({ target }: { target: unknown }) => {
+		mockState.activityTarget(target);
+		return <div data-testid="workspace-activity-feed" />;
+	},
+}));
+
 const mockState = vi.hoisted(() => ({
+	activityTarget: vi.fn(),
 	getFile: vi.fn(),
 	getFolderInfo: vi.fn(),
 	getMediaMetadata: vi.fn(),
@@ -273,6 +281,41 @@ describe("FileInfoDialog", () => {
 		expect(mockState.getFolderInfo).not.toHaveBeenCalled();
 		expect(mockState.getMediaMetadata).not.toHaveBeenCalled();
 		expect(mockState.listFolder).not.toHaveBeenCalled();
+	});
+
+	it("shows distinct creator and modifier with business modification time", () => {
+		render(
+			<FileInfoDialog
+				open
+				onOpenChange={vi.fn()}
+				file={
+					{
+						id: 1,
+						name: "authors.txt",
+						size: 1,
+						storage_used: 1,
+						blob_id: 2,
+						mime_type: "text/plain",
+						created_at: "2026-01-01",
+						updated_at: "2026-04-01",
+						modified_at: "2026-02-01",
+						created_by: { name: "Creator Alice", user_id: 1 },
+						modified_by: { name: "Editor Bob", user_id: 2 },
+						lock_state: { state: "unlocked" },
+					} as never
+				}
+			/>,
+		);
+		expect(screen.getByText("Creator Alice")).toBeInTheDocument();
+		expect(screen.getByText("Editor Bob")).toBeInTheDocument();
+		expect(screen.getByText("date:2026-02-01")).toBeInTheDocument();
+		expect(screen.queryByText("date:2026-04-01")).not.toBeInTheDocument();
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "activity_view" }));
+		expect(screen.getByTestId("workspace-activity-feed")).toBeInTheDocument();
+		expect(mockState.getFile).not.toHaveBeenCalled();
 	});
 
 	it("shows tags and opens tag management for the active target", () => {
@@ -917,5 +960,71 @@ describe("FileInfoDialog", () => {
 			vi.advanceTimersByTime(320);
 		});
 		expect(screen.queryByLabelText("info")).not.toBeInTheDocument();
+	});
+	it("collapses activity when closing or changing the inspected resource", () => {
+		const file = {
+			lock_state: { state: "unlocked" },
+			id: 71,
+			name: "lazy.txt",
+			size: 1,
+			blob_id: 2,
+			mime_type: "text/plain",
+			created_at: "2026-01-01",
+			updated_at: "2026-01-01",
+		} as unknown as import("@/types/api").FileInfo;
+		const { rerender } = render(
+			<FileInfoDialog open onOpenChange={vi.fn()} file={file} />,
+		);
+		const expand = () =>
+			fireEvent.click(screen.getByRole("button", { name: "activity_view" }));
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		expand();
+		expect(screen.getByTestId("workspace-activity-feed")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "activity_hide" }));
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		expand();
+		rerender(
+			<FileInfoDialog open={false} onOpenChange={vi.fn()} file={file} />,
+		);
+		rerender(<FileInfoDialog open onOpenChange={vi.fn()} file={file} />);
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+		expand();
+		rerender(
+			<FileInfoDialog open onOpenChange={vi.fn()} file={{ ...file, id: 72 }} />,
+		);
+		expect(
+			screen.queryByTestId("workspace-activity-feed"),
+		).not.toBeInTheDocument();
+	});
+	it("keeps the activity target stable across list refreshes for the same resource", () => {
+		const file = {
+			id: 91,
+			name: "stable.txt",
+			size: 1,
+			blob_id: 2,
+			mime_type: "text/plain",
+			created_at: "2026-01-01",
+			updated_at: "2026-01-01",
+			lock_state: { state: "unlocked" },
+		} as unknown as import("@/types/api").FileInfo;
+		const { rerender } = render(
+			<FileInfoDialog open onOpenChange={vi.fn()} file={file} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "activity_view" }));
+		const target = mockState.activityTarget.mock.lastCall?.[0];
+		rerender(
+			<FileInfoDialog
+				open
+				onOpenChange={vi.fn()}
+				file={{ ...file, name: "refreshed.txt" }}
+			/>,
+		);
+		expect(mockState.activityTarget.mock.lastCall?.[0]).toBe(target);
 	});
 });

@@ -18,6 +18,7 @@ const mockState = vi.hoisted(() => ({
 		onFileClick: vi.fn(),
 		onFolderOpen: vi.fn(),
 		onMoveToFolder: vi.fn(),
+		showAttribution: undefined as boolean | undefined,
 		readOnly: false,
 		selectionEnabled: undefined as boolean | undefined,
 		trashMode: undefined as boolean | undefined,
@@ -98,6 +99,9 @@ vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
 }));
 
 vi.mock("@/components/files/FileTableCells", () => ({
+	AttributionCell: ({ name }: { name?: string | null }) => (
+		<td>{name ?? "Unknown"}</td>
+	),
 	FileNameCell: ({
 		file,
 		thumbnailPath,
@@ -275,6 +279,9 @@ const folder = {
 const file = {
 	id: 2,
 	name: "report.pdf",
+	created_by: { user_id: 1, name: "Creator Alice" },
+	modified_by: { user_id: 2, name: "Editor Bob" },
+	modified_at: "2026-01-03",
 	size: 123,
 	updated_at: "2026-01-02",
 	lock_state: { state: "direct", mode: "exclusive" },
@@ -293,6 +300,7 @@ describe("FileTable", () => {
 		mockState.browserContext.onFileClick.mockReset();
 		mockState.browserContext.onFolderOpen.mockReset();
 		mockState.browserContext.onMoveToFolder.mockReset();
+		mockState.browserContext.showAttribution = undefined;
 		mockState.browserContext.readOnly = false;
 		mockState.browserContext.selectionEnabled = undefined;
 		mockState.browserContext.trashMode = undefined;
@@ -318,6 +326,26 @@ describe("FileTable", () => {
 		mockState.hasInternalDragData.mockReturnValue(false);
 		mockState.readInternalDragData.mockReturnValue(null);
 		mockState.getInvalidInternalDropReason.mockReturnValue(null);
+	});
+
+	it("renders creator and last modifier from list data with historical unknown fallback", () => {
+		render(<FileTable />);
+		expect(screen.getByText("Creator Alice")).toBeInTheDocument();
+		expect(screen.getByText("Editor Bob")).toBeInTheDocument();
+		expect(screen.getAllByText("Unknown")).toHaveLength(2);
+	});
+
+	it("omits identity columns for public share audiences even if data contains identities", () => {
+		mockState.browserContext.showAttribution = false;
+		render(<FileTable />);
+		expect(screen.queryByText("Creator Alice")).not.toBeInTheDocument();
+		expect(screen.queryByText("Editor Bob")).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("translated:info_created_by"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByText("translated:info_modified_by"),
+		).not.toBeInTheDocument();
 	});
 
 	it("renders current sort state and updates sorting from header clicks", () => {

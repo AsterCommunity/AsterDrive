@@ -54,9 +54,20 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
         aster_drive_model::types::EntityType::File,
         file.id,
     );
-    Ok(FileInfo::from_model_with_storage_used(file, storage_used)
+    let names = crate::services::workspace::activity::display_names(
+        state,
+        &[file.created_by_user_id, file.modified_by_user_id]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    let mut info = FileInfo::from_model_with_storage_used(file, storage_used)
         .with_tags(tags)
-        .with_lock_state(lock_state))
+        .with_lock_state(lock_state);
+    crate::services::workspace::activity::resolve_identity(&mut info.created_by, &names);
+    crate::services::workspace::activity::resolve_identity(&mut info.modified_by, &names);
+    Ok(info)
 }
 
 pub(crate) async fn update_in_scope(
@@ -65,6 +76,7 @@ pub(crate) async fn update_in_scope(
     id: i64,
     name: Option<String>,
     folder_id: NullablePatch<i64>,
+    source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
     tracing::debug!(
         scope = ?scope,
@@ -131,6 +143,11 @@ pub(crate) async fn update_in_scope(
         return Err(file_repo::duplicate_name_error(&final_name));
     }
 
+    if final_name == f.name && target_folder == f.folder_id {
+        transaction::commit(txn).await?;
+        return Ok(f);
+    }
+    let before = f.clone();
     let previous_folder_id = f.folder_id;
     let mime_type = f.mime_type.clone();
     let mut active: file::ActiveModel = f.into();
@@ -147,10 +164,29 @@ pub(crate) async fn update_in_scope(
         NullablePatch::Value(fid) => active.folder_id = Set(Some(fid)),
     }
     active.updated_at = Set(Utc::now());
-    let updated = active
+    let mut updated = active
         .update(&txn)
         .await
         .map_err(|err| file_repo::map_name_db_err(err, &final_name))?;
+    let activity = crate::services::workspace::activity::ActivityContext::actor(
+        &txn,
+        scope.actor_user_id(),
+        source,
+    )
+    .await?;
+    let action = if before.folder_id != updated.folder_id {
+        aster_drive_model::types::AuditAction::FileMove
+    } else {
+        aster_drive_model::types::AuditAction::FileRename
+    };
+    crate::services::workspace::activity::file_changed(
+        &txn,
+        &activity,
+        &before,
+        &mut updated,
+        action,
+    )
+    .await?;
     transaction::commit(txn).await?;
     storage_change::publish(
         state,
@@ -192,6 +228,7 @@ pub async fn update(
         id,
         name,
         folder_id,
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)
@@ -217,6 +254,7 @@ pub async fn move_file(
             Some(folder_id) => NullablePatch::Value(folder_id),
             None => NullablePatch::Null,
         },
+        crate::services::workspace::activity::ActivitySource::Rest,
     )
     .await
     .map(Into::into)

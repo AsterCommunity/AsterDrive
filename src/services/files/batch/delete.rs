@@ -21,6 +21,7 @@ pub(crate) async fn batch_delete_in_scope(
     scope: WorkspaceStorageScope,
     file_ids: &[i64],
     folder_ids: &[i64],
+    activity: Option<&crate::services::workspace::activity::ActivityContext>,
 ) -> Result<BatchResult> {
     tracing::debug!(
         scope = ?scope,
@@ -137,33 +138,66 @@ pub(crate) async fn batch_delete_in_scope(
 
         let mut file_ids_to_delete: Vec<i64> = file_ids_to_delete.into_iter().collect();
         file_ids_to_delete.sort_unstable();
+        let mut before_files = Vec::with_capacity(file_ids_to_delete.len());
         for file_id in &file_ids_to_delete {
             let snapshot = file_repo::find_by_id(&txn, *file_id).await?;
             storage::ensure_active_file_scope(&snapshot, scope)?;
-            crate::services::files::lock::enforce_file_mutation_on(
+            let current = crate::services::files::lock::enforce_file_mutation_on(
                 &txn,
                 &snapshot,
                 &crate::services::files::lock::SubmittedLockCredentials::none(),
             )
             .await?;
+            before_files.push(current);
         }
 
         let mut folder_ids_to_delete: Vec<i64> = folder_ids_to_delete.into_iter().collect();
         folder_ids_to_delete.sort_unstable();
+        let mut before_folders = Vec::with_capacity(folder_ids_to_delete.len());
         for folder_id in &folder_ids_to_delete {
             let snapshot = folder_repo::find_by_id(&txn, *folder_id).await?;
             storage::ensure_active_folder_scope(&snapshot, scope)?;
-            crate::services::files::lock::enforce_folder_mutation_on(
+            let current = crate::services::files::lock::enforce_folder_mutation_on(
                 &txn,
                 &snapshot,
                 aster_drive_model::types::LockDepth::Resource,
                 &crate::services::files::lock::SubmittedLockCredentials::none(),
             )
             .await?;
+            before_folders.push(current);
         }
 
         let total_file_count = file_ids_to_delete.len();
         let total_folder_count = folder_ids_to_delete.len();
+        let ctx = match activity {
+            Some(context) => context.clone(),
+            None => {
+                crate::services::workspace::activity::ActivityContext::actor(
+                    &txn,
+                    scope.actor_user_id(),
+                    crate::services::workspace::activity::ActivitySource::Rest,
+                )
+                .await?
+            }
+        };
+        // Activity projections borrow the locked snapshots; never clone complete tree models.
+        for files in before_files.chunks(200) {
+            let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+            for before in files {
+                batch.file_lifecycle(before, aster_drive_model::types::AuditAction::FileDelete)?;
+            }
+            batch.persist(&txn).await?;
+        }
+        for folders in before_folders.chunks(200) {
+            let mut batch = crate::services::workspace::activity::ActivityBatch::new(&ctx);
+            for before in folders {
+                batch.folder_lifecycle(
+                    before,
+                    aster_drive_model::types::AuditAction::FolderDelete,
+                )?;
+            }
+            batch.persist(&txn).await?;
+        }
         file_repo::soft_delete_many(&txn, &file_ids_to_delete, now).await?;
         folder_repo::soft_delete_many(&txn, &folder_ids_to_delete, now).await?;
         transaction::commit(txn).await?;
@@ -226,6 +260,7 @@ pub async fn batch_delete(
         WorkspaceStorageScope::Personal { user_id },
         file_ids,
         folder_ids,
+        None,
     )
     .await
 }
@@ -246,6 +281,7 @@ pub async fn batch_delete_team(
         },
         file_ids,
         folder_ids,
+        None,
     )
     .await
 }

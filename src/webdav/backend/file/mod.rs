@@ -601,6 +601,10 @@ impl DavWriteHandle for AsterDavWriteHandle {
                         expected_current_revision_etag: None,
                     },
                     storage::StoreFromTempHints {
+                        operation_context: storage::StorageOperationContext::default()
+                            .with_activity_source(
+                                crate::services::workspace::activity::ActivitySource::Webdav,
+                            ),
                         resolved_policy: resolved_policy_hint,
                         precomputed_hash: precomputed_hash.as_deref(),
                         actor_username: None,
@@ -688,6 +692,8 @@ impl DavWriteHandle for AsterDavWriteHandle {
                 let stored = storage::store_preuploaded_nondedup(
                     state,
                     storage::StorePreuploadedNondedupParams {
+                        activity_source:
+                            crate::services::workspace::activity::ActivitySource::Webdav,
                         scope: *scope,
                         folder_id: *folder_id,
                         filename,

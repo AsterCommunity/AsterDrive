@@ -10,6 +10,7 @@ import {
 } from "@/components/files/FileBrowserItemContextMenu";
 import { FileHoverPreview } from "@/components/files/FileHoverPreview";
 import {
+	AttributionCell,
 	FileNameCell,
 	FileSizeCell,
 	FolderNameCell,
@@ -93,6 +94,7 @@ function SortIcon({
 }
 
 interface BaseTableRowProps {
+	showAttribution: boolean;
 	browserOpenMode: BrowserOpenMode;
 }
 
@@ -118,6 +120,7 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 	folder,
 	readOnly,
 	selectionEnabled,
+	showAttribution,
 	trashMeta,
 	onFolderOpen,
 	onMoveToFolder,
@@ -223,6 +226,12 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 			) : null}
 			<FolderSizeCell />
 			{trashMeta ? null : <UpdatedAtCell updatedAt={folder.updated_at} />}
+			{trashMeta || !showAttribution ? null : (
+				<>
+					<AttributionCell name={folder.created_by?.name} />
+					<AttributionCell name={folder.modified_by?.name} />
+				</>
+			)}
 			<TableCell
 				className="w-12 pl-0 pr-3 text-right"
 				onClick={(e) => e.stopPropagation()}
@@ -259,6 +268,7 @@ const FileTableDataRow = memo(function FileTableDataRow({
 	file,
 	readOnly,
 	selectionEnabled,
+	showAttribution,
 	thumbnailPath,
 	trashMeta,
 	onFileClick,
@@ -341,6 +351,12 @@ const FileTableDataRow = memo(function FileTableDataRow({
 			) : null}
 			<FileSizeCell size={file.size} />
 			{trashMeta ? null : <UpdatedAtCell updatedAt={file.updated_at} />}
+			{trashMeta || !showAttribution ? null : (
+				<>
+					<AttributionCell name={file.created_by?.name} />
+					<AttributionCell name={file.modified_by?.name} />
+				</>
+			)}
 			<TableCell
 				className="w-12 pl-0 pr-3 text-right"
 				onClick={(e) => e.stopPropagation()}
@@ -376,6 +392,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 		readOnly = false,
 		selectionEnabled = !readOnly,
 		trashMode = false,
+		showAttribution = true,
 	} = useFileBrowserContext();
 	// D8 入场动画与 FileGrid 同源：内容从空到非空播一次；类不移除，
 	// CSS animation 不会因重渲染重播（fill-mode backwards 无残留）
@@ -428,6 +445,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 			folder={folder}
 			readOnly={readOnly}
 			selectionEnabled={selectionEnabled}
+			showAttribution={showAttribution}
 			trashMeta={trashMode ? getTrashMeta?.("folder", folder.id) : undefined}
 			onFolderOpen={onFolderOpen}
 			onMoveToFolder={onMoveToFolder}
@@ -442,6 +460,7 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 			file={file}
 			readOnly={readOnly}
 			selectionEnabled={selectionEnabled}
+			showAttribution={showAttribution}
 			thumbnailPath={getThumbnailPath?.(file)}
 			trashMeta={trashMode ? getTrashMeta?.("file", file.id) : undefined}
 			onFileClick={onFileClick}
@@ -503,9 +522,11 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 	});
 
 	const trashColumnCount = trashMode ? 1 : 0;
+	const attributionColumnCount = !trashMode && showAttribution ? 2 : 0;
 	const columnCount =
 		(selectionEnabled ? TABLE_COLUMN_COUNT : TABLE_COLUMN_COUNT - 1) +
-		trashColumnCount;
+		trashColumnCount +
+		attributionColumnCount;
 
 	const renderSpacerRow = (key: string, height: number) => (
 		<TableRow key={key} aria-hidden className="border-0 hover:bg-transparent">
@@ -614,6 +635,12 @@ function FileTableComponent({ scrollElement }: FileTableProps) {
 								)}
 							</div>
 						</TableHead>
+					)}
+					{trashMode || !showAttribution ? null : (
+						<>
+							<TableHead>{t("info_created_by")}</TableHead>
+							<TableHead>{t("info_modified_by")}</TableHead>
+						</>
 					)}
 					<TableHead className="w-12 pr-3" />
 				</TableRow>

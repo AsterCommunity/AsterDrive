@@ -25,6 +25,8 @@ where
 #[derive(Clone, Default)]
 pub(crate) struct StorageOperationContext {
     cancellation: Option<Arc<dyn StorageCancellationCheck>>,
+    activity_source: crate::services::workspace::activity::ActivitySource,
+    content_edit: bool,
 }
 
 impl StorageOperationContext {
@@ -34,9 +36,38 @@ impl StorageOperationContext {
     {
         Self {
             cancellation: Some(Arc::new(cancellation)),
+            content_edit: false,
+            activity_source: crate::services::workspace::activity::ActivitySource::Task,
         }
     }
 
+    pub(crate) fn with_activity_source(
+        mut self,
+        source: crate::services::workspace::activity::ActivitySource,
+    ) -> Self {
+        self.activity_source = source;
+        self
+    }
+    pub(crate) fn with_content_edit(mut self) -> Self {
+        self.content_edit = true;
+        self
+    }
+    pub(crate) fn content_action(&self) -> aster_drive_model::types::AuditAction {
+        if self.content_edit
+            || matches!(
+                self.activity_source,
+                crate::services::workspace::activity::ActivitySource::Webdav
+                    | crate::services::workspace::activity::ActivitySource::Wopi
+            )
+        {
+            aster_drive_model::types::AuditAction::FileEdit
+        } else {
+            aster_drive_model::types::AuditAction::FileUpload
+        }
+    }
+    pub(crate) fn activity_source(&self) -> crate::services::workspace::activity::ActivitySource {
+        self.activity_source
+    }
     pub(crate) fn checkpoint(&self) -> Result<()> {
         if let Some(cancellation) = &self.cancellation {
             cancellation.checkpoint()?;

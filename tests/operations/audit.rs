@@ -4,7 +4,7 @@ use crate::common;
 
 use actix_web::test;
 use aster_drive::services::ops::audit;
-use aster_drive_model::entities::audit_log;
+use aster_drive_model::entities::{audit_log, workspace_activity};
 use aster_drive_model::types::AuditAction;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
@@ -79,26 +79,26 @@ async fn test_folder_icon_audit_uses_the_transactional_previous_value() {
         assert_eq!(response.status(), 200);
     }
 
-    let entries = audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FolderIconChange))
-        .filter(audit_log::Column::EntityId.eq(folder_id))
-        .order_by_asc(audit_log::Column::Id)
+    let entries = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::Action.eq(AuditAction::FolderIconChange.as_str()))
+        .filter(workspace_activity::Column::EntityId.eq(folder_id))
+        .order_by_asc(workspace_activity::Column::Id)
         .all(state.writer_db())
         .await
         .unwrap();
     assert_eq!(entries.len(), 2);
 
-    let first: Value = serde_json::from_str(entries[0].details.as_deref().unwrap()).unwrap();
+    let first: Value = serde_json::from_str(&entries[0].details).unwrap();
     assert_eq!(first["previous_kind"], "default");
     assert_eq!(first["previous_key"], Value::Null);
     assert_eq!(first["kind"], "builtin");
     assert_eq!(first["key"], "documents");
 
-    let second: Value = serde_json::from_str(entries[1].details.as_deref().unwrap()).unwrap();
+    let second: Value = serde_json::from_str(&entries[1].details).unwrap();
     assert_eq!(second["previous_kind"], "builtin");
     assert_eq!(second["previous_key"], "documents");
     assert_eq!(second["kind"], "emoji");
-    assert_eq!(second["key"], Value::Null);
+    assert_eq!(second["key"], "📚");
 }
 
 #[actix_web::test]
@@ -139,31 +139,24 @@ async fn test_audit_log_persists_long_entity_type_values() {
 }
 
 #[actix_web::test]
-async fn test_audit_log_recorded_on_upload() {
+async fn test_upload_records_one_durable_activity_without_duplicate_optional_audit() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
-
-    // Upload a file — this triggers a "file_upload" audit log entry
-    let _file_id = upload_test_file!(app, token);
-
-    // Admin queries audit logs
-    let req = test::TestRequest::get()
-        .uri("/api/v1/admin/audit-logs")
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .insert_header(common::csrf_header_for(&token))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "success");
-
-    let items = body["data"]["items"].as_array().unwrap();
-    let has_upload = items.iter().any(|item| item["action"] == "file_upload");
+    let file_id = upload_test_file!(app, token);
+    let entries = workspace_activity::Entity::find()
+        .filter(workspace_activity::Column::EntityType.eq("file"))
+        .filter(workspace_activity::Column::EntityId.eq(file_id))
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].action, "file_upload");
+    let items = fetch_audit_items!(app, token);
     assert!(
-        has_upload,
-        "audit log should contain a file_upload entry, got: {:?}",
-        items.iter().map(|i| &i["action"]).collect::<Vec<_>>()
+        items
+            .iter()
+            .all(|item| item["action"] != "file_upload" && item["action"] != "file_create")
     );
 }
 
@@ -380,11 +373,20 @@ async fn test_audit_cleanup_retention_zero_keeps_logs() {
 #[actix_web::test]
 async fn test_audit_log_pagination_fields_and_offset() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     for _ in 0..3 {
-        let _file_id = upload_test_file!(app, token);
+        audit::log(
+            &state,
+            &audit::AuditContext::system(),
+            AuditAction::FileDownload,
+            audit::AuditEntityType::File,
+            Some(1),
+            Some("report.txt"),
+            None,
+        )
+        .await;
     }
 
     let req = test::TestRequest::get()
@@ -873,7 +875,7 @@ async fn test_audit_log_recorded_on_setup_register_and_login_after_refactor() {
 #[actix_web::test]
 async fn test_audit_log_recorded_on_file_and_folder_patch_variants_after_refactor() {
     let state = common::setup().await;
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
     let req = test::TestRequest::post()
@@ -936,7 +938,14 @@ async fn test_audit_log_recorded_on_file_and_folder_patch_variants_after_refacto
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let items = fetch_audit_items!(app, token);
+    let entries = workspace_activity::Entity::find()
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    let items = entries
+        .iter()
+        .map(|entry| serde_json::json!({"action":entry.action,"entity_type":entry.entity_type}))
+        .collect::<Vec<_>>();
 
     assert_eq!(
         assert_action_present(&items, "folder_rename")["entity_type"],
@@ -1509,7 +1518,7 @@ async fn test_audit_ip_ignores_client_forwarded_headers_without_trusted_proxies(
     // 测试配置没有 trusted_proxies：真实客户端就是 TCP peer，
     // 客户端可伪造的 X-Forwarded-For 绝不能进审计行。
     let req = test::TestRequest::post()
-        .uri("/api/v1/folders")
+        .uri("/api/v1/teams")
         .peer_addr("127.0.0.1:51000".parse().unwrap())
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
@@ -1523,12 +1532,12 @@ async fn test_audit_ip_ignores_client_forwarded_headers_without_trusted_proxies(
         .unwrap();
 
     let stored = audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FolderCreate))
+        .filter(audit_log::Column::Action.eq(AuditAction::TeamCreate))
         .order_by_desc(audit_log::Column::Id)
         .one(state.writer_db())
         .await
         .unwrap()
-        .expect("folder create should be audited");
+        .expect("team create should be audited");
     assert_eq!(
         stored.ip_address.as_deref(),
         Some("127.0.0.1"),

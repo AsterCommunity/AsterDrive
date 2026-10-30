@@ -465,6 +465,57 @@ async fn finalize_operation(
         enforce_task_root_lock(txn, &root, &lock_tokens).await?;
         let original_parent_id = root.parent_id;
         let mut restored_parent_id = root.parent_id;
+        let mut activity = crate::services::workspace::activity::ActivityContext::actor(
+            txn,
+            scope.actor_user_id(),
+            crate::services::workspace::activity::ActivitySource::Task,
+        )
+        .await?;
+        activity.operation_id = format!("folder-tree:{}", task.id);
+        let deleting = matches!(payload.operation, FolderTreeMutationOperation::Delete);
+        let mut after_id = 0;
+        loop {
+            let files = folder_tree_operation_repo::staged_files(txn, task.id, after_id).await?;
+            if files.is_empty() {
+                break;
+            }
+            let mut batch = crate::services::workspace::activity::ActivityBatch::new(&activity);
+            for before in files {
+                after_id = before.id;
+                if before.deleted_at.is_some() == deleting {
+                    continue;
+                }
+                let action = if deleting {
+                    aster_drive_model::types::AuditAction::FileDelete
+                } else {
+                    aster_drive_model::types::AuditAction::FileRestore
+                };
+                batch.file_lifecycle(&before, action)?;
+            }
+            batch.persist(txn).await?;
+        }
+        after_id = 0;
+        loop {
+            let folders =
+                folder_tree_operation_repo::staged_folders(txn, task.id, after_id).await?;
+            if folders.is_empty() {
+                break;
+            }
+            let mut batch = crate::services::workspace::activity::ActivityBatch::new(&activity);
+            for before in folders {
+                after_id = before.id;
+                if before.deleted_at.is_some() == deleting {
+                    continue;
+                }
+                let action = if deleting {
+                    aster_drive_model::types::AuditAction::FolderDelete
+                } else {
+                    aster_drive_model::types::AuditAction::FolderRestore
+                };
+                batch.folder_lifecycle(&before, action)?;
+            }
+            batch.persist(txn).await?;
+        }
         let counts = match payload.operation {
             FolderTreeMutationOperation::Delete => {
                 let counts = folder_tree_operation_repo::apply_delete(txn, task.id, now).await?;
@@ -1033,6 +1084,9 @@ mod tests {
             owner_user_id: Some(7),
             created_by_user_id: Some(7),
             created_by_username: "owner".to_string(),
+            modified_by_user_id: None,
+            modified_by_username: None,
+            modified_at: None,
             policy_id: None,
             icon_kind: aster_drive_model::types::FolderIconKind::Default,
             icon_value: None,
@@ -1091,6 +1145,9 @@ mod tests {
             owner_user_id: Some(7),
             created_by_user_id: Some(7),
             created_by_username: "owner".to_string(),
+            modified_by_user_id: None,
+            modified_by_username: None,
+            modified_at: None,
             policy_id: None,
             icon_kind: aster_drive_model::types::FolderIconKind::Default,
             icon_value: None,

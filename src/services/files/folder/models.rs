@@ -37,6 +37,10 @@ pub struct FileListItem {
     pub file_category: aster_forge_file_classification::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    pub modified_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
     pub lock_state: ResourceLockState,
     pub is_shared: bool,
     pub tags: Vec<TagSummary>,
@@ -50,6 +54,10 @@ pub struct FolderListItem {
     pub icon: FolderIcon,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    pub modified_by: Option<crate::services::workspace::activity::ActivityIdentity>,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub modified_at: Option<chrono::DateTime<chrono::Utc>>,
     pub lock_state: ResourceLockState,
     pub is_shared: bool,
     pub tags: Vec<TagSummary>,
@@ -111,6 +119,15 @@ pub fn build_file_list_items_with_tags_and_lock_states(
             compound_extension: file.compound_extension,
             file_category: file.file_category,
             updated_at: file.updated_at,
+            created_by: crate::services::workspace::activity::snapshot_identity(
+                file.created_by_user_id,
+                Some(&file.created_by_username),
+            ),
+            modified_by: crate::services::workspace::activity::snapshot_identity(
+                file.modified_by_user_id,
+                file.modified_by_username.as_deref(),
+            ),
+            modified_at: file.modified_at,
             lock_state: lock_states
                 .get(&(EntityType::File, file.id))
                 .cloned()
@@ -163,6 +180,15 @@ pub fn build_folder_list_items_with_tags_and_lock_states(
                 name: folder.name,
                 icon,
                 updated_at: folder.updated_at,
+                created_by: crate::services::workspace::activity::snapshot_identity(
+                    folder.created_by_user_id,
+                    Some(&folder.created_by_username),
+                ),
+                modified_by: crate::services::workspace::activity::snapshot_identity(
+                    folder.modified_by_user_id,
+                    folder.modified_by_username.as_deref(),
+                ),
+                modified_at: folder.modified_at,
                 lock_state: lock_states
                     .get(&(EntityType::Folder, folder.id))
                     .cloned()
@@ -199,6 +225,9 @@ mod tests {
             owner_user_id: Some(1),
             created_by_user_id: Some(1),
             created_by_username: "tester".to_string(),
+            modified_by_user_id: None,
+            modified_by_username: None,
+            modified_at: None,
             mime_type: "text/plain".to_string(),
             extension: extension.to_string(),
             compound_extension: compound_extension.map(ToOwned::to_owned),
@@ -218,6 +247,9 @@ mod tests {
             owner_user_id: Some(1),
             created_by_user_id: Some(1),
             created_by_username: "tester".to_string(),
+            modified_by_user_id: None,
+            modified_by_username: None,
+            modified_at: None,
             policy_id: None,
             icon_kind: aster_drive_model::types::FolderIconKind::Default,
             icon_value: None,

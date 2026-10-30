@@ -711,6 +711,32 @@ pub enum AuditAction {
 }
 
 impl AuditAction {
+    pub const fn is_workspace_mutation(self) -> bool {
+        matches!(
+            self,
+            Self::FileCreate
+                | Self::FileCopy
+                | Self::FileMove
+                | Self::FileRename
+                | Self::FileEdit
+                | Self::FileUpload
+                | Self::FileDelete
+                | Self::FileRestore
+                | Self::FileVersionRestore
+                | Self::FolderCreate
+                | Self::FolderCopy
+                | Self::FolderMove
+                | Self::FolderRename
+                | Self::FolderDelete
+                | Self::FolderRestore
+                | Self::FolderIconChange
+                | Self::TagAttach
+                | Self::TagDetach
+                | Self::PropertySet
+                | Self::PropertyDelete
+        )
+    }
+
     pub const COUNT: usize = define_audit_action_list!(audit_action_count);
     pub const ALL: [Self; Self::COUNT] = define_audit_action_list!(audit_action_all);
 

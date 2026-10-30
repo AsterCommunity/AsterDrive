@@ -1369,9 +1369,15 @@ async fn bounded_delete_and_copy_fail_before_any_tree_write() {
         .is_none()
     );
 
-    let delete_error = folder::delete_in_scope(&state, scope, root.id, one_resource)
-        .await
-        .expect_err("bounded delete should reject tree before soft-delete writes");
+    let delete_error = folder::delete_in_scope(
+        &state,
+        scope,
+        root.id,
+        one_resource,
+        crate::services::workspace::activity::ActivitySource::Webdav,
+    )
+    .await
+    .expect_err("bounded delete should reject tree before soft-delete writes");
     assert!(matches!(
         delete_error,
         crate::errors::AsterError::OperationResourceLimitExceeded(_)

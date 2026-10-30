@@ -162,6 +162,7 @@ export function ShareFolderView({
 				files: folderContents.files,
 				browserOpenMode: "single_click",
 				readOnly: true,
+				showAttribution: false,
 				selectionEnabled: true,
 				batchSelectionActions: selectionToolbar
 					? {

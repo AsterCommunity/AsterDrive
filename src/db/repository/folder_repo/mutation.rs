@@ -116,8 +116,9 @@ async fn create_or_find_in_scope_with_created<C: ConnectionTrait>(
 
 async fn insert_without_conflict<C: ConnectionTrait>(
     db: &C,
-    model: folder::ActiveModel,
+    mut model: folder::ActiveModel,
 ) -> Result<Option<folder::Model>> {
+    model.initialize_attribution();
     // The live folder-name index is an expression index, so it cannot be named as a portable
     // PostgreSQL conflict target. PostgreSQL/SQLite accept an unqualified DO NOTHING. MySQL
     // uses LAST_INSERT_ID(id) so the duplicate winner remains visible under REPEATABLE READ.
@@ -182,6 +183,13 @@ pub async fn create_many<C: ConnectionTrait>(
     if models.is_empty() {
         return Ok(());
     }
+    let models = models
+        .into_iter()
+        .map(|mut model| {
+            model.initialize_attribution();
+            model
+        })
+        .collect::<Vec<_>>();
     Folder::insert_many(models).exec(db).await.map_err(|err| {
         map_bulk_name_db_err(err, "one or more folders already exist in this location")
     })?;

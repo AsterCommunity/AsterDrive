@@ -5,3 +5,7 @@ pub mod scope;
 pub mod storage;
 pub mod storage_core;
 pub mod team;
+
+pub mod activity;
+
+pub mod activity_export;

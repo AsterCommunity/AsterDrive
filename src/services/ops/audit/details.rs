@@ -135,6 +135,7 @@ pub struct FolderPolicyAuditDetails {
 
 #[derive(Serialize)]
 pub struct BatchDeleteDetails<'a> {
+    pub workspace_activity_operation_id: &'a str,
     pub file_ids: &'a [i64],
     pub folder_ids: &'a [i64],
     pub succeeded: u32,

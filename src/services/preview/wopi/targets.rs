@@ -441,6 +441,10 @@ pub(crate) async fn store_relative_target_from_stream(
                 expected_current_revision_etag: None,
             },
             storage::StoreFromTempHints {
+                operation_context: storage::StorageOperationContext::default()
+                    .with_activity_source(
+                        crate::services::workspace::activity::ActivitySource::Wopi,
+                    ),
                 resolved_policy,
                 precomputed_hash: precomputed_hash.as_deref(),
                 actor_username: None,
@@ -464,6 +468,10 @@ pub(crate) async fn store_relative_target_from_stream(
                 expected_current_revision_etag: None,
             },
             storage::StoreFromTempHints {
+                operation_context: storage::StorageOperationContext::default()
+                    .with_activity_source(
+                        crate::services::workspace::activity::ActivitySource::Wopi,
+                    ),
                 resolved_policy,
                 precomputed_hash: precomputed_hash.as_deref(),
                 actor_username: None,
