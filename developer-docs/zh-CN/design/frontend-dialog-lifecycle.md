@@ -25,6 +25,8 @@ function ResourceDialog(props: ResourceDialogProps) {
 
 `target` 是当前展示输入；关闭时保留最后一份有效输入，父层可以立即清空自己的选择。`identity` 标识请求与 mutation 对应的业务目标，不要传每次 render 都新建的对象。已打开时更换目标不重建 frame；内容的数据加载应按资源身份更新，迟到响应不得覆盖新目标。
 
+关闭请求会同步阻止同一轮中的旧 UI 回调；提交后按父层实际 `open` 重新同步。父层拒绝关闭时必须恢复活动状态，后续请求和关闭操作仍然有效。
+
 Base UI `Dialog` / `AlertDialog` 自动将 `onOpenChangeComplete` 接入最近的 owner。`ManagerDialogShell` 继续负责布局，复用相同入口。业务组件不再转发退出完成回调，不再维护 retained hook、退出后的 reset 或复制 CSS 时长的 timer。嵌套 primitive 隔离完成通知，子弹窗不能销毁父内容。
 
 非 Base UI 的桌面 inspector 和内联未保存提示使用 `useDialogMotion`；它等待实际 `getAnimations().finished`，包括取消、无动画和 reduced-motion。不得使用固定延时推算卸载时刻。路由卸载直接释放子树，并使旧回调失效。
@@ -34,6 +36,8 @@ Base UI `Dialog` / `AlertDialog` 自动将 `onOpenChangeComplete` 接入最近�
 - 请求与订阅依赖 `active`，关闭立即 abort 或使结果失效；不清空已显示内容。显示资源在内容组件卸载的 cleanup 中释放。
 - 异步事件在开始时捕获 `useDialogActivity()` 返回的检查函数。await 后更新本地状态、显示失败或关闭前检查它；不要在 await 后读取一个已经换成新会话的 ref。
 - 已提交 mutation 的缓存失效、列表刷新和成功通知仍应执行。把这些副作用放在检查之前；旧会话不能向新目标注入表单错误或调用关闭回调。
+- mutation 请求错误与提交后的刷新错误分开处理；刷新失败始终报告，不能因已经关闭弹窗而吞掉。标签保存成功仍通知原目标的父层。WebDAV 创建成功返回的一次性凭据由独立凭据弹窗展示；创建表单已关闭或重开时，仍保留凭据，并保留新表单的草稿和提交状态。
+- 分页身份必须与规范化后的请求参数一致。切换查询时重置分页忙状态，旧分页的结果及完成通知不能污染新查询或清除新请求的忙状态。
 - 由页面/controller 持有的受控表单与异步工作使用同一 `useDialogActivity(identity, open)` 检查，presentation owner 保留其最后展示快照。共享业务缓存的读取可继续完成，但关闭后应解除当前 UI 订阅和丢弃迟到结果。
 - 预览资源 hook 在退出中保留已加载句柄、文本与 blob URL；关闭时停止当前 UI 请求、轮询和订阅，退出后释放展示引用。长期缓存仍遵守原有缓存策略。
 - 生成密码和 WebDAV 密码在退出时立即遮蔽为圆点；复制与业务操作随关闭失效。外框和非敏感说明仍保留到退出完成。

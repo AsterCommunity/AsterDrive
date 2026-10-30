@@ -91,14 +91,14 @@ function TagLibraryManagerDialogContent({
 	const [tags, setTags] = useState<TagInfo[]>([]);
 	const [total, setTotal] = useState(0);
 	const [query, setQuery] = useState("");
+	const normalizedQuery = query.trim();
 	const isCurrent = useDialogActivity();
-	const isQueryCurrent = useDialogActivity(query);
+	const isQueryCurrent = useDialogActivity(normalizedQuery);
 	const [loading, setLoading] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [busyId, setBusyId] = useState<number | null>(null);
 	const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<TagInfo | null>(null);
-	const normalizedQuery = query.trim();
 	const currentInteractionResetKeyRef = useRef(normalizedQuery);
 
 	if (currentInteractionResetKeyRef.current !== normalizedQuery) {
@@ -131,6 +131,7 @@ function TagLibraryManagerDialogContent({
 
 		let cancelled = false;
 		setLoading(true);
+		setLoadingMore(false);
 		tagService
 			.listTags({
 				params: {

@@ -542,7 +542,10 @@ export default function AdminUsersPage() {
 							<Button
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={() => setCreateDialogOpen(true)}
+								onClick={() => {
+									resetCreateForm();
+									setCreateDialogOpen(true);
+								}}
 							>
 								<Icon name="Plus" className="mr-1 size-4" />
 								{t("new_user")}

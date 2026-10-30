@@ -116,13 +116,18 @@ function EditShareDialogContent({
 					expires_at: toIsoDateTime(expiresAt),
 					max_downloads: normalizeMaxDownloads(maxDownloads),
 				});
-				toast.success(t("share:my_shares_edit_success"));
-				onOpenChange(false);
-				await onSaved?.();
 			} catch (error) {
 				if (isCurrent()) handleApiError(error);
+				return;
 			} finally {
 				if (isCurrent()) dispatchForm({ type: "saveFinished" });
+			}
+			toast.success(t("share:my_shares_edit_success"));
+			onOpenChange(false);
+			try {
+				await onSaved?.();
+			} catch (error) {
+				handleApiError(error);
 			}
 		});
 	};

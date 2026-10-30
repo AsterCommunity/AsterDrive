@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { cloneElement, createContext, isValidElement, use } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invalidateAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
 import AdminPolicyGroupsPage from "@/pages/admin/AdminPolicyGroupsPage";
+import { deferred } from "@/test/deferred";
 
 const MB = 1024 * 1024;
 
@@ -985,4 +992,33 @@ describe("AdminPolicyGroupsPage", () => {
 			);
 		});
 	});
+	it.each(["active", "unmounted"])(
+		"limits assignment-migration failure feedback to the %s owner",
+		async (state) => {
+			const pending = deferred<never>();
+			mockState.migrateAssignments.mockReturnValueOnce(pending.promise);
+			mockState.groupItems = [
+				createGroup({ id: 1, name: "Hot" }),
+				createGroup({ id: 2, name: "Cold" }),
+			];
+			const { unmount } = render(<AdminPolicyGroupsPage />);
+			const buttons = await screen.findAllByRole("button", {
+				name: "migrate_policy_group_assignments",
+			});
+			fireEvent.click(buttons[0]);
+			fireEvent.click(screen.getByRole("button", { name: "select-item:2" }));
+			fireEvent.click(
+				screen.getByRole("button", { name: /policy_group_migration_confirm/i }),
+			);
+			if (state === "unmounted") unmount();
+			const error = new Error("migration failed");
+			await act(async () => {
+				pending.reject(error);
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
 });

@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog";
 import { DialogTestRoot } from "@/test/DialogTestRoot";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	cropAvatarImage: vi.fn(),
@@ -307,5 +314,30 @@ describe("AvatarCropDialog", () => {
 		unmount();
 
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:avatar-source");
+	});
+	it("does not upload a crop that finishes after its source was replaced", async () => {
+		const pending = deferred<File>();
+		mockState.cropAvatarImage.mockReturnValueOnce(pending.promise);
+		const confirm = vi.fn();
+		const file = new File(["source"], "first.png", { type: "image/png" });
+		const props = { open: true, onConfirm: confirm, onOpenChange: vi.fn() };
+		const { rerender } = render(<AvatarCropDialog {...props} file={file} />);
+		const image = document.querySelector("img");
+		if (!image) throw new Error("avatar source missing");
+		fireEvent.load(image);
+		fireEvent.click(
+			screen.getByRole("button", { name: /settings_avatar_crop_apply/ }),
+		);
+		rerender(
+			<AvatarCropDialog
+				{...props}
+				file={new File(["next"], "second.png", { type: "image/png" })}
+			/>,
+		);
+		await act(async () => {
+			pending.resolve(new File(["crop"], "crop.png"));
+			await pending.promise;
+		});
+		expect(confirm).not.toHaveBeenCalled();
 	});
 });

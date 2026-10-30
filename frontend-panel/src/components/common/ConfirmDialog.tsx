@@ -9,7 +9,10 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 
 export interface ConfirmDialogProps {
 	open: boolean;
@@ -49,8 +52,10 @@ function ConfirmDialogContent({
 	variant = "default",
 }: ConfirmDialogProps) {
 	const { t } = useTranslation();
+	const isCurrent = useDialogActivity();
 
 	const handleConfirm = () => {
+		if (!open || !isCurrent()) return;
 		onOpenChange(false);
 		onConfirm();
 	};

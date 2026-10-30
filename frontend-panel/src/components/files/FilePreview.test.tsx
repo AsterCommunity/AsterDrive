@@ -1,15 +1,17 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FilePreview } from "@/components/files/FilePreview";
 
 vi.mock("@/components/files/preview/dialog/FilePreviewDialog", () => ({
 	FilePreviewDialog: ({
+		onClose,
 		open,
 		file,
 		editable,
 		resources,
 		imageNavigation,
 	}: {
+		onClose: () => void;
 		open: boolean;
 		file: { name: string };
 		editable?: boolean;
@@ -40,7 +42,11 @@ vi.mock("@/components/files/preview/dialog/FilePreviewDialog", () => ({
 				Boolean(resources?.actions?.launchWopiSession),
 			)}
 			data-has-image-navigation={String(Boolean(imageNavigation))}
-		/>
+		>
+			<button type="button" onClick={onClose}>
+				close-preview
+			</button>
+		</div>
 	),
 }));
 
@@ -110,5 +116,50 @@ describe("FilePreview", () => {
 			"data-has-image-navigation",
 			"true",
 		);
+	});
+	it("retains a preview on close and prevents duplicate close requests", () => {
+		const onClose = vi.fn();
+		const file = { id: 7, name: "report.pdf" } as never;
+		const resources = {
+			scope: "personal" as const,
+			paths: { download: "/files/7/download" },
+			resolve: vi.fn(),
+		};
+		const { rerender } = render(
+			<FilePreview file={file} resources={resources} onClose={onClose} />,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "close-preview" }));
+		expect(onClose).toHaveBeenCalledTimes(1);
+		rerender(
+			<FilePreview
+				open={false}
+				file={null}
+				resources={null}
+				onClose={onClose}
+			/>,
+		);
+		expect(screen.getByTestId("preview-dialog")).toHaveAttribute(
+			"data-file-name",
+			"report.pdf",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "close-preview" }));
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not mount a preview until both its target and resources are available", () => {
+		const onClose = vi.fn();
+		const { rerender } = render(
+			<FilePreview open file={null} resources={null} onClose={onClose} />,
+		);
+		expect(screen.queryByTestId("preview-dialog")).toBeNull();
+		rerender(
+			<FilePreview
+				open
+				file={{ id: 7, name: "file" } as never}
+				resources={null}
+				onClose={onClose}
+			/>,
+		);
+		expect(screen.queryByTestId("preview-dialog")).toBeNull();
 	});
 });

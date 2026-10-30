@@ -9,6 +9,7 @@ import { cloneElement, isValidElement } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminUsersPage from "@/pages/admin/AdminUsersPage";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
@@ -216,8 +217,23 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
-		open ? <div>{children}</div> : null,
+	Dialog: ({
+		children,
+		open,
+		onOpenChange,
+	}: {
+		children: React.ReactNode;
+		open: boolean;
+		onOpenChange?: (open: boolean) => void;
+	}) =>
+		open ? (
+			<div>
+				<button type="button" onClick={() => onOpenChange?.(false)}>
+					test-close-dialog
+				</button>
+				{children}
+			</div>
+		) : null,
 	DialogContent: ({ children }: { children: React.ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -1095,5 +1111,82 @@ describe("AdminUsersPage", () => {
 		});
 		expect(await screen.findByText("page-one-user")).toBeInTheDocument();
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("user_deleted");
+	});
+	it.each(["create", "invite"])(
+		"reports an active %s failure and restores submission",
+		async (operation) => {
+			const error = new Error("request rejected");
+			mockState[
+				operation === "create" ? "create" : "createInvitation"
+			].mockRejectedValueOnce(error);
+			renderPage();
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: operation === "create" ? /new_user/i : /invite_user/i,
+				}),
+			);
+			if (operation === "create")
+				fireEvent.change(screen.getByLabelText("username"), {
+					target: { value: "newuser" },
+				});
+			fireEvent.change(screen.getByLabelText("email"), {
+				target: { value: "new@example.com" },
+			});
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: operation === "create" ? /create/i : /send_invitation/i,
+				}),
+			);
+			await waitFor(() =>
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+			);
+			expect(screen.getByLabelText("email")).toHaveValue("new@example.com");
+		},
+	);
+
+	it("ignores an administrator creation response after unmount while refreshing committed data", async () => {
+		const pending = deferred<{ user: ReturnType<typeof createUser> }>();
+		mockState.create.mockReturnValueOnce(pending.promise);
+		const { unmount } = renderPage();
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "newuser" },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "new@example.com" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /create/i }));
+		unmount();
+		await act(async () => {
+			pending.resolve({ user: createUser() });
+			await pending.promise;
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
+	it("clears submitted credentials when reopening a user form before its old creation completes", async () => {
+		const pending = deferred<{ user: ReturnType<typeof createUser> }>();
+		mockState.create.mockReturnValueOnce(pending.promise);
+		renderPage();
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		fireEvent.change(screen.getByLabelText("username"), {
+			target: { value: "firstuser" },
+		});
+		fireEvent.change(screen.getByLabelText("email"), {
+			target: { value: "first@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("create_user_password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /create/i }));
+		fireEvent.click(screen.getByRole("button", { name: "test-close-dialog" }));
+		fireEvent.click(screen.getByRole("button", { name: /new_user/i }));
+		expect(screen.getByLabelText("username")).toHaveValue("");
+		expect(screen.getByLabelText("email")).toHaveValue("");
+		expect(screen.getByLabelText("create_user_password")).toHaveValue("");
+		await act(async () => {
+			pending.resolve({ user: createUser() });
+			await pending.promise;
+		});
+		expect(screen.getByLabelText("username")).toHaveValue("");
 	});
 });

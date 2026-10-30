@@ -9,6 +9,55 @@ import {
 } from "./support/network";
 import { expect, test } from "./support/test";
 
+test("retains generated credentials after closing creation and restores a newer draft", async ({
+	page,
+	request,
+}) => {
+	await authenticate(page, request);
+	await page.goto("/settings/webdav");
+	const username = uniqueAccountName("late-dav");
+	let release = () => {};
+	const responseGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	let requestArrived = () => {};
+	const arrived = new Promise<void>((resolve) => {
+		requestArrived = resolve;
+	});
+	await page.route("**/api/v1/webdav-accounts", async (route) => {
+		if (route.request().method() !== "POST") return route.continue();
+		const response = await route.fetch();
+		requestArrived();
+		await responseGate;
+		await route.fulfill({ response });
+	});
+	await page.getByRole("button", { name: "Create WebDAV Account" }).click();
+	const createDialog = dialogByTitle(page, "Create WebDAV Account");
+	await createDialog.getByLabel("Username", { exact: true }).fill(username);
+	await createDialog
+		.getByRole("button", { name: "Create", exact: true })
+		.click();
+	await arrived;
+	await page.keyboard.press("Escape");
+	await expect(createDialog).toHaveCount(0);
+	await page.getByRole("button", { name: "Create WebDAV Account" }).click();
+	await createDialog
+		.getByLabel("Username", { exact: true })
+		.fill("another-draft");
+	release();
+	const credentials = dialogByTitle(page, "Latest Credentials");
+	await expect(credentials).toBeVisible();
+	await expect(credentials.locator("input").first()).toHaveValue(username);
+	const password = await credentials.locator("input").last().inputValue();
+	expect(password.length).toBeGreaterThan(0);
+	await expect(createDialog).toHaveCount(0);
+	await page.keyboard.press("Escape");
+	await expect(credentials).toHaveCount(0);
+	await expect(
+		createDialog.getByLabel("Username", { exact: true }),
+	).toHaveValue("another-draft");
+});
+
 test.describe
 	.serial("WebDAV E2E", () => {
 		test("creates a WebDAV account and exercises basic WebDAV methods", async ({

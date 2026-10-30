@@ -77,7 +77,60 @@ function Nested({
 	return null;
 }
 
+function RejectedCloseHarness({
+	allowed,
+	requested,
+	work,
+}: {
+	allowed: () => boolean;
+	requested: (open: boolean) => void;
+	work: Promise<void>;
+}) {
+	const [open, setOpen] = useState(true);
+	return (
+		<DialogLifecycle
+			open={open}
+			target="resource"
+			onOpenChange={(next) => {
+				requested(next);
+				if (allowed()) setOpen(next);
+			}}
+		>
+			{({ target, onOpenChange }) => (
+				<Content
+					label={target}
+					work={work}
+					onClose={() => onOpenChange(false)}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
 describe("DialogLifecycle", () => {
+	it("restores activity when a parent rejects close, then accepts a later close", async () => {
+		const work = deferred();
+		let allowed = false;
+		const requested = vi.fn();
+		// The content's mutation completion checks useDialogActivity before requesting close.
+		render(
+			<RejectedCloseHarness
+				allowed={() => allowed}
+				requested={requested}
+				work={work.promise}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: "mutate" }));
+		await act(async () => {
+			work.resolve();
+			await work.promise;
+		});
+		expect(requested).toHaveBeenCalledTimes(1);
+		allowed = true;
+		fireEvent.click(screen.getByRole("button", { name: "mutate" }));
+		await waitFor(() => expect(requested).toHaveBeenCalledTimes(2));
+	});
+
 	it("never revalidates callbacks when a target changes away and back", async () => {
 		const work = deferred();
 		const close = vi.fn();

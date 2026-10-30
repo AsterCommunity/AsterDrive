@@ -306,7 +306,10 @@ export function PreviewAppsConfigEditor({
 						setBuildingWopiDiscoveryConfig(false);
 					}
 				}}
-				onUrlChange={setWopiDiscoveryUrl}
+				onUrlChange={(value) => {
+					setWopiDiscoveryUrl(value);
+					setBuildingWopiDiscoveryConfig(false);
+				}}
 			/>
 
 			<PreviewAppsEditDialog

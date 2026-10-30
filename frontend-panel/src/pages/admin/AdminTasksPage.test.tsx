@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminTasksPage from "@/pages/admin/AdminTasksPage";
+import { deferred } from "@/test/deferred";
 import type { TaskInfo, UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -1132,5 +1139,32 @@ describe("AdminTasksPage", () => {
 			});
 			expect(mockState.handleApiError).toHaveBeenCalledWith(cleanupError);
 		});
+	});
+	it("releases header actions when a pending cleanup dialog closes", async () => {
+		const pending = deferred<{ removed: number }>();
+		mockState.cleanupCompleted.mockReturnValueOnce(pending.promise);
+		renderPage();
+		fireEvent.click(
+			screen.getByRole("button", { name: /task_cleanup_action/ }),
+		);
+		fireEvent.change(
+			screen.getByLabelText("admin:task_cleanup_finished_before"),
+			{ target: { value: "2026-04-20T12:30" } },
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /cleanup_completed_tasks/ }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "X" }));
+		expect(
+			screen.getByRole("button", { name: /task_cleanup_action/ }),
+		).toBeEnabled();
+		fireEvent.click(
+			screen.getByRole("button", { name: /task_cleanup_action/ }),
+		);
+		await act(async () => {
+			pending.resolve({ removed: 2 });
+			await pending.promise;
+		});
+		expect(screen.getByText("admin:task_cleanup_title")).toBeInTheDocument();
 	});
 });

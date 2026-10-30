@@ -6,6 +6,7 @@ import {
 	useContext,
 	useLayoutEffect,
 	useMemo,
+	useReducer,
 	useRef,
 	useState,
 } from "react";
@@ -87,13 +88,19 @@ export function DialogLifecycle<T>({
 		});
 	}
 	const { generation, present, phase } = presentation;
+	const [closeRequest, resyncAfterCloseRequest] = useReducer(
+		(value: number) => value + 1,
+		0,
+	);
 	const live = useRef({ active: false, generation, identity });
 	useLayoutEffect(() => {
+		// A rejected close does not change open; resync its optimistic invalidation too.
+		void closeRequest;
 		live.current = { active: open, generation, identity };
 		return () => {
 			live.current.active = false;
 		};
-	}, [open, generation, identity]);
+	}, [open, generation, identity, closeRequest]);
 	const isCurrent = useCallback(
 		() =>
 			parentCurrent() &&
@@ -125,6 +132,7 @@ export function DialogLifecycle<T>({
 			if (!isCurrent()) return;
 			if (!nextOpen) live.current.active = false;
 			onOpenChange?.(nextOpen);
+			if (!nextOpen) resyncAfterCloseRequest();
 		},
 		[isCurrent, onOpenChange],
 	);

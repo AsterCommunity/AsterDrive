@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { UrlTemplatePreview } from "@/components/files/preview/viewers/external/UrlTemplatePreview";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
+import { deferred } from "@/test/deferred";
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -169,5 +171,34 @@ describe("UrlTemplatePreview", () => {
 			"allow",
 			"autoplay; fullscreen; picture-in-picture; clipboard-read 'src'; clipboard-write 'src'",
 		);
+	});
+	it("does not reveal a URL resolved after the preview starts exiting", async () => {
+		const pending = deferred<{ url: string }>();
+		const createLink = vi.fn(() => pending.promise);
+		const view = (open: boolean) => (
+			<DialogLifecycle open={open} target={null}>
+				{() => (
+					<UrlTemplatePreview
+						file={file}
+						downloadPath="/files/7/download"
+						label="Viewer"
+						rawConfig={{
+							mode: "iframe",
+							allowed_origins: ["https://office.example"],
+							url_template: "https://office.example/?src={{file_preview_url}}",
+						}}
+						createExternalPreviewLink={createLink}
+					/>
+				)}
+			</DialogLifecycle>
+		);
+		const { rerender } = render(view(true));
+		expect(createLink).toHaveBeenCalledTimes(1);
+		rerender(view(false));
+		await act(async () => {
+			pending.resolve({ url: "https://drive.example/late" });
+			await pending.promise;
+		});
+		expect(screen.queryByTitle("Viewer")).toBeNull();
 	});
 });

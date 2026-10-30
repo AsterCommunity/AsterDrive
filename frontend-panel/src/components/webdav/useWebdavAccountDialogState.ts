@@ -24,7 +24,7 @@ type WebdavAccountDialogAction =
 	| { type: "usernameChanged"; username: string }
 	| { type: "passwordChanged"; password: string }
 	| { type: "folderChanged"; folderId: number | undefined }
-	| { type: "created"; credentials: WebdavCredentials }
+	| { type: "created"; credentials: WebdavCredentials; finishCreate: boolean }
 	| { type: "credentialsCleared" }
 	| { type: "testingChanged"; testing: boolean }
 	| { type: "testResultChanged"; result: boolean | null };
@@ -69,12 +69,18 @@ function webdavAccountDialogReducer(
 		case "created":
 			return {
 				...state,
-				createDialogOpen: false,
 				credentialsDialogOpen: true,
-				newPassword: "",
-				newUsername: "",
-				selectedFolderId: undefined,
+				...(action.finishCreate
+					? {
+							createDialogOpen: false,
+							creating: false,
+							newPassword: "",
+							newUsername: "",
+							selectedFolderId: undefined,
+						}
+					: {}),
 				showPassword: action.credentials,
+				testing: false,
 				testResult: null,
 			};
 		case "credentialsCleared":
@@ -111,7 +117,9 @@ export function useWebdavAccountDialogState() {
 			dispatch({ type: "testResultChanged", result }),
 		setTesting: (testing: boolean) =>
 			dispatch({ type: "testingChanged", testing }),
-		showCreatedCredentials: (credentials: WebdavCredentials) =>
-			dispatch({ type: "created", credentials }),
+		showCreatedCredentials: (
+			credentials: WebdavCredentials,
+			finishCreate = true,
+		) => dispatch({ type: "created", credentials, finishCreate }),
 	};
 }

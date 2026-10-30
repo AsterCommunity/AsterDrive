@@ -131,8 +131,9 @@ function TagManagerDialogContent({
 		() => new Map(),
 	);
 	const [query, setQuery] = useState("");
+	const normalizedQuery = query.trim();
 	const isCurrent = useDialogActivity();
-	const isQueryCurrent = useDialogActivity(query);
+	const isQueryCurrent = useDialogActivity(normalizedQuery);
 	const [loading, setLoading] = useState(false);
 	const [loadingMoreTags, setLoadingMoreTags] = useState(false);
 	const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -171,8 +172,9 @@ function TagManagerDialogContent({
 		}
 
 		let cancelled = false;
-		const searchTerm = query.trim();
+		const searchTerm = normalizedQuery;
 		setLoading(true);
+		setLoadingMoreTags(false);
 		replaceTags([]);
 		setTagsTotal(0);
 		tagService
@@ -199,10 +201,9 @@ function TagManagerDialogContent({
 		return () => {
 			cancelled = true;
 		};
-	}, [open, query, replaceTags, target, isCurrent]);
+	}, [open, normalizedQuery, replaceTags, target, isCurrent]);
 
 	const hasMoreTags = tags.length < tagsTotal;
-	const normalizedQuery = normalizeQuery(query);
 	const selectedIds = useMemo(
 		() => new Set(entityTags.map((tag) => tag.id)),
 		[entityTags],
@@ -391,7 +392,7 @@ function TagManagerDialogContent({
 					target.entityId,
 					nextTags.map((tag) => tag.id),
 				);
-				if (isCurrent()) target.onTagsChange?.(nextTags);
+				target.onTagsChange?.(nextTags);
 				await target.onChanged?.();
 				toast.success(t("tag_saved"));
 				onOpenChange(false);

@@ -204,7 +204,7 @@ function adminTasksUiReducer(
 			return {
 				...state,
 				cleanupDialogOpen: action.open,
-				cleanupSubmitting: action.open ? false : state.cleanupSubmitting,
+				cleanupSubmitting: false,
 			};
 		case "set_detail_dialog_task":
 			return { ...state, detailDialogTaskId: action.taskId };

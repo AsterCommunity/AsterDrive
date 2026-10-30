@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminTeamsPage from "@/pages/admin/AdminTeamsPage";
+import { deferred } from "@/test/deferred";
 import type { UserSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -471,4 +472,30 @@ describe("AdminTeamsPage", () => {
 		expect(mockState.createTeam).not.toHaveBeenCalled();
 		expect(mockState.toastError).toHaveBeenCalledWith("team_quota_invalid");
 	});
+	it.each(["active", "unmounted"])(
+		"limits team creation failure feedback to the %s owner",
+		async (state) => {
+			const pending = deferred<void>();
+			mockState.createTeam.mockReturnValueOnce(pending.promise);
+			const { unmount } = render(<AdminTeamsPage />);
+			fireEvent.click(screen.getByText("new_team"));
+			fireEvent.change(screen.getByLabelText("core:name"), {
+				target: { value: "Design" },
+			});
+			fireEvent.change(screen.getByLabelText("team_admin_identifier"), {
+				target: { value: "lead@example.com" },
+			});
+			await screen.findByText("Primary");
+			fireEvent.click(screen.getByText("create_team"));
+			if (state === "unmounted") unmount();
+			const error = new Error("team rejected");
+			await act(async () => {
+				pending.reject(error);
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
 });

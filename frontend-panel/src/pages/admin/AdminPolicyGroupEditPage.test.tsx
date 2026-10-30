@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { createContext, use } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invalidateAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
 import { invalidateAdminPolicyLookup } from "@/lib/adminPolicyLookup";
 import AdminPolicyGroupEditPage from "@/pages/admin/AdminPolicyGroupEditPage";
+import { deferred } from "@/test/deferred";
 
 const MB = 1024 * 1024;
 
@@ -828,4 +835,35 @@ describe("AdminPolicyGroupEditPage", () => {
 		fireEvent.click(simulationCancel);
 		view.unmount();
 	});
+	it.each(["active", "closed"])(
+		"applies a simulation result only to the %s dialog",
+		async (state) => {
+			mockState.groupId = "7";
+			mockState.getGroup.mockResolvedValue(createGroup({ name: "Simulation" }));
+			const pending = deferred<never>();
+			mockState.simulateGroup.mockReturnValueOnce(pending.promise);
+			render(<AdminPolicyGroupEditPage />);
+			await screen.findByDisplayValue("Simulation");
+			fireEvent.click(
+				screen.getByRole("button", { name: /policy_group_simulator_open/ }),
+			);
+			fireEvent.click(
+				screen.getByRole("button", { name: /policy_group_simulator_run/ }),
+			);
+			if (state === "closed")
+				fireEvent.click(
+					screen
+						.getAllByRole("button", { name: "core:cancel" })
+						.at(-1) as HTMLButtonElement,
+				);
+			const error = new Error("late simulation");
+			await act(async () => {
+				pending.reject(error);
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(screen.getByText("late simulation")).toBeInTheDocument();
+			else expect(screen.queryByText("late simulation")).toBeNull();
+		},
+	);
 });

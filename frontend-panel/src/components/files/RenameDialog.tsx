@@ -115,6 +115,13 @@ function RenameDialogForm({
 			} else {
 				await fileService.renameFolder(id, trimmed);
 			}
+		} catch (error) {
+			if (isCurrent()) handleApiError(error);
+			submittingRef.current = false;
+			if (isCurrent()) setIsSubmitting(false);
+			return;
+		}
+		try {
 			toast.success(t("rename_success"));
 			onOpenChange(false);
 			if (onRenamed) {
@@ -123,9 +130,7 @@ function RenameDialogForm({
 				await refresh();
 			}
 		} catch (error) {
-			if (isCurrent()) handleApiError(error);
-			submittingRef.current = false;
-			if (isCurrent()) setIsSubmitting(false);
+			handleApiError(error);
 		}
 	};
 

@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useStoragePolicyMigrationController } from "@/pages/admin/admin-policies-page/useStoragePolicyMigrationController";
 import { adminPolicyService } from "@/services/adminService";
+import { deferred } from "@/test/deferred";
 import type { StoragePolicy, StoragePolicyMigrationDryRun } from "@/types/api";
 
 const mockNavigate = vi.fn();
@@ -255,5 +256,55 @@ describe("useStoragePolicyMigrationController", () => {
 
 		expect(result.current.dryRun).toBeNull();
 		expect(mockHandleApiError).toHaveBeenCalledWith(dryRunError);
+	});
+	it.each(["active", "closed"])(
+		"limits migration creation failure feedback to the %s session",
+		async (state) => {
+			const pending = deferred<never>();
+			const { result } = renderHook(() =>
+				useStoragePolicyMigrationController(),
+			);
+			await act(async () => {
+				await result.current.openDialog();
+			});
+			await act(async () => {
+				await result.current.dryRunMigration();
+			});
+			vi.mocked(adminPolicyService.createMigration).mockReturnValueOnce(
+				pending.promise,
+			);
+			let work: Promise<void> | undefined;
+			act(() => {
+				work = result.current.createMigration();
+			});
+			if (state === "closed") act(() => result.current.setOpen(false));
+			const error = new Error("migration rejected");
+			await act(async () => {
+				pending.reject(error);
+				await work;
+			});
+			if (state === "active")
+				expect(mockHandleApiError).toHaveBeenCalledWith(error);
+			else expect(mockHandleApiError).not.toHaveBeenCalled();
+			expect(mockNavigate).not.toHaveBeenCalled();
+		},
+	);
+
+	it("discards policy loading after unmount", async () => {
+		const pending = deferred<StoragePolicy[]>();
+		vi.mocked(adminPolicyService.listAll).mockReturnValueOnce(pending.promise);
+		const { result, unmount } = renderHook(() =>
+			useStoragePolicyMigrationController(),
+		);
+		let work: Promise<void> | undefined;
+		act(() => {
+			work = result.current.openDialog();
+		});
+		unmount();
+		await act(async () => {
+			pending.resolve([policy(1)]);
+			await work;
+		});
+		expect(mockHandleApiError).not.toHaveBeenCalled();
 	});
 });

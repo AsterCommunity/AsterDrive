@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CreateFileDialog } from "@/components/files/CreateFileDialog";
 import { CreateFolderDialog } from "@/components/files/CreateFolderDialog";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	createFile: vi.fn(),
@@ -269,4 +276,33 @@ describe("Create dialogs", () => {
 		expect(onOpenChange).not.toHaveBeenCalled();
 		expect(screen.getByPlaceholderText("folder_name")).toHaveValue("Archive");
 	});
+	it.each(["file", "folder"] as const)(
+		"ignores an old %s creation error after reopening",
+		async (kind) => {
+			const pending = deferred<void>();
+			mockState[
+				kind === "file" ? "createFile" : "createFolder"
+			].mockReturnValueOnce(pending.promise);
+			const Component = kind === "file" ? CreateFileDialog : CreateFolderDialog;
+			const view = (open: boolean) => (
+				<Component open={open} onOpenChange={vi.fn()} />
+			);
+			const { rerender } = render(view(true));
+			fireEvent.change(screen.getByPlaceholderText(`${kind}_name`), {
+				target: { value: "draft" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: `create_${kind}` }));
+			rerender(view(false));
+			rerender(view(true));
+			await act(async () => {
+				pending.reject(new Error("old failure"));
+				await pending.promise.catch(() => {});
+			});
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+			expect(screen.getByPlaceholderText(`${kind}_name`)).toHaveValue("");
+			expect(
+				screen.getByRole("button", { name: `create_${kind}` }),
+			).toBeEnabled();
+		},
+	);
 });

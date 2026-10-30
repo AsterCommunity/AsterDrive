@@ -106,6 +106,7 @@ export default function WebdavAccountsPage() {
 		[t],
 	);
 
+	const isOwnerCurrent = useDialogActivity(undefined);
 	const isCreateCurrent = useDialogActivity(
 		undefined,
 		dialogState.createDialogOpen,
@@ -128,11 +129,15 @@ export default function WebdavAccountsPage() {
 				password: dialogState.newPassword.trim() || undefined,
 				root_folder_id: dialogState.selectedFolderId ?? null,
 			});
-			if (isCreateCurrent())
-				dialogState.showCreatedCredentials({
-					username: result.username,
-					password: result.password,
-				});
+			if (isOwnerCurrent()) {
+				dialogState.showCreatedCredentials(
+					{
+						username: result.username,
+						password: result.password,
+					},
+					isCreateCurrent(),
+				);
+			}
 			toast.success(t("admin:webdav_account_created"));
 			void reload();
 		} catch (err) {
@@ -189,7 +194,9 @@ export default function WebdavAccountsPage() {
 	return (
 		<AppLayout>
 			<WebdavCreateAccountDialog
-				open={dialogState.createDialogOpen}
+				open={
+					dialogState.createDialogOpen && !dialogState.credentialsDialogOpen
+				}
 				onOpenChange={dialogState.setCreateDialogOpen}
 				createTitle={t("webdav:create_webdav_account")}
 				description={t("webdav:webdav_test_hint")}
