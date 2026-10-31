@@ -31,15 +31,13 @@ AsterDrive 是一个采用 MIT 或 Apache 2.0 双许可证的自托管文件服�
 
 相比起实现完整的私有云套件，AsterDrive 更关注文件基础设施：存储策略、大文件上传路径、个人和团队空间、分享、版本历史、WebDAV、WOPI、审计能力，以及部署和运维工具。
 
-目前 `v0.4.x` 是活跃开发线。在 `0.x` 阶段，中版本号承载主要兼容性或产品范围变更，小版本号承载较小的功能更新和维护更新。
-
 ## 适用场景
 
 AsterDrive 适用于：
 
 - 前端资源内嵌、单服务运行的自托管文件系统
 - 默认用 SQLite 起步，后续按需要切到 PostgreSQL / MySQL
-- 文件可以落到本地文件系统、S3 兼容对象存储、Azure Blob Storage、腾讯云 COS、OneDrive / SharePoint、SFTP，或是远程的 AsterDrive 从节点
+- 文件可以落到本地文件系统、对象存储、OneDrive / SharePoint 和 Google Drive 等云盘、SFTP，或远程 AsterDrive 从节点；完整列表见[支持的存储后端](https://drive.docs.astercosm.com/admin/storage-backends/)
 - 小文件和大文件都要有合适上传路径：普通直传、可恢复分片、对象存储预签名直传、对象存储 multipart
 - 个人空间和团队空间需要配额、分享、回收站、任务、审计和存储策略组
 - 需带独立账号、独立密码和根目录限制的 WebDAV
@@ -57,7 +55,7 @@ AsterDrive 目前不适用于：
 ## 设计重点
 
 - **文件安全优先** - 回收站、历史版本、锁、配额检查和清理任务都是核心流程，不是装饰功能。
-- **存储可控** - 存储策略可以按用户、团队和文件大小，把上传路由到本地、S3 兼容对象存储、Azure Blob、腾讯云 COS、OneDrive、SFTP 或远程从节点。
+- **存储可控** - 策略组通过有序规则、文件类别和大小约束、加权选择、故障回退与模拟测试，把上传路由到合适的存储后端。
 - **大文件友好** - 后端会根据策略和对象大小协商普通直传、分片上传、对象存储预签名上传和对象存储 multipart 上传。
 - **互操作但不膨胀** - WebDAV 和 WOPI 覆盖实际客户端与 Office 工作流，但项目不会因此变成全家桶云套件。
 - **运维内建** - 健康检查、运行时配置、审计日志、后台任务、存储测试、`doctor` 和迁移命令都是一等能力。
@@ -116,7 +114,7 @@ cd ..
 cargo run
 ```
 
-AsterDrive首次启动时会自动：
+AsterDrive 首次启动时会自动：
 
 - 在当前工作目录下生成 `data/config.toml`（如果不存在）
 - 使用默认数据库地址时创建 SQLite 数据库
@@ -156,12 +154,12 @@ AsterDrive首次启动时会自动：
 - 首用户初始化、注册开关、注册激活、密码重置和邮箱改绑确认
 - WebDAV 独立账号、独立密码、根目录限制、数据库锁、自定义属性和小范围 DeltaV 子集
 - 面向外部 WOPI Host 的启动会话和文件端点，用于 Office 预览/编辑
-- 可选 Passkey / WebAuthn 注册与登录接口
+- 账号安全支持 TOTP、恢复码、可选邮箱验证码 MFA、Passkey / WebAuthn、外部身份和登录设备管理
 
 ### 存储与传输
 
-- 本地存储、S3 兼容存储、Azure Blob Storage、腾讯云 COS、OneDrive / SharePoint、SFTP 和远程 AsterDrive 从节点存储策略
-- 策略组可按用户、团队和文件大小决定上传路线
+- 面向本地文件系统、对象存储、云盘、SFTP 和远程从节点的存储策略；各后端具体能力见[存储能力矩阵](https://drive.docs.astercosm.com/reference/storage-matrix/)
+- 策略组支持有序匹配、文件类别准入、`first_available` / `weighted_random` 放置、故障回退和模拟测试
 - 本地策略可选开启基于 SHA-256 + 引用计数的 Blob 去重
 - 对象存储上传/下载策略：`relay_stream`、`presigned` 和 multipart 上传
 - 远程节点上传/下载策略：`relay_stream` 和 `presigned`
@@ -209,7 +207,7 @@ AsterDrive首次启动时会自动：
 - Rust `1.95.0+`
 - cargo-nextest
 - Bun
-- Node.js `24+`（用于 Docker 前端构建阶段）
+- Node.js `>=26.13.0 <27`（前端与文档工具链要求；`.nvmrc` 和 Docker 前端构建固定为 `26.13.0`）
 
 ### 常用命令
 
@@ -239,8 +237,10 @@ bun run check
 
 ```text
 src/                             Rust 应用、服务、API 与运行时
-crates/aster_drive_model/        共享产品模型与 SeaORM Entity
+crates/aster_drive_metrics/      产品指标契约与 AsterForge 适配
 crates/aster_drive_migration/    SeaORM 迁移
+crates/aster_drive_model/        共享产品模型与 SeaORM Entity
+crates/aster_drive_storage/      存储契约、描述符与结构化错误
 frontend-panel/                  React 管理 / 文件前端
 docs/                            部署与面向最终用户的文档
 developer-docs/                  API、架构、测试和内部定位文档

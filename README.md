@@ -31,15 +31,13 @@ AsterDrive is a self-hosted file service, dual-licensed under MIT or Apache 2.0,
 
 It is not trying to become a full private-cloud suite. AsterDrive focuses on file infrastructure: storage policies, large-file upload paths, team and personal workspaces, sharing, version history, WebDAV, WOPI, auditability, and deployment/operations tooling.
 
-The current `v0.4.x` line is the active development line. In the `0.x` series, minor versions carry major compatibility or product-scope changes, while patch versions carry smaller feature and maintenance updates.
-
 ## Where it fits
 
 AsterDrive is a good fit when you want:
 
 - a single self-hosted service with embedded frontend assets
 - SQLite out of the box, with optional PostgreSQL / MySQL later
-- local filesystem, S3-compatible object storage, Azure Blob Storage, Tencent COS, OneDrive / SharePoint, SFTP, or remote AsterDrive follower-node storage
+- local filesystems, object storage, cloud drives such as OneDrive / SharePoint and Google Drive, SFTP, or remote AsterDrive follower-node storage; see the [supported storage backends](https://drive.docs.astercosm.com/en/admin/storage-backends/)
 - upload strategies for both small files and large objects: direct, resumable chunked, object-storage presigned, and object-storage multipart
 - personal and team workspaces with quotas, shares, trash, tasks, audit logs, and storage policy groups
 - WebDAV access with independent accounts and scoped root folders
@@ -57,7 +55,7 @@ AsterDrive is probably not the right first choice when you need:
 ## Design focus
 
 - **File safety first** - trash, version history, locks, quota checks, and cleanup tasks are part of the core workflow, not decorative extras.
-- **Storage control** - policies can route uploads to local storage, S3-compatible storage, Azure Blob, Tencent COS, OneDrive, SFTP, or remote follower nodes by user, team, and file size.
+- **Storage control** - policy groups route uploads across storage backends with ordered rules, file-category and size constraints, weighted selection, fallback, and dry-run simulation.
 - **Large-file paths** - the backend negotiates direct uploads, chunked uploads, object-storage presigned uploads, and object-storage multipart uploads based on policy and object size.
 - **Interoperability without sprawl** - WebDAV and WOPI cover practical client and Office workflows without turning the project into an all-in-one cloud suite.
 - **Operations built in** - health checks, runtime configuration, audit logs, background tasks, storage tests, `doctor`, and migration commands are first-class features.
@@ -157,12 +155,12 @@ On first startup, AsterDrive will automatically:
 - first-user setup, registration controls, activation, password reset, and email-change confirmation
 - WebDAV accounts with independent passwords, scoped root folders, database-backed locks, custom properties, and a small DeltaV subset
 - WOPI launch sessions and file endpoints for Office preview/editing through external WOPI hosts
-- optional Passkey / WebAuthn registration and login endpoints
+- account security with TOTP, recovery codes, optional email MFA, Passkey / WebAuthn, external identity providers, and login-device management
 
 ### Storage and delivery
 
-- local storage, S3-compatible storage, Azure Blob Storage, Tencent COS, OneDrive / SharePoint, SFTP, and remote follower-node storage policies
-- policy groups that route uploads by user, team, and file size
+- storage policies for local filesystems, object storage, cloud drives, SFTP, and remote follower nodes; see the [storage capability matrix](https://drive.docs.astercosm.com/en/reference/storage-matrix/) for backend-specific support
+- policy groups with ordered matchers, file-category admission, `first_available` / `weighted_random` placement, fallback, and dry-run simulation
 - optional local-only blob deduplication using SHA-256 and reference counting
 - object-storage upload/download strategies: `relay_stream`, `presigned`, and multipart uploads
 - remote-node upload/download strategies: `relay_stream` and `presigned`
@@ -210,7 +208,7 @@ The user and deployment documentation is published with Astro Starlight at [driv
 - Rust `1.95.0+`
 - cargo-nextest
 - Bun
-- Node.js `24+` for the current Docker frontend build stage
+- Node.js `>=26.13.0 <27` for frontend and documentation tooling; `.nvmrc` and the Docker frontend build pin `26.13.0`
 
 ### Common commands
 
