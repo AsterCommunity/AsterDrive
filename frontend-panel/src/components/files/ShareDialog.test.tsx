@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShareDialog } from "@/components/files/ShareDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
@@ -17,6 +19,7 @@ const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
 	pageUrl: vi.fn(),
 	toastSuccess: vi.fn(),
+	toastError: vi.fn(),
 	clipboardWriteText: vi.fn(),
 }));
 
@@ -34,6 +37,7 @@ vi.mock("react-i18next", () => ({
 vi.mock("sonner", () => ({
 	toast: {
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
+		error: mockState.toastError,
 	},
 }));
 
@@ -87,28 +91,13 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		open,
-		onOpenChange,
-		onOpenChangeComplete,
-	}: {
-		children: React.ReactNode;
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-		onOpenChangeComplete?: (open: boolean) => void;
-	}) =>
-		open ? (
-			<div data-testid="dialog">
-				<button type="button" onClick={() => onOpenChange(false)}>
-					close-dialog
-				</button>
-				<button type="button" onClick={() => onOpenChangeComplete?.(false)}>
-					close-dialog-complete
-				</button>
-				{children}
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot
+			{...props}
+			exitLabel="close-dialog-complete"
+			closeLabel="close-dialog"
+		/>
+	),
 	DialogContent: ({
 		children,
 		className,
@@ -232,6 +221,7 @@ describe("ShareDialog", () => {
 		mockState.handleApiError.mockReset();
 		mockState.pageUrl.mockReset();
 		mockState.toastSuccess.mockReset();
+		mockState.toastError.mockReset();
 		mockState.clipboardWriteText.mockReset();
 		mockState.pageUrl.mockImplementation(
 			(token: string) => `${window.location.origin}/s/${token}`,
@@ -574,7 +564,7 @@ describe("ShareDialog", () => {
 		mockState.create.mockResolvedValue({ token: "copied-token" });
 		mockState.clipboardWriteText.mockResolvedValue(undefined);
 
-		render(
+		const { rerender } = render(
 			<ShareDialog open onOpenChange={onOpenChange} folderId={7} name="Docs" />,
 		);
 
@@ -602,8 +592,22 @@ describe("ShareDialog", () => {
 			screen.getByDisplayValue(`${window.location.origin}/s/copied-token`),
 		).toBeInTheDocument();
 
+		rerender(
+			<ShareDialog
+				open={false}
+				onOpenChange={onOpenChange}
+				folderId={7}
+				name="Docs"
+			/>,
+		);
+
 		fireEvent.click(
 			screen.getByRole("button", { name: "close-dialog-complete" }),
+		);
+
+		expect(screen.queryByTestId("dialog")).not.toBeInTheDocument();
+		rerender(
+			<ShareDialog open onOpenChange={onOpenChange} folderId={7} name="Docs" />,
 		);
 
 		expect(
@@ -645,7 +649,7 @@ describe("ShareDialog", () => {
 	it("clears pending form state when the dialog closes externally", () => {
 		const onOpenChange = vi.fn();
 
-		render(
+		const { rerender } = render(
 			<ShareDialog
 				open
 				onOpenChange={onOpenChange}
@@ -670,17 +674,91 @@ describe("ShareDialog", () => {
 			"keep-out",
 		);
 
+		rerender(
+			<ShareDialog
+				open={false}
+				onOpenChange={onOpenChange}
+				fileId={1}
+				name="draft.md"
+			/>,
+		);
+
 		fireEvent.click(
 			screen.getByRole("button", { name: "close-dialog-complete" }),
 		);
 
-		const dialog = screen.getByTestId("dialog");
-		expect(
-			within(dialog).getByLabelText("share:share_password_optional"),
-		).toHaveValue("");
-		expect(within(dialog).getByTestId("share-expiry")).toHaveValue("never");
-		expect(
-			within(dialog).getByLabelText("share:share_download_limit"),
-		).toHaveValue(null);
+		expect(screen.queryByTestId("dialog")).not.toBeInTheDocument();
 	});
+	it.each(["success", "failure"])(
+		"isolates old share creation %s while preserving success callbacks",
+		async (outcome) => {
+			const pending = deferred<{ token: string }>();
+			mockState.create.mockReturnValueOnce(pending.promise);
+			const onShareCreated = vi.fn();
+			const onOpenChange = vi.fn();
+			const view = (open: boolean) => (
+				<ShareDialog
+					open={open}
+					onOpenChange={onOpenChange}
+					onShareCreated={onShareCreated}
+					fileId={1}
+					name="target"
+				/>
+			);
+			const { rerender } = render(view(true));
+			fireEvent.click(
+				screen.getByRole("button", { name: "share:share_create_button" }),
+			);
+			rerender(view(false));
+			rerender(view(true));
+			await act(async () => {
+				if (outcome === "success") pending.resolve({ token: "old-token" });
+				else pending.reject(new Error("old failure"));
+				await pending.promise.catch(() => {});
+			});
+			expect(onShareCreated).toHaveBeenCalledTimes(
+				outcome === "success" ? 1 : 0,
+			);
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+			expect(
+				screen.getByRole("button", { name: "share:share_create_button" }),
+			).toBeEnabled();
+			expect(
+				screen.queryByDisplayValue(`${window.location.origin}/s/old-token`),
+			).toBeNull();
+		},
+	);
+
+	it.each(["active", "closed"])(
+		"handles clipboard failure only while %s",
+		async (state) => {
+			const pending = deferred<void>();
+			mockState.create.mockResolvedValue({ token: "copy-token" });
+			mockState.clipboardWriteText.mockReturnValueOnce(pending.promise);
+			const view = (open: boolean) => (
+				<ShareDialog
+					open={open}
+					onOpenChange={vi.fn()}
+					folderId={7}
+					name="Docs"
+				/>
+			);
+			const { rerender } = render(view(true));
+			fireEvent.click(
+				screen.getByRole("button", { name: "share:share_create_button" }),
+			);
+			await screen.findByDisplayValue(`${window.location.origin}/s/copy-token`);
+			fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+			if (state === "closed") rerender(view(false));
+			await act(async () => {
+				pending.reject(new Error("clipboard unavailable"));
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(mockState.toastError).toHaveBeenCalledWith(
+					"errors:unexpected_error",
+				);
+			else expect(mockState.toastError).not.toHaveBeenCalled();
+		},
+	);
 });

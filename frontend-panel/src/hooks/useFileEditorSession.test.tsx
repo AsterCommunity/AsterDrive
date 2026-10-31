@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { useFileEditorSession } from "@/hooks/useFileEditorSession";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	setFileLock: vi.fn(),
@@ -199,5 +201,86 @@ describe("useFileEditorSession", () => {
 		await waitFor(() => {
 			expect(mockState.setFileLock).toHaveBeenNthCalledWith(2, 7, false);
 		});
+	});
+	it.each(["success", "failure"])(
+		"releases late lock acquisition without touching a replacement session: %s",
+		async (outcome) => {
+			const pending = deferred<void>();
+			mockState.setFileLock.mockReturnValueOnce(pending.promise);
+			const { result, unmount } = renderHook(() =>
+				useFileEditorSession(createOptions()),
+			);
+			let work: Promise<void> | undefined;
+			act(() => {
+				work = result.current.startEditing();
+			});
+			unmount();
+			await act(async () => {
+				if (outcome === "success") pending.resolve();
+				else pending.reject(new Error("late lock failure"));
+				await work;
+			});
+			if (outcome === "success")
+				expect(mockState.setFileLock).toHaveBeenLastCalledWith(7, false);
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["success", "failure", "active-failure"])(
+		"separates save side effects and live UI: %s",
+		async (outcome) => {
+			const pending = deferred<void>();
+			mockState.updateContent.mockReturnValueOnce(pending.promise);
+			const onSaved = vi.fn();
+			const { result, unmount } = renderHook(() =>
+				useFileEditorSession(createOptions({ onSaved })),
+			);
+			let work: Promise<void> | undefined;
+			act(() => {
+				work = result.current.save();
+			});
+			if (outcome !== "active-failure") unmount();
+			const error = new Error("save failure");
+			await act(async () => {
+				if (outcome === "success") pending.resolve();
+				else pending.reject(error);
+				await work;
+			});
+			if (outcome === "success") {
+				expect(onSaved).toHaveBeenCalledTimes(1);
+				expect(mockState.setFileLock).toHaveBeenCalledWith(7, false);
+			} else expect(onSaved).not.toHaveBeenCalled();
+			if (outcome === "active-failure")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
+
+	it("releases the edit lock and beforeunload subscription as exit starts", async () => {
+		// Keep the wrapper identity stable; a close must not masquerade as an unmount.
+		let open = true;
+		const wrapper = ({ children }: { children: React.ReactNode }) => (
+			<DialogLifecycle open={open} target={null}>
+				{() => children}
+			</DialogLifecycle>
+		);
+		const { result, rerender } = renderHook(
+			() => useFileEditorSession(createOptions()),
+			{ wrapper },
+		);
+		await act(async () => {
+			await result.current.startEditing();
+		});
+		const event = new Event("beforeunload", { cancelable: true });
+		window.dispatchEvent(event);
+		expect(event.defaultPrevented).toBe(true);
+		open = false;
+		rerender();
+		await waitFor(() =>
+			expect(mockState.setFileLock).toHaveBeenCalledWith(7, false),
+		);
+		const after = new Event("beforeunload", { cancelable: true });
+		window.dispatchEvent(after);
+		expect(after.defaultPrevented).toBe(false);
 	});
 });

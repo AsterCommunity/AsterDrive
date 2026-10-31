@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import {
@@ -44,7 +45,27 @@ function selectedPolicyLabel(policies: StoragePolicy[], policyId: string) {
 	return policy ? policyOptionLabel(policy) : undefined;
 }
 
-export function StoragePolicyMigrationDialog({
+export function StoragePolicyMigrationDialog(
+	props: StoragePolicyMigrationDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<StoragePolicyMigrationDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function StoragePolicyMigrationDialogContent({
 	dryRun,
 	dryRunLoading,
 	open,

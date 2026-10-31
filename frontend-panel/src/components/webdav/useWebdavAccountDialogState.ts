@@ -12,7 +12,7 @@ interface WebdavAccountDialogState {
 	newPassword: string;
 	newUsername: string;
 	selectedFolderId: number | undefined;
-	showPassword: WebdavCredentials | null;
+	showPassword: WebdavCredentials[];
 	testing: boolean;
 	testResult: boolean | null;
 }
@@ -24,7 +24,7 @@ type WebdavAccountDialogAction =
 	| { type: "usernameChanged"; username: string }
 	| { type: "passwordChanged"; password: string }
 	| { type: "folderChanged"; folderId: number | undefined }
-	| { type: "created"; credentials: WebdavCredentials }
+	| { type: "created"; credentials: WebdavCredentials; finishCreate: boolean }
 	| { type: "credentialsCleared" }
 	| { type: "testingChanged"; testing: boolean }
 	| { type: "testResultChanged"; result: boolean | null };
@@ -36,7 +36,7 @@ const initialWebdavAccountDialogState: WebdavAccountDialogState = {
 	newPassword: "",
 	newUsername: "",
 	selectedFolderId: undefined,
-	showPassword: null,
+	showPassword: [],
 	testing: false,
 	testResult: null,
 };
@@ -47,9 +47,17 @@ function webdavAccountDialogReducer(
 ): WebdavAccountDialogState {
 	switch (action.type) {
 		case "createOpenChanged":
-			return { ...state, createDialogOpen: action.open };
+			return {
+				...state,
+				createDialogOpen: action.open,
+				creating: action.open ? false : state.creating,
+			};
 		case "credentialsOpenChanged":
-			return { ...state, credentialsDialogOpen: action.open };
+			return {
+				...state,
+				credentialsDialogOpen: action.open,
+				testing: action.open ? false : state.testing,
+			};
 		case "creatingChanged":
 			return { ...state, creating: action.creating };
 		case "usernameChanged":
@@ -61,16 +69,22 @@ function webdavAccountDialogReducer(
 		case "created":
 			return {
 				...state,
-				createDialogOpen: false,
 				credentialsDialogOpen: true,
-				newPassword: "",
-				newUsername: "",
-				selectedFolderId: undefined,
-				showPassword: action.credentials,
+				...(action.finishCreate || !state.createDialogOpen
+					? {
+							createDialogOpen: false,
+							creating: false,
+							newPassword: "",
+							newUsername: "",
+							selectedFolderId: undefined,
+						}
+					: {}),
+				showPassword: [...state.showPassword, action.credentials],
+				testing: false,
 				testResult: null,
 			};
 		case "credentialsCleared":
-			return { ...state, showPassword: null };
+			return { ...state, showPassword: [] };
 		case "testingChanged":
 			return { ...state, testing: action.testing };
 		case "testResultChanged":
@@ -103,7 +117,9 @@ export function useWebdavAccountDialogState() {
 			dispatch({ type: "testResultChanged", result }),
 		setTesting: (testing: boolean) =>
 			dispatch({ type: "testingChanged", testing }),
-		showCreatedCredentials: (credentials: WebdavCredentials) =>
-			dispatch({ type: "created", credentials }),
+		showCreatedCredentials: (
+			credentials: WebdavCredentials,
+			finishCreate = true,
+		) => dispatch({ type: "created", credentials, finishCreate }),
 	};
 }

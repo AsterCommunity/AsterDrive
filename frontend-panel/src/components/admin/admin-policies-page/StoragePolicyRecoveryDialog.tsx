@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,7 +50,28 @@ interface StoragePolicyRecoveryDialogProps {
 }
 
 /** Presents read-only recovery evidence before any migration or destructive action. */
-export function StoragePolicyRecoveryDialog({
+export function StoragePolicyRecoveryDialog(
+	props: StoragePolicyRecoveryDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.policy?.id}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<StoragePolicyRecoveryDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function StoragePolicyRecoveryDialogContent({
 	confirmation,
 	loading,
 	open,

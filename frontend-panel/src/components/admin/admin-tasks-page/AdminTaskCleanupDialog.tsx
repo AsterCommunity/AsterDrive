@@ -9,6 +9,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,7 +40,25 @@ interface AdminTaskCleanupDialogProps {
 	submitting: boolean;
 }
 
-export function AdminTaskCleanupDialog({
+export function AdminTaskCleanupDialog(props: AdminTaskCleanupDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<AdminTaskCleanupDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function AdminTaskCleanupDialogContent({
 	description,
 	finishedBefore,
 	kindFilter,

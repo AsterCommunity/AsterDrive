@@ -17,6 +17,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,7 +134,27 @@ interface StoragePolicyDialogProps {
 	onSetupLogout?: () => void;
 }
 
-export function StoragePolicyDialog({
+export function StoragePolicyDialog(props: StoragePolicyDialogProps) {
+	if ((props.presentation ?? "page") === "page")
+		return <StoragePolicyContent {...props} />;
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<StoragePolicyContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function StoragePolicyContent({
 	open,
 	mode,
 	form,

@@ -11,6 +11,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
@@ -416,6 +417,10 @@ export default function AdminPolicyGroupsPage() {
 		});
 	};
 
+	const isMigrationCurrent = useDialogActivity(
+		`${migrationSourceId}:${migrationTargetId}`,
+		migrationDialogOpen,
+	);
 	const handleMigrateUsers = async () => {
 		if (!migrationSourceGroup) {
 			return;
@@ -455,11 +460,11 @@ export default function AdminPolicyGroupsPage() {
 					targetGroupName,
 				),
 			);
-			handleMigrationDialogOpenChange(false);
+			if (isMigrationCurrent()) handleMigrationDialogOpenChange(false);
 		} catch (e) {
-			handleApiError(e);
+			if (isMigrationCurrent()) handleApiError(e);
 		} finally {
-			setMigrationSubmitting(false);
+			if (isMigrationCurrent()) setMigrationSubmitting(false);
 		}
 	};
 

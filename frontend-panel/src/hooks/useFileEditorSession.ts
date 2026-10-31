@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import {
+	useDialogActivity,
+	useDialogPresentation,
+} from "@/components/ui/dialog-lifecycle";
 import { handleApiError } from "@/hooks/useApiError";
 import { fileService } from "@/services/fileService";
 
@@ -23,6 +27,8 @@ export function useFileEditorSession({
 	onConflict,
 	messages,
 }: UseFileEditorSessionOptions) {
+	const active = useDialogPresentation()?.active ?? true;
+	const isCurrent = useDialogActivity(fileId);
 	const [editing, setEditing] = useState(false);
 	const [editContent, setEditContent] = useState(initialContent);
 	const [saving, setSaving] = useState(false);
@@ -39,22 +45,23 @@ export function useFileEditorSession({
 	}, [editing]);
 
 	useEffect(() => {
-		const editingState = editingRef;
-		return () => {
-			if (editingState.current) {
-				fileService.setFileLock(fileId, false).catch(() => {});
-			}
+		const release = () => {
+			if (!editingRef.current) return;
+			editingRef.current = false;
+			void fileService.setFileLock(fileId, false).catch(() => {});
 		};
-	}, [fileId]);
+		if (!active) release();
+		return release;
+	}, [fileId, active]);
 
 	useEffect(() => {
-		if (!editing) return;
+		if (!active || !editing) return;
 		const handler = (e: BeforeUnloadEvent) => {
 			e.preventDefault();
 		};
 		window.addEventListener("beforeunload", handler);
 		return () => window.removeEventListener("beforeunload", handler);
-	}, [editing]);
+	}, [editing, active]);
 
 	const dirty = useMemo(
 		() => editing && editContent !== initialContent,
@@ -64,11 +71,15 @@ export function useFileEditorSession({
 	const startEditing = useCallback(async () => {
 		try {
 			await fileService.setFileLock(fileId, true);
+			if (!isCurrent()) {
+				await fileService.setFileLock(fileId, false);
+				return;
+			}
 			setEditing(true);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 		}
-	}, [fileId]);
+	}, [fileId, isCurrent]);
 
 	const cancelEditing = useCallback(async () => {
 		setEditing(false);
@@ -84,7 +95,7 @@ export function useFileEditorSession({
 		setSaving(true);
 		try {
 			await fileService.updateContent(fileId, editContent, etag ?? undefined);
-			setEditing(false);
+			if (isCurrent()) setEditing(false);
 			toast.success(messages.saved);
 			await onSaved?.();
 			try {
@@ -94,16 +105,17 @@ export function useFileEditorSession({
 			}
 		} catch (error: unknown) {
 			const status = (error as { status?: number })?.status;
+			if (!isCurrent()) return;
 			if (status === 412) {
 				toast.error(messages.editedByOthers);
 				onConflict?.();
 			} else {
-				handleApiError(error);
+				if (isCurrent()) handleApiError(error);
 			}
 		} finally {
-			setSaving(false);
+			if (isCurrent()) setSaving(false);
 		}
-	}, [editContent, etag, fileId, messages, onConflict, onSaved]);
+	}, [editContent, etag, fileId, messages, onConflict, onSaved, isCurrent]);
 
 	return {
 		editing,

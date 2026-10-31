@@ -3,7 +3,6 @@ import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetF
 import { FilePreview } from "@/components/files/FilePreview";
 import type { ImagePreviewNavigation } from "@/components/files/preview/navigation/imagePreviewNavigation";
 import type { FilePreviewResources } from "@/components/files/preview/resources/filePreviewResources";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import {
 	ArchiveTaskNameDialog,
 	BatchTargetFolderDialog,
@@ -115,37 +114,6 @@ export function FileBrowserDialogs({
 	onVersionClose,
 	onVersionRestored,
 }: FileBrowserDialogsProps) {
-	const { retainedValue: retainedPreviewState, handleOpenChangeComplete } =
-		useRetainedDialogValue(previewState, previewState !== null);
-	const {
-		retainedValue: retainedArchiveTaskTarget,
-		handleOpenChangeComplete: handleArchiveTaskOpenChangeComplete,
-	} = useRetainedDialogValue(archiveTaskTarget, archiveTaskTarget !== null);
-	const {
-		retainedValue: retainedShareTarget,
-		handleOpenChangeComplete: handleShareOpenChangeComplete,
-	} = useRetainedDialogValue(shareTarget, shareTarget !== null);
-	const {
-		retainedValue: retainedCopyTarget,
-		handleOpenChangeComplete: handleCopyOpenChangeComplete,
-	} = useRetainedDialogValue(copyTarget, copyTarget !== null);
-	const {
-		retainedValue: retainedMoveTarget,
-		handleOpenChangeComplete: handleMoveOpenChangeComplete,
-	} = useRetainedDialogValue(moveTarget, moveTarget !== null);
-	const {
-		retainedValue: retainedRenameTarget,
-		handleOpenChangeComplete: handleRenameOpenChangeComplete,
-	} = useRetainedDialogValue(renameTarget, renameTarget !== null);
-	const {
-		retainedValue: retainedFolderPolicyTarget,
-		handleOpenChangeComplete: handleFolderPolicyOpenChangeComplete,
-	} = useRetainedDialogValue(folderPolicyTarget, folderPolicyTarget !== null);
-	const {
-		retainedValue: retainedFolderIconTarget,
-		handleOpenChangeComplete: handleFolderIconOpenChangeComplete,
-	} = useRetainedDialogValue(folderIconTarget, folderIconTarget !== null);
-
 	return (
 		<>
 			<Suspense fallback={null}>
@@ -168,9 +136,8 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onArchiveTaskClose();
 					}}
-					onOpenChangeComplete={handleArchiveTaskOpenChangeComplete}
-					mode={retainedArchiveTaskTarget?.mode ?? "compress"}
-					initialName={retainedArchiveTaskTarget?.initialName ?? ""}
+					mode={archiveTaskTarget?.mode ?? "compress"}
+					initialName={archiveTaskTarget?.initialName ?? ""}
 					onSubmit={onArchiveTaskSubmit}
 				/>
 			</Suspense>
@@ -190,8 +157,7 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onFolderIconClose();
 					}}
-					onOpenChangeComplete={handleFolderIconOpenChangeComplete}
-					folder={retainedFolderIconTarget}
+					folder={folderIconTarget}
 					onUpdated={onFolderIconUpdated}
 				/>
 			</Suspense>
@@ -202,8 +168,7 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onFolderPolicyClose();
 					}}
-					onOpenChangeComplete={handleFolderPolicyOpenChangeComplete}
-					folder={retainedFolderPolicyTarget}
+					folder={folderPolicyTarget}
 					onUpdated={onFolderPolicyUpdated}
 				/>
 			</Suspense>
@@ -214,22 +179,20 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onShareClose();
 					}}
-					onOpenChangeComplete={handleShareOpenChangeComplete}
 					onShareCreated={onShareCreated}
-					fileId={retainedShareTarget?.fileId}
-					folderId={retainedShareTarget?.folderId}
-					name={retainedShareTarget?.name ?? ""}
-					initialMode={retainedShareTarget?.initialMode}
+					fileId={shareTarget?.fileId}
+					folderId={shareTarget?.folderId}
+					name={shareTarget?.name ?? ""}
+					initialMode={shareTarget?.initialMode}
 				/>
 			</Suspense>
 
-			{retainedPreviewState ? (
+			{
 				<FilePreview
 					open={previewState !== null}
-					file={retainedPreviewState.file}
-					openMode={retainedPreviewState.openMode}
+					file={previewState?.file ?? null}
+					openMode={previewState?.openMode}
 					onClose={onPreviewClose}
-					onOpenChangeComplete={handleOpenChangeComplete}
 					onFileUpdated={onPreviewFileUpdated}
 					imageNavigation={
 						previewImageNavigation && onPreviewNavigate
@@ -241,38 +204,36 @@ export function FileBrowserDialogs({
 							: undefined
 					}
 					resources={
-						{
-							scope: "personal",
-							paths: {
-								download: fileService.downloadPath(
-									retainedPreviewState.file.id,
-								),
-								imagePreview: fileService.imagePreviewPath(
-									retainedPreviewState.file.id,
-								),
-								thumbnail: fileService.thumbnailPath(
-									retainedPreviewState.file.id,
-								),
-							},
-							resolve: fileService.resolveResourceHandle,
-							actions: {
-								createExternalPreviewLink: () =>
-									fileService.createPreviewLink(retainedPreviewState.file.id),
-								loadArchiveManifest: (options) =>
-									fileService.getArchivePreview(
-										retainedPreviewState.file.id,
-										options,
-									),
-								launchWopiSession: (appKey) =>
-									fileService.createWopiSession(
-										retainedPreviewState.file.id,
-										appKey,
-									),
-							},
-						} satisfies FilePreviewResources
+						previewState
+							? ({
+									scope: "personal",
+									paths: {
+										download: fileService.downloadPath(previewState.file.id),
+										imagePreview: fileService.imagePreviewPath(
+											previewState.file.id,
+										),
+										thumbnail: fileService.thumbnailPath(previewState.file.id),
+									},
+									resolve: fileService.resolveResourceHandle,
+									actions: {
+										createExternalPreviewLink: () =>
+											fileService.createPreviewLink(previewState.file.id),
+										loadArchiveManifest: (options) =>
+											fileService.getArchivePreview(
+												previewState.file.id,
+												options,
+											),
+										launchWopiSession: (appKey) =>
+											fileService.createWopiSession(
+												previewState.file.id,
+												appKey,
+											),
+									},
+								} satisfies FilePreviewResources)
+							: null
 					}
 				/>
-			) : null}
+			}
 
 			<Suspense fallback={null}>
 				<BatchTargetFolderDialog
@@ -280,13 +241,12 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onCopyClose();
 					}}
-					onOpenChangeComplete={handleCopyOpenChangeComplete}
 					mode="copy"
 					onConfirm={onCopyConfirm}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
 					selectedFolderIds={
-						retainedCopyTarget?.type === "folder" ? [retainedCopyTarget.id] : []
+						copyTarget?.type === "folder" ? [copyTarget.id] : []
 					}
 				/>
 			</Suspense>
@@ -297,13 +257,12 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onMoveClose();
 					}}
-					onOpenChangeComplete={handleMoveOpenChangeComplete}
 					mode="move"
 					onConfirm={onMoveConfirm}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
-					selectedFolderIds={retainedMoveTarget?.folderIds ?? []}
-					sourceWorkspace={retainedMoveTarget?.sourceWorkspace}
+					selectedFolderIds={moveTarget?.folderIds ?? []}
+					sourceWorkspace={moveTarget?.sourceWorkspace}
 				/>
 			</Suspense>
 
@@ -326,10 +285,9 @@ export function FileBrowserDialogs({
 					onOpenChange={(open) => {
 						if (!open) onRenameClose();
 					}}
-					onOpenChangeComplete={handleRenameOpenChangeComplete}
-					type={retainedRenameTarget?.type ?? "file"}
-					id={retainedRenameTarget?.id ?? 0}
-					currentName={retainedRenameTarget?.name ?? ""}
+					type={renameTarget?.type ?? "file"}
+					id={renameTarget?.id ?? 0}
+					currentName={renameTarget?.name ?? ""}
 					onRenamed={onRenamed}
 				/>
 			</Suspense>

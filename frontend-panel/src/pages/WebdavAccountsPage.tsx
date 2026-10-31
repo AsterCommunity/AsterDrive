@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { useWebdavAccountDialogState } from "@/components/webdav/useWebdavAccountDialogState";
 import { WebdavAccountTable } from "@/components/webdav/WebdavAccountTable";
@@ -13,7 +14,6 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useApiList } from "@/hooks/useApiList";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { FOLDER_LIMIT, PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { absoluteAppUrl } from "@/lib/publicSiteUrl";
@@ -43,13 +43,7 @@ export default function WebdavAccountsPage() {
 		pendingId: togglingAccountId,
 		runWithPending: runWithTogglingAccount,
 	} = usePendingId<number>();
-	const {
-		retainedValue: recentCredentials,
-		handleOpenChangeComplete: handleCredentialsDialogOpenChangeComplete,
-	} = useRetainedDialogValue(
-		dialogState.showPassword,
-		dialogState.credentialsDialogOpen,
-	);
+	const recentCredentials = dialogState.showPassword;
 
 	const fetchFolders = useCallback(async () => {
 		try {
@@ -112,6 +106,16 @@ export default function WebdavAccountsPage() {
 		[t],
 	);
 
+	const isOwnerCurrent = useDialogActivity(undefined);
+	const isCreateCurrent = useDialogActivity(
+		undefined,
+		dialogState.createDialogOpen,
+	);
+	const isTestCurrent = useDialogActivity(
+		recentCredentials.at(-1),
+		dialogState.credentialsDialogOpen,
+	);
+
 	const handleCreate = async () => {
 		if (!dialogState.newUsername.trim()) {
 			toast.error(t("webdav:username_required"));
@@ -125,16 +129,21 @@ export default function WebdavAccountsPage() {
 				password: dialogState.newPassword.trim() || undefined,
 				root_folder_id: dialogState.selectedFolderId ?? null,
 			});
-			dialogState.showCreatedCredentials({
-				username: result.username,
-				password: result.password,
-			});
+			if (isOwnerCurrent()) {
+				dialogState.showCreatedCredentials(
+					{
+						username: result.username,
+						password: result.password,
+					},
+					isCreateCurrent(),
+				);
+			}
 			toast.success(t("admin:webdav_account_created"));
 			void reload();
 		} catch (err) {
-			handleApiError(err);
+			if (isCreateCurrent()) handleApiError(err);
 		} finally {
-			dialogState.setCreating(false);
+			if (isCreateCurrent()) dialogState.setCreating(false);
 		}
 	};
 
@@ -162,28 +171,33 @@ export default function WebdavAccountsPage() {
 	};
 
 	const handleTest = async () => {
-		if (!recentCredentials) return;
+		const latestCredentials = recentCredentials.at(-1);
+		if (!latestCredentials) return;
 		dialogState.setTesting(true);
 		dialogState.setTestResult(null);
 		try {
 			await webdavAccountService.test({
-				username: recentCredentials.username,
-				password: recentCredentials.password,
+				username: latestCredentials.username,
+				password: latestCredentials.password,
 			});
+			if (!isTestCurrent()) return;
 			dialogState.setTestResult(true);
 			toast.success(t("admin:connection_success"));
 		} catch {
+			if (!isTestCurrent()) return;
 			dialogState.setTestResult(false);
 			toast.error(t("admin:connection_test_failed"));
 		} finally {
-			dialogState.setTesting(false);
+			if (isTestCurrent()) dialogState.setTesting(false);
 		}
 	};
 
 	return (
 		<AppLayout>
 			<WebdavCreateAccountDialog
-				open={dialogState.createDialogOpen}
+				open={
+					dialogState.createDialogOpen && !dialogState.credentialsDialogOpen
+				}
 				onOpenChange={dialogState.setCreateDialogOpen}
 				createTitle={t("webdav:create_webdav_account")}
 				description={t("webdav:webdav_test_hint")}
@@ -213,11 +227,6 @@ export default function WebdavAccountsPage() {
 					dialogState.setCredentialsDialogOpen(open);
 					if (!open) {
 						dialogState.clearCredentials();
-					}
-				}}
-				onOpenChangeComplete={(open) => {
-					handleCredentialsDialogOpenChangeComplete(open);
-					if (!open) {
 						dialogState.setTestResult(null);
 					}
 				}}

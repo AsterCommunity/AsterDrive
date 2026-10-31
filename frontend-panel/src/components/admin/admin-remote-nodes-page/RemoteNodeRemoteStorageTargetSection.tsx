@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	buildCreateRemoteStorageTargetPayload,
@@ -9,6 +9,7 @@ import {
 } from "@/components/admin/remoteStorageTargetDialogShared";
 import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
@@ -73,13 +74,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 	>(null);
 	const [readOnlyOpen, setReadOnlyOpen] = useState(false);
 	const [dialogOpen, setDialogOpen] = useState(false);
-	const dialogCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const clearDialogCloseTimer = () => {
-		if (dialogCloseTimer.current !== null) {
-			clearTimeout(dialogCloseTimer.current);
-			dialogCloseTimer.current = null;
-		}
-	};
 	const editingTarget =
 		draftMode === "edit"
 			? (targets.find((target) => target.target_key === editingTargetKey) ??
@@ -116,7 +110,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		if (!canCreateTargets || !firstSupportedConnectorId) {
 			return;
 		}
-		clearDialogCloseTimer();
+		setSubmitting(false);
 		setDraftMode("create");
 		setDialogOpen(true);
 		setEditingTargetKey(null);
@@ -128,7 +122,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 	};
 
 	const startEdit = (target: RemoteStorageTargetInfo) => {
-		clearDialogCloseTimer();
+		setSubmitting(false);
 		setDraftMode("edit");
 		setDialogOpen(true);
 		setEditingTargetKey(target.target_key);
@@ -136,7 +130,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 	};
 
 	const resetDraft = () => {
-		clearDialogCloseTimer();
 		setDialogOpen(false);
 		setDraftMode(null);
 		setEditingTargetKey(null);
@@ -144,34 +137,17 @@ export function RemoteNodeRemoteStorageTargetSection({
 	};
 	const closeDraft = () => {
 		if (submitting) return;
-		setDialogOpen(false);
-		clearDialogCloseTimer();
-		dialogCloseTimer.current = setTimeout(() => {
-			dialogCloseTimer.current = null;
-			resetDraft();
-		}, 120);
+		resetDraft();
 	};
-	useEffect(() => {
-		return () => {
-			if (dialogCloseTimer.current !== null) {
-				clearTimeout(dialogCloseTimer.current);
-			}
-		};
-	}, []);
 	useEffect(() => {
 		if (draftMode === "edit" && editingTarget == null) {
 			setDialogOpen(false);
-			if (dialogCloseTimer.current !== null) {
-				clearTimeout(dialogCloseTimer.current);
-			}
-			dialogCloseTimer.current = setTimeout(() => {
-				dialogCloseTimer.current = null;
-				setDraftMode(null);
-				setEditingTargetKey(null);
-				setForm(emptyRemoteStorageTargetForm);
-			}, 120);
+			setDraftMode(null);
+			setEditingTargetKey(null);
+			setForm(emptyRemoteStorageTargetForm);
 		}
 	}, [draftMode, editingTarget]);
+	const isDraftCurrent = useDialogActivity(editingTargetKey, dialogOpen);
 
 	const setField = <K extends keyof RemoteStorageTargetFormData>(
 		key: K,
@@ -240,8 +216,10 @@ export function RemoteNodeRemoteStorageTargetSection({
 		} catch {
 			// Parent handlers surface API errors; keep the draft open on failure.
 		} finally {
-			setSubmitting(false);
-			if (succeeded) closeDraft();
+			if (isDraftCurrent()) {
+				setSubmitting(false);
+				if (succeeded) resetDraft();
+			}
 		}
 	};
 	const draftModeForRender = activeDraftMode ?? "create";

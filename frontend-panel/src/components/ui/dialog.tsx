@@ -2,11 +2,40 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+	DialogCompletionBoundary,
+	useDialogExitComplete,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-	return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+function Dialog({
+	children,
+	onOpenChangeComplete,
+	...props
+}: DialogPrimitive.Root.Props) {
+	const complete = useDialogExitComplete();
+	return (
+		<DialogPrimitive.Root
+			data-slot="dialog"
+			{...props}
+			onOpenChangeComplete={(open) => {
+				if (props.open !== undefined && props.open !== open) return;
+				onOpenChangeComplete?.(open);
+				complete?.(open);
+			}}
+		>
+			{typeof children === "function" ? (
+				(payload) => (
+					<DialogCompletionBoundary>
+						{children(payload)}
+					</DialogCompletionBoundary>
+				)
+			) : (
+				<DialogCompletionBoundary>{children}</DialogCompletionBoundary>
+			)}
+		</DialogPrimitive.Root>
+	);
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {

@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useArchivePreviewState } from "@/components/files/preview/viewers/archive/useArchivePreviewState";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { ApiPendingError } from "@/services/http";
+import { deferred } from "@/test/deferred";
 import type { ArchivePreviewManifest } from "@/types/api";
 
 const manifest: ArchivePreviewManifest = {
@@ -173,5 +175,34 @@ describe("useArchivePreviewState", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+	it("aborts an exiting archive request without clearing a previously rendered manifest", async () => {
+		const pending = deferred<ArchivePreviewManifest>();
+		const load = vi
+			.fn()
+			.mockResolvedValueOnce(manifest)
+			.mockReturnValueOnce(pending.promise);
+		let open = true;
+		const wrapper = ({ children }: { children: React.ReactNode }) => (
+			<DialogLifecycle open={open} target={null}>
+				{() => children}
+			</DialogLifecycle>
+		);
+		const { result, rerender } = renderHook(
+			() => useArchivePreviewState(load),
+			{ wrapper },
+		);
+		await waitFor(() => expect(result.current[0].manifest).toEqual(manifest));
+		act(() => result.current[1]({ type: "retryRequested" }));
+		await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+		const signal = load.mock.calls[1][0].signal as AbortSignal;
+		open = false;
+		rerender();
+		expect(signal.aborted).toBe(true);
+		await act(async () => {
+			pending.resolve({ ...manifest, entry_count: 99 });
+			await pending.promise;
+		});
+		expect(result.current[0].manifest?.entry_count).toBe(1);
 	});
 });

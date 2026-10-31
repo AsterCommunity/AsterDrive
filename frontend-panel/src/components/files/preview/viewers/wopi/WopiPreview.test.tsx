@@ -1,6 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WopiPreview } from "@/components/files/preview/viewers/wopi/WopiPreview";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
+import { deferred } from "@/test/deferred";
 import type { WopiLaunchSession } from "@/types/api";
 import { createWopiSessionResource } from "./wopiSessionResource";
 
@@ -155,5 +163,28 @@ describe("WopiPreview", () => {
 
 		expect(await screen.findByText("Collabora")).toBeInTheDocument();
 		expect(screen.queryByTitle("Collabora")).not.toBeInTheDocument();
+	});
+	it("unsubscribes on close, retains an existing frame, and ignores a late session", async () => {
+		const pending = deferred<WopiLaunchSession>();
+		const resource = createWopiSessionResource(() => pending.promise);
+		const view = (open: boolean) => (
+			<DialogLifecycle open={open} target={null}>
+				{() => (
+					<WopiPreview
+						label="Office"
+						rawConfig={null}
+						sessionResource={resource}
+					/>
+				)}
+			</DialogLifecycle>
+		);
+		const { rerender } = render(view(true));
+		rerender(view(false));
+		await act(async () => {
+			pending.resolve(validSession());
+			await pending.promise;
+		});
+		expect(HTMLFormElement.prototype.submit).not.toHaveBeenCalled();
+		expect(screen.queryByTitle("Office")).toBeNull();
 	});
 });

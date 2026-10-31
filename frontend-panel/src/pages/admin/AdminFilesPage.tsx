@@ -32,6 +32,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -58,7 +59,6 @@ import {
 	useManagedListQueryState,
 } from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import { useRetainedDialogValue } from "@/hooks/useRetainedDialogValue";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateAbsoluteWithOffset } from "@/lib/format";
 import {
@@ -338,7 +338,30 @@ function DetailRow({
 	);
 }
 
-function FileDetailDialog({
+function FileDetailDialog(props: {
+	file: AdminFileDetail | null;
+	revisionId?: number;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+}) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<FileDetailDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function FileDetailDialogContent({
 	revisionId,
 	file: currentFile,
 	open,
@@ -349,23 +372,11 @@ function FileDetailDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const target = useMemo(
-		() => (open && currentFile ? { file: currentFile, revisionId } : null),
-		[open, currentFile, revisionId],
-	);
-	const { retainedValue, handleOpenChangeComplete } = useRetainedDialogValue(
-		target,
-		open,
-	);
-	const file = retainedValue?.file;
-	const selectedRevisionId = retainedValue?.revisionId;
+	const file = currentFile;
+	const selectedRevisionId = revisionId;
 	const { t } = useTranslation("admin");
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={handleOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-h-[min(860px,calc(100vh-2rem))] overflow-y-auto sm:max-w-[760px]">
 				<DialogHeader>
 					<DialogTitle>{file?.name ?? t("admin_file_detail")}</DialogTitle>
@@ -455,7 +466,34 @@ function FileDetailDialog({
 	);
 }
 
-function BlobDetailDialog({
+function BlobDetailDialog(props: {
+	blob: AdminFileBlobDetail | null;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onCreateMaintenanceTask: (
+		action: BlobMaintenanceAction,
+		blobIds: number[],
+	) => Promise<void>;
+	maintenanceAction: BlobMaintenanceAction | null;
+}) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<BlobDetailDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function BlobDetailDialogContent({
 	blob: currentBlob,
 	open,
 	onOpenChange,
@@ -471,16 +509,11 @@ function BlobDetailDialog({
 	) => Promise<void>;
 	maintenanceAction: BlobMaintenanceAction | null;
 }) {
-	const { retainedValue: blob, handleOpenChangeComplete } =
-		useRetainedDialogValue(open ? currentBlob : null, open);
+	const blob = currentBlob;
 	const { t } = useTranslation("admin");
 	const isBusy = maintenanceAction !== null;
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={handleOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-h-[min(860px,calc(100vh-2rem))] overflow-y-auto sm:max-w-[760px]">
 				<DialogHeader>
 					<DialogTitle>

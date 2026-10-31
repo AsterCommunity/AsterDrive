@@ -9,6 +9,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
 import { fileService } from "@/services/fileService";
@@ -17,30 +21,43 @@ import { useFileStore } from "@/stores/fileStore";
 interface RenameDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	type: "file" | "folder";
 	id: number;
 	currentName: string;
 	onRenamed?: () => Promise<void> | void;
 }
 
-export function RenameDialog({
+export function RenameDialog(props: RenameDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={`${props.type}:${props.id}`}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<RenameDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function RenameDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	type,
 	id,
 	currentName,
 	onRenamed,
 }: RenameDialogProps) {
-	const resetKey = `${type}:${id}:${currentName}:${open ? "open" : "closed"}`;
+	const resetKey = `${type}:${id}:${currentName}`;
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent keepMounted>
 				<DialogHeader>
 					<DialogTitle>
@@ -73,6 +90,7 @@ function RenameDialogForm({
 	onRenamed,
 	onOpenChange,
 }: Omit<RenameDialogProps, "open">) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation("files");
 	const refresh = useFileStore((s) => s.refresh);
 	const [name, setName] = useState(currentName);
@@ -97,6 +115,13 @@ function RenameDialogForm({
 			} else {
 				await fileService.renameFolder(id, trimmed);
 			}
+		} catch (error) {
+			if (isCurrent()) handleApiError(error);
+			submittingRef.current = false;
+			if (isCurrent()) setIsSubmitting(false);
+			return;
+		}
+		try {
 			toast.success(t("rename_success"));
 			onOpenChange(false);
 			if (onRenamed) {
@@ -106,8 +131,6 @@ function RenameDialogForm({
 			}
 		} catch (error) {
 			handleApiError(error);
-			submittingRef.current = false;
-			setIsSubmitting(false);
 		}
 	};
 

@@ -174,4 +174,28 @@ describe("ConfirmDialog", () => {
 		expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
 		expect(screen.queryByText("Delete 5 items")).not.toBeInTheDocument();
 	});
+	it("does not run confirmation from the retained exiting content", () => {
+		const onConfirm = vi.fn();
+		const onOpenChange = vi.fn();
+		const { rerender } = render(
+			<ConfirmDialog
+				open
+				onOpenChange={onOpenChange}
+				title="Delete"
+				onConfirm={onConfirm}
+			/>,
+		);
+		fireEvent.click(screen.getByTestId("confirm-action"));
+		rerender(
+			<ConfirmDialog
+				open={false}
+				onOpenChange={onOpenChange}
+				title=""
+				onConfirm={onConfirm}
+			/>,
+		);
+		fireEvent.click(screen.getByTestId("confirm-action"));
+		expect(onConfirm).toHaveBeenCalledTimes(1);
+		expect(onOpenChange).toHaveBeenCalledTimes(1);
+	});
 });

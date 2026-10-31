@@ -22,7 +22,6 @@ interface UsePreviewSessionResourcesOptions {
 	launchWopiSession?: NonNullable<
 		NonNullable<FilePreviewResources["actions"]>["launchWopiSession"]
 	>;
-	open: boolean;
 }
 
 export function usePreviewSessionResources({
@@ -30,7 +29,6 @@ export function usePreviewSessionResources({
 	archiveManifestLoader,
 	fileId,
 	launchWopiSession,
-	open,
 }: UsePreviewSessionResourcesOptions) {
 	const archiveManifestLoaderRef = useRef(archiveManifestLoader);
 	const wopiResourceRef = useRef<{
@@ -89,7 +87,7 @@ export function usePreviewSessionResources({
 
 	return {
 		activeArchiveManifestLoader:
-			open && activeOption?.mode === "archive" && archiveManifestLoader
+			activeOption?.mode === "archive" && archiveManifestLoader
 				? stableArchiveManifestLoader
 				: undefined,
 		launchWopiSession: launchWopiSession ? launchActiveWopiSession : null,

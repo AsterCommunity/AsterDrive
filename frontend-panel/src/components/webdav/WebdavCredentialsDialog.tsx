@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import type { WebdavCredentials } from "./useWebdavAccountDialogState";
@@ -16,11 +17,10 @@ import { WebdavCopyField } from "./WebdavCopyField";
 interface WebdavCredentialsDialogProps {
 	connectionFailedLabel: string;
 	connectionSuccessLabel: string;
-	credentials: WebdavCredentials | null;
+	credentials: WebdavCredentials[];
 	description: string;
 	onCopy: (value: string) => void;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete: (open: boolean) => void;
 	onTest: () => void;
 	open: boolean;
 	passwordLabel: string;
@@ -31,14 +31,32 @@ interface WebdavCredentialsDialogProps {
 	usernameLabel: string;
 }
 
-export function WebdavCredentialsDialog({
+export function WebdavCredentialsDialog(props: WebdavCredentialsDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={JSON.stringify(props.credentials)}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<WebdavCredentialsDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function WebdavCredentialsDialogContent({
 	connectionFailedLabel,
 	connectionSuccessLabel,
 	credentials,
 	description,
 	onCopy,
 	onOpenChange,
-	onOpenChangeComplete,
 	onTest,
 	open,
 	passwordLabel,
@@ -48,36 +66,43 @@ export function WebdavCredentialsDialog({
 	title,
 	usernameLabel,
 }: WebdavCredentialsDialogProps) {
-	if (!credentials) {
+	if (credentials.length === 0) {
 		return null;
 	}
 
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-w-md">
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
-				<div className="space-y-4 py-2">
-					<div className="space-y-1.5">
-						<Label>{usernameLabel}</Label>
-						<WebdavCopyField
-							value={credentials.username}
-							onCopy={() => onCopy(credentials.username)}
-						/>
-					</div>
-					<div className="space-y-1.5">
-						<Label>{passwordLabel}</Label>
-						<WebdavCopyField
-							value={credentials.password}
-							onCopy={() => onCopy(credentials.password)}
-						/>
-					</div>
+				<div className="max-h-[min(55dvh,32rem)] space-y-4 overflow-y-auto py-2">
+					{credentials.map((credential) => (
+						<div
+							key={credential.username}
+							className="space-y-3 rounded-md border border-border/60 p-3"
+						>
+							<div className="space-y-1.5">
+								<Label>{usernameLabel}</Label>
+								<WebdavCopyField
+									value={credential.username}
+									onCopy={() => {
+										if (open) onCopy(credential.username);
+									}}
+								/>
+							</div>
+							<div className="space-y-1.5">
+								<Label>{passwordLabel}</Label>
+								<WebdavCopyField
+									value={open ? credential.password : "••••••••"}
+									onCopy={() => {
+										if (open) onCopy(credential.password);
+									}}
+								/>
+							</div>
+						</div>
+					))}
 					{testResult !== null ? (
 						<Badge
 							variant={testResult ? "secondary" : "destructive"}

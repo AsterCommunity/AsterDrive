@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 
 interface PreviewAppsAddDialogProps {
 	canBuildWopiDiscoveryConfig: boolean;
@@ -17,7 +18,25 @@ interface PreviewAppsAddDialogProps {
 	onOpenWopiDiscovery: () => void;
 }
 
-export function PreviewAppsAddDialog({
+export function PreviewAppsAddDialog(props: PreviewAppsAddDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<PreviewAppsAddDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function PreviewAppsAddDialogContent({
 	canBuildWopiDiscoveryConfig,
 	onAddEmbedApp,
 	onOpenChange,

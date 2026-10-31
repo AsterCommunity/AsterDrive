@@ -1,8 +1,16 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { PreviewAppsConfigEditor } from "@/components/admin/PreviewAppsConfigEditor";
 import { PREVIEW_APP_ICON_URLS } from "@/components/common/previewAppIconUrls";
+import { deferred } from "@/test/deferred";
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -102,11 +110,21 @@ function createPreviewAppsConfigWithDefaultIcon() {
 
 function StatefulPreviewAppsEditor({
 	initialValue = createPreviewAppsConfig(),
+	onBuild,
 }: {
 	initialValue?: string;
+	onBuild?: React.ComponentProps<
+		typeof PreviewAppsConfigEditor
+	>["onBuildWopiDiscoveryPreviewConfig"];
 }) {
 	const [value, setValue] = useState(initialValue);
-	return <PreviewAppsConfigEditor value={value} onChange={setValue} />;
+	return (
+		<PreviewAppsConfigEditor
+			value={value}
+			onChange={setValue}
+			onBuildWopiDiscoveryPreviewConfig={onBuild}
+		/>
+	);
 }
 
 function editAppByName(name: string) {
@@ -236,5 +254,116 @@ describe("PreviewAppsConfigEditor", () => {
 				name: "preview_apps_provider_label",
 			}),
 		).not.toBeInTheDocument();
+	});
+	it.each(["success", "failure"])(
+		"ignores stale WOPI discovery %s after close and reopen",
+		async (outcome) => {
+			const pending = deferred<string>();
+			const build = vi.fn(() => pending.promise);
+			render(<StatefulPreviewAppsEditor onBuild={build} />);
+			const openDiscovery = () => {
+				fireEvent.click(
+					screen.getByRole("button", { name: "preview_apps_add_app" }),
+				);
+				fireEvent.click(
+					screen
+						.getByText("preview_apps_add_dialog_wopi_title")
+						.closest("button") as HTMLButtonElement,
+				);
+			};
+			openDiscovery();
+			fireEvent.change(
+				screen.getByLabelText("preview_apps_wopi_discovery_dialog_label"),
+				{ target: { value: "https://old.example/discovery" } },
+			);
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: "preview_apps_wopi_discovery_dialog_submit",
+				}),
+			);
+			await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+			fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
+			await waitFor(() =>
+				expect(
+					screen.queryByLabelText("preview_apps_wopi_discovery_dialog_label"),
+				).toBeNull(),
+			);
+			openDiscovery();
+			fireEvent.change(
+				screen.getByLabelText("preview_apps_wopi_discovery_dialog_label"),
+				{ target: { value: "https://new.example/discovery" } },
+			);
+			await act(async () => {
+				if (outcome === "success")
+					pending.resolve(createPreviewAppsConfigWithDefaultIcon());
+				else pending.reject(new Error("old discovery failure"));
+				await pending.promise.catch(() => {});
+			});
+			expect(
+				screen.getByLabelText("preview_apps_wopi_discovery_dialog_label"),
+			).toHaveValue("https://new.example/discovery");
+			expect(screen.getByText("外部查看器")).toBeInTheDocument();
+			expect(
+				screen.getByRole("button", {
+					name: "preview_apps_wopi_discovery_dialog_submit",
+				}),
+			).toBeEnabled();
+		},
+	);
+
+	it("closes nested magic-variable help without closing the app editor", async () => {
+		render(<StatefulPreviewAppsEditor />);
+		editAppByName("外部查看器");
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "preview_apps_url_template_variables_link",
+			}),
+		);
+		const dialogs = screen.getAllByRole("dialog");
+		fireEvent.click(
+			within(dialogs[dialogs.length - 1]).getAllByRole("button", {
+				name: /close$/,
+			})[0],
+		);
+		await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));
+		expect(screen.getByDisplayValue("custom.viewer")).toBeInTheDocument();
+	});
+	it("allows a new WOPI discovery immediately after changing the request URL", async () => {
+		const pending = deferred<string>();
+		const build = vi.fn(() => pending.promise);
+		render(<StatefulPreviewAppsEditor onBuild={build} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "preview_apps_add_app" }),
+		);
+		fireEvent.click(
+			screen
+				.getByText("preview_apps_add_dialog_wopi_title")
+				.closest("button") as HTMLButtonElement,
+		);
+		fireEvent.change(
+			screen.getByLabelText("preview_apps_wopi_discovery_dialog_label"),
+			{ target: { value: "https://old.example/discovery" } },
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "preview_apps_wopi_discovery_dialog_submit",
+			}),
+		);
+		fireEvent.change(
+			screen.getByLabelText("preview_apps_wopi_discovery_dialog_label"),
+			{ target: { value: "https://new.example/discovery" } },
+		);
+		expect(
+			screen.getByRole("button", {
+				name: "preview_apps_wopi_discovery_dialog_submit",
+			}),
+		).toBeEnabled();
+		await act(async () => {
+			pending.resolve(createPreviewAppsConfigWithDefaultIcon());
+			await pending.promise;
+		});
+		expect(
+			screen.getByLabelText("preview_apps_wopi_discovery_dialog_label"),
+		).toHaveValue("https://new.example/discovery");
 	});
 });

@@ -18,6 +18,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
@@ -380,6 +381,8 @@ export default function AdminUsersPage() {
 		}
 	};
 
+	const isCreateCurrent = useDialogActivity(undefined, createDialogOpen);
+	const isInviteCurrent = useDialogActivity(undefined, inviteDialogOpen);
 	const handleCreateUser = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!validateCreateForm()) return;
@@ -394,8 +397,10 @@ export default function AdminUsersPage() {
 					must_change_password: createForm.must_change_password,
 				});
 				toast.success(t("user_created"));
-				setCreateDialogOpen(false);
-				resetCreateForm();
+				if (isCreateCurrent()) {
+					setCreateDialogOpen(false);
+					resetCreateForm();
+				}
 				if (result.generated_password) {
 					setGeneratedCreatePassword({
 						password: result.generated_password,
@@ -406,7 +411,7 @@ export default function AdminUsersPage() {
 			});
 			if (!result.entered) return;
 		} catch (e) {
-			handleApiError(e);
+			if (isCreateCurrent()) handleApiError(e);
 		}
 	};
 
@@ -418,13 +423,15 @@ export default function AdminUsersPage() {
 			const invitation = await adminUserService.createInvitation({
 				email: inviteForm.email.trim(),
 			});
-			setCreatedInvitation(invitation);
-			setInviteForm({ email: invitation.email });
+			if (isInviteCurrent()) {
+				setCreatedInvitation(invitation);
+				setInviteForm({ email: invitation.email });
+			}
 			toast.success(t("invitation_created"));
 		} catch (e) {
-			handleApiError(e);
+			if (isInviteCurrent()) handleApiError(e);
 		} finally {
-			setInviting(false);
+			if (isInviteCurrent()) setInviting(false);
 		}
 	};
 
@@ -535,7 +542,10 @@ export default function AdminUsersPage() {
 							<Button
 								size="sm"
 								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								onClick={() => setCreateDialogOpen(true)}
+								onClick={() => {
+									resetCreateForm();
+									setCreateDialogOpen(true);
+								}}
 							>
 								<Icon name="Plus" className="mr-1 size-4" />
 								{t("new_user")}

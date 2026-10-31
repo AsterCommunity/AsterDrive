@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OfflineDownloadDialog } from "@/components/files/OfflineDownloadDialog";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	createOfflineDownloadTask: vi.fn(),
@@ -311,5 +318,41 @@ describe("OfflineDownloadDialog", () => {
 		expect(mockState.toastError).toHaveBeenCalledWith(
 			"tasks:offline_download_url_invalid",
 		);
+	});
+	it("suppresses an old submission failure after reopening", async () => {
+		const pending = deferred<never>();
+		mockState.createOfflineDownloadTask.mockReturnValueOnce(pending.promise);
+		const view = (open: boolean) => (
+			<OfflineDownloadDialog
+				open={open}
+				onOpenChange={vi.fn()}
+				targetFolderId={null}
+			/>
+		);
+		const { rerender } = render(view(true));
+		fireEvent.change(
+			screen.getByLabelText("tasks:offline_download_url_label"),
+			{ target: { value: "https://example.com/file.zip" } },
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: /tasks:offline_download_submit/ }),
+		);
+		rerender(view(false));
+		rerender(view(true));
+		await act(async () => {
+			pending.reject(new Error("old submit failure"));
+			await pending.promise.catch(() => {});
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(
+			screen.getByLabelText("tasks:offline_download_url_label"),
+		).toHaveValue("");
+		fireEvent.change(
+			screen.getByLabelText("tasks:offline_download_url_label"),
+			{ target: { value: "https://example.com/new.zip" } },
+		);
+		expect(
+			screen.getByRole("button", { name: /tasks:offline_download_submit/ }),
+		).toBeEnabled();
 	});
 });

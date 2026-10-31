@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VersionHistoryDialog } from "@/components/files/VersionHistoryDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
 import type { FileVersion } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -89,30 +90,13 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		onOpenChange,
-		onOpenChangeComplete,
-		open,
-	}: {
-		children: React.ReactNode;
-		onOpenChange: (open: boolean) => void;
-		onOpenChangeComplete?: (open: boolean) => void;
-		open: boolean;
-	}) => (
-		<div data-testid="dialog" hidden={!open}>
-			<button
-				type="button"
-				aria-label="exit_complete"
-				onClick={() => onOpenChangeComplete?.(false)}
-			/>
-			<button
-				type="button"
-				aria-label="dialog_close_control"
-				onClick={() => onOpenChange(false)}
-			/>
-			{children}
-		</div>
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot
+			{...props}
+			hideClosed
+			exitLabel="exit_complete"
+			closeLabel="dialog_close_control"
+		/>
 	),
 	DialogContent: ({
 		children,
@@ -1088,12 +1072,10 @@ it("uses the supplied workspace source and offers direct downloads without resto
 
 it("freezes title and rows on close even when the parent clears its target, then ignores stale exit on reopen", async () => {
 	mockState.listVersions.mockResolvedValue(versionPage(versions));
-	const complete = vi.fn();
 	const view = render(
 		<VersionHistoryDialog
 			open
 			onOpenChange={vi.fn()}
-			onOpenChangeComplete={complete}
 			fileId={8}
 			fileName="old.pdf"
 		/>,
@@ -1103,7 +1085,6 @@ it("freezes title and rows on close even when the parent clears its target, then
 		<VersionHistoryDialog
 			open={false}
 			onOpenChange={vi.fn()}
-			onOpenChangeComplete={complete}
 			fileId={0}
 			fileName=""
 		/>,
@@ -1115,7 +1096,6 @@ it("freezes title and rows on close even when the parent clears its target, then
 		<VersionHistoryDialog
 			open
 			onOpenChange={vi.fn()}
-			onOpenChangeComplete={complete}
 			fileId={9}
 			fileName="new.pdf"
 		/>,

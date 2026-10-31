@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import type { OpenWithOption } from "../capabilities/types";
 import { usePreviewDialogChromeState } from "./usePreviewDialogChromeState";
 
@@ -46,6 +47,8 @@ function installMatchMedia(matches = false) {
 	);
 }
 
+let finishEntrance = (_open: boolean) => {};
+
 function renderChrome(
 	overrides: Partial<Parameters<typeof usePreviewDialogChromeState>[0]> = {},
 ) {
@@ -62,7 +65,17 @@ function renderChrome(
 	};
 	const hook = renderHook(
 		(nextProps: typeof props) => usePreviewDialogChromeState(nextProps),
-		{ initialProps: props },
+		{
+			initialProps: props,
+			wrapper: ({ children }) => (
+				<DialogLifecycle open target={null}>
+					{({ complete }) => {
+						finishEntrance = complete;
+						return children;
+					}}
+				</DialogLifecycle>
+			),
+		},
 	);
 	return { ...hook, dispatch };
 }
@@ -134,11 +147,11 @@ describe("usePreviewDialogChromeState", () => {
 	});
 
 	it("disables open animation after the dialog settles", () => {
-		vi.useFakeTimers();
 		const { dispatch } = renderChrome();
+		expect(dispatch).not.toHaveBeenCalled();
 
 		act(() => {
-			vi.advanceTimersByTime(120);
+			finishEntrance(true);
 		});
 
 		expect(dispatch).toHaveBeenCalledWith({ type: "disableAnimation" });

@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useDialogActivity,
+	useDialogPresentation,
+} from "@/components/ui/dialog-lifecycle";
 import { shouldSendResourceCredentials } from "@/lib/apiUrl";
 import {
 	type ResourcePath,
@@ -153,6 +157,8 @@ export function clearTextContentCache() {
 }
 
 export function useTextContent(resource: ResourcePath | null) {
+	const active = useDialogPresentation()?.active ?? true;
+	const isCurrent = useDialogActivity();
 	const [content, setContentState] = useState<string | null>(null);
 	const [etag, setEtagState] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
@@ -209,6 +215,7 @@ export function useTextContent(resource: ResourcePath | null) {
 
 	const load = useCallback(
 		async (force = false) => {
+			if (!active || !isCurrent()) return;
 			requestIdRef.current += 1;
 			const requestId = requestIdRef.current;
 			if (!cacheKey || !requestPath) {
@@ -253,6 +260,8 @@ export function useTextContent(resource: ResourcePath | null) {
 			}
 		},
 		[
+			active,
+			isCurrent,
 			cacheKey,
 			canonicalEtag,
 			requestConditionalHeaders,
@@ -266,6 +275,7 @@ export function useTextContent(resource: ResourcePath | null) {
 	}, [load]);
 
 	useEffect(() => {
+		if (!active) return;
 		if (!cacheKey || !requestPath) {
 			void load();
 			return;
@@ -278,9 +288,10 @@ export function useTextContent(resource: ResourcePath | null) {
 		load();
 
 		return () => {
+			requestIdRef.current += 1;
 			unsubscribe();
 		};
-	}, [cacheKey, load, requestPath]);
+	}, [active, cacheKey, load, requestPath]);
 
 	return {
 		content,

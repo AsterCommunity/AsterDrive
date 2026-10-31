@@ -23,13 +23,6 @@ vi.mock("@/components/files/FilePreview", () => ({
 	),
 }));
 
-vi.mock("@/hooks/useRetainedDialogValue", () => ({
-	useRetainedDialogValue: <T,>(value: T) => ({
-		retainedValue: value,
-		handleOpenChangeComplete: vi.fn(),
-	}),
-}));
-
 vi.mock("@/pages/file-browser/fileBrowserLazy", () => {
 	const Dialog = ({ open }: { open: boolean }) =>
 		open ? <div data-testid="lazy-dialog" /> : null;

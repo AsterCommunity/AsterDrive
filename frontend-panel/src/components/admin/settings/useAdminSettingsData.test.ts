@@ -14,6 +14,7 @@ import {
 	PREVIEW_APPS_CONFIG_KEY,
 } from "@/components/admin/previewAppsConfigEditorShared";
 import { useAdminSettingsData } from "@/components/admin/settings/useAdminSettingsData";
+import { deferred } from "@/test/deferred";
 import type {
 	ConfigSource,
 	ConfigValueType,
@@ -1197,4 +1198,33 @@ describe("useAdminSettingsData", () => {
 			]),
 		);
 	});
+	it.each(["success", "failure", "active-failure"])(
+		"isolates test-mail completion from replacement dialogs: %s",
+		async (outcome) => {
+			const pending = deferred<never>();
+			mockState.actionConfig.mockReturnValueOnce(pending.promise);
+			const { result } = renderUseAdminSettingsData();
+			await waitFor(() => expect(result.current.loading).toBe(false));
+			act(() => result.current.openTestEmailDialog());
+			let work: Promise<void> | undefined;
+			act(() => {
+				work = result.current.handleSendTestEmail();
+			});
+			if (outcome !== "active-failure") {
+				act(() => result.current.setTestEmailDialogOpen(false));
+				act(() => result.current.openTestEmailDialog());
+			}
+			const error = new Error("mail rejected");
+			await act(async () => {
+				if (outcome === "success") pending.resolve({} as never);
+				else pending.reject(error);
+				await work;
+			});
+			expect(result.current.testEmailDialogOpen).toBe(true);
+			expect(result.current.sendingTestEmail).toBe(false);
+			if (outcome === "active-failure")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
 });

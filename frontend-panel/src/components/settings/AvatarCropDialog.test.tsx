@@ -1,7 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	cropAvatarImage: vi.fn(),
@@ -89,23 +97,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		open,
-		onOpenChange,
-	}: {
-		children: ReactNode;
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-	}) =>
-		open ? (
-			<div data-testid="dialog">
-				<button type="button" onClick={() => onOpenChange(false)}>
-					dialog-close
-				</button>
-				{children}
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot {...props} />
+	),
 	DialogContent: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -132,6 +126,36 @@ vi.mock("@/lib/avatarCrop", () => ({
 }));
 
 describe("AvatarCropDialog", () => {
+	it("retains its source URL until exit completes even when the parent clears the file", () => {
+		const file = new File(["image"], "avatar.png", { type: "image/png" });
+		const onOpenChange = vi.fn();
+		const onConfirm = vi.fn();
+		const { rerender } = render(
+			<AvatarCropDialog
+				open
+				file={file}
+				onOpenChange={onOpenChange}
+				onConfirm={onConfirm}
+			/>,
+		);
+		rerender(
+			<AvatarCropDialog
+				open={false}
+				file={null}
+				onOpenChange={onOpenChange}
+				onConfirm={onConfirm}
+			/>,
+		);
+		expect(document.querySelector("img")).toHaveAttribute(
+			"src",
+			"blob:avatar-source",
+		);
+		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+		expect(document.querySelector("img")).toBeNull();
+		expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:avatar-source");
+	});
+
 	beforeEach(() => {
 		mockState.cropAvatarImage.mockReset();
 		mockState.renderAvatarCropPreview.mockReset();
@@ -290,5 +314,30 @@ describe("AvatarCropDialog", () => {
 		unmount();
 
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:avatar-source");
+	});
+	it("does not upload a crop that finishes after its source was replaced", async () => {
+		const pending = deferred<File>();
+		mockState.cropAvatarImage.mockReturnValueOnce(pending.promise);
+		const confirm = vi.fn();
+		const file = new File(["source"], "first.png", { type: "image/png" });
+		const props = { open: true, onConfirm: confirm, onOpenChange: vi.fn() };
+		const { rerender } = render(<AvatarCropDialog {...props} file={file} />);
+		const image = document.querySelector("img");
+		if (!image) throw new Error("avatar source missing");
+		fireEvent.load(image);
+		fireEvent.click(
+			screen.getByRole("button", { name: /settings_avatar_crop_apply/ }),
+		);
+		rerender(
+			<AvatarCropDialog
+				{...props}
+				file={new File(["next"], "second.png", { type: "image/png" })}
+			/>,
+		);
+		await act(async () => {
+			pending.resolve(new File(["crop"], "crop.png"));
+			await pending.promise;
+		});
+		expect(confirm).not.toHaveBeenCalled();
 	});
 });

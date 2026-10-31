@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BatchTargetFolderDialog } from "@/components/files/BatchTargetFolderDialog";
 import { FOLDER_LIMIT } from "@/lib/constants";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	createFolder: vi.fn(),
@@ -556,4 +563,96 @@ describe("BatchTargetFolderDialog", () => {
 		expect(input).toHaveValue("Archive");
 		expect(screen.getByPlaceholderText("folder-name")).toBeInTheDocument();
 	});
+	it.each(["success", "failure"])(
+		"ignores directory load %s after closing",
+		async (outcome) => {
+			const pending = deferred<{
+				folders: Array<{ id: number; name: string }>;
+			}>();
+			mockState.listRoot.mockReturnValueOnce(pending.promise);
+			const view = (open: boolean) => (
+				<BatchTargetFolderDialog
+					open={open}
+					onOpenChange={vi.fn()}
+					mode="copy"
+					onConfirm={vi.fn()}
+					currentFolderId={null}
+					initialBreadcrumb={[]}
+				/>
+			);
+			const { rerender } = render(view(true));
+			rerender(view(false));
+			rerender(view(true));
+			await act(async () => {
+				if (outcome === "success")
+					pending.resolve({ folders: [{ id: 55, name: "Old folder" }] });
+				else pending.reject(new Error("old listing"));
+				await pending.promise.catch(() => {});
+			});
+			expect(screen.queryByText("Old folder")).toBeNull();
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["active", "closed"])(
+		"reports team loading errors only while %s",
+		async (state) => {
+			const pending = deferred<void>();
+			mockState.ensureTeamsLoaded.mockReturnValueOnce(pending.promise);
+			const { unmount } = render(
+				<BatchTargetFolderDialog
+					open
+					onOpenChange={vi.fn()}
+					mode="copy"
+					onConfirm={vi.fn()}
+					currentFolderId={null}
+					initialBreadcrumb={[]}
+				/>,
+			);
+			if (state === "closed") unmount();
+			const error = new Error("teams unavailable");
+			await act(async () => {
+				pending.reject(error);
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["success", "failure"])(
+		"does not update a new destination with old folder creation %s",
+		async (outcome) => {
+			const pending = deferred<void>();
+			mockState.createFolder.mockReturnValueOnce(pending.promise);
+			const view = (open: boolean) => (
+				<BatchTargetFolderDialog
+					open={open}
+					onOpenChange={vi.fn()}
+					mode="copy"
+					onConfirm={vi.fn()}
+					currentFolderId={null}
+					initialBreadcrumb={[]}
+				/>
+			);
+			const { rerender } = render(view(true));
+			await screen.findByText("empty");
+			fireEvent.click(screen.getByRole("button", { name: "create-folder" }));
+			const input = screen.getByPlaceholderText("folder-name");
+			fireEvent.change(input, { target: { value: "Draft" } });
+			fireEvent.keyDown(input, { key: "Enter" });
+			rerender(view(false));
+			rerender(view(true));
+			await act(async () => {
+				if (outcome === "success") pending.resolve();
+				else pending.reject(new Error("old create"));
+				await pending.promise.catch(() => {});
+			});
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+			expect(
+				screen.getByRole("button", { name: "create-folder" }),
+			).toBeEnabled();
+		},
+	);
 });

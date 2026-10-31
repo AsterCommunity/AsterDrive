@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EditShareDialog } from "@/components/files/EditShareDialog";
+import { deferred } from "@/test/deferred";
 import type { MyShareInfo } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -309,5 +316,51 @@ describe("EditShareDialog", () => {
 			"h-auto",
 			"max-h-[min(92dvh,44rem)]",
 		);
+	});
+	it.each(["active", "closed"])(
+		"reports save errors only for the %s session",
+		async (state) => {
+			const pending = deferred<void>();
+			mockState.update.mockReturnValueOnce(pending.promise);
+			const share = createShare();
+			const view = (open: boolean) => (
+				<EditShareDialog open={open} share={share} onOpenChange={vi.fn()} />
+			);
+			const { rerender } = render(view(true));
+			fireEvent.click(screen.getByRole("button", { name: "core:save" }));
+			if (state === "closed") {
+				rerender(view(false));
+				rerender(view(true));
+			}
+			const error = new Error("save rejected");
+			await act(async () => {
+				pending.reject(error);
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+			expect(screen.getByRole("button", { name: "core:save" })).toBeEnabled();
+		},
+	);
+	it("reports a failed parent refresh after the mutation was committed and the dialog closed", async () => {
+		const error = new Error("refresh rejected");
+		const refresh = vi.fn().mockRejectedValue(error);
+		const onOpenChange = vi.fn();
+		render(
+			<EditShareDialog
+				open
+				onOpenChange={onOpenChange}
+				share={createShare()}
+				onSaved={refresh}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "core:save" }));
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(refresh).toHaveBeenCalledTimes(1);
 	});
 });

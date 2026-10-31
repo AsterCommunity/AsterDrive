@@ -15,6 +15,10 @@ import {
 	BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import {
@@ -53,7 +57,6 @@ export interface BatchTargetFolderSelection {
 interface BatchTargetFolderDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	mode: "move" | "copy";
 	onConfirm: (selection: BatchTargetFolderSelection) => Promise<void>;
 	currentFolderId: number | null;
@@ -78,10 +81,27 @@ function workspaceFromKey(value: string): Workspace | null {
 	return null;
 }
 
-export function BatchTargetFolderDialog({
+export function BatchTargetFolderDialog(props: BatchTargetFolderDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<BatchTargetFolderDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function BatchTargetFolderDialogContent({
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	mode,
 	onConfirm,
 	currentFolderId,
@@ -89,6 +109,7 @@ export function BatchTargetFolderDialog({
 	selectedFolderIds = EMPTY_SELECTED_FOLDER_IDS,
 	sourceWorkspace,
 }: BatchTargetFolderDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["files", "core"]);
 	const storeWorkspace = useWorkspaceStore((state) => state.workspace);
 	const currentWorkspace = sourceWorkspace ?? storeWorkspace;
@@ -114,15 +135,7 @@ export function BatchTargetFolderDialog({
 	const [breadcrumb, setBreadcrumb] = useState<FileBreadcrumbItem[]>([
 		{ id: null, name: t("files:root") },
 	]);
-	const selectedFolderIdsRef = useRef(selectedFolderIds);
-
-	if (open) {
-		selectedFolderIdsRef.current = selectedFolderIds;
-	}
-
-	const renderedSelectedFolderIds = open
-		? selectedFolderIds
-		: selectedFolderIdsRef.current;
+	const renderedSelectedFolderIds = selectedFolderIds;
 
 	const title = useMemo(
 		() => (mode === "move" ? t("files:batch_move") : t("files:batch_copy")),
@@ -171,8 +184,16 @@ export function BatchTargetFolderDialog({
 		workspaceOptions.find((option) => option.value === targetWorkspaceValue)
 			?.label ?? t("core:my_drive");
 
+	const loadGeneration = useRef(0);
+	const isDestinationCurrent = useDialogActivity(
+		`${targetWorkspaceValue}:${activeFolderId}`,
+	);
+
 	const loadFolder = useCallback(
 		async (workspace: Workspace, folderId: number | null) => {
+			if (!isCurrent()) return;
+			const request = ++loadGeneration.current;
+			const current = () => isCurrent() && loadGeneration.current === request;
 			setLoading(true);
 			try {
 				const folderOnlyParams = { file_limit: 0, folder_limit: FOLDER_LIMIT };
@@ -181,15 +202,16 @@ export function BatchTargetFolderDialog({
 					folderId === null
 						? await targetFileService.listRoot(folderOnlyParams)
 						: await targetFileService.listFolder(folderId, folderOnlyParams);
+				if (!current()) return;
 				setFolders(contents.folders);
 				setActiveFolderId(folderId);
 			} catch (error) {
-				handleApiError(error);
+				if (current()) handleApiError(error);
 			} finally {
-				setLoading(false);
+				if (current()) setLoading(false);
 			}
 		},
-		[],
+		[isCurrent],
 	);
 
 	useEffect(() => {
@@ -207,7 +229,10 @@ export function BatchTargetFolderDialog({
 		setTargetWorkspace(currentWorkspace);
 		setShowCreateFolder(false);
 		setNewFolderName("");
-		loadFolder(currentWorkspace, currentFolderId);
+		void loadFolder(currentWorkspace, currentFolderId);
+		return () => {
+			loadGeneration.current += 1;
+		};
 	}, [
 		open,
 		currentFolderId,
@@ -219,8 +244,10 @@ export function BatchTargetFolderDialog({
 
 	useEffect(() => {
 		if (!open) return;
-		ensureTeamsLoaded(user?.id ?? null).catch(handleApiError);
-	}, [ensureTeamsLoaded, open, user?.id]);
+		ensureTeamsLoaded(user?.id ?? null).catch((error) => {
+			if (isCurrent()) handleApiError(error);
+		});
+	}, [ensureTeamsLoaded, open, user?.id, isCurrent]);
 
 	const handleWorkspaceChange = async (value: string | null) => {
 		if (!value) return;
@@ -279,11 +306,12 @@ export function BatchTargetFolderDialog({
 				const targetFileService = createFileService(targetWorkspace);
 				await targetFileService.createFolder(trimmedName, activeFolderId);
 				toast.success(t("files:create_folder_success"));
+				if (!isDestinationCurrent()) return;
 				setNewFolderName("");
 				setShowCreateFolder(false);
 				await loadFolder(targetWorkspace, activeFolderId);
 			} catch (error) {
-				handleApiError(error);
+				if (isCurrent()) handleApiError(error);
 			}
 		});
 	};
@@ -455,7 +483,6 @@ export function BatchTargetFolderDialog({
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
 			title={title}
 			description={t("files:batch_target_folder_desc")}
 			controls={controls}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { PreviewAppsUrlTemplateVariablesDialog } from "./PreviewAppsUrlTemplateVariablesDialog";
 import { PreviewAppsAddDialog } from "./preview-apps-config-editor/PreviewAppsAddDialog";
@@ -108,6 +109,10 @@ export function PreviewAppsConfigEditor({
 		}));
 	}, [parsed.draft, updateDraft]);
 
+	const isDiscoveryCurrent = useDialogActivity(
+		wopiDiscoveryUrl,
+		wopiDiscoveryDialogOpen,
+	);
 	const buildWopiDiscoveryConfig = useCallback(async () => {
 		if (!onBuildWopiDiscoveryPreviewConfig) {
 			return;
@@ -124,15 +129,22 @@ export function PreviewAppsConfigEditor({
 				discoveryUrl,
 				value,
 			});
+			if (!isDiscoveryCurrent()) return;
 			onChange(nextValue);
 			setWopiDiscoveryDialogOpen(false);
 			setWopiDiscoveryUrl("");
 		} catch {
 			// Errors are handled by the caller so the dialog can stay open for retry.
 		} finally {
-			setBuildingWopiDiscoveryConfig(false);
+			if (isDiscoveryCurrent()) setBuildingWopiDiscoveryConfig(false);
 		}
-	}, [onBuildWopiDiscoveryPreviewConfig, onChange, value, wopiDiscoveryUrl]);
+	}, [
+		onBuildWopiDiscoveryPreviewConfig,
+		onChange,
+		value,
+		wopiDiscoveryUrl,
+		isDiscoveryCurrent,
+	]);
 
 	const updateApp = useCallback(
 		(
@@ -291,9 +303,13 @@ export function PreviewAppsConfigEditor({
 					setWopiDiscoveryDialogOpen(open);
 					if (!open) {
 						setWopiDiscoveryUrl("");
+						setBuildingWopiDiscoveryConfig(false);
 					}
 				}}
-				onUrlChange={setWopiDiscoveryUrl}
+				onUrlChange={(value) => {
+					setWopiDiscoveryUrl(value);
+					setBuildingWopiDiscoveryConfig(false);
+				}}
 			/>
 
 			<PreviewAppsEditDialog
@@ -313,18 +329,18 @@ export function PreviewAppsConfigEditor({
 				onOpenUrlTemplateVariables={() =>
 					setActiveUrlTemplateVariableAppIndex(editingAppIndex ?? 0)
 				}
-			/>
-
-			<PreviewAppsUrlTemplateVariablesDialog
-				appName={activeUrlTemplateVariableAppName}
-				open={activeUrlTemplateVariableAppIndex !== null}
-				t={t}
-				onOpenChange={(open) => {
-					if (!open) {
-						setActiveUrlTemplateVariableAppIndex(null);
-					}
-				}}
-			/>
+			>
+				<PreviewAppsUrlTemplateVariablesDialog
+					appName={activeUrlTemplateVariableAppName}
+					open={activeUrlTemplateVariableAppIndex !== null}
+					t={t}
+					onOpenChange={(open) => {
+						if (!open) {
+							setActiveUrlTemplateVariableAppIndex(null);
+						}
+					}}
+				/>
+			</PreviewAppsEditDialog>
 		</>
 	);
 }

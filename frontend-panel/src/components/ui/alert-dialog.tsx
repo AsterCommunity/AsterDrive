@@ -3,10 +3,39 @@
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 import type * as React from "react";
 import { Button } from "@/components/ui/button";
+import {
+	DialogCompletionBoundary,
+	useDialogExitComplete,
+} from "@/components/ui/dialog-lifecycle";
 import { cn } from "@/lib/utils";
 
-function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
-	return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
+function AlertDialog({
+	children,
+	onOpenChangeComplete,
+	...props
+}: AlertDialogPrimitive.Root.Props) {
+	const complete = useDialogExitComplete();
+	return (
+		<AlertDialogPrimitive.Root
+			data-slot="alert-dialog"
+			{...props}
+			onOpenChangeComplete={(open) => {
+				if (props.open !== undefined && props.open !== open) return;
+				onOpenChangeComplete?.(open);
+				complete?.(open);
+			}}
+		>
+			{typeof children === "function" ? (
+				(payload) => (
+					<DialogCompletionBoundary>
+						{children(payload)}
+					</DialogCompletionBoundary>
+				)
+			) : (
+				<DialogCompletionBoundary>{children}</DialogCompletionBoundary>
+			)}
+		</AlertDialogPrimitive.Root>
+	);
 }
 
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {

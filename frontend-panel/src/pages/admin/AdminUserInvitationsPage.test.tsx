@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminUserInvitationsPage from "@/pages/admin/AdminUserInvitationsPage";
+import { deferred } from "@/test/deferred";
 import type {
 	AdminUserInvitationInfo,
 	CreateUserInvitationRequest,
@@ -646,4 +653,29 @@ describe("AdminUserInvitationsPage", () => {
 		expect(screen.queryByText("email_format")).not.toBeInTheDocument();
 		expect(screen.getByLabelText("email")).toHaveValue("");
 	});
+	it.each(["active", "unmounted"])(
+		"limits invitation failure feedback to the %s owner",
+		async (state) => {
+			const pending = deferred<AdminUserInvitationInfo>();
+			mockState.createInvitation.mockReturnValueOnce(pending.promise);
+			const { unmount } = renderPage();
+			await screen.findByRole("button", { name: /invite_user/i });
+			fireEvent.click(
+				screen.getAllByRole("button", { name: /invite_user/i })[0],
+			);
+			fireEvent.change(screen.getByLabelText("email"), {
+				target: { value: "new@example.com" },
+			});
+			fireEvent.click(screen.getByRole("button", { name: "send_invitation" }));
+			if (state === "unmounted") unmount();
+			const error = new Error("invitation rejected");
+			await act(async () => {
+				pending.reject(error);
+				await pending.promise.catch(() => {});
+			});
+			if (state === "active")
+				expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+			else expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
 });

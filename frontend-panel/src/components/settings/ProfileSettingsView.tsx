@@ -14,6 +14,7 @@ import {
 import { UserAvatarImage } from "@/components/common/UserAvatarImage";
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
@@ -93,6 +94,7 @@ export function ProfileSettingsView() {
 		setAvatarCropOpen(true);
 	};
 
+	const isAvatarCurrent = useDialogActivity(avatarFile, avatarCropOpen);
 	const handleAvatarUpload = async (file: File) => {
 		const result = await runAvatarUploadAction(async () => {
 			try {
@@ -103,7 +105,7 @@ export function ProfileSettingsView() {
 				}
 				return true;
 			} catch (error) {
-				handleApiError(error);
+				if (isAvatarCurrent()) handleApiError(error);
 				return false;
 			}
 		});

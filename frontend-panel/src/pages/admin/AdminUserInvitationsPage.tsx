@@ -15,6 +15,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
@@ -266,6 +267,7 @@ export default function AdminUserInvitationsPage() {
 		}
 	};
 
+	const isInviteCurrent = useDialogActivity(undefined, inviteDialogOpen);
 	const handleInviteUser = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!validateInviteForm()) return;
@@ -274,7 +276,7 @@ export default function AdminUserInvitationsPage() {
 			const invitation = await adminUserService.createInvitation({
 				email: inviteForm.email.trim(),
 			});
-			dispatch({ type: "inviteCreated", invitation });
+			if (isInviteCurrent()) dispatch({ type: "inviteCreated", invitation });
 			toast.success(t("invitation_created"));
 			if (offset !== 0) {
 				setOffset(0);
@@ -282,9 +284,9 @@ export default function AdminUserInvitationsPage() {
 				await reload();
 			}
 		} catch (error) {
-			handleApiError(error);
+			if (isInviteCurrent()) handleApiError(error);
 		} finally {
-			dispatch({ type: "invitingSet", inviting: false });
+			if (isInviteCurrent()) dispatch({ type: "invitingSet", inviting: false });
 		}
 	};
 

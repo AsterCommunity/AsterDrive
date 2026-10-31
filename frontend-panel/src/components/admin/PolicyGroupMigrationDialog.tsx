@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import {
@@ -35,7 +36,27 @@ interface PolicyGroupMigrationDialogProps {
 	onTargetGroupChange: (value: string) => void;
 }
 
-export function PolicyGroupMigrationDialog({
+export function PolicyGroupMigrationDialog(
+	props: PolicyGroupMigrationDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<PolicyGroupMigrationDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function PolicyGroupMigrationDialogContent({
 	open,
 	error,
 	loading,

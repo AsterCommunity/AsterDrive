@@ -15,7 +15,6 @@ interface ManagerDialogShellProps {
 	footer?: ReactNode;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	onOpenChangeComplete?: (open: boolean) => void;
 	title: ReactNode;
 	className?: string;
 }
@@ -27,16 +26,11 @@ export function ManagerDialogShell({
 	footer,
 	open,
 	onOpenChange,
-	onOpenChangeComplete,
 	title,
 	className,
 }: ManagerDialogShellProps) {
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
-			onOpenChangeComplete={onOpenChangeComplete}
-		>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				className={cn(
 					"flex h-[min(92dvh,44rem)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:h-auto sm:max-h-[min(88vh,44rem)] sm:max-w-xl",

@@ -11,6 +11,10 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,20 +28,22 @@ interface OfflineDownloadDialogProps {
 	targetFolderName?: string | null;
 }
 
-export function OfflineDownloadDialog({
-	open,
-	onOpenChange,
-	targetFolderId,
-	targetFolderName,
-}: OfflineDownloadDialogProps) {
+export function OfflineDownloadDialog(props: OfflineDownloadDialogProps) {
 	return (
-		<OfflineDownloadDialogSession
-			key={open ? "open" : "closed"}
-			open={open}
-			onOpenChange={onOpenChange}
-			targetFolderId={targetFolderId}
-			targetFolderName={targetFolderName}
-		/>
+		<DialogLifecycle
+			open={props.open}
+			identity={props.targetFolderId}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<OfflineDownloadDialogSession
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
 	);
 }
 
@@ -47,6 +53,7 @@ function OfflineDownloadDialogSession({
 	targetFolderId,
 	targetFolderName,
 }: OfflineDownloadDialogProps) {
+	const isCurrent = useDialogActivity();
 	const { t } = useTranslation(["core", "tasks"]);
 	const [url, setUrl] = useState("");
 	const [filename, setFilename] = useState("");
@@ -83,9 +90,9 @@ function OfflineDownloadDialogSession({
 			});
 			onOpenChange(false);
 		} catch (error) {
-			handleApiError(error);
+			if (isCurrent()) handleApiError(error);
 		} finally {
-			setSubmitting(false);
+			if (isCurrent()) setSubmitting(false);
 		}
 	};
 

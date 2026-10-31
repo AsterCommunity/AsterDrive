@@ -8,6 +8,10 @@ import {
 	ManagerDialogShell,
 } from "@/components/common/ManagerDialogShell";
 import { Button } from "@/components/ui/button";
+import {
+	DialogLifecycle,
+	useDialogActivity,
+} from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { handleApiError } from "@/hooks/useApiError";
@@ -46,7 +50,31 @@ function canCreateTag(tags: TagInfo[], name: string) {
 	);
 }
 
-export function TagLibraryManagerDialog({
+export function TagLibraryManagerDialog(props: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onTagCreated?: (tag: TagInfo) => void;
+	onTagDeleted?: (tagId: number) => void;
+	onTagUpdated?: (tag: TagInfo) => void;
+}) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<TagLibraryManagerDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function TagLibraryManagerDialogContent({
 	open,
 	onOpenChange,
 	onTagCreated,
@@ -63,12 +91,14 @@ export function TagLibraryManagerDialog({
 	const [tags, setTags] = useState<TagInfo[]>([]);
 	const [total, setTotal] = useState(0);
 	const [query, setQuery] = useState("");
+	const normalizedQuery = query.trim();
+	const isCurrent = useDialogActivity();
+	const isQueryCurrent = useDialogActivity(normalizedQuery);
 	const [loading, setLoading] = useState(false);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [busyId, setBusyId] = useState<number | null>(null);
 	const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
 	const [deleteTarget, setDeleteTarget] = useState<TagInfo | null>(null);
-	const normalizedQuery = query.trim();
 	const currentInteractionResetKeyRef = useRef(normalizedQuery);
 
 	if (currentInteractionResetKeyRef.current !== normalizedQuery) {
@@ -76,25 +106,6 @@ export function TagLibraryManagerDialog({
 		setEditingDraft(null);
 		setDeleteTarget(null);
 	}
-
-	const resetDialogState = useCallback(() => {
-		currentInteractionResetKeyRef.current = "";
-		setTags([]);
-		setTotal(0);
-		setQuery("");
-		setLoading(false);
-		setLoadingMore(false);
-		setBusyId(null);
-		setEditingDraft(null);
-		setDeleteTarget(null);
-	}, []);
-
-	const handleOpenChangeComplete = useCallback(
-		(nextOpen: boolean) => {
-			if (!nextOpen) resetDialogState();
-		},
-		[resetDialogState],
-	);
 
 	const hasMore = tags.length < total;
 	const editingTag = useMemo(
@@ -120,6 +131,7 @@ export function TagLibraryManagerDialog({
 
 		let cancelled = false;
 		setLoading(true);
+		setLoadingMore(false);
 		tagService
 			.listTags({
 				params: {
@@ -135,7 +147,7 @@ export function TagLibraryManagerDialog({
 				}
 			})
 			.catch((err) => {
-				if (!cancelled) handleApiError(err);
+				if (!cancelled && isCurrent()) handleApiError(err);
 			})
 			.finally(() => {
 				if (!cancelled) setLoading(false);
@@ -144,7 +156,7 @@ export function TagLibraryManagerDialog({
 		return () => {
 			cancelled = true;
 		};
-	}, [normalizedQuery, open]);
+	}, [normalizedQuery, open, isCurrent]);
 
 	const loadMore = useCallback(async () => {
 		if (loadingMore || !hasMore) return;
@@ -158,14 +170,15 @@ export function TagLibraryManagerDialog({
 					...(normalizedQuery ? { q: normalizedQuery } : {}),
 				},
 			});
+			if (!isQueryCurrent()) return;
 			setTags((current) => sortTags([...current, ...page.items]));
 			setTotal(page.total);
 		} catch (err) {
-			handleApiError(err);
+			if (isQueryCurrent()) handleApiError(err);
 		} finally {
-			setLoadingMore(false);
+			if (isQueryCurrent()) setLoadingMore(false);
 		}
-	}, [hasMore, loadingMore, normalizedQuery, tags.length]);
+	}, [hasMore, loadingMore, normalizedQuery, tags.length, isQueryCurrent]);
 
 	const startEdit = (tag: TagInfo) => {
 		setDeleteTarget(null);
@@ -188,16 +201,17 @@ export function TagLibraryManagerDialog({
 		setBusyId(editingTag.id);
 		try {
 			const updated = await tagService.patchTag(editingTag.id, { color, name });
+			onTagUpdated?.(updated);
+			if (!isCurrent()) return;
 			setTags((current) =>
 				sortTags(current.map((tag) => (tag.id === updated.id ? updated : tag))),
 			);
-			onTagUpdated?.(updated);
 			cancelEdit();
 			toast.success(t("tag_updated"));
 		} catch (err) {
-			handleApiError(err);
+			if (isCurrent()) handleApiError(err);
 		} finally {
-			setBusyId(null);
+			if (isCurrent()) setBusyId(null);
 		}
 	};
 
@@ -205,15 +219,16 @@ export function TagLibraryManagerDialog({
 		setBusyId(tag.id);
 		try {
 			await tagService.deleteTag(tag.id);
+			onTagDeleted?.(tag.id);
+			if (!isCurrent()) return;
 			setTags((current) => current.filter((item) => item.id !== tag.id));
 			setTotal((current) => Math.max(0, current - 1));
 			if (editingDraft?.id === tag.id) cancelEdit();
-			onTagDeleted?.(tag.id);
 			toast.success(t("tag_deleted"));
 		} catch (err) {
-			handleApiError(err);
+			if (isCurrent()) handleApiError(err);
 		} finally {
-			setBusyId(null);
+			if (isCurrent()) setBusyId(null);
 		}
 	};
 
@@ -225,15 +240,16 @@ export function TagLibraryManagerDialog({
 		setBusyId(CREATE_TAG_BUSY_ID);
 		try {
 			const created = await tagService.createTag({ color, name });
+			onTagCreated?.(created);
+			if (!isCurrent()) return;
 			setTags((current) => sortTags([...current, created]));
 			setTotal((current) => current + 1);
 			setQuery("");
-			onTagCreated?.(created);
 			toast.success(t("tag_library_created"));
 		} catch (err) {
-			handleApiError(err);
+			if (isCurrent()) handleApiError(err);
 		} finally {
-			setBusyId(null);
+			if (isCurrent()) setBusyId(null);
 		}
 	};
 
@@ -272,7 +288,6 @@ export function TagLibraryManagerDialog({
 		<ManagerDialogShell
 			open={open}
 			onOpenChange={onOpenChange}
-			onOpenChangeComplete={handleOpenChangeComplete}
 			title={t("tag_library_manage_title")}
 			description={t("tag_library_manage_desc")}
 			controls={controls}

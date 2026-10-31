@@ -20,6 +20,7 @@ import { AdminDetailPageShell } from "@/components/layout/AdminDetailPageShell";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -288,7 +289,13 @@ export default function AdminPolicyGroupEditPage() {
 		setter(value);
 		setSimulationResult(null);
 		setSimulationError(null);
+		setSimulationSubmitting(false);
 	};
+
+	const isSimulationCurrent = useDialogActivity(
+		`${group?.id}:${simulationFilename}:${simulationFileSizeMb}:${simulationMimeType}:${simulationFolderPolicyId}`,
+		simulationOpen,
+	);
 
 	const runSimulation = async () => {
 		if (!group) return;
@@ -318,19 +325,19 @@ export default function AdminPolicyGroupEditPage() {
 		try {
 			setSimulationSubmitting(true);
 			setSimulationError(null);
-			setSimulationResult(
-				await adminPolicyGroupService.simulate(group.id, {
-					filename,
-					file_size: fileSize,
-					mime_type: simulationMimeType.trim(),
-					folder_policy_id: folderPolicyId,
-				}),
-			);
+			const result = await adminPolicyGroupService.simulate(group.id, {
+				filename,
+				file_size: fileSize,
+				mime_type: simulationMimeType.trim(),
+				folder_policy_id: folderPolicyId,
+			});
+			if (isSimulationCurrent()) setSimulationResult(result);
 		} catch (error) {
+			if (!isSimulationCurrent()) return;
 			setSimulationResult(null);
 			setSimulationError(getApiErrorMessage(error));
 		} finally {
-			setSimulationSubmitting(false);
+			if (isSimulationCurrent()) setSimulationSubmitting(false);
 		}
 	};
 

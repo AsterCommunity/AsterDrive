@@ -13,6 +13,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { handleApiError } from "@/hooks/useApiError";
@@ -331,151 +332,162 @@ export function DownloadCenter() {
 				) : null}
 			</BottomRightActivityPortal>
 
-			<Dialog
+			<DialogLifecycle
 				open={pendingSelection !== null}
-				onOpenChange={(open) => !open && dismissSelection()}
+				target={{ pendingSelection, singleFile }}
+				onOpenChange={(open) => {
+					if (!open) dismissSelection();
+				}}
 			>
-				<DialogContent className="sm:max-w-lg">
-					<DialogHeader>
-						<DialogTitle>{t("download_method_title")}</DialogTitle>
-						<DialogDescription>
-							{t("download_method_description", {
-								count:
-									(pendingSelection?.files.length ?? 0) +
-									(pendingSelection?.folders.length ?? 0),
-							})}
-						</DialogDescription>
-					</DialogHeader>
-					<div className="grid gap-2">
-						{singleFile && pendingSelection && proxyDownloadSupported ? (
-							<Button
-								type="button"
-								variant="outline"
-								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
-								onClick={() => {
-									dismissSelection();
-									void startProxyFileDownload(
-										pendingSelection.workspace,
-										singleFile,
-									);
-								}}
-							>
-								<Icon name="Download" className="size-5 shrink-0" />
-								<span>
-									<span className="block font-medium">
-										{t("download_proxy_file")}
-									</span>
-									<span className="mt-0.5 block text-xs text-muted-foreground">
-										{t("download_proxy_file_desc")}
-									</span>
-								</span>
-							</Button>
-						) : null}
-						{pendingSelection &&
-						archiveDownloadEnabled &&
-						proxyDownloadSupported ? (
-							<Button
-								type="button"
-								variant="outline"
-								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
-								onClick={() => {
-									dismissSelection();
-									void startProxyArchiveDownload(pendingSelection);
-								}}
-							>
-								<Icon name="FileZip" className="size-5 shrink-0" />
-								<span>
-									<span className="block font-medium">
-										{t("download_proxy_archive")}
-									</span>
-									<span className="mt-0.5 block text-xs text-muted-foreground">
-										{t("download_proxy_archive_desc")}
-									</span>
-								</span>
-							</Button>
-						) : null}
-						{pendingSelection &&
-						(directoryDownloadSupported ||
-							(archiveDownloadEnabled && proxyDownloadSupported)) ? (
-							<Button
-								type="button"
-								variant="outline"
-								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
-								onClick={() => {
-									dismissSelection();
-									if (directoryDownloadSupported) {
-										void startDirectoryDownload(pendingSelection);
-									} else {
-										void startProxyArchiveDownload(pendingSelection);
-									}
-								}}
-							>
-								<Icon name="FolderOpen" className="size-5 shrink-0" />
-								<span>
-									<span className="block font-medium">
-										{t("download_to_folder")}
-									</span>
-									<span className="mt-0.5 block text-xs text-muted-foreground">
-										{directoryDownloadSupported
-											? t("download_to_folder_desc")
-											: t("download_directory_fallback")}
-									</span>
-								</span>
-							</Button>
-						) : null}
-						{pendingSelection && !singleFile && archiveDownloadEnabled ? (
-							<Button
-								type="button"
-								variant="ghost"
-								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
-								onClick={() => {
-									dismissSelection();
-									void createBatchService(pendingSelection.workspace)
-										.streamArchiveDownload(
-											pendingSelection.files.map((file) => file.id),
-											pendingSelection.folders.map((folder) => folder.id),
-										)
-										.catch(handleApiError);
-								}}
-							>
-								<Icon name="ArrowSquareOut" className="size-5 shrink-0" />
-								<span>
-									<span className="block font-medium">
-										{t("download_browser_archive")}
-									</span>
-									<span className="mt-0.5 block text-xs text-muted-foreground">
-										{t("download_browser_archive_desc")}
-									</span>
-								</span>
-							</Button>
-						) : null}
-						{singleFile && pendingSelection ? (
-							<Button
-								type="button"
-								variant="ghost"
-								className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
-								onClick={() => {
-									dismissSelection();
-									void startAuthenticatedFileDownload(
-										pendingSelection.workspace,
-										singleFile.id,
-									);
-								}}
-							>
-								<Icon name="ArrowSquareOut" className="size-5 shrink-0" />
-								<span>
-									<span className="block font-medium">
-										{t("download_browser_default")}
-									</span>
-									<span className="mt-0.5 block text-xs text-muted-foreground">
-										{t("download_browser_default_desc")}
-									</span>
-								</span>
-							</Button>
-						) : null}
-					</div>
-				</DialogContent>
-			</Dialog>
+				{({
+					target: { pendingSelection, singleFile },
+					active,
+					onOpenChange,
+				}) => (
+					<Dialog open={active} onOpenChange={onOpenChange}>
+						<DialogContent className="sm:max-w-lg">
+							<DialogHeader>
+								<DialogTitle>{t("download_method_title")}</DialogTitle>
+								<DialogDescription>
+									{t("download_method_description", {
+										count:
+											(pendingSelection?.files.length ?? 0) +
+											(pendingSelection?.folders.length ?? 0),
+									})}
+								</DialogDescription>
+							</DialogHeader>
+							<div className="grid gap-2">
+								{singleFile && pendingSelection && proxyDownloadSupported ? (
+									<Button
+										type="button"
+										variant="outline"
+										className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
+										onClick={() => {
+											dismissSelection();
+											void startProxyFileDownload(
+												pendingSelection.workspace,
+												singleFile,
+											);
+										}}
+									>
+										<Icon name="Download" className="size-5 shrink-0" />
+										<span>
+											<span className="block font-medium">
+												{t("download_proxy_file")}
+											</span>
+											<span className="mt-0.5 block text-xs text-muted-foreground">
+												{t("download_proxy_file_desc")}
+											</span>
+										</span>
+									</Button>
+								) : null}
+								{pendingSelection &&
+								archiveDownloadEnabled &&
+								proxyDownloadSupported ? (
+									<Button
+										type="button"
+										variant="outline"
+										className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
+										onClick={() => {
+											dismissSelection();
+											void startProxyArchiveDownload(pendingSelection);
+										}}
+									>
+										<Icon name="FileZip" className="size-5 shrink-0" />
+										<span>
+											<span className="block font-medium">
+												{t("download_proxy_archive")}
+											</span>
+											<span className="mt-0.5 block text-xs text-muted-foreground">
+												{t("download_proxy_archive_desc")}
+											</span>
+										</span>
+									</Button>
+								) : null}
+								{pendingSelection &&
+								(directoryDownloadSupported ||
+									(archiveDownloadEnabled && proxyDownloadSupported)) ? (
+									<Button
+										type="button"
+										variant="outline"
+										className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
+										onClick={() => {
+											dismissSelection();
+											if (directoryDownloadSupported) {
+												void startDirectoryDownload(pendingSelection);
+											} else {
+												void startProxyArchiveDownload(pendingSelection);
+											}
+										}}
+									>
+										<Icon name="FolderOpen" className="size-5 shrink-0" />
+										<span>
+											<span className="block font-medium">
+												{t("download_to_folder")}
+											</span>
+											<span className="mt-0.5 block text-xs text-muted-foreground">
+												{directoryDownloadSupported
+													? t("download_to_folder_desc")
+													: t("download_directory_fallback")}
+											</span>
+										</span>
+									</Button>
+								) : null}
+								{pendingSelection && !singleFile && archiveDownloadEnabled ? (
+									<Button
+										type="button"
+										variant="ghost"
+										className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
+										onClick={() => {
+											dismissSelection();
+											void createBatchService(pendingSelection.workspace)
+												.streamArchiveDownload(
+													pendingSelection.files.map((file) => file.id),
+													pendingSelection.folders.map((folder) => folder.id),
+												)
+												.catch(handleApiError);
+										}}
+									>
+										<Icon name="ArrowSquareOut" className="size-5 shrink-0" />
+										<span>
+											<span className="block font-medium">
+												{t("download_browser_archive")}
+											</span>
+											<span className="mt-0.5 block text-xs text-muted-foreground">
+												{t("download_browser_archive_desc")}
+											</span>
+										</span>
+									</Button>
+								) : null}
+								{singleFile && pendingSelection ? (
+									<Button
+										type="button"
+										variant="ghost"
+										className="h-auto justify-start gap-3 p-3 text-left whitespace-normal"
+										onClick={() => {
+											dismissSelection();
+											void startAuthenticatedFileDownload(
+												pendingSelection.workspace,
+												singleFile.id,
+											);
+										}}
+									>
+										<Icon name="ArrowSquareOut" className="size-5 shrink-0" />
+										<span>
+											<span className="block font-medium">
+												{t("download_browser_default")}
+											</span>
+											<span className="mt-0.5 block text-xs text-muted-foreground">
+												{t("download_browser_default_desc")}
+											</span>
+										</span>
+									</Button>
+								) : null}
+							</div>
+						</DialogContent>
+					</Dialog>
+				)}
+			</DialogLifecycle>
 		</>
 	);
 }

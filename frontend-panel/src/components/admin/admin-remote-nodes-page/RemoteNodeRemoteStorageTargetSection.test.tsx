@@ -1,5 +1,4 @@
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -918,7 +917,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		).toBeInTheDocument();
 	});
 
-	it("finishes delayed draft cleanup after cancel and target removal", () => {
+	it("retains the draft through exit after cancel and target removal", () => {
 		vi.useFakeTimers();
 		const existing = profile();
 		const view = render(
@@ -938,7 +937,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			}),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "core:cancel" }));
-		act(() => vi.advanceTimersByTime(120));
 		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
 
 		view.rerender(
@@ -964,7 +962,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				targets={[]}
 			/>,
 		);
-		act(() => vi.advanceTimersByTime(120));
 		expect(screen.getByRole("dialog")).toHaveAttribute("data-closed", "");
 	});
 

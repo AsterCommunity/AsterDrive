@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Input } from "@/components/ui/input";
 import type { TemplateVariableGroup } from "@/types/api";
 
@@ -24,18 +25,38 @@ interface MailTemplateVariablesDialogProps {
 	onOpenChange: (open: boolean) => void;
 }
 
-export function MailTemplateVariablesDialog({
+export function MailTemplateVariablesDialog(
+	props: MailTemplateVariablesDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.activeGroupCode !== null}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<MailTemplateVariablesContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function MailTemplateVariablesContent({
+	open,
 	activeGroup,
-	activeGroupCode,
 	getVariableDescription,
 	getVariableGroupLabel,
 	getVariableLabel,
 	onOpenChange,
-}: MailTemplateVariablesDialogProps) {
+}: MailTemplateVariablesDialogProps & { open: boolean }) {
 	const { t } = useTranslation("admin");
 
 	return (
-		<Dialog open={activeGroupCode !== null} onOpenChange={onOpenChange}>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-w-[calc(100%-1.5rem)] sm:max-w-[min(72rem,calc(100vw-2rem))]">
 				<DialogHeader>
 					<DialogTitle>
@@ -92,7 +113,25 @@ interface TestEmailDialogProps {
 	onTargetChange: (value: string) => void;
 }
 
-export function TestEmailDialog({
+export function TestEmailDialog(props: TestEmailDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<TestEmailDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function TestEmailDialogContent({
 	open,
 	sending,
 	target,

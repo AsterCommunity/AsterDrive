@@ -12,6 +12,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import { workspaceSearchPath } from "@/lib/workspace";
@@ -30,7 +31,25 @@ interface GlobalSearchDialogProps {
 	onOpenChange: (open: boolean) => void;
 }
 
-export function GlobalSearchDialog({
+export function GlobalSearchDialog(props: GlobalSearchDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<GlobalSearchDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function GlobalSearchDialogContent({
 	initialCategory = null,
 	open,
 	onOpenChange,
@@ -77,18 +96,7 @@ export function GlobalSearchDialog({
 	};
 
 	useEffect(() => {
-		if (!open) {
-			inputComposingRef.current = false;
-			inputCompositionEndAtRef.current = 0;
-			setQuery("");
-			setFilter("all");
-			setCategoryFilter(null);
-			setTags([]);
-			setTagLoading(false);
-			setSelectedTagIds([]);
-			setTagMatch("any");
-			return;
-		}
+		if (!open) return;
 
 		const timer = window.setTimeout(() => {
 			inputRef.current?.focus();

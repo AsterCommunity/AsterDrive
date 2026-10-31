@@ -8,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 
@@ -19,7 +20,25 @@ interface GeneratedPasswordDialogProps {
 	onOpenChange: (open: boolean) => void;
 }
 
-export function GeneratedPasswordDialog({
+export function GeneratedPasswordDialog(props: GeneratedPasswordDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<GeneratedPasswordDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function GeneratedPasswordDialogContent({
 	open,
 	password,
 	username,
@@ -50,7 +69,7 @@ export function GeneratedPasswordDialog({
 					<div className="flex gap-2">
 						<Input
 							readOnly
-							value={password ?? ""}
+							value={open ? (password ?? "") : "••••••••"}
 							className="font-mono text-sm"
 							aria-label={t("generated_password")}
 						/>
@@ -59,7 +78,7 @@ export function GeneratedPasswordDialog({
 							variant="outline"
 							size="icon"
 							onClick={onCopy}
-							disabled={!password}
+							disabled={!open || !password}
 							aria-label={t("copy_generated_password")}
 						>
 							<Icon name="Copy" className="size-4" />

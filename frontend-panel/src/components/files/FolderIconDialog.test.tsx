@@ -1,5 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { deferred } from "@/test/deferred";
 import { FolderIconDialog } from "./FolderIconDialog";
 
 const mocks = vi.hoisted(() => ({
@@ -140,5 +147,25 @@ describe("FolderIconDialog", () => {
 		await waitFor(() =>
 			expect(mocks.handleApiError).toHaveBeenCalledWith(refreshError),
 		);
+	});
+	it("suppresses an old submission failure after reopening", async () => {
+		const pending = deferred<never>();
+		mocks.setFolderIcon.mockReturnValueOnce(pending.promise);
+		const view = (open: boolean) => (
+			<FolderIconDialog open={open} onOpenChange={vi.fn()} folder={folder} />
+		);
+		const { rerender } = render(view(true));
+
+		fireEvent.click(screen.getByRole("button", { name: "folder_icon_save" }));
+		rerender(view(false));
+		rerender(view(true));
+		await act(async () => {
+			pending.reject(new Error("old submit failure"));
+			await pending.promise.catch(() => {});
+		});
+		expect(mocks.handleApiError).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("button", { name: "folder_icon_save" }),
+		).toBeEnabled();
 	});
 });

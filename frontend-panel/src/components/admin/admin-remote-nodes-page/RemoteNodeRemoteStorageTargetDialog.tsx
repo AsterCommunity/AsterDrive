@@ -7,6 +7,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import type {
 	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
@@ -35,7 +36,27 @@ interface RemoteNodeRemoteStorageTargetDialogProps {
 	targets: RemoteStorageTargetInfo[];
 }
 
-export function RemoteNodeRemoteStorageTargetDialog({
+export function RemoteNodeRemoteStorageTargetDialog(
+	props: RemoteNodeRemoteStorageTargetDialogProps,
+) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<RemoteNodeRemoteStorageTargetDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function RemoteNodeRemoteStorageTargetDialogContent({
 	connectorDescriptors,
 	connectorIdError,
 	connectorLocked = false,

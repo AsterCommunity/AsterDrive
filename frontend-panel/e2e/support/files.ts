@@ -272,6 +272,7 @@ export async function moveItemToFolder(
 export async function deleteItem(page: Page, itemName: string) {
 	await openItemContextMenu(page, itemName);
 	await page.getByRole("menuitem", { name: "Delete" }).click();
+	await expectItemMissing(page, itemName);
 }
 
 export async function toggleItemSelection(page: Page, itemName: string) {

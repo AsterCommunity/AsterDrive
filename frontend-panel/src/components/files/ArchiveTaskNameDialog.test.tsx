@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ArchiveTaskNameDialog } from "@/components/files/ArchiveTaskNameDialog";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
@@ -203,6 +210,29 @@ describe("ArchiveTaskNameDialog", () => {
 		await waitFor(() => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
 		});
+		expect(mockState.onOpenChange).not.toHaveBeenCalled();
+	});
+	it("does not report a submission error to a replacement archive session", async () => {
+		const pending = deferred<void>();
+		mockState.onSubmit.mockReturnValueOnce(pending.promise);
+		const view = (open: boolean) => (
+			<ArchiveTaskNameDialog
+				open={open}
+				onOpenChange={mockState.onOpenChange}
+				onSubmit={mockState.onSubmit}
+				mode="compress"
+				initialName="archive"
+			/>
+		);
+		const { rerender } = render(view(true));
+		fireEvent.click(screen.getByText("tasks:archive_compress_submit"));
+		rerender(view(false));
+		rerender(view(true));
+		await act(async () => {
+			pending.reject(new Error("old archive failure"));
+			await pending.promise.catch(() => {});
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
 		expect(mockState.onOpenChange).not.toHaveBeenCalled();
 	});
 });

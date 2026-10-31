@@ -18,6 +18,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminPageHeader } from "@/components/layout/AdminPageHeader";
 import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
+import { useDialogActivity } from "@/components/ui/dialog-lifecycle";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import {
@@ -279,6 +280,7 @@ export default function AdminTeamsPage() {
 	}, [createDialogOpen, createForm.policyGroupId, defaultPolicyGroupId]);
 
 	const handleOpenCreateDialog = () => {
+		setSubmitting(false);
 		setCreateForm({
 			...EMPTY_CREATE_FORM,
 			policyGroupId:
@@ -287,6 +289,7 @@ export default function AdminTeamsPage() {
 		setCreateDialogOpen(true);
 	};
 
+	const isCreateCurrent = useDialogActivity(undefined, createDialogOpen);
 	const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		const name = createForm.name.trim();
@@ -315,14 +318,16 @@ export default function AdminTeamsPage() {
 				policy_group_id: policyGroupId,
 				...(storageQuota === undefined ? {} : { storage_quota: storageQuota }),
 			});
-			setCreateDialogOpen(false);
-			setCreateForm(EMPTY_CREATE_FORM);
+			if (isCreateCurrent()) {
+				setCreateDialogOpen(false);
+				setCreateForm(EMPTY_CREATE_FORM);
+			}
 			toast.success(t("team_created"));
 			await reload();
 		} catch (error) {
-			handleApiError(error);
+			if (isCreateCurrent()) handleApiError(error);
 		} finally {
-			setSubmitting(false);
+			if (isCreateCurrent()) setSubmitting(false);
 		}
 	};
 

@@ -1,4 +1,5 @@
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -7,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
+import { DialogTestRoot } from "@/test/DialogTestRoot";
+import { deferred } from "@/test/deferred";
 import type { TagInfo, TagSummary } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -126,26 +129,9 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-	Dialog: ({
-		children,
-		onOpenChangeComplete,
-		open,
-	}: {
-		children: React.ReactNode;
-		onOpenChangeComplete?: (open: boolean) => void;
-		open: boolean;
-	}) =>
-		open || mockState.keepDialogMountedWhenClosed ? (
-			<div data-open={open} data-testid="dialog">
-				{children}
-				<button
-					type="button"
-					hidden
-					data-testid="dialog-complete-close"
-					onClick={() => onOpenChangeComplete?.(false)}
-				/>
-			</div>
-		) : null,
+	Dialog: (props: React.ComponentProps<typeof DialogTestRoot>) => (
+		<DialogTestRoot {...props} />
+	),
 	DialogContent: ({
 		children,
 		className,
@@ -890,17 +876,16 @@ describe("TagManagerDialog", () => {
 		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 
 		rerender(
-			<TagManagerDialog open={false} onOpenChange={vi.fn()} target={target} />,
+			<TagManagerDialog open={false} onOpenChange={vi.fn()} target={null} />,
 		);
 
 		expect(screen.getByTestId("dialog")).toHaveAttribute("data-open", "false");
 		expect(screen.getByText("tag_draft_empty")).toBeInTheDocument();
 		expect(screen.queryByText("tag_draft_entity_summary")).toBeNull();
 
-		fireEvent.click(screen.getByTestId("dialog-complete-close"));
-		await waitFor(() => {
-			expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
-		});
+		expect(screen.getAllByText("Alpha")).toHaveLength(2);
+		fireEvent.click(screen.getByRole("button", { name: "complete-close" }));
+		expect(screen.queryByLabelText("tag_search_label")).not.toBeInTheDocument();
 	});
 
 	it("routes create failures through handleApiError", async () => {
@@ -964,5 +949,218 @@ describe("TagManagerDialog", () => {
 		await waitFor(() => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(loadMoreError);
 		});
+	});
+	it.each(["create-success", "create-failure", "save-success", "save-failure"])(
+		"isolates old entity work after reopening: %s",
+		async (outcome) => {
+			const pending = deferred<TagInfo>();
+			const changed = vi.fn();
+			const tagsChanged = vi.fn();
+			const onOpenChange = vi.fn();
+			const target = {
+				mode: "entity" as const,
+				entityType: "file" as const,
+				entityId: 42,
+				initialTags: [],
+				onChanged: changed,
+				onTagsChange: tagsChanged,
+			};
+			const view = (open: boolean) => (
+				<TagManagerDialog
+					open={open}
+					onOpenChange={onOpenChange}
+					target={open ? target : null}
+				/>
+			);
+			const { rerender } = render(view(true));
+			await screen.findByText("Alpha");
+			if (outcome.startsWith("create")) {
+				mockState.createTag.mockReturnValueOnce(pending.promise);
+				fireEvent.change(screen.getByLabelText("tag_search_label"), {
+					target: { value: "Delta" },
+				});
+				fireEvent.click(
+					await screen.findByRole("button", { name: /create:Delta/ }),
+				);
+			} else {
+				mockState.replaceEntityTags.mockReturnValueOnce(pending.promise);
+				fireEvent.click(screen.getByRole("button", { name: /Alpha/ }));
+				fireEvent.click(screen.getByRole("button", { name: "save" }));
+			}
+			rerender(view(false));
+			rerender(view(true));
+			await screen.findByText("Alpha");
+			await act(async () => {
+				if (outcome.endsWith("success")) pending.resolve(tag(8, "Delta"));
+				else pending.reject(new Error("late failure"));
+				await pending.promise.catch(() => {});
+			});
+			expect(screen.getByLabelText("tag_search_label")).toHaveValue("");
+			expect(screen.queryByText("Delta")).not.toBeInTheDocument();
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+			expect(onOpenChange).not.toHaveBeenCalled();
+			expect(tagsChanged).toHaveBeenCalledTimes(
+				outcome === "save-success" ? 1 : 0,
+			);
+			expect(changed).toHaveBeenCalledTimes(outcome === "save-success" ? 1 : 0);
+		},
+	);
+
+	it.each(["success", "failure"])(
+		"rejects late pagination %s on query change",
+		async (outcome) => {
+			mockState.listTags.mockResolvedValue({ items: [alpha], total: 2 });
+			const pending = deferred<{ items: TagInfo[]; total: number }>();
+			render(
+				<TagManagerDialog
+					open
+					onOpenChange={vi.fn()}
+					target={{
+						mode: "entity",
+						entityType: "file",
+						entityId: 42,
+						initialTags: [],
+					}}
+				/>,
+			);
+			await screen.findByText("Alpha");
+			mockState.listTags.mockReturnValueOnce(pending.promise);
+			fireEvent.click(
+				screen.getByRole("button", { name: "tag_library_load_more" }),
+			);
+			fireEvent.change(screen.getByLabelText("tag_search_label"), {
+				target: { value: "new query" },
+			});
+			await act(async () => {
+				if (outcome === "success")
+					pending.resolve({ items: [gamma], total: 2 });
+				else pending.reject(new Error("late page"));
+				await pending.promise.catch(() => {});
+			});
+			expect(screen.queryByText("Gamma")).not.toBeInTheDocument();
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+		},
+	);
+
+	it("ignores nested library callbacks while exiting", async () => {
+		const target = {
+			mode: "entity" as const,
+			entityType: "file" as const,
+			entityId: 42,
+			initialTags: [],
+		};
+		const { rerender } = render(
+			<TagManagerDialog open onOpenChange={vi.fn()} target={target} />,
+		);
+		await screen.findByText("Alpha");
+		fireEvent.click(screen.getByRole("button", { name: "tag_library_manage" }));
+		rerender(
+			<TagManagerDialog open={false} onOpenChange={vi.fn()} target={null} />,
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "library-create-delta" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "library-update-alpha" }),
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "library-delete-alpha" }),
+		);
+		expect(screen.getByText("Alpha")).toBeInTheDocument();
+		expect(screen.queryByText("Alpha Prime")).not.toBeInTheDocument();
+		expect(screen.queryByText("Delta")).not.toBeInTheDocument();
+	});
+	it("resets pagination for a new query without letting an old page clear the new busy state", async () => {
+		mockState.listTags.mockResolvedValue({ items: [alpha], total: 2 });
+		const oldPage = deferred<{ items: TagInfo[]; total: number }>();
+		const newPage = deferred<{ items: TagInfo[]; total: number }>();
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 42,
+					initialTags: [],
+				}}
+			/>,
+		);
+		await screen.findByText("Alpha");
+		mockState.listTags.mockReturnValueOnce(oldPage.promise);
+		fireEvent.click(
+			screen.getByRole("button", { name: "tag_library_load_more" }),
+		);
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "changed" },
+		});
+		await waitFor(() =>
+			expect(
+				screen.getByRole("button", { name: "tag_library_load_more" }),
+			).toBeEnabled(),
+		);
+		mockState.listTags.mockReturnValueOnce(newPage.promise);
+		fireEvent.click(
+			screen.getByRole("button", { name: "tag_library_load_more" }),
+		);
+		await act(async () => {
+			oldPage.resolve({ items: [gamma], total: 2 });
+			await oldPage.promise;
+		});
+		expect(screen.queryByText("Gamma")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "tag_library_load_more" }),
+		).toBeDisabled();
+		await act(async () => {
+			newPage.resolve({ items: [beta], total: 3 });
+			await newPage.promise;
+		});
+		expect(screen.getByText("Beta")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "tag_library_load_more" }),
+		).toBeEnabled();
+	});
+
+	it("keeps pagination current when only surrounding query whitespace changes", async () => {
+		mockState.listTags.mockResolvedValue({ items: [alpha], total: 2 });
+		const page = deferred<{ items: TagInfo[]; total: number }>();
+		render(
+			<TagManagerDialog
+				open
+				onOpenChange={vi.fn()}
+				target={{
+					mode: "entity",
+					entityType: "file",
+					entityId: 42,
+					initialTags: [],
+				}}
+			/>,
+		);
+		await screen.findByText("Alpha");
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: "Alpha" },
+		});
+		await waitFor(() =>
+			expect(mockState.listTags).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					params: expect.objectContaining({ q: "Alpha" }),
+				}),
+			),
+		);
+		mockState.listTags.mockReturnValueOnce(page.promise);
+		fireEvent.click(
+			screen.getByRole("button", { name: "tag_library_load_more" }),
+		);
+		fireEvent.change(screen.getByLabelText("tag_search_label"), {
+			target: { value: " Alpha " },
+		});
+		await act(async () => {
+			page.resolve({ items: [beta], total: 3 });
+			await page.promise;
+		});
+		expect(screen.getByText("Beta")).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: "tag_library_load_more" }),
+		).toBeEnabled();
 	});
 });

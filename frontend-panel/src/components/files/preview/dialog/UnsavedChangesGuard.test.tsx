@@ -63,8 +63,14 @@ describe("UnsavedChangesGuard", () => {
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 	});
 
-	it("keeps the guard mounted briefly for exit motion before unmounting", () => {
-		vi.useFakeTimers();
+	it("keeps the guard mounted until its actual exit animation completes", async () => {
+		let finish = () => {};
+		const finished = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		const animations = vi
+			.spyOn(Element.prototype, "getAnimations")
+			.mockReturnValue([{ finished } as Animation]);
 		render(<GuardHarness />);
 
 		fireEvent.click(screen.getByRole("button", { name: "translated:cancel" }));
@@ -74,9 +80,11 @@ describe("UnsavedChangesGuard", () => {
 			"motion-reduce:animate-none",
 		);
 
-		act(() => {
-			vi.advanceTimersByTime(140);
+		await act(async () => {
+			finish();
+			await finished;
 		});
+		animations.mockRestore();
 
 		expect(
 			screen.queryByTestId("unsaved-changes-guard"),

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	Dialog,
@@ -7,6 +8,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { DialogLifecycle } from "@/components/ui/dialog-lifecycle";
 import { PreviewAppEditorFields } from "../PreviewAppEditorFields";
 import type {
 	PreviewAppsEditorApp,
@@ -14,6 +16,7 @@ import type {
 } from "../previewAppsConfigEditorShared";
 
 interface PreviewAppsEditDialogProps {
+	children?: ReactNode;
 	app: PreviewAppsEditorApp | null;
 	appName: string;
 	index: number;
@@ -30,7 +33,27 @@ interface PreviewAppsEditDialogProps {
 	) => void;
 }
 
-export function PreviewAppsEditDialog({
+export function PreviewAppsEditDialog(props: PreviewAppsEditDialogProps) {
+	return (
+		<DialogLifecycle
+			open={props.open}
+			identity={props.index}
+			target={props}
+			onOpenChange={props.onOpenChange}
+		>
+			{({ target, active, onOpenChange }) => (
+				<PreviewAppsEditDialogContent
+					{...target}
+					open={active}
+					onOpenChange={onOpenChange}
+				/>
+			)}
+		</DialogLifecycle>
+	);
+}
+
+function PreviewAppsEditDialogContent({
+	children,
 	app,
 	appName,
 	index,
@@ -68,6 +91,7 @@ export function PreviewAppsEditDialog({
 					</div>
 				) : null}
 				<DialogFooter showCloseButton />
+				{children}
 			</DialogContent>
 		</Dialog>
 	);

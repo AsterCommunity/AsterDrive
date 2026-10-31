@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RenameDialog } from "@/components/files/RenameDialog";
+import { deferred } from "@/test/deferred";
 
 const mockState = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
@@ -271,5 +278,55 @@ describe("RenameDialog", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 		expect(onOpenChange).not.toHaveBeenCalledWith(false);
 		expect(mockState.refresh).not.toHaveBeenCalled();
+	});
+	it("suppresses an old submission failure after reopening", async () => {
+		const pending = deferred<never>();
+		mockState.renameFile.mockReturnValueOnce(pending.promise);
+		const view = (open: boolean) => (
+			<RenameDialog
+				open={open}
+				onOpenChange={vi.fn()}
+				type="file"
+				id={7}
+				currentName="old.txt"
+			/>
+		);
+		const { rerender } = render(view(true));
+		fireEvent.change(screen.getByRole("textbox"), {
+			target: { value: "new.txt" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "rename" }));
+		rerender(view(false));
+		rerender(view(true));
+		await act(async () => {
+			pending.reject(new Error("old submit failure"));
+			await pending.promise.catch(() => {});
+		});
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+		expect(screen.getByRole("button", { name: "rename" })).toBeEnabled();
+	});
+	it("reports a failed parent refresh after the mutation was committed and the dialog closed", async () => {
+		const error = new Error("refresh rejected");
+		const refresh = vi.fn().mockRejectedValue(error);
+		const onOpenChange = vi.fn();
+		render(
+			<RenameDialog
+				open
+				onOpenChange={onOpenChange}
+				type="file"
+				id={7}
+				currentName="old.txt"
+				onRenamed={refresh}
+			/>,
+		);
+		fireEvent.change(screen.getByRole("textbox"), {
+			target: { value: "new.txt" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "rename" }));
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+		expect(onOpenChange).toHaveBeenCalledWith(false);
+		expect(refresh).toHaveBeenCalledTimes(1);
 	});
 });
