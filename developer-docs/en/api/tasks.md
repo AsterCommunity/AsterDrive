@@ -180,3 +180,7 @@ If the task is not failed, the API returns `400`.
 - `/tasks/offline-download` returns `TaskInfo` immediately; progress should be shown in the task center; clients should not pass an engine choice in the request body
 - `/admin/storage-migrations/dry-run` does not create a task; `POST /admin/storage-migrations` does
 - `POST /admin/file-blobs/maintenance` creates `blob_maintenance`
+
+## Cooperative cancellation
+
+Personal/team routes add `POST /api/v1/tasks/{id}/cancel` and `POST /api/v1/teams/{team_id}/tasks/{id}/cancel`. `TaskInfo.can_cancel` is authoritative. Queued work becomes Canceled; running work becomes Canceling until owner acknowledgement. Requests are idempotent, while succeeded/failed tasks reject409. Continue polling Canceling; only acknowledged Canceled may retry with the same task ID, publication receipts and committed outputs. Workspace cancellation excludes system maintenance and does not roll back changes.

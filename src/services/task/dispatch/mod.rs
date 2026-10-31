@@ -4,6 +4,8 @@
 //! 阻止旧 worker 继续把状态写回数据库。
 
 mod claim;
+mod consumer;
+pub(crate) use consumer::{consumer_statuses, spawn_consumers};
 mod execute;
 mod lane;
 mod maintenance;
@@ -74,11 +76,25 @@ pub(crate) async fn dispatch_due_with_shutdown(
 }
 
 async fn refresh_pending_metric(state: &impl SharedRuntimeState) {
+    if !state.metrics().enabled() {
+        return;
+    }
     match crate::db::repository::background_task_repo::count_pending_or_retry(state.writer_db())
         .await
     {
         Ok(pending) => {
             state.metrics().set_background_tasks_pending(pending);
+            match crate::db::repository::background_task_repo::oldest_pending_age_seconds(
+                state.writer_db(),
+            )
+            .await
+            {
+                Ok(age) => state
+                    .metrics()
+                    .forge_recorder()
+                    .set_background_tasks_oldest_age_seconds(age),
+                Err(error) => tracing::warn!(%error,"failed to sample oldest pending task age"),
+            }
             state
                 .metrics()
                 .snapshot_status("tasks", true, chrono::Utc::now().timestamp() as f64);
@@ -97,23 +113,19 @@ async fn dispatch_lane(
 ) -> Result<DispatchStats> {
     let mut total = DispatchStats::default();
 
-    loop {
+    {
         if shutdown_token.is_cancelled() {
-            break;
+            return Ok(total);
         }
 
-        let claimed_tasks = claim_due_for_lane(state, lane_config).await?;
+        let claimed_tasks = claim_due_for_lane(state, lane_config, lane_config.limit).await?;
         if claimed_tasks.is_empty() {
-            break;
+            return Ok(total);
         }
 
         let claimed = claimed_tasks.len();
         total.claimed += claimed;
         total.add(run_claimed_tasks(state, claimed_tasks, shutdown_token.clone()).await?);
-
-        if !lane_config.fast_continue {
-            break;
-        }
     }
 
     Ok(total)

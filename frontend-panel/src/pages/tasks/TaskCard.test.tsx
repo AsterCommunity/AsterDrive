@@ -100,6 +100,7 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 	return {
 		attempt_count: 0,
 		can_retry: false,
+		can_cancel: false,
 		created_at: "2026-04-17T00:00:00Z",
 		creator: null,
 		display_name: "Download https://example.com/file.bin",
@@ -137,6 +138,8 @@ describe("TaskCard", () => {
 			<TaskCard
 				detailsExpanded={false}
 				onOpenTargetFolder={vi.fn()}
+				canceling={false}
+				onCancel={vi.fn()}
 				onRetry={vi.fn()}
 				onToggleDetails={vi.fn()}
 				retrying={false}
@@ -155,6 +158,8 @@ describe("TaskCard", () => {
 			<TaskCard
 				detailsExpanded
 				onOpenTargetFolder={onOpenTargetFolder}
+				canceling={false}
+				onCancel={vi.fn()}
 				onRetry={vi.fn()}
 				onToggleDetails={onToggleDetails}
 				retrying={false}
@@ -202,6 +207,8 @@ describe("TaskCard", () => {
 			<TaskCard
 				detailsExpanded={false}
 				onOpenTargetFolder={vi.fn()}
+				canceling={false}
+				onCancel={vi.fn()}
 				onRetry={vi.fn()}
 				onToggleDetails={vi.fn()}
 				retrying={false}
@@ -235,6 +242,8 @@ describe("TaskCard", () => {
 			<TaskCard
 				detailsExpanded
 				onOpenTargetFolder={vi.fn()}
+				canceling={false}
+				onCancel={vi.fn()}
 				onRetry={vi.fn()}
 				onToggleDetails={vi.fn()}
 				retrying={false}
@@ -267,6 +276,8 @@ describe("TaskCard", () => {
 			<TaskCard
 				detailsExpanded={false}
 				onOpenTargetFolder={vi.fn()}
+				canceling={false}
+				onCancel={vi.fn()}
 				onRetry={vi.fn()}
 				onToggleDetails={onToggleDetails}
 				retrying={false}
@@ -305,11 +316,14 @@ describe("TaskCard", () => {
 			<TaskCard
 				detailsExpanded
 				onOpenTargetFolder={vi.fn()}
+				canceling={false}
+				onCancel={vi.fn()}
 				onRetry={onRetry}
 				onToggleDetails={vi.fn()}
 				retrying
 				task={createTask({
 					can_retry: true,
+					can_cancel: false,
 					display_name: "Future task",
 					kind: "future_task" as never,
 					last_error: "Task failed",
@@ -327,5 +341,38 @@ describe("TaskCard", () => {
 		expect(retryButton).toBeDisabled();
 		fireEvent.click(retryButton);
 		expect(onRetry).not.toHaveBeenCalled();
+	});
+	it("exposes a cancel command only when the server grants that capability", () => {
+		const onCancel = vi.fn();
+		const { rerender } = render(
+			<TaskCard
+				task={createTask({ status: "processing", can_cancel: true })}
+				detailsExpanded
+				onOpenTargetFolder={vi.fn()}
+				onRetry={vi.fn()}
+				onToggleDetails={vi.fn()}
+				retrying={false}
+				canceling={false}
+				onCancel={onCancel}
+			/>,
+		);
+		fireEvent.click(screen.getByRole("button", { name: /tasks:cancel_task/ }));
+		expect(onCancel).toHaveBeenCalledWith(44);
+		rerender(
+			<TaskCard
+				task={createTask({ status: "canceling", can_cancel: false })}
+				detailsExpanded
+				onOpenTargetFolder={vi.fn()}
+				onRetry={vi.fn()}
+				onToggleDetails={vi.fn()}
+				retrying={false}
+				canceling={false}
+				onCancel={onCancel}
+			/>,
+		);
+		expect(
+			screen.queryByRole("button", { name: /tasks:cancel_task/ }),
+		).not.toBeInTheDocument();
+		expect(screen.getByText("tasks:status_canceling")).toBeInTheDocument();
 	});
 });

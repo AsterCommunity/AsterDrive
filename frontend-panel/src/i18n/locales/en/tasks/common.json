@@ -93,5 +93,10 @@
 	"summary_root_folder": "My files",
 	"task_progress_title": "Task progress",
 	"task_details_title": "Task details",
-	"task_name_storage_policy_forced_purge": "Permanently purge {{policy}} (#{{policyId}})"
+	"task_name_storage_policy_forced_purge": "Permanently purge {{policy}} (#{{policyId}})",
+	"cancel_task": "Cancel task",
+	"cancel_title": "Cancel this task?",
+	"cancel_description": "Stop further work. Already committed files and changes are retained and will not be rolled back.",
+	"cancel_requested": "Cancellation requested; waiting for the worker",
+	"cancel_success": "Task canceled"
 }

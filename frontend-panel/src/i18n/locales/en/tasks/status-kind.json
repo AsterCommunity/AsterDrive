@@ -73,5 +73,6 @@
 	"storage_migration_skipped_blobs": "Skipped objects",
 	"storage_migration_failed_blobs": "Failed objects",
 	"storage_migration_migrated_bytes": "Bytes",
-	"status_text_storage_policy_forced_purge_completed": "Policy #{{policyId}} purged: {{purgedFiles}} files, {{deletedBlobRecords}} blob records, {{freedLogicalBytes}} logical bytes"
+	"status_text_storage_policy_forced_purge_completed": "Policy #{{policyId}} purged: {{purgedFiles}} files, {{deletedBlobRecords}} blob records, {{freedLogicalBytes}} logical bytes",
+	"status_canceling": "Canceling"
 }

@@ -19,6 +19,10 @@ AsterDrive now includes a set of command-line tools for these scenarios:
 These commands are still part of the same `aster_drive` executable.  
 Running `./aster_drive` directly starts the service. Running it with a subcommand performs an operations task.
 
+## Service roles
+
+`./aster_drive [serve [all|api|worker]]` defaults to `all`. Follower remains config-selected. See [separate roles](/en/deploy/roles/) for ownership, cancellation, limits and migration.
+
 ## Command Quick Reference
 
 | What you want to do | Command | When to use it |

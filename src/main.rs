@@ -99,7 +99,11 @@ enum RootCommand {
     /// Generate an Argon2id PHC verifier from a password read from stdin
     HashPassword,
     /// Start the AsterDrive server
-    Serve,
+    Serve {
+        /// Process responsibilities; Follower node mode is still selected by config
+        #[arg(value_enum, default_value = "all")]
+        role: aster_drive::runtime::role::ServeRole,
+    },
     /// Run offline health checks for database, config, and storage readiness
     Doctor {
         #[arg(long, env = "ASTER_CLI_OUTPUT_FORMAT", default_value = "auto")]
@@ -144,6 +148,15 @@ async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
 
     aster_forge_auth::initialize_jwt_crypto_provider().map_err(io_other)?;
+
+    #[cfg_attr(
+        not(feature = "cli"),
+        expect(
+            unused_mut,
+            reason = "CLI-enabled builds assign the requested role before bootstrap"
+        )
+    )]
+    let mut serve_role = aster_drive::runtime::role::ServeRole::All;
 
     #[cfg(feature = "cli")]
     {
@@ -238,7 +251,10 @@ async fn main() -> std::io::Result<()> {
                     std::process::exit(1);
                 }
             },
-            Some(RootCommand::Serve) | None => {}
+            Some(RootCommand::Serve { role }) => {
+                serve_role = role;
+            }
+            None => {}
         }
     }
 
@@ -256,7 +272,9 @@ async fn main() -> std::io::Result<()> {
     let cfg = aster_drive::config::get_config();
     aster_drive::config::deployment::validate_static(cfg.as_ref()).map_err(io_other)?;
     cfg.observability.validate().map_err(io_other)?;
+    cfg.worker.validate().map_err(io_other)?;
     let runtime_mode = aster_drive::config::node_mode::start_mode(cfg.as_ref());
+    serve_role.validate(runtime_mode).map_err(io_other)?;
     if let Some(config_path) = bootstrap_config_path.as_ref()
         && runtime_mode != aster_drive::config::node_mode::NodeRuntimeMode::Follower
     {
@@ -281,6 +299,11 @@ async fn main() -> std::io::Result<()> {
         target = aster_drive::build_info::TARGET,
         variant = aster_drive::build_info::VARIANT,
         mode = runtime_mode.as_str(),
+        role = if runtime_mode == aster_drive::config::node_mode::NodeRuntimeMode::Follower {
+            "follower"
+        } else {
+            serve_role.as_str()
+        },
         "starting {}",
         aster_drive::build_info::PRODUCT_NAME
     );
@@ -292,10 +315,10 @@ async fn main() -> std::io::Result<()> {
 
     match runtime_mode {
         aster_drive::config::node_mode::NodeRuntimeMode::Primary => {
-            let prepared = aster_drive::runtime::startup::prepare_primary()
+            let prepared = aster_drive::runtime::startup::prepare_primary(serve_role)
                 .await
                 .map_err(io_other)?;
-            aster_drive::runtime::assembly::run_primary(prepared).await
+            aster_drive::runtime::assembly::run_primary(prepared, serve_role).await
         }
         aster_drive::config::node_mode::NodeRuntimeMode::Follower => {
             let prepared = aster_drive::runtime::startup::prepare_follower()
@@ -308,4 +331,40 @@ async fn main() -> std::io::Result<()> {
 
 fn io_other(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
+}
+
+#[cfg(all(test, feature = "cli"))]
+mod role_cli_tests {
+    use super::*;
+    use aster_drive::runtime::role::ServeRole;
+
+    #[test]
+    fn default_and_explicit_role_commands() {
+        for (args, expected) in [
+            (vec!["aster_drive"], ServeRole::All),
+            (vec!["aster_drive", "serve"], ServeRole::All),
+            (vec!["aster_drive", "serve", "all"], ServeRole::All),
+            (vec!["aster_drive", "serve", "api"], ServeRole::Api),
+            (vec!["aster_drive", "serve", "worker"], ServeRole::Worker),
+        ] {
+            let role = match RootCli::try_parse_from(args).unwrap().command {
+                None => ServeRole::All,
+                Some(RootCommand::Serve { role }) => role,
+                other => panic!("unexpected command: {other:?}"),
+            };
+            assert_eq!(role, expected);
+        }
+    }
+
+    #[test]
+    fn invalid_or_conflicting_roles_are_rejected() {
+        for args in [
+            vec!["aster_drive", "serve", "follower"],
+            vec!["aster_drive", "serve", "API"],
+            vec!["aster_drive", "serve", "api", "worker"],
+            vec!["aster_drive", "serve", "--role", "worker"],
+        ] {
+            assert!(RootCli::try_parse_from(args).is_err());
+        }
+    }
 }

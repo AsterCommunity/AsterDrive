@@ -117,3 +117,7 @@ docker run --rm -v /tmp:/manifests \
 ```
 
 `kubectl apply --dry-run=client` 即使关闭 validation 仍可能执行 API discovery，因此不适合作为无 kubeconfig CI 的离线验证器。CI 会渲染 OrbStack、production overlay，以及 Helm 的默认、Ingress+NetworkPolicy+digest、existing PVC+三副本等边界组合，并使用固定版本的 kubeconform 执行严格 schema 校验。上述验证仍不代表外部数据库、Redis、RWX StorageClass、Ingress 或共享存储已经可用；真正部署前应连接目标集群，先创建目标 Namespace，再执行 `kubectl apply --dry-run=server`，上线后完成[多实例上线验收](/deploy/multi-instance/#上线验收)。
+
+## 分离角色
+
+使用 Helm `split.enabled=true` 或 Kustomize `overlays/split`，分别扩缩 API/worker。业务 Service 只选择 API。共享数据、探针、优雅关闭及升级步骤见[角色部署契约](/deploy/roles/)。

@@ -27,6 +27,8 @@ interface TaskCardProps {
 	detailsExpanded: boolean;
 	onOpenTargetFolder: (targetFolderId: number | null) => void;
 	onRetry: (taskId: number) => void;
+	onCancel: (taskId: number) => void;
+	canceling: boolean;
 	onToggleDetails: (taskId: number) => void;
 	retrying: boolean;
 	task: TaskInfo;
@@ -285,6 +287,8 @@ export function TaskCard({
 	detailsExpanded,
 	onOpenTargetFolder,
 	onRetry,
+	onCancel,
+	canceling,
 	onToggleDetails,
 	retrying,
 	task,
@@ -451,6 +455,20 @@ export function TaskCard({
 							>
 								<Icon name="FolderOpen" className="mr-1 size-3.5" />
 								{t("tasks:open_target_folder")}
+							</Button>
+						) : null}
+						{task.can_cancel ? (
+							<Button
+								variant="outline"
+								size="xs"
+								onClick={() => onCancel(task.id)}
+								disabled={canceling}
+							>
+								<Icon
+									name={canceling ? "Spinner" : "X"}
+									className={`mr-1 size-3.5 ${canceling ? "animate-spin" : ""}`}
+								/>
+								{t("tasks:cancel_task")}
 							</Button>
 						) : null}
 						{task.can_retry ? (

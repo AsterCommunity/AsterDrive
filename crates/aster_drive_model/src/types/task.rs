@@ -187,6 +187,8 @@ pub enum BackgroundTaskStatus {
     Pending,
     #[sea_orm(string_value = "processing")]
     Processing,
+    #[sea_orm(string_value = "canceling")]
+    Canceling,
     #[sea_orm(string_value = "retry")]
     Retry,
     #[sea_orm(string_value = "succeeded")]
@@ -202,6 +204,7 @@ impl BackgroundTaskStatus {
         match self {
             Self::Pending => "pending",
             Self::Processing => "processing",
+            Self::Canceling => "canceling",
             Self::Retry => "retry",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",

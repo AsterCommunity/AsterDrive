@@ -8,6 +8,8 @@ const mockState = vi.hoisted(() => ({
 	listInWorkspace: vi.fn(),
 	navigate: vi.fn(),
 	retryTask: vi.fn(),
+	cancelTask: vi.fn(),
+	workspace: { kind: "personal" } as import("@/lib/workspace").Workspace,
 	toastSuccess: vi.fn(),
 }));
 
@@ -122,12 +124,18 @@ vi.mock("@/lib/format", () => ({
 	formatNumber: (value: number) => `num:${value}`,
 }));
 
-vi.mock("@/lib/workspace", () => ({
+vi.mock("@/lib/workspace", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/workspace")>()),
 	workspaceFolderPath: (_workspace: unknown, folderId: number | null) =>
 		folderId === null ? "/" : `/folder/${folderId}`,
 }));
 
 vi.mock("@/services/taskService", () => ({
+	createTaskService: () => ({
+		listInWorkspace: (...args: unknown[]) => mockState.listInWorkspace(...args),
+		retryTask: (...args: unknown[]) => mockState.retryTask(...args),
+		cancelTask: (...args: unknown[]) => mockState.cancelTask(...args),
+	}),
 	taskService: {
 		listInWorkspace: (...args: unknown[]) => mockState.listInWorkspace(...args),
 		retryTask: (...args: unknown[]) => mockState.retryTask(...args),
@@ -135,9 +143,30 @@ vi.mock("@/services/taskService", () => ({
 }));
 
 vi.mock("@/stores/workspaceStore", () => ({
-	useWorkspaceStore: (
-		selector: (state: { workspace: { kind: "personal" } }) => unknown,
-	) => selector({ workspace: { kind: "personal" } }),
+	useWorkspaceStore: Object.assign(
+		(
+			selector: (state: {
+				workspace: import("@/lib/workspace").Workspace;
+			}) => unknown,
+		) => selector({ workspace: mockState.workspace }),
+		{ getState: () => ({ workspace: mockState.workspace }) },
+	),
+}));
+
+vi.mock("@/components/common/ConfirmDialog", () => ({
+	ConfirmDialog: (props: {
+		open: boolean;
+		description: string;
+		onConfirm: () => void;
+	}) =>
+		props.open ? (
+			<div role="alertdialog">
+				<p>{props.description}</p>
+				<button type="button" onClick={props.onConfirm}>
+					confirm cancellation
+				</button>
+			</div>
+		) : null,
 }));
 
 function createTaskSteps(
@@ -411,6 +440,7 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 	return {
 		attempt_count: 0,
 		can_retry: false,
+		can_cancel: false,
 		created_at: "2026-04-10T00:00:00Z",
 		creator: createUserSummary(),
 		display_name: "Extract archive",
@@ -441,9 +471,101 @@ describe("TasksPage", () => {
 		mockState.handleApiError.mockReset();
 		mockState.listInWorkspace.mockReset();
 		mockState.navigate.mockReset();
+		mockState.workspace = { kind: "personal" };
+		mockState.cancelTask.mockReset();
 		mockState.retryTask.mockReset();
 		mockState.retryTask.mockResolvedValue(undefined);
 		mockState.toastSuccess.mockReset();
+	});
+
+	it("requires confirmation and displays canceling until the worker acknowledges", async () => {
+		const task = createTask({ can_cancel: true });
+		mockState.listInWorkspace.mockResolvedValue({ items: [task], total: 1 });
+		mockState.cancelTask.mockResolvedValue({
+			...task,
+			status: "canceling",
+			can_cancel: false,
+		});
+		render(<TasksPage />);
+		await screen.findByRole("button", { name: "tasks:show_details" });
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
+		fireEvent.click(screen.getByRole("button", { name: /tasks:cancel_task/ }));
+		expect(mockState.cancelTask).not.toHaveBeenCalled();
+		expect(screen.getByRole("alertdialog")).toHaveTextContent(
+			"tasks:cancel_description",
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm cancellation" }),
+		);
+		await waitFor(() =>
+			expect(mockState.cancelTask).toHaveBeenCalledWith(task.id),
+		);
+		expect(
+			await screen.findByText("tasks:status_canceling"),
+		).toBeInTheDocument();
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"tasks:cancel_requested",
+		);
+		mockState.listInWorkspace.mockResolvedValue({
+			items: [{ ...task, status: "canceled", can_cancel: false }],
+			total: 1,
+		});
+		expect(
+			await screen.findByText("tasks:status_canceled", {}, { timeout: 4000 }),
+		).toBeInTheDocument();
+	});
+
+	it("discards a cancellation response after switching workspace", async () => {
+		const task = createTask({ can_cancel: true });
+		let resolveCancel!: (task: TaskInfo) => void;
+		mockState.listInWorkspace.mockResolvedValue({ items: [task], total: 1 });
+		mockState.cancelTask.mockReturnValue(
+			new Promise<TaskInfo>((resolve) => {
+				resolveCancel = resolve;
+			}),
+		);
+		const view = render(<TasksPage />);
+		await screen.findByRole("button", { name: "tasks:show_details" });
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
+		fireEvent.click(screen.getByRole("button", { name: /tasks:cancel_task/ }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm cancellation" }),
+		);
+		await waitFor(() =>
+			expect(mockState.cancelTask).toHaveBeenCalledWith(task.id),
+		);
+		mockState.workspace = { kind: "team", teamId: 42 };
+		mockState.listInWorkspace.mockResolvedValue({ items: [], total: 0 });
+		view.rerender(<TasksPage />);
+		await screen.findByText("tasks:empty_title:tasks:empty_desc");
+		resolveCancel({ ...task, status: "canceling", can_cancel: false });
+		await waitFor(() =>
+			expect(
+				screen.queryByText("tasks:status_canceling"),
+			).not.toBeInTheDocument(),
+		);
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("keeps the authoritative running state if cancellation fails", async () => {
+		const task = createTask({ can_cancel: true });
+		const error = new Error("unavailable");
+		mockState.listInWorkspace.mockResolvedValue({ items: [task], total: 1 });
+		mockState.cancelTask.mockRejectedValue(error);
+		render(<TasksPage />);
+		await screen.findByRole("button", { name: "tasks:show_details" });
+		fireEvent.click(screen.getByRole("button", { name: "tasks:show_details" }));
+		fireEvent.click(screen.getByRole("button", { name: /tasks:cancel_task/ }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm cancellation" }),
+		);
+		await waitFor(() =>
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error),
+		);
+		expect(
+			screen.queryByText("tasks:status_canceling"),
+		).not.toBeInTheDocument();
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 	});
 
 	it("polls while active tasks are present", async () => {
@@ -475,6 +597,7 @@ describe("TasksPage", () => {
 				items: [
 					createTask({
 						can_retry: true,
+						can_cancel: false,
 						last_error: "failed once",
 						status: "failed",
 					}),
@@ -485,6 +608,7 @@ describe("TasksPage", () => {
 				items: [
 					createTask({
 						can_retry: false,
+						can_cancel: false,
 						status: "retry",
 					}),
 				],

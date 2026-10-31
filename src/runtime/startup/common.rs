@@ -20,10 +20,14 @@ pub(super) struct CommonRuntimeParts {
     pub metrics: SharedMetricsRecorder,
 }
 
-pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntimeParts> {
+pub(super) async fn prepare_common(
+    mode: NodeRuntimeMode,
+    role: &'static str,
+) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
     crate::config::deployment::validate_static(cfg.as_ref())?;
     cfg.observability.validate()?;
+    cfg.worker.validate()?;
     crate::services::mail::template::validate_template_registry()?;
     let config_sync = aster_forge_config::build_config_sync_runtime(
         &cfg.config_sync,
@@ -32,7 +36,7 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     .map_err(crate::services::ops::config::runtime::map_config_core_error)?;
     let metrics = aster_drive_metrics::create_metrics_recorder(
         cfg.observability
-            .create_provider(mode, config_sync.runtime_id())?,
+            .create_provider(role, config_sync.runtime_id())?,
     )
     .map_err(|error| AsterError::config_error(error.to_string()))?;
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;

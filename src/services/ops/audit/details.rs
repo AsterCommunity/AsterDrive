@@ -598,3 +598,9 @@ pub fn details<T: Serialize>(value: T) -> Option<serde_json::Value> {
         }
     }
 }
+
+#[derive(Serialize)]
+pub struct TaskCancelAuditDetails {
+    pub status: String,
+    pub completed_changes_retained: bool,
+}

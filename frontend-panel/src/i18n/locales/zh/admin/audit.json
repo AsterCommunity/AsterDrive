@@ -278,5 +278,7 @@
 	"audit_action_admin_workspace_inspect": "管理员查看工作空间",
 	"audit_action_admin_file_download": "管理员访问文件内容",
 	"audit_action_admin_revision_download": "管理员访问文件版本",
-	"audit_presentation_admin_content_access": "原因 {{reason}} · 结果 {{result}}"
+	"audit_presentation_admin_content_access": "原因 {{reason}} · 结果 {{result}}",
+	"audit_action_task_cancel_requested": "请求取消任务",
+	"audit_presentation_task_cancel_requested": "已请求停止后续工作，已完成的变更保留"
 }

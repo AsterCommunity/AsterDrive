@@ -7,6 +7,8 @@ title: "运行架构"
 
 源码级的模块划分和设计契约不在用户文档里，已迁移到开发者文档：[架构概览](https://drive.docs.astercosm.com/developer/architecture/)、[模块设计说明](https://drive.docs.astercosm.com/developer/architecture/module-designs/) 和 [后端服务所有权](https://drive.docs.astercosm.com/developer/architecture/backend-service-ownership/)。改代码前读那几份。
 
+Primary 现在按 `serve all/api/worker` 组合职责；本文完整进程描述对应 all，分离时 API 保留业务入口、worker 承担持久化消费与调度。见[角色契约](/deploy/roles/)。
+
 ## 60 秒版本
 
 - AsterDrive 是一个 Rust 后端加 React 前端的自托管云盘；生产构建时，前端资源会由后端直接服务。

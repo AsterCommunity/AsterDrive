@@ -204,26 +204,12 @@ fn claim_candidate(index: usize, task: &background_task::Model) -> TaskClaimCand
     }
 }
 
-fn test_lane_config(lane: TaskLane, limit: usize, fast_continue: bool) -> TaskLaneConfig {
-    let lock_key = match lane {
-        TaskLane::Archive => crate::config::operations::BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
-        TaskLane::Thumbnail => {
-            crate::config::operations::BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY
-        }
-        TaskLane::OfflineDownload => {
-            crate::config::operations::OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY
-        }
-        TaskLane::StorageMigration => {
-            crate::config::operations::BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY
-        }
-        TaskLane::Fallback => crate::config::operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
-    };
+fn test_lane_config(lane: TaskLane, limit: usize, _fast_continue: bool) -> TaskLaneConfig {
     TaskLaneConfig {
         lane,
         kinds: super::super::registry::task_lane_kinds(lane),
         limit,
-        fast_continue,
-        lock_key,
+        cluster_limit: Some(limit),
     }
 }
 
@@ -555,7 +541,7 @@ async fn folder_tree_task_blocks_membership_changes_and_cleans_up_after_shutdown
     crate::db::repository::folder_tree_operation_repo::clear(state.writer_db(), task.id)
         .await
         .expect("staging dedupe fixture should clear before task execution");
-    let claimed = claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false))
+    let claimed = claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false), 1)
         .await
         .expect("folder-tree delete task should be claimed");
     assert_eq!(claimed.len(), 1);
@@ -684,9 +670,10 @@ async fn folder_tree_task_blocks_membership_changes_and_cleans_up_after_shutdown
         .is_none()
     );
 
-    let mut reclaimed = claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false))
-        .await
-        .expect("cancelled folder-tree task should be reclaimed");
+    let mut reclaimed =
+        claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false), 1)
+            .await
+            .expect("cancelled folder-tree task should be reclaimed");
     assert_eq!(reclaimed.len(), 1);
     let (lost_task, lost_lease) = reclaimed.pop().expect("reclaimed task should exist");
     let context = TaskExecutionContext::new(
@@ -764,7 +751,7 @@ async fn folder_tree_task_blocks_membership_changes_and_cleans_up_after_shutdown
         .expect("lease-lost task should return to retry")
     );
 
-    let takeover = claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false))
+    let takeover = claim_due_for_lane(&state, test_lane_config(TaskLane::Fallback, 1, false), 1)
         .await
         .expect("new worker should claim the lease-lost task");
     assert_eq!(takeover.len(), 1);
@@ -933,6 +920,7 @@ async fn claim_candidates_for_lane_claims_batch_up_to_rechecked_capacity() {
     let claimed = claim_candidates_for_lane(
         &db,
         test_lane_config(TaskLane::Archive, 2, true),
+        2,
         &candidates,
         claimed_at - chrono::Duration::seconds(60),
         claimed_at,
@@ -987,6 +975,7 @@ async fn claim_candidates_for_lane_skips_claim_when_rechecked_capacity_is_full()
     let claimed = claim_candidates_for_lane(
         &db,
         test_lane_config(TaskLane::Thumbnail, 1, true),
+        2,
         &candidates,
         claimed_at - chrono::Duration::seconds(60),
         claimed_at,
@@ -1036,6 +1025,7 @@ async fn claim_candidates_for_lane_continues_after_stale_candidate_loses_cas() {
     let claimed = claim_candidates_for_lane(
         &db,
         test_lane_config(TaskLane::Archive, 1, true),
+        2,
         &candidates,
         claimed_at - chrono::Duration::seconds(60),
         claimed_at,
@@ -1149,4 +1139,410 @@ fn archive_transient_storage_errors_are_auto_retryable() {
 
     assert!(retry_class.should_auto_retry());
     assert!(retry_class.can_manual_retry());
+}
+
+#[tokio::test]
+async fn local_claim_capacity_is_independent_from_cluster_active_count() {
+    let db = build_dispatch_test_db().await;
+    let now = Utc::now();
+    insert_dispatch_test_task(
+        &db,
+        BackgroundTaskKind::ThumbnailGenerate,
+        BackgroundTaskStatus::Processing,
+        -3,
+        Some(now + chrono::Duration::seconds(60)),
+    )
+    .await;
+    let pending = insert_dispatch_test_task(
+        &db,
+        BackgroundTaskKind::ThumbnailGenerate,
+        BackgroundTaskStatus::Pending,
+        -1,
+        None,
+    )
+    .await;
+    let mut config = test_lane_config(TaskLane::Thumbnail, 1, false);
+    config.cluster_limit = None;
+    let claimed = claim_candidates_for_lane(
+        &db,
+        config,
+        1,
+        &[claim_candidate(0, &pending)],
+        now - chrono::Duration::seconds(60),
+        now,
+        now + chrono::Duration::seconds(60),
+    )
+    .await
+    .unwrap();
+    assert_eq!(claimed.len(), 1);
+}
+
+#[tokio::test]
+async fn zero_available_slots_never_claim_and_cluster_limit_is_atomic() {
+    let db = build_dispatch_test_db().await;
+    let now = Utc::now();
+    let pending = insert_dispatch_test_task(
+        &db,
+        BackgroundTaskKind::ThumbnailGenerate,
+        BackgroundTaskStatus::Pending,
+        -1,
+        None,
+    )
+    .await;
+    let config = test_lane_config(TaskLane::Thumbnail, 1, false);
+    let candidates = [claim_candidate(0, &pending)];
+    assert!(
+        claim_candidates_for_lane(
+            &db,
+            config,
+            0,
+            &candidates,
+            now - chrono::Duration::seconds(60),
+            now,
+            now + chrono::Duration::seconds(60)
+        )
+        .await
+        .unwrap()
+        .is_empty()
+    );
+    let (a, b) = tokio::join!(
+        claim_candidates_for_lane(
+            &db,
+            config,
+            1,
+            &candidates,
+            now - chrono::Duration::seconds(60),
+            now,
+            now + chrono::Duration::seconds(60)
+        ),
+        claim_candidates_for_lane(
+            &db,
+            config,
+            1,
+            &candidates,
+            now - chrono::Duration::seconds(60),
+            now,
+            now + chrono::Duration::seconds(60)
+        )
+    );
+    assert_eq!(a.unwrap().len() + b.unwrap().len(), 1);
+}
+
+fn publication_folder_snapshot() -> folder::Model {
+    let now = Utc::now();
+    folder::Model {
+        id: 99,
+        name: "published".into(),
+        parent_id: None,
+        team_id: None,
+        owner_user_id: None,
+        created_by_user_id: None,
+        created_by_username: "fixture".into(),
+        modified_by_user_id: None,
+        modified_by_username: None,
+        modified_at: None,
+        policy_id: None,
+        icon_kind: Default::default(),
+        icon_value: None,
+        created_at: now,
+        updated_at: now,
+        deleted_at: None,
+    }
+}
+
+#[tokio::test]
+async fn task_publication_is_transactional_and_survives_owner_takeover() {
+    use crate::db::repository::task_resource_publication_repo::TaskResourcePublication;
+    use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+    let db = build_dispatch_test_db().await;
+    let task = insert_dispatch_test_task(
+        &db,
+        BackgroundTaskKind::ArchiveExtract,
+        BackgroundTaskStatus::Processing,
+        0,
+        Some(Utc::now() + chrono::Duration::seconds(60)),
+    )
+    .await;
+    let publication = TaskResourcePublication::new(
+        TaskLease::new(task.id, task.processing_token),
+        "directory:root",
+    );
+    let snapshot = publication_folder_snapshot();
+    let txn = transaction::begin(&db).await.unwrap();
+    publication.lock_owner(&txn).await.unwrap();
+    publication.insert_folder(&txn, &snapshot).await.unwrap();
+    txn.rollback().await.unwrap();
+    assert!(publication.find_folder(&db).await.unwrap().is_none());
+    let txn = transaction::begin(&db).await.unwrap();
+    publication.lock_owner(&txn).await.unwrap();
+    publication.insert_folder(&txn, &snapshot).await.unwrap();
+    transaction::commit(txn).await.unwrap();
+    background_task::Entity::update_many()
+        .col_expr(
+            background_task::Column::ProcessingToken,
+            Expr::value(task.processing_token + 1),
+        )
+        .filter(background_task::Column::Id.eq(task.id))
+        .exec(&db)
+        .await
+        .unwrap();
+    assert!(publication.lock_owner(&db).await.is_err());
+    let successor = TaskResourcePublication::new(
+        TaskLease::new(task.id, task.processing_token + 1),
+        "directory:root",
+    );
+    assert_eq!(successor.find_folder(&db).await.unwrap(), Some(snapshot));
+    assert!(
+        successor.find_file(&db).await.is_err(),
+        "resource kind mismatch must not silently trigger a duplicate publication"
+    );
+    background_task::Entity::delete_by_id(task.id)
+        .exec(&db)
+        .await
+        .unwrap();
+    assert!(
+        successor.find_folder(&db).await.unwrap().is_none(),
+        "task deletion must cascade its receipts"
+    );
+}
+
+#[tokio::test]
+async fn corrupt_publication_is_an_error_instead_of_permission_to_repeat_a_side_effect() {
+    use crate::db::repository::task_resource_publication_repo::TaskResourcePublication;
+    use aster_drive_model::entities::task_resource_publication;
+    use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+    let db = build_dispatch_test_db().await;
+    let task = insert_dispatch_test_task(
+        &db,
+        BackgroundTaskKind::ArchiveExtract,
+        BackgroundTaskStatus::Processing,
+        0,
+        Some(Utc::now() + chrono::Duration::seconds(60)),
+    )
+    .await;
+    let publication = TaskResourcePublication::new(TaskLease::new(task.id, 0), "directory:root");
+    publication
+        .insert_folder(&db, &publication_folder_snapshot())
+        .await
+        .unwrap();
+    for raw in [
+        "not-json",
+        r#"{"version":999,"resource":{"kind":"folder","value":{}}}"#,
+    ] {
+        task_resource_publication::Entity::update_many()
+            .col_expr(
+                task_resource_publication::Column::ResourceSnapshot,
+                Expr::value(raw),
+            )
+            .filter(task_resource_publication::Column::TaskId.eq(task.id))
+            .exec(&db)
+            .await
+            .unwrap();
+        assert!(publication.find_folder(&db).await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn stale_runtime_snapshot_cannot_bypass_the_authoritative_cluster_quota() {
+    let state = build_dispatch_test_state().await;
+    let now = Utc::now();
+    insert_dispatch_test_task(
+        state.writer_db(),
+        BackgroundTaskKind::ThumbnailGenerate,
+        BackgroundTaskStatus::Processing,
+        -3,
+        Some(now + chrono::Duration::seconds(60)),
+    )
+    .await;
+    let pending = insert_dispatch_test_task(
+        state.writer_db(),
+        BackgroundTaskKind::ThumbnailGenerate,
+        BackgroundTaskStatus::Pending,
+        -1,
+        None,
+    )
+    .await;
+    let key = crate::config::definitions::TASK_THUMBNAIL_CLUSTER_CONCURRENCY_KEY;
+    config_repo::upsert_with_actor(state.writer_db(), key, "1", None)
+        .await
+        .unwrap();
+    // Deliberately leave the in-memory snapshot at its old unlimited value.
+    let config = super::lane::task_lane_configs(&state)
+        .into_iter()
+        .find(|config| config.lane == TaskLane::Thumbnail)
+        .unwrap();
+    assert_eq!(config.cluster_limit, None);
+    assert!(
+        claim_due_for_lane(&state, config, 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    config_repo::upsert_with_actor(state.writer_db(), key, "2", None)
+        .await
+        .unwrap();
+    let claimed = claim_due_for_lane(&state, config, 1).await.unwrap();
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(claimed[0].0.id, pending.id);
+}
+
+#[tokio::test]
+async fn reclaiming_a_canceling_task_acknowledges_without_running_its_invalid_payload() {
+    use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+    let state = build_dispatch_test_state().await;
+    let task = insert_dispatch_test_task(
+        state.writer_db(),
+        BackgroundTaskKind::ArchiveCompress,
+        BackgroundTaskStatus::Processing,
+        -3,
+        Some(Utc::now() - chrono::Duration::seconds(1)),
+    )
+    .await;
+    background_task::Entity::update_many()
+        .col_expr(
+            background_task::Column::Status,
+            Expr::value(BackgroundTaskStatus::Canceling),
+        )
+        .filter(background_task::Column::Id.eq(task.id))
+        .exec(state.writer_db())
+        .await
+        .unwrap();
+    let mut config = test_lane_config(TaskLane::Archive, 1, false);
+    config.cluster_limit = None;
+    let claimed = claim_due_for_lane(&state, config, 1).await.unwrap();
+    assert_eq!(claimed.len(), 1);
+    assert_eq!(claimed[0].0.status, BackgroundTaskStatus::Canceling);
+    assert_eq!(claimed[0].1.processing_token, 1);
+    let stats = run_claimed_tasks(&state, claimed, CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(stats.canceled, 1);
+    assert_eq!(stats.failed, 0);
+    assert_eq!(stats.retried, 0);
+    let finished = background_task_repo::find_by_id(state.writer_db(), task.id)
+        .await
+        .unwrap();
+    assert_eq!(finished.status, BackgroundTaskStatus::Canceled);
+    assert_eq!(finished.attempt_count, 0);
+    assert!(finished.lease_expires_at.is_none());
+}
+
+#[tokio::test]
+async fn cancellation_acknowledgement_is_fenced_to_the_current_owner() {
+    use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+    let state = build_dispatch_test_state().await;
+    let task = insert_dispatch_test_task(
+        state.writer_db(),
+        BackgroundTaskKind::ArchiveCompress,
+        BackgroundTaskStatus::Processing,
+        0,
+        Some(Utc::now() + chrono::Duration::seconds(60)),
+    )
+    .await;
+    background_task::Entity::update_many()
+        .col_expr(
+            background_task::Column::Status,
+            Expr::value(BackgroundTaskStatus::Canceling),
+        )
+        .col_expr(background_task::Column::ProcessingToken, Expr::value(2_i64))
+        .filter(background_task::Column::Id.eq(task.id))
+        .exec(state.writer_db())
+        .await
+        .unwrap();
+    let expiry = Utc::now() + chrono::Duration::hours(1);
+    assert!(
+        !crate::services::task::cancel::acknowledge(
+            state.writer_db(),
+            &task,
+            TaskLease::new(task.id, 1),
+            expiry
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        background_task_repo::find_by_id(state.writer_db(), task.id)
+            .await
+            .unwrap()
+            .status,
+        BackgroundTaskStatus::Canceling
+    );
+    assert!(
+        crate::services::task::cancel::acknowledge(
+            state.writer_db(),
+            &task,
+            TaskLease::new(task.id, 2),
+            expiry
+        )
+        .await
+        .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn attempt_cleanup_preserves_newer_scratch_and_prunes_only_empty_parents() {
+    let mut state = build_dispatch_test_state().await;
+    let root = aster_forge_test::temp::TestTempDir::new("task-cleanup-main");
+    let other = aster_forge_test::temp::TestTempDir::new("task-cleanup-offline");
+    std::sync::Arc::make_mut(&mut state.config).server.temp_dir =
+        root.path().to_str().unwrap().to_string();
+    config_repo::upsert_with_actor(
+        state.writer_db(),
+        "offline_download_temp_dir",
+        other.path().to_str().unwrap(),
+        None,
+    )
+    .await
+    .unwrap();
+    state
+        .runtime_config
+        .reload(state.writer_db())
+        .await
+        .unwrap();
+    let old = TaskLease::new(634, 1);
+    let new = TaskLease::new(634, 2);
+    for scratch_root in [root.path(), other.path()] {
+        for lease in [old, new] {
+            let path = aster_forge_utils::paths::task_token_temp_dir(
+                scratch_root.to_str().unwrap(),
+                lease.task_id,
+                lease.processing_token,
+            );
+            tokio::fs::create_dir_all(&path).await.unwrap();
+            tokio::fs::write(std::path::Path::new(&path).join("data"), b"retained")
+                .await
+                .unwrap();
+        }
+    }
+    super::super::cleanup_task_temp_dir_for_lease(&state, old)
+        .await
+        .unwrap();
+    for scratch_root in [root.path(), other.path()] {
+        let path = aster_forge_utils::paths::task_token_temp_dir(
+            scratch_root.to_str().unwrap(),
+            new.task_id,
+            new.processing_token,
+        );
+        assert_eq!(
+            tokio::fs::read(std::path::Path::new(&path).join("data"))
+                .await
+                .unwrap(),
+            b"retained"
+        );
+    }
+    super::super::cleanup_task_temp_dir_for_lease(&state, new)
+        .await
+        .unwrap();
+    for scratch_root in [root.path(), other.path()] {
+        assert!(
+            !std::path::Path::new(&aster_forge_utils::paths::task_temp_dir(
+                scratch_root.to_str().unwrap(),
+                new.task_id
+            ))
+            .exists()
+        );
+    }
+    super::super::cleanup_task_temp_dir_for_lease(&state, new)
+        .await
+        .unwrap();
 }

@@ -11,6 +11,7 @@ use actix_web::web;
 /// Assembles and runs the primary Forge runtime.
 pub async fn run_primary(
     prepared: crate::runtime::startup::PreparedPrimaryRuntime,
+    role: crate::runtime::role::ServeRole,
 ) -> io::Result<()> {
     let crate::runtime::startup::PreparedPrimaryRuntime {
         state,
@@ -18,17 +19,28 @@ pub async fn run_primary(
     } = prepared;
     let host = state.config.server.host.clone();
     let port = state.config.server.port;
-    let workers = worker_count(state.config.server.workers);
-    tracing::info!(mode = "primary", host = %host, port, workers, "starting HTTP service");
+    let workers = http_worker_count(state.config.server.workers, role.serves_api());
+    tracing::info!(mode = "primary", role = role.as_str(), host = %host, port, workers, "starting HTTP service");
 
     let db_handles = state.db_handles.clone();
     let audit_state = state.clone();
-    let mail_state = state.clone();
+    let consumers = if role.consumes_tasks() {
+        crate::services::task::dispatch::consumer_statuses()
+    } else {
+        Vec::new()
+    };
+    let scheduler_status = aster_forge_tasks::TaskRuntimeStatus::default();
+    let mut health = consumers.clone();
+    if role.consumes_tasks() {
+        health.push(scheduler_status.clone());
+    }
     let state = web::Data::new(state);
     let telemetry_provider = state.metrics.forge_recorder().provider();
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
-
+    let initialized = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let initialization = initialized.clone();
+    let maintenance_state = state.clone();
     let runtime = aster_forge_runtime::AsterRuntime::builder()
         .component(crate::runtime::components::primary_http_component(
             host,
@@ -36,27 +48,83 @@ pub async fn run_primary(
             workers,
             state.clone(),
             metrics,
+            super::role::RoleHealth {
+                role,
+                consumers: health,
+                shutdown: Default::default(),
+                initialized,
+            },
         ))?
         .component(
             aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
                 crate::services::task::registered_system_runtime_tasks(),
-                move |shutdown_token| {
+                move |stop| {
                     crate::runtime::tasks::spawn_primary_background_tasks(
-                        state,
+                        maintenance_state,
                         share_download_rollback_worker,
-                        shutdown_token,
+                        stop,
                     )
                 },
-            ),
-        )
-        .component(aster_forge_mail::mail_outbox_component(
-            crate::runtime::components::MailOutboxRuntimeResources::from_state(&mail_state),
-            crate::runtime::components::drain_mail_outbox_on_shutdown,
-        ))
-        .component(aster_forge_audit::audit_component_with_writer(
+            )
+            .after_service()
+            .with_definition_filter(|kind| {
+                *kind == crate::services::task::SystemRuntimeTaskKind::TaskCleanup
+            }),
+        );
+    let runtime = if role.consumes_tasks() {
+        let consumer_state = state.clone();
+        let scheduler_state = state.clone();
+        runtime
+            .component(
+                aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
+                    crate::services::task::registered_system_runtime_tasks(),
+                    move |stop| {
+                        crate::runtime::tasks::spawn_task_consumers(consumer_state, consumers, stop)
+                    },
+                )
+                .named("task_consumers")
+                .with_definition_filter(|kind| {
+                    *kind == crate::services::task::SystemRuntimeTaskKind::BackgroundTaskDispatch
+                }),
+            )
+            .component(
+                aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
+                    crate::services::task::registered_system_runtime_tasks(),
+                    move |stop| {
+                        crate::runtime::tasks::spawn_scheduler(
+                            scheduler_state,
+                            scheduler_status,
+                            stop,
+                        )
+                    },
+                )
+                .named("task_scheduler")
+                .with_definition_filter(|kind| {
+                    !matches!(
+                        kind,
+                        crate::services::task::SystemRuntimeTaskKind::BackgroundTaskDispatch
+                            | crate::services::task::SystemRuntimeTaskKind::TaskCleanup
+                    )
+                }),
+            )
+    } else {
+        runtime
+    };
+    let dependencies: &'static [&'static str] = if role.consumes_tasks() {
+        &[
+            aster_forge_tasks::BACKGROUND_TASKS_COMPONENT,
+            "task_consumers",
+            "task_scheduler",
+        ]
+    } else {
+        &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT]
+    };
+    let runtime = runtime
+        .component(aster_forge_audit::audit_component_with_writer_after(
             audit_state.clone(),
             audit_state.audit_writer.clone(),
             std::time::Duration::from_secs(5),
+            dependencies,
             |state| async move {
                 crate::runtime::startup::record_server_start(&state).await;
                 Ok(())
@@ -69,6 +137,24 @@ pub async fn run_primary(
         .component(aster_forge_db::database_component_after(
             db_handles,
             &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
+        ))
+        .component(aster_forge_runtime::runtime_component(
+            move |registry: &mut aster_forge_runtime::RuntimeComponentRegistry| {
+                let initialization = initialization.clone();
+                registry.component_startup(
+                    "process_role",
+                    aster_forge_runtime::RuntimeComponentKind::Core,
+                    "role_initialized",
+                    aster_forge_runtime::StartupPhaseFailurePolicy::Required,
+                    move || {
+                        let initialization = initialization.clone();
+                        async move {
+                            initialization.store(true, std::sync::atomic::Ordering::Release);
+                            Ok(())
+                        }
+                    },
+                );
+            },
         ));
 
     let result = runtime
@@ -92,7 +178,7 @@ pub async fn run_follower(
     let state = prepared.state;
     let host = state.config.server.host.clone();
     let port = state.config.server.port;
-    let workers = worker_count(state.config.server.workers);
+    let workers = http_worker_count(state.config.server.workers, true);
     tracing::info!(mode = "follower", host = %host, port, workers, "starting HTTP service");
 
     let db_handles = state.db_handles.clone();
@@ -170,8 +256,10 @@ async fn finish_metrics(
     result
 }
 
-fn worker_count(configured_workers: usize) -> usize {
-    if configured_workers == 0 {
+fn http_worker_count(configured_workers: usize, serves_api: bool) -> usize {
+    if configured_workers == 0 && !serves_api {
+        1
+    } else if configured_workers == 0 {
         num_cpus::get()
     } else {
         configured_workers
@@ -184,7 +272,7 @@ fn to_io_error(error: impl std::fmt::Display) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::worker_count;
+    use super::http_worker_count;
 
     #[tokio::test]
     async fn final_metrics_shutdown_preserves_runtime_error_and_closes_provider() {
@@ -214,11 +302,16 @@ mod tests {
 
     #[test]
     fn worker_count_uses_cpu_count_when_configured_zero() {
-        assert_eq!(worker_count(0), num_cpus::get());
+        assert_eq!(http_worker_count(0, true), num_cpus::get());
     }
 
     #[test]
     fn worker_count_uses_explicit_value() {
-        assert_eq!(worker_count(4), 4);
+        assert_eq!(http_worker_count(4, true), 4);
+    }
+    #[test]
+    fn worker_operational_http_defaults_to_one_thread() {
+        assert_eq!(http_worker_count(0, false), 1);
+        assert_eq!(http_worker_count(3, false), 3);
     }
 }

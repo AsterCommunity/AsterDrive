@@ -221,3 +221,7 @@
 - `POST /admin/file-blobs/maintenance` 会创建 `blob_maintenance`，`integrity_check` 不写入 blob，`ref_count_reconcile` 只修正引用计数，`orphan_cleanup` 会先重新核算引用再清理仍然无引用的 blob
 
 所以如果你只用了下载 ticket 打包链路，任务列表为空是正常现象；如果你用了压缩 / 解压链路，列表就应该能看到对应任务。
+
+## 协作取消
+
+个人/团队任务新增 `POST /api/v1/tasks/{id}/cancel` / `POST /api/v1/teams/{team_id}/tasks/{id}/cancel`。`TaskInfo.can_cancel` 由后端提供。排队任务直接 Canceled，运行任务先 Canceling 后由 owner 确认，重复请求幂等，成功/失败终态拒绝409。取消中继续轮询且不可重试；Canceled 可手动 retry，保留同 TaskID 的发布 checkpoint 和已提交产物。系统维护不支持 workspace 取消。取消不是回滚。

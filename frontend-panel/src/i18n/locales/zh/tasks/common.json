@@ -93,5 +93,10 @@
 	"summary_root_folder": "我的文件",
 	"task_progress_title": "任务进度",
 	"task_details_title": "任务详情",
-	"task_name_storage_policy_forced_purge": "永久清除 {{policy}}（#{{policyId}}）"
+	"task_name_storage_policy_forced_purge": "永久清除 {{policy}}（#{{policyId}}）",
+	"cancel_task": "取消任务",
+	"cancel_title": "取消这个任务？",
+	"cancel_description": "将停止后续工作，已经提交的文件和变更会保留，不会回滚",
+	"cancel_requested": "已请求取消，正在等待 worker 确认",
+	"cancel_success": "任务已取消"
 }

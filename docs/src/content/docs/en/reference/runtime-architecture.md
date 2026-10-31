@@ -7,6 +7,8 @@ This page explains how AsterDrive components work together after the service is 
 
 Source-level module boundaries and design contracts no longer live in the user documentation; they moved to the developer documentation: [architecture overview](https://drive.docs.astercosm.com/developer/en/architecture/), [module design notes](https://drive.docs.astercosm.com/developer/en/architecture/module-designs/), and [backend service ownership](https://drive.docs.astercosm.com/developer/en/architecture/backend-service-ownership/). Read those before changing code.
 
+Primary responsibilities are composed with `serve all/api/worker`. The complete process below is all; split API owns business ingress and workers own durable consumption/scheduling. See [role contract](/en/deploy/roles/).
+
 ## 60-Second Version
 
 - AsterDrive is a self-hosted cloud drive with a Rust backend and a React frontend. In production builds, the backend serves the frontend assets directly.

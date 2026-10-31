@@ -169,6 +169,29 @@ pub fn normalize_background_task_dispatch_idle_max_interval_config_value(
     Ok(parsed.to_string())
 }
 
+pub fn normalize_cluster_concurrency_config_value(key: &str, value: &str) -> Result<String> {
+    let value = value.trim().parse::<usize>().map_err(|_| {
+        AsterError::validation_error(format!("{key} must be an integer between 0 and 65536"))
+    })?;
+    if value > 65_536 {
+        return Err(AsterError::validation_error(format!(
+            "{key} cannot exceed 65536"
+        )));
+    }
+    Ok(value.to_string())
+}
+
+pub fn parse_cluster_concurrency(key: &str, value: &str) -> Result<Option<usize>> {
+    let normalized = normalize_cluster_concurrency_config_value(key, value)?;
+    Ok(normalized.parse::<usize>().ok().filter(|value| *value > 0))
+}
+
+pub fn task_cluster_concurrency(runtime: &RuntimeConfig, key: &str) -> Option<usize> {
+    runtime
+        .get(key)
+        .and_then(|value| parse_cluster_concurrency(key, &value).ok().flatten())
+}
+
 pub fn normalize_concurrency_config_value(key: &str, value: &str) -> Result<String> {
     let parsed = parse_positive_u64(value)
         .ok_or_else(|| AsterError::validation_error(format!("{key} must be a positive integer")))?;

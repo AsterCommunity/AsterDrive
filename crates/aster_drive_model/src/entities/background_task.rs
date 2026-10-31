@@ -126,6 +126,9 @@ impl aster_forge_tasks::ClaimableTaskRecord<crate::types::BackgroundTaskKind> fo
 }
 
 impl aster_forge_tasks::ExecutableTaskRecord<crate::types::BackgroundTaskKind> for Model {
+    fn cancellation_requested(&self) -> bool {
+        self.status == crate::types::BackgroundTaskStatus::Canceling
+    }
     fn attempt_count(&self) -> i32 {
         self.attempt_count
     }

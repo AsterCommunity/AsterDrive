@@ -102,6 +102,7 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 	return {
 		attempt_count: 0,
 		can_retry: false,
+		can_cancel: false,
 		created_at: "2026-04-17T00:00:00Z",
 		creator: null,
 		display_name: "Migrate blobs",

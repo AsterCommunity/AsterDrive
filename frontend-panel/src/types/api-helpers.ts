@@ -202,6 +202,8 @@ export const ApiErrorCode = {
 	TaskWorkerShutdownRequested: "task.worker_shutdown_requested",
 	TaskRetryStatusConflict: "task.retry_status_conflict",
 	TaskRetryNotAllowed: "task.retry_not_allowed",
+	TaskCancelNotAllowed: "task.cancel_not_allowed",
+	TaskCancellationRequested: "task.cancellation_requested",
 	TeamMemberExists: "team.member_exists",
 	ThumbnailFormatGuessFailed: "thumbnail.format_guess_failed",
 	ThumbnailDecodeFailed: "thumbnail.decode_failed",

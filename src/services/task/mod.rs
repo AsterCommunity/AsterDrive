@@ -31,6 +31,7 @@
 
 pub(crate) mod archive;
 pub(crate) mod blob_maintenance;
+pub(crate) mod cancel;
 pub(crate) mod dispatch;
 pub(crate) mod folder_tree;
 pub(crate) mod media_metadata;
@@ -214,10 +215,13 @@ async fn retry_task_record(
     state: &impl TaskRuntimeState,
     task: &background_task::Model,
 ) -> Result<()> {
-    if task.status != BackgroundTaskStatus::Failed {
+    if !matches!(
+        task.status,
+        BackgroundTaskStatus::Failed | BackgroundTaskStatus::Canceled
+    ) {
         return Err(validation_error_with_code(
             ApiErrorCode::TaskRetryStatusConflict,
-            "only failed tasks can be retried",
+            "only failed or canceled tasks can be retried",
         ));
     }
     if !task_can_retry(task) {
@@ -369,6 +373,12 @@ fn build_task_info_with_creator(
         result,
         steps,
         can_retry,
+        can_cancel: matches!(
+            task.status,
+            BackgroundTaskStatus::Pending
+                | BackgroundTaskStatus::Retry
+                | BackgroundTaskStatus::Processing
+        ) && kind != BackgroundTaskKind::SystemRuntime,
         lease_expires_at: task.lease_expires_at,
         started_at: task.started_at,
         finished_at: task.finished_at,
@@ -420,7 +430,10 @@ fn decode_task_result_or_none(task: &background_task::Model) -> Option<TaskResul
 }
 
 fn task_can_retry(task: &background_task::Model) -> bool {
-    task.status == BackgroundTaskStatus::Failed && task.failure_can_retry.unwrap_or(true)
+    matches!(
+        task.status,
+        BackgroundTaskStatus::Failed | BackgroundTaskStatus::Canceled
+    ) && task.failure_can_retry.unwrap_or(true)
 }
 
 pub(in crate::services::task) struct TypedTaskCreate<S: BackgroundTaskSpec> {
@@ -832,6 +845,35 @@ pub(super) async fn mark_task_succeeded(
     } else {
         Err(lease_guard.mark_lost().into())
     }
+}
+
+/// Removes only this attempt's scratch and then prunes an empty task directory.
+/// Non-recursive pruning cannot remove a newer owner's token directory, even during takeover.
+pub(super) async fn cleanup_task_temp_dir_for_lease(
+    state: &impl SharedRuntimeState,
+    lease: aster_forge_tasks::TaskLease,
+) -> Result<()> {
+    let mut roots = vec![state.config().server.temp_dir.clone()];
+    if let Some(root) = operations::offline_download_temp_dir(state.runtime_config())
+        && !roots.contains(&root)
+    {
+        roots.push(root);
+    }
+    for root in roots {
+        aster_forge_tasks::cleanup_task_temp_dir_for_lease_in_root(&root, lease).await?;
+        let parent = aster_forge_utils::paths::task_temp_dir(&root, lease.task_id);
+        if let Err(error) = tokio::fs::remove_dir(parent).await
+            && !matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
+            )
+        {
+            return Err(AsterError::internal_error(format!(
+                "prune empty task scratch: {error}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub(super) async fn cleanup_task_temp_dir_for_task_kind(

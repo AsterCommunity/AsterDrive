@@ -278,5 +278,7 @@
 	"audit_action_admin_workspace_inspect": "Administrator inspected workspace",
 	"audit_action_admin_file_download": "Administrator accessed file content",
 	"audit_action_admin_revision_download": "Administrator accessed file revision",
-	"audit_presentation_admin_content_access": "Reason {{reason}} · Result {{result}}"
+	"audit_presentation_admin_content_access": "Reason {{reason}} · Result {{result}}",
+	"audit_action_task_cancel_requested": "Requested task cancellation",
+	"audit_presentation_task_cancel_requested": "Requested cancellation; committed changes are retained"
 }

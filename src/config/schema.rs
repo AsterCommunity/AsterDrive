@@ -11,6 +11,8 @@ use aster_forge_logging::LoggingConfig;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
+    pub worker: crate::config::worker::WorkerConfig,
+    #[serde(default)]
     pub observability: crate::config::metrics::ObservabilityConfig,
     #[serde(default)]
     pub deployment: crate::config::deployment::DeploymentConfig,

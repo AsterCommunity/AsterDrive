@@ -63,15 +63,26 @@ impl aster_forge_tasks::TaskHeartbeatStore for BackgroundTaskExecutionStore {
         lease: TaskLease,
         now: chrono::DateTime<Utc>,
         lease_expires_at: chrono::DateTime<Utc>,
-    ) -> Result<bool> {
-        background_task_repo::touch_heartbeat(
+    ) -> Result<aster_forge_tasks::TaskHeartbeatOutcome> {
+        let renewed = background_task_repo::touch_heartbeat(
             self.state.writer_db(),
             lease.task_id,
             lease.processing_token,
             now,
             lease_expires_at,
         )
-        .await
+        .await?;
+        if renewed {
+            return Ok(aster_forge_tasks::TaskHeartbeatOutcome::Renewed);
+        }
+        let row = background_task_repo::find_by_id(self.state.writer_db(), lease.task_id).await?;
+        if row.processing_token == lease.processing_token
+            && row.status == BackgroundTaskStatus::Canceling
+        {
+            Ok(aster_forge_tasks::TaskHeartbeatOutcome::CancellationRequested)
+        } else {
+            Ok(aster_forge_tasks::TaskHeartbeatOutcome::Lost)
+        }
     }
 }
 
@@ -79,6 +90,24 @@ impl aster_forge_tasks::TaskHeartbeatStore for BackgroundTaskExecutionStore {
 impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, BackgroundTaskKind>
     for BackgroundTaskExecutionStore
 {
+    fn is_cancellation_requested_error(&self, error: &AsterError) -> bool {
+        error.api_error_code_override()
+            == Some(crate::api::api_error_code::ApiErrorCode::TaskCancellationRequested)
+    }
+    async fn cancel_task_if_requested(
+        &self,
+        task: &background_task::Model,
+        lease: TaskLease,
+    ) -> Result<bool> {
+        crate::services::task::cancel::acknowledge(
+            self.state.writer_db(),
+            task,
+            lease,
+            task_expiration_from(&self.state, Utc::now()),
+        )
+        .await
+    }
+
     async fn process_task(
         &self,
         task: &background_task::Model,

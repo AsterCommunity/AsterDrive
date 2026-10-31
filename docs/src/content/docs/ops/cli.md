@@ -19,6 +19,10 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 这些命令都还是同一个 `aster_drive` 可执行文件。  
 直接运行 `./aster_drive` 是启动服务；带子命令时，就是执行运维操作。
 
+## 启动角色
+
+`./aster_drive [serve [all|api|worker]]`。无参数或 `serve` 默认 `all`。Follower 由 config 决定，不能用命令行角色代替。职责、取消、并发及迁移见[API 与 worker 分离](/deploy/roles/)。
+
 ## 命令速查
 
 | 你要做什么 | 用哪个命令 | 什么时候用 |

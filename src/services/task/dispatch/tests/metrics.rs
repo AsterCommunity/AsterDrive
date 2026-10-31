@@ -60,7 +60,7 @@ async fn claimed_empty_trash_task(
     )
     .await
     .unwrap();
-    let mut claimed = claim_due_for_lane(state, test_lane_config(TaskLane::Fallback, 1, false))
+    let mut claimed = claim_due_for_lane(state, test_lane_config(TaskLane::Fallback, 1, false), 1)
         .await
         .unwrap();
     let (task, lease) = claimed.pop().unwrap();

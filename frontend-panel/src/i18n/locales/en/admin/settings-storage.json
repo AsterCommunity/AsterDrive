@@ -78,7 +78,7 @@
 	"settings_item_offline_download_max_mb_per_sec_label": "Link import speed cap",
 	"settings_item_offline_download_max_mb_per_sec_desc": "The maximum server-side HTTP/HTTPS download speed in MB/s for each link import task. Use 0 for unlimited. If this is below the size/timeout throughput target, large imports may time out.",
 	"settings_item_offline_download_max_concurrency_label": "Link import concurrency cap",
-	"settings_item_offline_download_max_concurrency_desc": "The maximum number of link import download tasks the server may execute at the same time.",
+	"settings_item_offline_download_max_concurrency_desc": "The maximum number of link import download tasks each worker process may execute at the same time.",
 	"settings_item_offline_download_request_timeout_secs_label": "Link import request timeout",
 	"settings_item_offline_download_request_timeout_secs_desc": "The maximum number of seconds allowed for one outbound HTTP/HTTPS download request. Tune this with the size and speed caps; 1 GiB in 600 seconds needs about 1.7 MiB/s.",
 	"settings_item_offline_download_temp_dir_label": "Offline download temp directory",

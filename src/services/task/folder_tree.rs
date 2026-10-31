@@ -152,7 +152,7 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
         if let Some(barrier) = failed_task_barrier {
             barrier.wait().await;
         }
-        background_task_repo::clear_failed_dedupe_key(
+        background_task_repo::clear_unsuccessful_dedupe_key(
             state.writer_db(),
             task.id,
             dedupe_key.as_str(),

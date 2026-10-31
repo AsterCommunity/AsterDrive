@@ -189,7 +189,10 @@ pub async fn find_latest_system_runtime_by_payload(
 
 pub async fn count_processing(db: &DatabaseConnection) -> Result<u64> {
     BackgroundTask::find()
-        .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Processing))
+        .filter(background_task::Column::Status.is_in([
+            BackgroundTaskStatus::Processing,
+            BackgroundTaskStatus::Canceling,
+        ]))
         .count(db)
         .await
         .map_err(AsterError::from)
@@ -246,4 +249,28 @@ pub async fn find_latest_by_kind_and_display_name(
         .one(db)
         .await
         .map_err(AsterError::from)
+}
+
+pub async fn oldest_pending_age_seconds(db: &DatabaseConnection) -> Result<f64> {
+    let oldest = BackgroundTask::find()
+        .select_only()
+        .column_as(
+            Expr::col(background_task::Column::CreatedAt).min(),
+            "oldest",
+        )
+        .filter(
+            background_task::Column::Status
+                .is_in([BackgroundTaskStatus::Pending, BackgroundTaskStatus::Retry]),
+        )
+        .into_tuple::<Option<DateTime<Utc>>>()
+        .one(db)
+        .await?
+        .flatten();
+    Ok(oldest.map_or(0.0, |time| {
+        Utc::now()
+            .signed_duration_since(time)
+            .to_std()
+            .unwrap_or_default()
+            .as_secs_f64()
+    }))
 }

@@ -259,6 +259,8 @@ define_api_error_codes! {
     StorageUnknown => "storage.unknown",
 
     // task service/runtime: background task lease failures and manual retry preconditions.
+    TaskCancellationRequested => "task.cancellation_requested",
+    TaskCancelNotAllowed => "task.cancel_not_allowed",
     TaskLeaseLost => "task.lease_lost",
     TaskLeaseRenewalTimedOut => "task.lease_renewal_timed_out",
     TaskWorkerShutdownRequested => "task.worker_shutdown_requested",

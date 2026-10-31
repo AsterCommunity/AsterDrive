@@ -218,14 +218,28 @@ async fn direct_failure_stays_owned_and_does_not_replay_successful_batch_records
     ));
     state.audit_writer.start().await.unwrap();
     record(&state).await;
-    // Overflow uses the direct lane. Validation fails, but best effort returns normally.
+    // Use a valid record and inject a persistence failure. Invalid records are
+    // rejected before admission and must not occupy the retained direct lane.
+    let trigger = match state.writer_db().get_database_backend() {
+        sea_orm::DbBackend::Sqlite => {
+            "CREATE TRIGGER reject_direct_audit BEFORE INSERT ON audit_logs WHEN NEW.entity_id = 8 BEGIN SELECT RAISE(ABORT, 'injected audit persistence failure'); END"
+        }
+        sea_orm::DbBackend::Postgres => {
+            "CREATE FUNCTION reject_direct_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.entity_id = 8 THEN RAISE EXCEPTION 'injected audit persistence failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_direct_audit BEFORE INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION reject_direct_audit();"
+        }
+        sea_orm::DbBackend::MySql => {
+            "CREATE TRIGGER reject_direct_audit BEFORE INSERT ON audit_logs FOR EACH ROW BEGIN IF NEW.entity_id = 8 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected audit persistence failure'; END IF; END"
+        }
+        _ => panic!("unsupported test database backend"),
+    };
+    state.writer_db().execute_unprepared(trigger).await.unwrap();
     audit::log(
         &state,
         &audit::AuditContext::system(),
         audit::AuditAction::FileDownload,
         audit::AuditEntityType::File,
         Some(8),
-        Some(&"x".repeat(256)),
+        Some("direct-failure.txt"),
         None,
     )
     .await;

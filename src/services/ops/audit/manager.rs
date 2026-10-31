@@ -82,6 +82,12 @@ async fn record_prechecked<S: SharedRuntimeState>(
                     "audit record rejected: writer not running"
                 );
             }
+            RecordError::Invalid { .. } => {
+                tracing::warn!(
+                    action = action.as_str(),
+                    "audit record rejected: invalid fields"
+                );
+            }
             RecordError::Full(_) => {
                 tracing::warn!(
                     action = action.as_str(),

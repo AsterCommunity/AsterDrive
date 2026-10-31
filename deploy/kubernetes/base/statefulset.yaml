@@ -40,6 +40,7 @@ spec:
         - name: asterdrive
           image: ghcr.io/astercommunity/asterdrive:stable
           imagePullPolicy: IfNotPresent
+          args: [serve, all]
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

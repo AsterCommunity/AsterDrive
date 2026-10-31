@@ -15,6 +15,9 @@ export function createTaskService(workspace: Workspace) {
 		getTask: (id: number) =>
 			api.get<TaskInfo>(`${workspaceTasksPrefix(workspace)}/${id}`),
 
+		cancelTask: (id: number) =>
+			api.post<TaskInfo>(`${workspaceTasksPrefix(workspace)}/${id}/cancel`),
+
 		retryTask: (id: number) =>
 			api.post<TaskInfo>(`${workspaceTasksPrefix(workspace)}/${id}/retry`),
 	};

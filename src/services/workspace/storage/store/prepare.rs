@@ -41,6 +41,8 @@ pub(super) struct PreparedStoreFromTemp {
     pub expected_current_revision_etag: Option<String>,
     pub revision_etag: Option<String>,
     pub complete_upload_id: Option<String>,
+    pub task_publication:
+        Option<crate::db::repository::task_resource_publication_repo::TaskResourcePublication>,
 }
 
 #[derive(Clone)]
@@ -81,6 +83,7 @@ pub(super) async fn prepare_store_from_temp(
         revision_etag,
         mime_type,
         complete_upload_id,
+        task_publication,
     } = hints;
     operation_context.checkpoint()?;
 
@@ -213,6 +216,7 @@ pub(super) async fn prepare_store_from_temp(
         expected_current_revision_etag,
         revision_etag: revision_etag.map(ToOwned::to_owned),
         complete_upload_id: complete_upload_id.map(ToOwned::to_owned),
+        task_publication,
     })
 }
 

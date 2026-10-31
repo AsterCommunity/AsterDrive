@@ -2,15 +2,21 @@ import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
-import { workspaceFolderPath } from "@/lib/workspace";
-import { taskService } from "@/services/taskService";
+import {
+	buildWorkspacePath,
+	type Workspace,
+	workspaceFolderPath,
+} from "@/lib/workspace";
+import { createTaskService } from "@/services/taskService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { TaskInfo } from "@/types/api";
 import { TaskCard } from "./tasks/TaskCard";
@@ -21,6 +27,7 @@ const PAGE_SIZE = 20;
 const TASK_POLL_INTERVAL_MS = 3000;
 
 type TasksPageState = {
+	cancelingTaskIds: Set<number>;
 	expandedTaskIds: Set<number>;
 	loading: boolean;
 	page: number;
@@ -30,6 +37,8 @@ type TasksPageState = {
 };
 
 type TasksPageAction =
+	| { type: "cancel_start" | "cancel_finish"; taskId: number }
+	| { type: "task_update"; task: TaskInfo }
 	| { type: "load_finish"; tasks: TaskInfo[]; total: number }
 	| { type: "loading"; loading: boolean }
 	| { type: "page"; page: number }
@@ -37,6 +46,7 @@ type TasksPageAction =
 	| { type: "toggle_details"; taskId: number };
 
 const initialTasksPageState: TasksPageState = {
+	cancelingTaskIds: new Set(),
 	expandedTaskIds: new Set(),
 	loading: true,
 	page: 0,
@@ -50,6 +60,24 @@ function tasksPageReducer(
 	action: TasksPageAction,
 ): TasksPageState {
 	switch (action.type) {
+		case "cancel_start":
+			return {
+				...state,
+				cancelingTaskIds: new Set([...state.cancelingTaskIds, action.taskId]),
+			};
+		case "cancel_finish": {
+			const ids = new Set(state.cancelingTaskIds);
+			ids.delete(action.taskId);
+			return { ...state, cancelingTaskIds: ids };
+		}
+		case "task_update":
+			return {
+				...state,
+				tasks: state.tasks.map((task) =>
+					task.id === action.task.id ? action.task : task,
+				),
+			};
+
 		case "load_finish":
 			return {
 				...state,
@@ -75,9 +103,19 @@ function tasksPageReducer(
 }
 
 export default function TasksPage() {
+	const workspace = useWorkspaceStore((s) => s.workspace);
+	return (
+		<WorkspaceTasksPage
+			key={buildWorkspacePath(workspace, "/tasks")}
+			workspace={workspace}
+		/>
+	);
+}
+
+function WorkspaceTasksPage({ workspace }: { workspace: Workspace }) {
 	const { t } = useTranslation(["core", "tasks"]);
 	const navigate = useNavigate();
-	const workspace = useWorkspaceStore((s) => s.workspace);
+	const taskService = useMemo(() => createTaskService(workspace), [workspace]);
 	usePageTitle(t("tasks:title"));
 	const [state, dispatch] = useReducer(tasksPageReducer, initialTasksPageState);
 	const { expandedTaskIds, loading, page, retryingTaskId, tasks, total } =
@@ -111,7 +149,7 @@ export default function TasksPage() {
 				}
 			}
 		},
-		[],
+		[taskService],
 	);
 
 	useEffect(() => {
@@ -150,9 +188,47 @@ export default function TasksPage() {
 				dispatch({ taskId: null, type: "retrying" });
 			}
 		},
-		[loadPage, page, t],
+		[loadPage, page, t, taskService],
 	);
 
+	const handleCancel = useCallback(
+		async ({
+			taskId,
+			workspace: target,
+		}: {
+			taskId: number;
+			workspace: Workspace;
+		}) => {
+			dispatch({ type: "cancel_start", taskId });
+			try {
+				const task = await createTaskService(target).cancelTask(taskId);
+				if (
+					buildWorkspacePath(
+						useWorkspaceStore.getState().workspace,
+						"/tasks",
+					) === buildWorkspacePath(target, "/tasks")
+				) {
+					dispatch({ type: "task_update", task });
+					toast.success(
+						t(
+							task.status === "canceling"
+								? "tasks:cancel_requested"
+								: "tasks:cancel_success",
+						),
+					);
+				}
+			} catch (error) {
+				handleApiError(error);
+			} finally {
+				dispatch({ type: "cancel_finish", taskId });
+			}
+		},
+		[t],
+	);
+	const cancelDialog = useConfirmDialog<{
+		taskId: number;
+		workspace: Workspace;
+	}>(handleCancel);
 	const toggleTaskDetails = useCallback((taskId: number) => {
 		dispatch({ taskId, type: "toggle_details" });
 	}, []);
@@ -168,6 +244,12 @@ export default function TasksPage() {
 
 	return (
 		<AppLayout>
+			<ConfirmDialog
+				{...cancelDialog.dialogProps}
+				title={t("tasks:cancel_title")}
+				description={t("tasks:cancel_description")}
+				confirmLabel={t("tasks:cancel_task")}
+			/>
 			<div className="flex min-h-0 flex-1 flex-col overflow-auto">
 				<div
 					className={`mx-auto flex w-full max-w-4xl flex-col gap-4 py-3 md:py-5 ${PAGE_SECTION_PADDING_CLASS}`}
@@ -226,6 +308,10 @@ export default function TasksPage() {
 									retrying={retryingTaskId === task.id}
 									onOpenTargetFolder={openTaskTargetFolder}
 									onRetry={(taskId) => void handleRetry(taskId)}
+									onCancel={(taskId) =>
+										cancelDialog.requestConfirm({ taskId, workspace })
+									}
+									canceling={state.cancelingTaskIds.has(task.id)}
 									onToggleDetails={toggleTaskDetails}
 								/>
 							))}

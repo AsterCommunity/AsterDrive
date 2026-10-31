@@ -80,6 +80,7 @@ const TASK_KIND_FILTER_VALUES = [
 const TASK_STATUS_FILTER_VALUES = [
 	"pending",
 	"processing",
+	"canceling",
 	"retry",
 	"succeeded",
 	"failed",
@@ -232,6 +233,8 @@ function formatTaskStatusLabel(t: TFunction, status: BackgroundTaskStatus) {
 	switch (status) {
 		case "pending":
 			return t("tasks:status_pending");
+		case "canceling":
+			return t("tasks:status_canceling");
 		case "processing":
 			return t("tasks:status_processing");
 		case "retry":

@@ -10,8 +10,10 @@ pub struct PreparedPrimaryRuntime {
 }
 
 /// 准备主节点运行时（配置和日志应在此之前初始化）
-pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
-    let common = prepare_common(NodeRuntimeMode::Primary).await?;
+pub async fn prepare_primary(
+    role: crate::runtime::role::ServeRole,
+) -> Result<PreparedPrimaryRuntime> {
+    let common = prepare_common(NodeRuntimeMode::Primary, role.as_str()).await?;
 
     let runtime_config = Arc::new(
         crate::config::RuntimeConfig::with_password_hash_max_concurrency(

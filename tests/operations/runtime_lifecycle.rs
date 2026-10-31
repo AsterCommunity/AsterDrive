@@ -6,7 +6,7 @@ use aster_drive_model::{entities::audit_log, types::AuditAction};
 use aster_forge_test::process::{TestProcess, available_loopback_port};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
-async fn lifecycle(mode: &str, fail_shutdown_audit: bool) {
+async fn lifecycle(mode: &str, fail_shutdown_audit: bool, role: Option<&str>) {
     let port = available_loopback_port();
     let mut command = Command::new(env!("CARGO_BIN_EXE_aster_drive"));
     // Keep LLVM_PROFILE_FILE and other coverage instrumentation variables intact.
@@ -15,8 +15,10 @@ async fn lifecycle(mode: &str, fail_shutdown_audit: bool) {
             command.env_remove(key);
         }
     }
+    if let Some(role) = role {
+        command.args(["serve", role]);
+    }
     command
-        .arg("serve")
         .env("ASTER__SERVER__START_MODE", mode)
         .env("ASTER__SERVER__HOST", "127.0.0.1")
         .env("ASTER__SERVER__PORT", port.to_string())
@@ -52,6 +54,20 @@ async fn lifecycle(mode: &str, fail_shutdown_audit: bool) {
     let db = sea_orm::Database::connect(format!("sqlite://{}", db_path.display()))
         .await
         .unwrap();
+    if role == Some("worker") {
+        for path in ["/", "/api/v1/auth/login", "/dav", "/api-docs/openapi.json"] {
+            let response = client
+                .get(format!("http://127.0.0.1:{port}{path}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::NOT_FOUND,
+                "worker exposed {path}"
+            );
+        }
+    }
     // Readiness alone does not prove the audit worker started. Wait for the partial batch.
     tokio::time::timeout(Duration::from_secs(10), async {
         while count(&db, AuditAction::ServerStart).await != 1 {
@@ -134,20 +150,35 @@ async fn count(db: &sea_orm::DatabaseConnection, action: AuditAction) -> u64 {
 
 #[tokio::test]
 async fn primary_start_and_sigterm_persist_lifecycle_audit() {
-    lifecycle("primary", false).await;
+    lifecycle("primary", false, Some("all")).await;
 }
 
 #[tokio::test]
 async fn follower_start_and_sigterm_persist_lifecycle_audit() {
-    lifecycle("follower", false).await;
+    lifecycle("follower", false, Some("all")).await;
 }
 
 #[tokio::test]
 async fn primary_failed_drain_preserves_recovery_before_exit() {
-    lifecycle("primary", true).await;
+    lifecycle("primary", true, Some("all")).await;
 }
 
 #[tokio::test]
 async fn follower_failed_drain_preserves_recovery_before_exit() {
-    lifecycle("follower", true).await;
+    lifecycle("follower", true, Some("all")).await;
+}
+
+#[tokio::test]
+async fn default_command_retains_single_process_lifecycle() {
+    lifecycle("primary", false, None).await;
+}
+
+#[tokio::test]
+async fn api_start_and_sigterm_persist_lifecycle_audit() {
+    lifecycle("primary", false, Some("api")).await;
+}
+
+#[tokio::test]
+async fn worker_start_and_sigterm_persist_lifecycle_audit_without_business_routes() {
+    lifecycle("primary", false, Some("worker")).await;
 }

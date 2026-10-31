@@ -136,6 +136,7 @@ const sidebar = assertUniqueSidebarLinks([
         translations: { en: 'Multi-Instance and Load Balancing' },
         link: '/deploy/multi-instance/'
       },
+      { label: 'API / worker 分离', translations: { en: 'API / Worker Roles' }, link: '/deploy/roles/' },
       { label: 'Kubernetes 部署', translations: { en: 'Kubernetes Deployment' }, link: '/deploy/kubernetes/' },
       {
         label: 'Follower 存储节点',

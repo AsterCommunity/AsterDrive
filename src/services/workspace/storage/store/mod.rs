@@ -115,6 +115,8 @@ impl<'a> StoreFromTempParams<'a> {
 
 #[derive(Clone, Default)]
 pub(crate) struct StoreFromTempHints<'a> {
+    pub task_publication:
+        Option<crate::db::repository::task_resource_publication_repo::TaskResourcePublication>,
     pub resolved_policy: Option<aster_drive_model::entities::storage_policy::Model>,
     pub precomputed_hash: Option<&'a str>,
     pub actor_username: Option<&'a str>,

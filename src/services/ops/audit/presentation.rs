@@ -549,7 +549,7 @@ fn detail_message(
         | AuditAction::AdminUpdateRemoteIngressProfile
         | AuditAction::AdminDeleteRemoteIngressProfile => {
             copy_params(details, &mut params, &["target_key", "driver_type"]);
-            Some(message("remote_ingress_profile_snapshot", params))
+            Some(message("remote_ingress_proresource_snapshot", params))
         }
         AuditAction::AdminCreateExternalAuthProvider
         | AuditAction::AdminUpdateExternalAuthProvider
@@ -652,6 +652,7 @@ fn detail_message(
             copy_param(details, &mut params, "status");
             Some(message("tasks_cleanup_finished", params))
         }
+        AuditAction::TaskCancelRequested => Some(message("task_cancel_requested", params)),
         AuditAction::TaskRetry => {
             copy_param(details, &mut params, "kind");
             copy_param(details, &mut params, "previous_attempt_count");

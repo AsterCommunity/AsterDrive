@@ -78,7 +78,7 @@
 	"settings_item_offline_download_max_mb_per_sec_label": "链接导入下载速度上限",
 	"settings_item_offline_download_max_mb_per_sec_desc": "单个链接导入任务允许使用的服务端 HTTP/HTTPS 下载速度上限，单位 MB/s。填写 0 表示不限制。如果低于大小/超时所需的吞吐，较大的导入可能会超时",
 	"settings_item_offline_download_max_concurrency_label": "链接导入任务并发上限",
-	"settings_item_offline_download_max_concurrency_desc": "系统同时最多允许执行多少个链接导入下载任务",
+	"settings_item_offline_download_max_concurrency_desc": "每个 worker 进程同时最多允许执行多少个链接导入下载任务",
 	"settings_item_offline_download_request_timeout_secs_label": "链接导入请求超时",
 	"settings_item_offline_download_request_timeout_secs_desc": "单次 HTTP/HTTPS 外部下载请求允许持续的最长秒数。请和大小与速度上限一起调整；默认 1 GiB / 600 秒大约需要 1.7 MiB/s 的持续吞吐",
 	"settings_item_offline_download_temp_dir_label": "离线下载临时目录",

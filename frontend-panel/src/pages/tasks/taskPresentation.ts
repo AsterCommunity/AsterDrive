@@ -11,6 +11,7 @@ import type {
 export const ACTIVE_TASK_STATUSES = new Set<BackgroundTaskStatus>([
 	"pending",
 	"processing",
+	"canceling",
 	"retry",
 ]);
 
@@ -186,6 +187,7 @@ export function statusBadgeVariant(status: BackgroundTaskStatus) {
 	switch (status) {
 		case "pending":
 		case "processing":
+		case "canceling":
 		case "retry":
 			return "secondary";
 		case "succeeded":
@@ -305,6 +307,8 @@ export function formatTaskStatus(
 			return t("tasks:status_pending");
 		case "processing":
 			return t("tasks:status_processing");
+		case "canceling":
+			return t("tasks:status_canceling");
 		case "retry":
 			return t("tasks:status_retry");
 		case "succeeded":

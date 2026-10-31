@@ -18,7 +18,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::batch,
     task::{
-        cleanup_task_temp_dir_for_task_kind, create_typed_task_record, get_task_in_scope,
+        cleanup_task_temp_dir_for_lease, create_typed_task_record, get_task_in_scope,
         mark_task_progress, mark_task_succeeded,
         spec::{self, ArchiveCompressTask, decode_payload_as},
         steps::{
@@ -91,6 +91,35 @@ pub(super) async fn process_archive_compress_task(
     context: TaskExecutionContext,
 ) -> Result<()> {
     let lease_guard = context.lease_guard().clone();
+    context.ensure_active()?;
+    let publication =
+        crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+            lease_guard.lease(),
+            "archive",
+        );
+    if let Some(stored) = publication.find_file(state.writer_db()).await? {
+        crate::services::events::storage_change::publish(
+            state,
+            crate::services::events::storage_change::StorageChangeEvent::new(
+                crate::services::events::storage_change::StorageChangeKind::FileCreated,
+                task_scope(task)?,
+                vec![stored.id],
+                vec![],
+                vec![stored.folder_id],
+            )
+            .with_storage_delta(0),
+        );
+        let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
+        return finish_archive_result(
+            state,
+            &lease_guard,
+            stored,
+            &mut steps,
+            task.progress_total.max(0),
+        )
+        .await;
+    }
+
     let result = async {
         let scope = task_scope(task)?;
         let payload = decode_payload_as::<ArchiveCompressTask>(task)?;
@@ -268,6 +297,12 @@ pub(super) async fn process_archive_compress_task(
                 archive_size,
             ),
             storage::StoreFromTempHints {
+                task_publication: Some(
+                    crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                        lease_guard.lease(),
+                        "archive",
+                    ),
+                ),
                 operation_context: storage::StorageOperationContext::new(context.clone()),
                 ..Default::default()
             },
@@ -275,38 +310,14 @@ pub(super) async fn process_archive_compress_task(
             EMIT_ARCHIVE_STORAGE_EVENT,
         )
         .await?;
-        cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await?;
-        set_task_step_succeeded(
-            &mut steps,
-            TASK_STEP_STORE_RESULT,
-            Some(&format!("Saved archive as {}", stored.name)),
-            None,
-        )?;
-
-        let result = ArchiveCompressTaskResult {
-            target_file_id: stored.id,
-            target_file_name: stored.name.clone(),
-            target_folder_id: stored.folder_id,
-            target_path: build_file_display_path(state.writer_db(), stored.folder_id, &stored.name)
-                .await?,
-        };
-        let result_json = spec::serialize_result::<ArchiveCompressTask>(&result)?;
-        mark_task_succeeded(
-            state,
-            &lease_guard,
-            Some(&result_json),
-            progress_total,
-            progress_total,
-            Some(&format!("Archive ready: {}", stored.name)),
-            &steps,
-        )
-        .await
+        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
+        finish_archive_result(state, &lease_guard, stored, &mut steps, progress_total).await
     }
     .await;
 
     if result.is_err()
         && let Err(cleanup_error) =
-            cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await
+            cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await
     {
         tracing::warn!(
             task_id = task.id,
@@ -314,4 +325,39 @@ pub(super) async fn process_archive_compress_task(
         );
     }
     result
+}
+
+async fn finish_archive_result(
+    state: &PrimaryAppState,
+    lease_guard: &aster_forge_tasks::TaskLeaseGuard,
+    stored: aster_drive_model::entities::file::Model,
+    steps: &mut [TaskStepInfo],
+    progress_total: i64,
+) -> Result<()> {
+    for step in [
+        TASK_STEP_WAITING,
+        TASK_STEP_PREPARE_SOURCES,
+        TASK_STEP_BUILD_ARCHIVE,
+        TASK_STEP_STORE_RESULT,
+    ] {
+        set_task_step_succeeded(steps, step, Some("Archive is ready"), None)?;
+    }
+    let result = ArchiveCompressTaskResult {
+        target_file_id: stored.id,
+        target_file_name: stored.name.clone(),
+        target_folder_id: stored.folder_id,
+        target_path: build_file_display_path(state.writer_db(), stored.folder_id, &stored.name)
+            .await?,
+    };
+    let result_json = spec::serialize_result::<ArchiveCompressTask>(&result)?;
+    mark_task_succeeded(
+        state,
+        lease_guard,
+        Some(&result_json),
+        progress_total,
+        progress_total,
+        Some(&format!("Archive ready: {}", stored.name)),
+        steps,
+    )
+    .await
 }

@@ -10,7 +10,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     files::archive::preview,
     task::{
-        cleanup_task_temp_dir_for_task_kind, create_typed_task_record, mark_task_progress,
+        cleanup_task_temp_dir_for_lease, create_typed_task_record, mark_task_progress,
         mark_task_succeeded,
         spec::{self, ArchivePreviewGenerateTask, decode_payload_as},
         steps::{
@@ -43,6 +43,7 @@ pub(crate) async fn ensure_archive_preview_task(
         match existing.status {
             BackgroundTaskStatus::Pending
             | BackgroundTaskStatus::Processing
+            | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
                 state.wake_background_task_dispatcher();
                 return Ok(());
@@ -247,7 +248,7 @@ pub(super) async fn process_archive_preview_task(
         .await?;
 
         preview::store_cached_manifest(state, &source_file, &blob, &limits, &manifest).await?;
-        cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await?;
+        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_PERSIST_MANIFEST,
@@ -280,7 +281,7 @@ pub(super) async fn process_archive_preview_task(
 
     if result.is_err()
         && let Err(cleanup_error) =
-            cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await
+            cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await
     {
         tracing::warn!(
             task_id = task.id,

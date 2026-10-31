@@ -47,20 +47,28 @@ pub(super) fn task_lane_configs(state: &impl SharedRuntimeState) -> Vec<TaskLane
                     operations::background_task_max_concurrency(state.runtime_config())
                 }
             },
-            fast_continue: matches!(lane, TaskLane::Archive | TaskLane::Thumbnail),
-            lock_key: match lane {
-                TaskLane::Archive => operations::BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
-                TaskLane::Thumbnail => operations::BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
-                TaskLane::OfflineDownload => operations::OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
-                TaskLane::StorageMigration => {
-                    operations::BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY
-                }
-                TaskLane::Fallback => operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
-            },
+            cluster_limit: operations::task_cluster_concurrency(
+                state.runtime_config(),
+                lane_lock_key(lane),
+            ),
         })
         .collect()
 }
 
 pub(super) fn task_lane(kind: BackgroundTaskKind) -> TaskLane {
     registry::task_lane(kind)
+}
+
+pub(super) fn lane_lock_key(lane: TaskLane) -> &'static str {
+    match lane {
+        TaskLane::Archive => crate::config::definitions::TASK_ARCHIVE_CLUSTER_CONCURRENCY_KEY,
+        TaskLane::Thumbnail => crate::config::definitions::TASK_THUMBNAIL_CLUSTER_CONCURRENCY_KEY,
+        TaskLane::OfflineDownload => {
+            crate::config::definitions::TASK_OFFLINE_DOWNLOAD_CLUSTER_CONCURRENCY_KEY
+        }
+        TaskLane::StorageMigration => {
+            crate::config::definitions::TASK_STORAGE_MIGRATION_CLUSTER_CONCURRENCY_KEY
+        }
+        TaskLane::Fallback => crate::config::definitions::TASK_FALLBACK_CLUSTER_CONCURRENCY_KEY,
+    }
 }

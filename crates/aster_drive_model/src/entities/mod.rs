@@ -56,3 +56,5 @@ pub mod wopi_session;
 pub mod workspace_activity;
 
 pub mod admin_content_access;
+
+pub mod task_resource_publication;

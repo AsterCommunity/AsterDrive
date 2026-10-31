@@ -96,6 +96,13 @@ pub const CORS_ALLOWED_ORIGINS_KEY: &str = "cors_allowed_origins";
 pub const CORS_ALLOW_CREDENTIALS_KEY: &str = "cors_allow_credentials";
 pub const CORS_MAX_AGE_SECS_KEY: &str = "cors_max_age_secs";
 
+pub const TASK_FALLBACK_CLUSTER_CONCURRENCY_KEY: &str = "task_fallback_cluster_concurrency";
+pub const TASK_ARCHIVE_CLUSTER_CONCURRENCY_KEY: &str = "task_archive_cluster_concurrency";
+pub const TASK_THUMBNAIL_CLUSTER_CONCURRENCY_KEY: &str = "task_thumbnail_cluster_concurrency";
+pub const TASK_OFFLINE_DOWNLOAD_CLUSTER_CONCURRENCY_KEY: &str =
+    "task_offline_download_cluster_concurrency";
+pub const TASK_STORAGE_MIGRATION_CLUSTER_CONCURRENCY_KEY: &str =
+    "task_storage_migration_cluster_concurrency";
 // ── Operations keys ──────────────────────────────────────────────────────────
 pub const MAIL_OUTBOX_DISPATCH_INTERVAL_SECS_KEY: &str = "mail_outbox_dispatch_interval_secs";
 pub const BACKGROUND_TASK_DISPATCH_INTERVAL_SECS_KEY: &str =
@@ -369,6 +376,10 @@ value_normalizer!(
 keyed_normalizer!(
     normalize_share_stream_ttl,
     operations::normalize_share_stream_session_ttl_config_value
+);
+keyed_normalizer!(
+    normalize_cluster_concurrency,
+    operations::normalize_cluster_concurrency_config_value
 );
 keyed_normalizer!(
     normalize_concurrency,
@@ -927,6 +938,71 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         ..aster_forge_config::ConfigDefinition::private_system()
     },
     ConfigDef {
+        key: TASK_FALLBACK_CLUSTER_CONCURRENCY_KEY,
+        label_i18n_key: "settings_item_task_fallback_cluster_concurrency_label",
+        description_i18n_key: "settings_item_task_fallback_cluster_concurrency_desc",
+        value_type: ConfigValueType::Number,
+        default_fn: || "0".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
+        description: "Authoritative cluster-wide fallback concurrency limit; zero means no shared limit",
+        normalize_fn: Some(normalize_cluster_concurrency),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
+    ConfigDef {
+        key: TASK_ARCHIVE_CLUSTER_CONCURRENCY_KEY,
+        label_i18n_key: "settings_item_task_archive_cluster_concurrency_label",
+        description_i18n_key: "settings_item_task_archive_cluster_concurrency_desc",
+        value_type: ConfigValueType::Number,
+        default_fn: || "0".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
+        description: "Authoritative cluster-wide archive concurrency limit; zero means no shared limit",
+        normalize_fn: Some(normalize_cluster_concurrency),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
+    ConfigDef {
+        key: TASK_THUMBNAIL_CLUSTER_CONCURRENCY_KEY,
+        label_i18n_key: "settings_item_task_thumbnail_cluster_concurrency_label",
+        description_i18n_key: "settings_item_task_thumbnail_cluster_concurrency_desc",
+        value_type: ConfigValueType::Number,
+        default_fn: || "0".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
+        description: "Authoritative cluster-wide thumbnail concurrency limit; zero means no shared limit",
+        normalize_fn: Some(normalize_cluster_concurrency),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
+    ConfigDef {
+        key: TASK_OFFLINE_DOWNLOAD_CLUSTER_CONCURRENCY_KEY,
+        label_i18n_key: "settings_item_task_offline_download_cluster_concurrency_label",
+        description_i18n_key: "settings_item_task_offline_download_cluster_concurrency_desc",
+        value_type: ConfigValueType::Number,
+        default_fn: || "0".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
+        description: "Authoritative cluster-wide offline_download concurrency limit; zero means no shared limit",
+        normalize_fn: Some(normalize_cluster_concurrency),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
+    ConfigDef {
+        key: TASK_STORAGE_MIGRATION_CLUSTER_CONCURRENCY_KEY,
+        label_i18n_key: "settings_item_task_storage_migration_cluster_concurrency_label",
+        description_i18n_key: "settings_item_task_storage_migration_cluster_concurrency_desc",
+        value_type: ConfigValueType::Number,
+        default_fn: || "0".to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
+        description: "Authoritative cluster-wide storage_migration concurrency limit; zero means no shared limit",
+        normalize_fn: Some(normalize_cluster_concurrency),
+        ..aster_forge_config::ConfigDefinition::private_system()
+    },
+    ConfigDef {
         key: BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
         label_i18n_key: "settings_item_background_task_max_concurrency_label",
         description_i18n_key: "settings_item_background_task_max_concurrency_desc",
@@ -937,7 +1013,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
-        description: "Reserved fallback concurrency cap; currently unused until future task kinds are assigned to the fallback lane",
+        description: "Maximum fallback tasks executed concurrently by each worker process",
         normalize_fn: Some(normalize_concurrency),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
@@ -952,7 +1028,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
-        description: "Maximum number of archive background tasks the server may execute at the same time",
+        description: "Maximum number of archive background tasks each worker process may execute at the same time",
         normalize_fn: Some(normalize_concurrency),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
@@ -967,7 +1043,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
-        description: "Maximum number of thumbnail background tasks the server may execute at the same time",
+        description: "Maximum number of thumbnail background tasks each worker process may execute at the same time",
         normalize_fn: Some(normalize_concurrency),
         ..aster_forge_config::ConfigDefinition::private_system()
     },
@@ -983,7 +1059,7 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK,
-        description: "Maximum number of storage policy migration tasks the server may execute at the same time",
+        description: "Maximum number of storage policy migration tasks each worker process may execute at the same time",
         normalize_fn: Some(normalize_concurrency),
         ..aster_forge_config::ConfigDefinition::private_system()
     },

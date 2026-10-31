@@ -83,6 +83,7 @@ pub(crate) async fn ensure_thumbnail_task(
         match existing.status {
             BackgroundTaskStatus::Pending
             | BackgroundTaskStatus::Processing
+            | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
                 state.wake_background_task_dispatcher();
                 return Ok(());
@@ -147,6 +148,7 @@ pub(crate) async fn ensure_image_preview_task(
         match existing.status {
             BackgroundTaskStatus::Pending
             | BackgroundTaskStatus::Processing
+            | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
                 state.wake_background_task_dispatcher();
                 return Ok(());

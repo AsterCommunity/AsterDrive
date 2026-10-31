@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **API/worker 角色与协作取消** — 同一二进制支持 `serve all/api/worker`，默认 all；Follower 仍由配置决定。持续补位消费者移出单 owner 调度租约，支持事务内共享额度、fenced 接管、角色探针和分阶段关闭；Helm/Kustomize 提供独立工作负载及 HPA。workspace 取消先展示 Canceling，确认停止后为 Canceled，保留已提交变更并允许同记录重试。归档/离线产物与产品变更同事务保存发布记录，恢复不重复创建文件或扣配额。（#634）
+
 - **可审计的管理员工作空间查看** — 管理员通过共享文件浏览器只读查看个人或团队目录、缩略图及完整回收站（原位置与到期时间，不提供恢复或永久删除），下载保留的当前/历史版本，并由整块可点击的 blob 引用卡片定位逻辑文件；Blob 详情支持带 ID 的可刷新 URL，上传用户与其他字段左右对齐。用户入口位于左侧基础信息下，带新标签页图标；打开的独立文件页与普通文件页及回收站共用导航工具栏，目录树整行可点击，侧栏显示目标身份。目录、缩略图和详情沿用工作空间访问上下文；详情切换不收起面板，退出动画结束后才释放内容，版本历史独立显示并保留详情。逻辑文件下载直接初始化，不再另填原因；工作空间查看仍需原因与短期会话绑定上下文，管理员下载保留实时授权、init 审计及同事务提交。审计保存目标名称快照，展示目标 ID、翻译后的原因/结果及备注，不以当前账号名称重建历史。下载 init 固定 revision 并保留 presigned 交付，已签发地址沿用原有效期。升级新增 `admin_content_accesses` 表，数据库搬迁保留访问上下文与会话绑定。
 
 - **工作空间文件归属与活动** — 文件和目录列表、搜索及详情展示创建者与最后业务修改者；业务活动与修改同事务提交，独立于通用审计开关和保留期，支持按权限查看团队/资源活动及 CSV 导出。升级新增 `workspace_activities` 和可空的业务修改字段；历史修改者保持未知，不从内容修订推测。 所有可写实例需统一升级，才能保证归属和活动记录完整。
@@ -54,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **前端依赖** — 将 `follow-redirects` 更新至 `1.16.1`，修复跨源凭据剥离和敏感请求头处理问题（GHSA-q3jh-wrc6-jgq8、GHSA-8r9p-f939-6h3c）；将 `serialize-javascript` 更新至 `7.1.2`，`postcss-selector-parser` 更新至 `7.1.6`。Selector parser override 同时覆盖 Typography 固定的构建依赖。
 
 ### Breaking
+
+- **API/worker 与任务契约迁移** — 所有角色必须升级到同一版本并同步迁移 Forge consumer。既有任务并发设置现在限制每个 worker，集群总额度使用新设置。数据库迁移新增 `task_resource_publications`。不支持混合版本执行：停止旧 writer，保留任务表与存储并统一升级后再恢复消费。回退旧 binary 必须同时恢复匹配的数据库和存储备份。（#634）
 
 - **会话升级** — 旧本地 JWT 会话与新的严格会话 token 格式不兼容，用户与客户端升级后需要重新登录。多 Primary 应统一升级，避免混用 token 格式。自定义 `auth.jwt_secret` 必须至少 32 字节。
 - **指标启用** — 使用 `metrics` feature 的构建现在还需设置 `observability.prometheus.enabled = true` 才会暴露 `/health/metrics`；导出器默认关闭。配置启用未编译进二进制的导出器时会报配置错误。

@@ -19,7 +19,7 @@ pub(super) async fn persist_temp_store(
     state: &PrimaryAppState,
     prepared: PreparedStoreFromTemp,
     new_file_mode: super::NewFileMode,
-) -> Result<file::Model> {
+) -> Result<(file::Model, bool)> {
     let PreparedStoreFromTemp {
         scope,
         folder_id,
@@ -43,6 +43,7 @@ pub(super) async fn persist_temp_store(
         expected_current_revision_etag,
         revision_etag,
         complete_upload_id,
+        task_publication,
     } = prepared;
 
     operation_context.checkpoint()?;
@@ -120,7 +121,14 @@ pub(super) async fn persist_temp_store(
             let revision_etag = transaction_revision_etag.clone();
             let complete_upload_id = transaction_complete_upload_id.clone();
             let now = transaction_now;
+            let publication = task_publication.clone();
             Box::pin(async move {
+                if let Some(publication) = &publication {
+                    publication.lock_owner(txn).await?;
+                    if let Some(file) = publication.find_file(txn).await? {
+                        return Ok((file, false));
+                    }
+                }
                 let workspace = match scope {
                     crate::services::workspace::storage::WorkspaceStorageScope::Personal {
                         user_id,
@@ -200,8 +208,11 @@ pub(super) async fn persist_temp_store(
                         crate::api::api_error_code::ApiErrorCode::UploadStatusConflict,
                     ));
                 }
+                if let Some(publication) = &publication {
+                    publication.insert_file(txn, &result).await?;
+                }
                 operation_context.checkpoint()?;
-                Ok::<file::Model, AsterError>(result)
+                Ok::<(file::Model, bool), AsterError>((result, true))
             })
         },
         move |error: &AsterError| {
@@ -212,7 +223,18 @@ pub(super) async fn persist_temp_store(
     .await;
 
     match create_result {
-        Ok(result) => Ok(result),
+        Ok((result, created)) => {
+            if !created {
+                cleanup_verified_temp_blob_after_db_failure(
+                    state,
+                    &verified_blob,
+                    driver.as_ref(),
+                    "task entry was already published",
+                )
+                .await;
+            }
+            Ok((result, created))
+        }
         Err(error) => {
             if !error.database_commit_outcome_uncertain() {
                 cleanup_verified_temp_blob_after_db_failure(
