@@ -117,3 +117,7 @@ docker run --rm -v /tmp:/manifests \
 ```
 
 `kubectl apply --dry-run=client` may still perform API discovery even when validation is disabled, so it is not a reliable offline validator for CI without a kubeconfig. CI renders the OrbStack and production overlays plus Helm boundary cases for default values, Ingress with NetworkPolicy and digest, and an existing PVC with three replicas, then runs strict schema validation with a pinned kubeconform image. These checks do not prove that the external database, Redis, RWX StorageClass, Ingress, or shared storage is operational. Before applying changes, connect to the target cluster, create the target Namespace, and then run `kubectl apply --dry-run=server`; after deployment, complete the [multi-instance launch validation](/en/deploy/multi-instance/#launch-validation).
+
+## Split roles
+
+Use Helm `split.enabled=true` or Kustomize `overlays/split` for independent API/worker scaling. Business Service selects API only. See [roles](/en/deploy/roles/) for shared state, probes, shutdown and migration.

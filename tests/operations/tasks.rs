@@ -13,7 +13,7 @@ use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::io::{AsyncRead, empty};
 use tokio::sync::broadcast;
@@ -1081,6 +1081,207 @@ async fn test_offline_download_disabled_registry_rejects_task_creation() {
 }
 
 #[actix_web::test]
+async fn test_offline_download_cleans_selected_scratch_roots_across_config_changes() {
+    const CONTENT: &[u8] = b"offline download cleanup fixture";
+    let scratch = aster_forge_test::temp::TestTempDir::new("offline-cleanup");
+    let scratch_path = scratch.path().to_path_buf();
+    let mut state = common::setup().await;
+    Arc::make_mut(&mut state.config).server.temp_dir = scratch_path.to_str().unwrap().to_string();
+    let changed_root = scratch.join("reconfigured");
+    let switch_config = Arc::new(AtomicBool::new(false));
+    // Isolated RPC fixture writes the requested output itself; no source download or
+    // external DNS is involved, while the production task/storage lifecycle still runs.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let rpc_calls = Arc::new(AtomicUsize::new(0));
+    let calls = rpc_calls.clone();
+    let rpc_state = state.clone();
+    let rpc_switch = switch_config.clone();
+    let rpc_root = changed_root.clone();
+    let rpc = actix_web::HttpServer::new(move || {
+        let calls = calls.clone();
+        let state = rpc_state.clone();
+        let switch_config = rpc_switch.clone();
+        let changed_root = rpc_root.clone();
+        App::new().default_service(web::to(move |request: web::Json<Value>| {
+            let calls = calls.clone();
+            let state = state.clone();
+            let switch_config = switch_config.clone();
+            let changed_root = changed_root.clone();
+            async move {
+                let result = match request["method"].as_str().unwrap() {
+                    "aria2.addUri" => {
+                        let options = request["params"].as_array().unwrap().last().unwrap();
+                        let output = Path::new(options["dir"].as_str().unwrap())
+                            .join(options["out"].as_str().unwrap());
+                        tokio::fs::write(output, CONTENT).await.unwrap();
+                        if switch_config.load(Ordering::SeqCst) {
+                            // Change the live config after the attempt directory is in use.
+                            aster_drive::services::ops::config::set(
+                                &state,
+                                OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
+                                changed_root.to_str().unwrap(),
+                                1,
+                            )
+                            .await
+                            .unwrap();
+                        }
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        serde_json::json!("cleanup-fixture")
+                    }
+                    "aria2.tellStatus" => serde_json::json!({
+                        "status":"complete", "totalLength":CONTENT.len().to_string(),
+                        "completedLength":CONTENT.len().to_string()
+                    }),
+                    "aria2.removeDownloadResult" => serde_json::json!("OK"),
+                    method => panic!("unexpected fixture RPC method {method}"),
+                };
+                actix_web::HttpResponse::Ok().json(serde_json::json!({
+                    "jsonrpc":"2.0", "id":request["id"], "result":result
+                }))
+            }
+        }))
+    })
+    .workers(1)
+    .listen(listener)
+    .unwrap()
+    .run();
+    let rpc_handle = rpc.handle();
+    actix_web::rt::spawn(rpc);
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    for (key, value) in [
+        (OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":false}]}"#.to_string()),
+        (OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY, format!("http://127.0.0.1:{port}/jsonrpc")),
+    ] {
+        aster_drive::services::ops::config::set(&state, key, &value, 1).await.unwrap();
+    }
+    let main_root = state.config.server.temp_dir.as_str();
+    let custom_root = Path::new(main_root).join("offline-attempts");
+    for (root, preserve_newer, change_config, fail_checksum) in [
+        (main_root, false, false, false),
+        (custom_root.to_str().unwrap(), false, false, false),
+        (custom_root.to_str().unwrap(), true, false, false),
+        (main_root, false, true, false),
+        (custom_root.to_str().unwrap(), true, true, false),
+        (custom_root.to_str().unwrap(), false, true, true),
+        (custom_root.to_str().unwrap(), true, true, true),
+    ] {
+        switch_config.store(change_config, Ordering::SeqCst);
+        aster_drive::services::ops::config::set(&state, OFFLINE_DOWNLOAD_TEMP_DIR_KEY, root, 1)
+            .await
+            .unwrap();
+        let response = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/v1/tasks/offline-download")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"url":"https://1.1.1.1/cleanup-fixture", "filename":"cleanup-fixture.txt", "expected_sha256":fail_checksum.then(|| "0".repeat(64))}))
+            .to_request()).await;
+        assert_eq!(response.status(), 200);
+        let created: Value = test::read_body_json(response).await;
+        let id = created["data"]["id"].as_i64().unwrap();
+        for scratch_root in [main_root, root] {
+            let attempt = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 1);
+            tokio::fs::create_dir_all(&attempt).await.unwrap();
+            tokio::fs::write(Path::new(&attempt).join("metadata"), b"current")
+                .await
+                .unwrap();
+            if preserve_newer {
+                let newer = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 2);
+                tokio::fs::create_dir_all(&newer).await.unwrap();
+                tokio::fs::write(Path::new(&newer).join("metadata"), b"newer")
+                    .await
+                    .unwrap();
+            }
+        }
+        let unrelated =
+            aster_forge_utils::paths::task_token_temp_dir(changed_root.to_str().unwrap(), id, 1);
+        if change_config {
+            tokio::fs::create_dir_all(&unrelated).await.unwrap();
+            tokio::fs::write(Path::new(&unrelated).join("metadata"), b"unrelated")
+                .await
+                .unwrap();
+        }
+        let stats = task::dispatch_due(&state).await.unwrap();
+        let completed = background_task_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        assert_eq!(
+            stats.succeeded,
+            usize::from(!fail_checksum),
+            "{completed:?}"
+        );
+        assert_eq!(stats.failed, usize::from(fail_checksum), "{completed:?}");
+        assert_eq!(
+            completed.status,
+            if fail_checksum {
+                assert!(
+                    completed
+                        .last_error
+                        .as_deref()
+                        .unwrap()
+                        .contains("sha256 mismatch")
+                );
+                BackgroundTaskStatus::Failed
+            } else {
+                BackgroundTaskStatus::Succeeded
+            }
+        );
+        if change_config {
+            assert_eq!(
+                state
+                    .runtime_config
+                    .get(OFFLINE_DOWNLOAD_TEMP_DIR_KEY)
+                    .as_deref(),
+                changed_root.to_str(),
+                "the fixture must change the live config before cleanup",
+            );
+            assert_eq!(
+                tokio::fs::read(Path::new(&unrelated).join("metadata"))
+                    .await
+                    .unwrap(),
+                b"unrelated",
+                "cleanup must not follow the changed config into an unrelated directory",
+            );
+        }
+        assert_eq!(completed.processing_token, 1);
+        for scratch_root in [main_root, root] {
+            let attempt = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 1);
+            assert!(
+                !Path::new(&attempt).exists(),
+                "own attempt must be removed from {scratch_root}"
+            );
+            let parent = aster_forge_utils::paths::task_temp_dir(scratch_root, id);
+            assert_eq!(
+                Path::new(&parent).exists(),
+                preserve_newer,
+                "only empty task parents may be removed"
+            );
+            if preserve_newer {
+                let newer = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 2);
+                assert_eq!(
+                    tokio::fs::read(Path::new(&newer).join("metadata"))
+                        .await
+                        .unwrap(),
+                    b"newer"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        rpc_calls.load(Ordering::SeqCst),
+        7,
+        "all success and failure paths must execute"
+    );
+    rpc_handle.stop(true).await;
+    drop(scratch);
+    assert!(
+        !scratch_path.exists(),
+        "including preserved token 2 test files"
+    );
+}
+
+#[actix_web::test]
 async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
     let state = common::setup().await;
     let aria2 = start_aria2_context(&state.config.server.temp_dir).await;
@@ -1388,6 +1589,103 @@ async fn test_touch_heartbeat_refreshes_processing_task_liveness() {
 }
 
 #[actix_web::test]
+async fn test_outcome_writes_atomically_fence_cancellation_and_processing_token() {
+    let state = common::setup().await;
+    for (status, token_offset) in [
+        (BackgroundTaskStatus::Canceling, 0),
+        (BackgroundTaskStatus::Canceled, 0),
+        (BackgroundTaskStatus::Processing, -1),
+        (BackgroundTaskStatus::Processing, 0),
+    ] {
+        for outcome in ["retry", "failed", "shutdown"] {
+            let task = insert_pending_lane_task(
+                &state,
+                BackgroundTaskKind::ArchiveCompress,
+                "outcome-cancellation-fence",
+                "{}",
+            )
+            .await;
+            let mut update = task.into_active_model();
+            update.status = Set(status);
+            update.processing_token = Set(7);
+            update.processing_started_at = Set(Some(Utc::now()));
+            update.last_heartbeat_at = Set(Some(Utc::now()));
+            update.lease_expires_at = Set(Some(Utc::now() + Duration::seconds(60)));
+            let task = update.update(state.writer_db()).await.unwrap();
+            // Reload timestamps as stored by this backend before comparing the entire row.
+            let before = background_task_repo::find_by_id(state.writer_db(), task.id)
+                .await
+                .unwrap();
+            let token = task.processing_token + token_offset;
+            let marked = match outcome {
+                "retry" => {
+                    background_task_repo::mark_retry(
+                        state.writer_db(),
+                        task.id,
+                        token,
+                        1,
+                        Utc::now() + Duration::seconds(30),
+                        "retry outcome",
+                        Some("[]"),
+                    )
+                    .await
+                }
+                "failed" => {
+                    background_task_repo::mark_failed(
+                        state.writer_db(),
+                        background_task_repo::TaskFailureUpdate {
+                            id: task.id,
+                            processing_token: token,
+                            attempt_count: 1,
+                            last_error: "failure outcome",
+                            finished_at: Utc::now(),
+                            expires_at: Utc::now() + Duration::hours(1),
+                            steps_json: Some("[]"),
+                            failure_can_retry: false,
+                        },
+                    )
+                    .await
+                }
+                "shutdown" => {
+                    background_task_repo::release_processing(
+                        state.writer_db(),
+                        task.id,
+                        token,
+                        Utc::now(),
+                        BackgroundTaskStatus::Retry,
+                    )
+                    .await
+                }
+                _ => unreachable!(),
+            }
+            .unwrap();
+            let after = background_task_repo::find_by_id(state.writer_db(), task.id)
+                .await
+                .unwrap();
+            let expected = status == BackgroundTaskStatus::Processing && token_offset == 0;
+            assert_eq!(marked, expected, "{status:?} / {token_offset} / {outcome}");
+            if expected {
+                assert_eq!(
+                    after.status,
+                    if outcome == "failed" {
+                        BackgroundTaskStatus::Failed
+                    } else {
+                        BackgroundTaskStatus::Retry
+                    }
+                );
+                assert_eq!(after.attempt_count, i32::from(outcome != "shutdown"));
+                assert!(after.lease_expires_at.is_none());
+            } else {
+                assert_eq!(
+                    after, before,
+                    "rejected {outcome} must preserve the entire row"
+                );
+            }
+        }
+    }
+}
+
+#[actix_web::test]
 async fn test_processing_token_fences_stale_worker_updates_after_reclaim() {
     let state = common::setup().await;
     let now = Utc::now();
@@ -1555,7 +1853,7 @@ async fn test_dispatch_due_reclaims_stale_processing_task_with_new_token() {
 }
 
 #[actix_web::test]
-async fn test_dispatch_due_fast_continues_thumbnail_lane() {
+async fn test_dispatch_pass_respects_thumbnail_capacity() {
     let state = common::setup().await;
     state.runtime_config.apply(common::system_config_model(
         BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
@@ -1583,7 +1881,7 @@ async fn test_dispatch_due_fast_continues_thumbnail_lane() {
 }
 
 #[actix_web::test]
-async fn test_dispatch_due_fast_continues_archive_lane_with_backlog() {
+async fn test_dispatch_pass_respects_archive_capacity_with_backlog() {
     let state = common::setup().await;
     state.runtime_config.apply(common::system_config_model(
         BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
@@ -1602,10 +1900,10 @@ async fn test_dispatch_due_fast_continues_archive_lane_with_backlog() {
 
     let stats = task::dispatch_due(&state)
         .await
-        .expect("dispatch should fast-continue archive lane");
+        .expect("one dispatch pass should fill only its available slots");
 
-    assert_eq!(stats.claimed, 3);
-    assert_eq!(stats.failed, 3);
+    assert_eq!(stats.claimed, 2);
+    assert_eq!(stats.failed, 2);
     assert_eq!(stats.retried, 0);
     assert_eq!(stats.succeeded, 0);
 }
@@ -3092,6 +3390,19 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     let archive_file_id = result["target_file_id"].as_i64().unwrap();
     assert_eq!(result["target_folder_id"], Value::Null);
     assert_eq!(result["target_path"], "/bundle-export.zip");
+    let steps = body["data"]["steps"].as_array().unwrap();
+    for (key, detail) in [
+        ("waiting", "Worker claimed task"),
+        ("prepare_sources", "Archive sources are ready"),
+        ("build_archive", "Archive file created"),
+        ("store_result", "Archive is ready"),
+    ] {
+        let step = steps.iter().find(|step| step["key"] == key).unwrap();
+        assert_eq!(
+            step["detail"], detail,
+            "normal completion must preserve {key} detail"
+        );
+    }
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/files/{archive_file_id}/download"))
@@ -5042,7 +5353,7 @@ async fn test_archive_extract_task_fails_when_downloaded_source_exceeds_declared
 }
 
 #[actix_web::test]
-async fn test_archive_extract_task_cleans_created_root_after_import_failure() {
+async fn test_archive_extract_task_retains_published_root_and_resumes_after_import_failure() {
     let archive_bytes = create_stored_zip_bytes(&[
         ("first.txt", Some(b"first".as_slice())),
         ("second.txt", Some(b"second".as_slice())),
@@ -5125,7 +5436,652 @@ async fn test_archive_extract_task_cleans_created_root_after_import_failure() {
     .await
     .expect("folder lookup should succeed");
     assert!(
-        cleanup_root.is_none(),
-        "partially imported extract root should be purged after import failure"
+        cleanup_root.is_some(),
+        "published extract root is retained as a durable checkpoint"
+    );
+    let root_id = cleanup_root.unwrap().id;
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{task_id}/retry"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+    assert_eq!(
+        aster_drive::services::task::drain(&state)
+            .await
+            .unwrap()
+            .succeeded,
+        1
+    );
+    let root = aster_drive::db::repository::folder_repo::find_by_name_in_parent(
+        state.writer_db(),
+        owner.id,
+        None,
+        "cleanup-root",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(root.id, root_id, "retry must reuse the published root");
+}
+
+#[actix_web::test]
+async fn test_archive_publication_survives_terminal_failure_without_duplicate_quota_or_files() {
+    use aster_drive_model::entities::{file, task_resource_publication, user};
+    use sea_orm::{ConnectionTrait, DbBackend};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source_id = upload_test_file_named!(app, token, "checkpoint-source.txt");
+    let request=test::TestRequest::post().uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie",common::access_cookie_header(&token))).insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"file_ids":[source_id],"folder_ids":[],"archive_name":"checkpoint-result.zip"})).to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 200);
+    let created: Value = test::read_body_json(response).await;
+    let task_id = created["data"]["id"].as_i64().unwrap();
+    let db = state.writer_db();
+    let sql = match db.get_database_backend() {
+        DbBackend::Sqlite => format!(
+            "CREATE TRIGGER fail_task_terminal BEFORE UPDATE ON background_tasks WHEN NEW.id = {task_id} AND NEW.status = 'succeeded' BEGIN SELECT RAISE(ABORT, 'injected terminal failure'); END"
+        ),
+        DbBackend::Postgres => format!(
+            "CREATE FUNCTION fail_task_terminal() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = {task_id} AND NEW.status = 'succeeded' THEN RAISE EXCEPTION 'injected terminal failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_task_terminal BEFORE UPDATE ON background_tasks FOR EACH ROW EXECUTE FUNCTION fail_task_terminal();"
+        ),
+        DbBackend::MySql => format!(
+            "CREATE TRIGGER fail_task_terminal BEFORE UPDATE ON background_tasks FOR EACH ROW BEGIN IF NEW.id = {task_id} AND NEW.status = 'succeeded' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected terminal failure'; END IF; END"
+        ),
+        _ => panic!("unsupported test database backend"),
+    };
+    db.execute_unprepared(&sql).await.unwrap();
+    let _ = task::dispatch_due(&state).await;
+    assert_eq!(
+        task_resource_publication::Entity::find()
+            .filter(task_resource_publication::Column::TaskId.eq(task_id))
+            .count(db)
+            .await
+            .unwrap(),
+        1
+    );
+    let published = file::Entity::find()
+        .filter(file::Column::Name.eq("checkpoint-result.zip"))
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let owner = user::Entity::find_by_id(published.owner_user_id.unwrap())
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let quota_before = owner.storage_used;
+    let files_before = file::Entity::find().count(db).await.unwrap();
+    let failed = background_task_repo::find_by_id(db, task_id).await.unwrap();
+    assert_ne!(failed.status, BackgroundTaskStatus::Succeeded);
+    let drop_sql = match db.get_database_backend() {
+        DbBackend::Postgres => {
+            "DROP TRIGGER fail_task_terminal ON background_tasks; DROP FUNCTION fail_task_terminal();"
+        }
+        DbBackend::Sqlite | DbBackend::MySql => "DROP TRIGGER fail_task_terminal",
+        _ => panic!("unsupported test database backend"),
+    };
+    db.execute_unprepared(drop_sql).await.unwrap();
+    // Recovery must not reread an input that can disappear after the output committed.
+    let mut source = file::Entity::find_by_id(source_id)
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    source.deleted_at = Set(Some(Utc::now()));
+    source.update(db).await.unwrap();
+    let mut retry = failed.into_active_model();
+    retry.status = Set(BackgroundTaskStatus::Pending);
+    retry.next_run_at = Set(Utc::now() - Duration::seconds(1));
+    retry.update(db).await.unwrap();
+    // A browser may have missed the first attempt's event after the output committed.
+    let mut events = state.storage_change_bus.subscribe();
+    task::dispatch_due(&state).await.unwrap();
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        event.kind,
+        aster_drive::services::events::storage_change::StorageChangeKind::FileCreated
+    );
+    assert_eq!(event.file_ids, vec![published.id]);
+    assert!(
+        event.affects_quota,
+        "recovery must refresh authoritative usage even if the original event was lost"
+    );
+    assert_eq!(
+        event.storage_delta, None,
+        "recovery must not replay the committed delta"
+    );
+    let completed = background_task_repo::find_by_id(db, task_id).await.unwrap();
+    assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+    let steps: Value =
+        serde_json::from_str(completed.steps_json.as_ref().unwrap().as_ref()).unwrap();
+    assert!(
+        steps
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["status"] == "succeeded")
+    );
+    assert_eq!(file::Entity::find().count(db).await.unwrap(), files_before);
+    assert_eq!(
+        user::Entity::find_by_id(owner.id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        quota_before
+    );
+    let receipt: Value =
+        serde_json::from_str(completed.result_json.as_ref().unwrap().as_ref()).unwrap();
+    assert_eq!(receipt["target_file_id"], published.id);
+    assert_eq!(
+        task_resource_publication::Entity::find()
+            .filter(task_resource_publication::Column::TaskId.eq(task_id))
+            .count(db)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[actix_web::test]
+async fn test_offline_download_publication_recovery_republishes_file_event_without_quota_delta() {
+    use aster_drive::services::events::storage_change::StorageChangeKind;
+    use aster_drive_model::entities::{file, task_resource_publication, user};
+    use sha2::{Digest, Sha256};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "published-download.txt");
+    let db = state.writer_db();
+    let stored = file::Entity::find_by_id(file_id)
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let user_before = user::Entity::find_by_id(stored.owner_user_id.unwrap())
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let files_before = file::Entity::find().count(db).await.unwrap();
+    let response = test::call_service(&app, test::TestRequest::post()
+        .uri("/api/v1/tasks/offline-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"url":"https://example.com/download", "filename":"published-download.txt"}))
+        .to_request()).await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    let queued = background_task_repo::find_by_id(db, body["data"]["id"].as_i64().unwrap())
+        .await
+        .unwrap();
+    let mut queued = queued.into_active_model();
+    queued.payload_json = Set(StoredTaskPayload("{}".to_string()));
+    let queued = queued.update(db).await.unwrap();
+    // Seed the durable output from a previous attempt. The source payload is deliberately
+    // unusable: recovery must neither fetch it nor repeat the file/quota mutation.
+    task_resource_publication::ActiveModel {
+        task_id: Set(queued.id),
+        entry_key: Set(hex::encode(Sha256::digest(b"download"))),
+        resource_snapshot: Set(serde_json::json!({
+            "version": 1,
+            "resource": {"kind": "file", "value": stored},
+            "metadata": {"sha256": "persisted-hash", "source_display_url": "https://example.com/download", "engine": "builtin"}
+        }).to_string()),
+    }.insert(db).await.unwrap();
+    let mut events = state.storage_change_bus.subscribe();
+    let stats = task::dispatch_due(&state).await.unwrap();
+    assert_eq!(stats.succeeded, 1);
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(event.kind, StorageChangeKind::FileCreated);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert_eq!(event.storage_delta, None);
+    assert!(event.affects_quota);
+    assert!(event.root_affected);
+    assert!(events.try_recv().is_err());
+    let completed = background_task_repo::find_by_id(db, queued.id)
+        .await
+        .unwrap();
+    assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+    let result: Value =
+        serde_json::from_str(completed.result_json.as_ref().unwrap().as_ref()).unwrap();
+    assert_eq!(result["file_id"], file_id);
+    assert_eq!(result["sha256"], "persisted-hash");
+    assert_eq!(file::Entity::find().count(db).await.unwrap(), files_before);
+    assert_eq!(
+        user::Entity::find_by_id(stored.owner_user_id.unwrap())
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        user_before.storage_used
+    );
+}
+
+#[actix_web::test]
+async fn test_cancel_after_committed_retry_or_failure_respects_the_committed_state() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source_id = upload_test_file_named!(app, token, "outcome-first.txt");
+    for should_retry in [true, false] {
+        let create = test::TestRequest::post()
+            .uri("/api/v1/batch/archive-compress")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "file_ids": [source_id],
+                "folder_ids": [],
+                "archive_name": format!("outcome-first-{should_retry}.zip")
+            }))
+            .to_request();
+        let response = test::call_service(&app, create).await;
+        assert_eq!(response.status(), 200);
+        let body: Value = test::read_body_json(response).await;
+        let id = body["data"]["id"].as_i64().unwrap();
+        let now = Utc::now();
+        assert!(
+            background_task_repo::try_claim(
+                state.writer_db(),
+                id,
+                0,
+                now,
+                now - Duration::seconds(60),
+                1,
+                now + Duration::seconds(60),
+            )
+            .await
+            .unwrap()
+        );
+        let marked = if should_retry {
+            background_task_repo::mark_retry(
+                state.writer_db(),
+                id,
+                1,
+                1,
+                now + Duration::seconds(30),
+                "committed retry",
+                None,
+            )
+            .await
+        } else {
+            background_task_repo::mark_failed(
+                state.writer_db(),
+                background_task_repo::TaskFailureUpdate {
+                    id,
+                    processing_token: 1,
+                    attempt_count: 1,
+                    last_error: "committed failure",
+                    finished_at: now,
+                    expires_at: now + Duration::hours(1),
+                    steps_json: None,
+                    failure_can_retry: false,
+                },
+            )
+            .await
+        };
+        assert!(marked.unwrap());
+        let before = background_task_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        let cancel = test::TestRequest::post()
+            .uri(&format!("/api/v1/tasks/{id}/cancel"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let response = test::call_service(&app, cancel).await;
+        assert_eq!(response.status(), if should_retry { 200 } else { 409 });
+        let after = background_task_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        if should_retry {
+            assert_eq!(after.status, BackgroundTaskStatus::Canceled);
+            assert_eq!(after.attempt_count, 1);
+            assert_eq!(after.processing_token, 1);
+            assert_eq!(after.last_error, before.last_error);
+            assert!(after.lease_expires_at.is_none());
+        } else {
+            assert_eq!(
+                after, before,
+                "cancellation must not overwrite committed failure"
+            );
+        }
+    }
+}
+
+#[actix_web::test]
+async fn test_task_cancel_is_scoped_idempotent_and_does_not_execute_queued_work() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source_id = upload_test_file_named!(app, token, "cancel-source.txt");
+    let create=test::TestRequest::post().uri("/api/v1/batch/archive-compress")
+        .insert_header(("Cookie",common::access_cookie_header(&token))).insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"file_ids":[source_id],"folder_ids":[],"archive_name":"must-not-exist.zip"})).to_request();
+    let response = test::call_service(&app, create).await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    let id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["can_cancel"], true);
+    common::create_test_account_via_api(
+        &app,
+        state.writer_db(),
+        &state.mail_sender,
+        "cancel-other",
+        "cancel-other@example.com",
+        "password123",
+    )
+    .await;
+    let login = test::TestRequest::post()
+        .uri("/api/v1/auth/login")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({"identifier":"cancel-other","password":"password123"}))
+        .to_request();
+    let response = test::call_service(&app, login).await;
+    assert_eq!(response.status(), 200);
+    let other = common::extract_cookie(&response, "aster_access").unwrap();
+    let denied = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{id}/cancel"))
+        .insert_header(("Cookie", common::access_cookie_header(&other)))
+        .insert_header(common::csrf_header_for(&other))
+        .to_request();
+    let denied = test::call_service(&app, denied).await;
+    assert!(denied.status().is_client_error());
+    let pending = background_task_repo::find_by_id(state.writer_db(), id)
+        .await
+        .unwrap();
+    assert_eq!(pending.status, BackgroundTaskStatus::Pending);
+    assert_eq!(pending.processing_token, 0);
+    let mut final_body = Value::Null;
+    for _ in 0..2 {
+        let cancel = test::TestRequest::post()
+            .uri(&format!("/api/v1/tasks/{id}/cancel"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let result = test::call_service(&app, cancel).await;
+        assert_eq!(result.status(), 200);
+        final_body = test::read_body_json(result).await;
+        assert_eq!(final_body["data"]["status"], "canceled");
+        assert_eq!(final_body["data"]["can_cancel"], false);
+    }
+    assert_eq!(final_body["data"]["can_retry"], true);
+    let stats = task::dispatch_due(&state).await.unwrap();
+    assert_eq!(stats.claimed, 0);
+    let canceled = background_task_repo::find_by_id(state.writer_db(), id)
+        .await
+        .unwrap();
+    assert_eq!(canceled.processing_token, 0);
+    assert!(canceled.finished_at.is_some());
+    let retry = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{id}/retry"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let retried = test::call_service(&app, retry).await;
+    assert_eq!(retried.status(), 200);
+    assert_eq!(task::dispatch_due(&state).await.unwrap().succeeded, 1);
+    let cancel = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{id}/cancel"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, cancel).await.status(), 409);
+    // Team cancellation is scoped to active membership, independently of task creator.
+    let create_team = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"Cancellation team"}))
+        .to_request();
+    let response = test::call_service(&app, create_team).await;
+    assert_eq!(response.status(), 201);
+    let team: Value = test::read_body_json(response).await;
+    let team_id = team["data"]["id"].as_i64().unwrap();
+    let create_task = test::TestRequest::delete()
+        .uri(&format!("/api/v1/teams/{team_id}/trash"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let response = test::call_service(&app, create_task).await;
+    assert!(response.status().is_success());
+    let task: Value = test::read_body_json(response).await;
+    let team_task_id = task["data"]["id"].as_i64().unwrap();
+    for (path, credential) in [
+        (format!("/api/v1/tasks/{team_task_id}/cancel"), &token),
+        (
+            format!("/api/v1/teams/{team_id}/tasks/{team_task_id}/cancel"),
+            &other,
+        ),
+    ] {
+        let request = test::TestRequest::post()
+            .uri(&path)
+            .insert_header(("Cookie", common::access_cookie_header(credential)))
+            .insert_header(common::csrf_header_for(credential))
+            .to_request();
+        assert_eq!(test::call_service(&app, request).await.status(), 403);
+        assert_eq!(
+            background_task_repo::find_by_id(state.writer_db(), team_task_id)
+                .await
+                .unwrap()
+                .status,
+            BackgroundTaskStatus::Pending
+        );
+    }
+    let member =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "cancel-other")
+            .await
+            .unwrap()
+            .unwrap();
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team_id),
+        user_id: Set(member.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Member),
+        created_at: Set(Utc::now()),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    let cancel = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/tasks/{team_task_id}/cancel"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&other)))
+        .insert_header(common::csrf_header_for(&other))
+        .to_request();
+    let response = test::call_service(&app, cancel).await;
+    assert_eq!(response.status(), 200);
+    let result: Value = test::read_body_json(response).await;
+    assert_eq!(result["data"]["status"], "canceled");
+    assert_eq!(
+        background_task_repo::find_by_id(state.writer_db(), team_task_id)
+            .await
+            .unwrap()
+            .processing_token,
+        0
+    );
+}
+
+#[actix_web::test]
+async fn test_cancel_partial_extract_retains_files_quota_and_resumes_the_same_publications() {
+    use aster_drive_model::entities::{file, folder, task_resource_publication, user};
+    use sea_orm::{ConnectionTrait, DbBackend};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let request = test::TestRequest::post()
+        .uri("/api/v1/files/new")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"partial.zip","folder_id":null}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 201);
+    let source: Value = test::read_body_json(response).await;
+    let source_id = source["data"]["id"].as_i64().unwrap();
+    let bytes = create_stored_zip_bytes(&[
+        ("root/first.txt", Some(b"first".as_slice())),
+        ("root/second.txt", Some(b"second".as_slice())),
+    ]);
+    let source_size = i64::try_from(bytes.len()).unwrap();
+    let request = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/{source_id}/content"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(bytes)
+        .to_request();
+    assert_eq!(test::call_service(&app, request).await.status(), 200);
+    let request = test::TestRequest::post()
+        .uri(&format!("/api/v1/files/{source_id}/extract"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"output_folder_name":"checkpoint-root"}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 200);
+    let task: Value = test::read_body_json(response).await;
+    let id = task["data"]["id"].as_i64().unwrap();
+    let trigger = match state.writer_db().get_database_backend() {
+        DbBackend::Sqlite => format!(
+            "CREATE TRIGGER cancel_partial_extract AFTER INSERT ON files WHEN NEW.name='first.txt' BEGIN UPDATE background_tasks SET status='canceling' WHERE id={id}; END"
+        ),
+        DbBackend::Postgres => format!(
+            "CREATE FUNCTION cancel_partial_extract() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.name='first.txt' THEN UPDATE background_tasks SET status='canceling' WHERE id={id}; END IF; RETURN NEW; END $$; CREATE TRIGGER cancel_partial_extract AFTER INSERT ON files FOR EACH ROW EXECUTE FUNCTION cancel_partial_extract();"
+        ),
+        DbBackend::MySql => format!(
+            "CREATE TRIGGER cancel_partial_extract AFTER INSERT ON files FOR EACH ROW BEGIN IF NEW.name='first.txt' THEN UPDATE background_tasks SET status='canceling' WHERE id={id}; END IF; END"
+        ),
+        _ => panic!("unsupported test backend"),
+    };
+    state
+        .writer_db()
+        .execute_unprepared(&trigger)
+        .await
+        .unwrap();
+    let mut events = state.storage_change_bus.subscribe();
+    assert_eq!(task::drain(&state).await.unwrap().canceled, 1);
+    let canceled = background_task_repo::find_by_id(state.writer_db(), id)
+        .await
+        .unwrap();
+    assert_eq!(canceled.status, BackgroundTaskStatus::Canceled);
+    let first = file::Entity::find()
+        .filter(file::Column::Name.eq("first.txt"))
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        file::Entity::find().count(state.writer_db()).await.unwrap(),
+        2
+    );
+    let first_folder = folder::Entity::find_by_id(first.folder_id.unwrap())
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        first_folder.name, "root",
+        "a child named root must not collide with the output receipt"
+    );
+    assert!(first_folder.parent_id.is_some());
+    let scope_owner = first.owner_user_id.unwrap();
+    let owner = user::Entity::find_by_id(scope_owner)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owner.storage_used, source_size + 5);
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        event.kind,
+        aster_drive::services::events::storage_change::StorageChangeKind::SyncRequired
+    );
+    assert!(event.affects_quota);
+    assert!(event.is_visible_to(scope_owner, &std::collections::HashSet::new()));
+    assert!(!event.is_visible_to(scope_owner + 1, &std::collections::HashSet::new()));
+    let drop_sql = if state.writer_db().get_database_backend() == DbBackend::Postgres {
+        "DROP TRIGGER cancel_partial_extract ON files; DROP FUNCTION cancel_partial_extract();"
+    } else {
+        "DROP TRIGGER cancel_partial_extract"
+    };
+    state
+        .writer_db()
+        .execute_unprepared(drop_sql)
+        .await
+        .unwrap();
+    let mut owner = user::Entity::find_by_id(scope_owner)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    owner.storage_quota = Set(source_size + 11);
+    owner.update(state.writer_db()).await.unwrap();
+    let request = test::TestRequest::post()
+        .uri(&format!("/api/v1/tasks/{id}/retry"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    assert_eq!(test::call_service(&app, request).await.status(), 200);
+    assert_eq!(task::drain(&state).await.unwrap().succeeded, 1);
+    let retry_event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        retry_event.kind,
+        aster_drive::services::events::storage_change::StorageChangeKind::FolderCreated
+    );
+    assert!(retry_event.affects_quota);
+    assert_eq!(retry_event.storage_delta, None);
+    assert_eq!(
+        file::Entity::find().count(state.writer_db()).await.unwrap(),
+        3
+    );
+    assert_eq!(
+        file::Entity::find_by_id(first.id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap()
+            .folder_id,
+        first.folder_id
+    );
+    assert_eq!(
+        user::Entity::find_by_id(scope_owner)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        source_size + 11
+    );
+    assert_eq!(
+        task_resource_publication::Entity::find()
+            .filter(task_resource_publication::Column::TaskId.eq(id))
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        4
     );
 }

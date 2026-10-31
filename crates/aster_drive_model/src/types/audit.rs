@@ -178,6 +178,7 @@ macro_rules! define_audit_action_list {
             AdminWorkspaceInspect,
             AdminFileDownload,
             AdminRevisionDownload,
+            TaskCancelRequested,
         }
     };
 }
@@ -574,6 +575,8 @@ pub enum AuditAction {
     TeamUpdate,
     #[sea_orm(string_value = "task_retry")]
     TaskRetry,
+    #[sea_orm(string_value = "task_cancel_requested")]
+    TaskCancelRequested,
     #[sea_orm(string_value = "archive_compress")]
     ArchiveCompress,
     #[sea_orm(string_value = "archive_extract")]
@@ -838,6 +841,7 @@ impl AuditAction {
             Self::TeamRestore => 84,
             Self::TeamUpdate => 85,
             Self::TaskRetry => 86,
+            Self::TaskCancelRequested => 158,
             Self::ArchiveCompress => 87,
             Self::ArchiveExtract => 88,
             Self::ArchiveDownload => 89,
@@ -1003,6 +1007,7 @@ impl AuditAction {
             Self::TeamRestore => "team_restore",
             Self::TeamUpdate => "team_update",
             Self::TaskRetry => "task_retry",
+            Self::TaskCancelRequested => "task_cancel_requested",
             Self::ArchiveCompress => "archive_compress",
             Self::ArchiveExtract => "archive_extract",
             Self::ArchiveDownload => "archive_download",
@@ -1170,6 +1175,7 @@ impl AuditAction {
             "team_restore" => Some(Self::TeamRestore),
             "team_update" => Some(Self::TeamUpdate),
             "task_retry" => Some(Self::TaskRetry),
+            "task_cancel_requested" => Some(Self::TaskCancelRequested),
             "archive_compress" => Some(Self::ArchiveCompress),
             "archive_extract" => Some(Self::ArchiveExtract),
             "archive_download" => Some(Self::ArchiveDownload),
@@ -1341,7 +1347,7 @@ impl AuditAction {
             | Self::TeamMemberUpdate
             | Self::TeamRestore
             | Self::TeamUpdate => "team",
-            Self::TaskRetry => "task",
+            Self::TaskRetry | Self::TaskCancelRequested => "task",
             Self::ArchiveCompress | Self::ArchiveExtract | Self::ArchiveDownload => "archive",
             Self::OfflineDownload => "task",
             Self::TrashPurgeAll => "trash",

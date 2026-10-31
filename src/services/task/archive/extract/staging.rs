@@ -229,7 +229,7 @@ where
         context.ensure_active()?;
         let read = tokio::select! {
             biased;
-            shutdown = context.shutdown_requested() => {
+            shutdown = context.stop_requested() => {
                 shutdown?;
                 return Err(AsterError::storage_driver_error(
                     "archive extraction copy interrupted by shutdown",
@@ -312,6 +312,7 @@ pub(super) fn stage_zip_archive_for_extract(
         steps,
         options,
         preflight.total_uncompressed_bytes,
+        unpublished_archive_bytes(db, context, handle, &preflight.entries)?,
     )?;
 
     let preflight_entry_count = preflight.entries.len();
@@ -417,6 +418,7 @@ fn prepare_archive_staging_after_preflight(
     steps: &mut [TaskStepInfo],
     options: ArchiveExtractStageOptions,
     total_bytes: i64,
+    unpublished_bytes: i64,
 ) -> Result<ArchiveStagingProgress> {
     let total_staging_bytes = options
         .source_archive_size
@@ -431,8 +433,9 @@ fn prepare_archive_staging_after_preflight(
             options.max_staging_bytes
         )));
     }
-    if total_bytes > 0 {
-        handle.block_on(async { storage::check_quota(db, options.scope, total_bytes).await })?;
+    if unpublished_bytes > 0 {
+        handle
+            .block_on(async { storage::check_quota(db, options.scope, unpublished_bytes).await })?;
     }
     let total_progress = total_bytes
         .checked_mul(2)
@@ -451,6 +454,38 @@ fn prepare_archive_staging_after_preflight(
         total_progress,
         processed_bytes: 0,
         file_count: 0,
+    })
+}
+
+fn unpublished_archive_bytes(
+    db: &sea_orm::DatabaseConnection,
+    context: &TaskExecutionContext,
+    handle: &tokio::runtime::Handle,
+    entries: &[ArchiveScanEntry],
+) -> Result<i64> {
+    let lease = context.lease_guard().lease();
+    let published = handle.block_on(
+        crate::db::repository::task_resource_publication_repo::TaskResourcePublication::published_file_keys(
+            db,
+            lease.task_id,
+        ),
+    )?;
+    entries.iter().try_fold(0_i64, |total, entry| {
+        if entry.kind.is_dir() {
+            return Ok(total);
+        }
+        let publication =
+            crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                lease,
+                &format!("file:{}", entry.relative_path.to_string_lossy()),
+            );
+        if published.contains(publication.entry_key()) {
+            Ok(total)
+        } else {
+            total
+                .checked_add(entry.size)
+                .ok_or_else(|| AsterError::internal_error("archive extract quota size overflow"))
+        }
     })
 }
 
@@ -666,14 +701,14 @@ mod tests {
             future_size < 16 * 1024,
             "archive extract copy future is {future_size} bytes"
         );
-        // The copy owns one reusable 64 KiB buffer. The task shutdown listener may
+        // The copy owns one reusable 64 KiB buffer. The process-shutdown and lease-control listeners may
         // allocate a small fixed control object while it is first registered; that
         // overhead must stay constant and must not scale with the number of chunks.
         const COPY_BUFFER_BYTES: usize = 64 * 1024;
         const CONTROL_PLANE_ALLOCATION_BUDGET: usize = 4 * 1024;
         assert!(
-            allocations.count <= 2,
-            "archive extract copy allocated {} objects; expected one buffer plus fixed control-plane overhead",
+            allocations.count <= 3,
+            "archive extract copy allocated {} objects; expected one buffer plus two fixed cancellation listeners",
             allocations.count
         );
         assert!(

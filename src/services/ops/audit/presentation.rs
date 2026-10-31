@@ -652,6 +652,7 @@ fn detail_message(
             copy_param(details, &mut params, "status");
             Some(message("tasks_cleanup_finished", params))
         }
+        AuditAction::TaskCancelRequested => Some(message("task_cancel_requested", params)),
         AuditAction::TaskRetry => {
             copy_param(details, &mut params, "kind");
             copy_param(details, &mut params, "previous_attempt_count");
@@ -1708,6 +1709,28 @@ mod tests {
             Some(&Value::String("verify".to_string()))
         );
         assert_eq!(detail.params.get("blob_count"), Some(&3.into()));
+    }
+
+    #[test]
+    fn remote_ingress_details_preserve_the_existing_translation_code() {
+        for action in [
+            AuditAction::AdminCreateRemoteIngressProfile,
+            AuditAction::AdminUpdateRemoteIngressProfile,
+            AuditAction::AdminDeleteRemoteIngressProfile,
+        ] {
+            let presentation = build_audit_presentation(
+                action,
+                AuditEntityType::SystemConfig,
+                None,
+                Some("remote ingress"),
+                Some(r#"{"target_key":"primary","driver_type":"s3"}"#),
+            )
+            .unwrap();
+            let detail = presentation.detail.unwrap();
+            assert_eq!(detail.code, "remote_ingress_profile_snapshot");
+            assert_eq!(detail.params["target_key"], "primary");
+            assert_eq!(detail.params["driver_type"], "s3");
+        }
     }
 
     #[test]

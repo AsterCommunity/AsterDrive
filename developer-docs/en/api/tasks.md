@@ -2,7 +2,7 @@
 
 The following paths are relative to `/api/v1` and require authentication.
 
-These endpoints list existing tasks, read details, and retry failed tasks. Task creation is distributed across other modules; admins can also create storage-migration tasks.
+These endpoints list existing tasks, read details, and retry failed or canceled tasks. Task creation is distributed across other modules; admins can also create storage-migration tasks.
 
 ## Personal space
 
@@ -10,7 +10,7 @@ These endpoints list existing tasks, read details, and retry failed tasks. Task 
 | --- | --- | --- |
 | `GET` | `/tasks` | Paginated list of current user's personal tasks |
 | `GET` | `/tasks/{id}` | Read one personal task |
-| `POST` | `/tasks/{id}/retry` | Retry a failed personal task |
+| `POST` | `/tasks/{id}/retry` | Retry a failed or canceled personal task |
 | `POST` | `/tasks/offline-download` | Create a personal offline-download import task |
 
 ## Team space
@@ -19,7 +19,7 @@ These endpoints list existing tasks, read details, and retry failed tasks. Task 
 | --- | --- | --- |
 | `GET` | `/teams/{team_id}/tasks` | Paginated list of team tasks |
 | `GET` | `/teams/{team_id}/tasks/{id}` | Read one team task |
-| `POST` | `/teams/{team_id}/tasks/{id}/retry` | Retry a failed team task |
+| `POST` | `/teams/{team_id}/tasks/{id}/retry` | Retry a failed or canceled team task |
 | `POST` | `/teams/{team_id}/tasks/offline-download` | Create a team offline-download import task |
 
 ## Common task creators
@@ -125,6 +125,7 @@ Lists and details return `TaskInfo`, with fields such as:
 - `result`
 - `steps`
 - `can_retry`
+- `can_cancel`
 - `lease_expires_at`
 - `started_at`
 - `finished_at`
@@ -132,7 +133,7 @@ Lists and details return `TaskInfo`, with fields such as:
 - `created_at`
 - `updated_at`
 
-`payload` and `result` are structured objects, not the old `payload_json` / `result_json` fields. Internal execution state is not exposed through `TaskInfo`; for example, the aria2 engine persists its GID in `background_tasks.runtime_json`, not in `payload` or `result`. The public offline-download result may include `download_engine`, but this is the selected engine name, not aria2 internal state. `steps` gives per-stage state and progress. `can_retry = true` appears only for failed tasks that allow manual retry.
+`payload` and `result` are structured objects, not the old `payload_json` / `result_json` fields. Internal execution state is not exposed through `TaskInfo`; for example, the aria2 engine persists its GID in `background_tasks.runtime_json`, not in `payload` or `result`. The public offline-download result may include `download_engine`, but this is the selected engine name, not aria2 internal state. `steps` gives per-stage state and progress. `can_cancel` indicates whether a cancellation request is permitted. `can_retry = true` applies to failed tasks that allow manual retry and acknowledged canceled tasks.
 
 ## Current task kinds and statuses
 
@@ -155,6 +156,7 @@ Lists and details return `TaskInfo`, with fields such as:
 
 - `pending`
 - `processing`
+- `canceling`
 - `retry`
 - `succeeded`
 - `failed`
@@ -162,13 +164,13 @@ Lists and details return `TaskInfo`, with fields such as:
 
 ## `POST /tasks/{id}/retry`
 
-Retry only accepts failed tasks:
+Retry accepts failed or canceled tasks:
 
-- only `status = failed` can be retried
+- only `status = failed` or `status = canceled` can be retried
 - successful retry resets the task to a pending state
 - the implementation clears the task's old temp directory before reset
 
-If the task is not failed, the API returns `400`.
+Tasks in other states are rejected with `400`; a concurrent state change during retry is rejected with `409`.
 
 ## Notes
 
@@ -180,3 +182,7 @@ If the task is not failed, the API returns `400`.
 - `/tasks/offline-download` returns `TaskInfo` immediately; progress should be shown in the task center; clients should not pass an engine choice in the request body
 - `/admin/storage-migrations/dry-run` does not create a task; `POST /admin/storage-migrations` does
 - `POST /admin/file-blobs/maintenance` creates `blob_maintenance`
+
+## Cooperative cancellation
+
+Personal/team routes add `POST /api/v1/tasks/{id}/cancel` and `POST /api/v1/teams/{team_id}/tasks/{id}/cancel`. `TaskInfo.can_cancel` is authoritative. Queued work becomes Canceled; running work becomes Canceling until owner acknowledgement. Requests are idempotent, while succeeded/failed tasks are rejected with `409`. Continue polling Canceling; only acknowledged Canceled may retry with the same task ID, publication receipts and committed outputs. Workspace cancellation excludes system maintenance and does not roll back changes.

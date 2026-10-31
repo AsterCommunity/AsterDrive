@@ -81,16 +81,14 @@ follower 对所有 master binding 周期性请求 primary 的 `/api/v1/internal/
 
 1. `src/main.rs` 进入 `run_primary_http_server()`
 2. `src/api/primary.rs` 注册 `/api/v1` 下的各模块路由
-3. 请求先经过全局中间件：
-   - 压缩
-   - Request ID
-   - 运行时 CORS
-   - 安全响应头
+3. 请求按外到内顺序经过全局中间件：安全响应头 → Request ID → HTTP metrics → 运行时 CORS → 压缩。CORS 策略短路也经过前三层；路由级限流的响应继续经过 CORS。
 4. 命中对应 `src/api/routes/**` handler
 5. 受保护接口再经过路由级 JWT 鉴权和限流
 6. `src/services/**` 执行业务规则
 7. `src/db/repository/**` 负责数据库读写；涉及二进制内容时进入 `src/storage/**`
 8. route 层返回统一 JSON，或者直接返回文件流 / SSE / WebDAV / Prometheus 文本响应
+
+运行时 CORS 使用 Forge 的显式 `rejection_response`，将来源、preflight 方法和请求头拒绝映射到 Drive 的 HTTP 403 / `forbidden` envelope，不依赖响应状态或 body 大小推断。非法请求仍交给 validation，响应头构造失败仍交给 internal error；拒绝响应不包含 CORS 放行头，并合并必要的 `Vary`。允许、同源、无 Origin、静态豁免和 inactive 请求透传，handler 自身的空 403 保持原样。浏览器扩展来源、凭据策略与热更新继续由运行时配置决定；Follower 的内部存储 CORS 使用独立契约。
 
 例外要记住：
 

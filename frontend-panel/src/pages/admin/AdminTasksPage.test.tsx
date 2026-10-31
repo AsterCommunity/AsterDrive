@@ -424,6 +424,7 @@ function createTask(overrides: Partial<TaskInfo> = {}): TaskInfo {
 	return {
 		attempt_count: 0,
 		can_retry: false,
+		can_cancel: false,
 		created_at: "2026-04-17T00:00:00Z",
 		creator: createUserSummary(),
 		display_name: "Extract report archive",
@@ -791,6 +792,7 @@ describe("AdminTasksPage", () => {
 				items: [
 					createTask({
 						can_retry: true,
+						can_cancel: false,
 						display_name: "Resume migration",
 						kind: "storage_policy_migration",
 						last_error: "copy failed",
@@ -847,6 +849,7 @@ describe("AdminTasksPage", () => {
 			items: [
 				createTask({
 					can_retry: false,
+					can_cancel: false,
 					display_name: "Terminal migration",
 					kind: "storage_policy_migration",
 					last_error: "not retryable",

@@ -57,7 +57,7 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
             )?;
         let response = tokio::select! {
             biased;
-            shutdown = context.shutdown_requested() => {
+            shutdown = context.stop_requested() => {
                 shutdown?;
                 return Err(AsterError::storage_driver_error(
                     "transient: offline download stopped during shutdown",
@@ -102,7 +102,7 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
         loop {
             let chunk = tokio::select! {
                 biased;
-                shutdown = context.shutdown_requested() => {
+                shutdown = context.stop_requested() => {
                     shutdown?;
                     return Err(AsterError::storage_driver_error(
                         "transient: offline download interrupted during shutdown",

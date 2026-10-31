@@ -99,6 +99,27 @@ fn run_aster_drive(args: &[&str]) -> std::process::Output {
     run_aster_drive_with_env(args, &[])
 }
 
+#[test]
+fn role_help_and_invalid_arguments_have_no_bootstrap_side_effects() {
+    let dir = std::env::temp_dir().join(format!("asterdrive-role-cli-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (args, succeeds) in [
+        (vec!["serve", "--help"], true),
+        (vec!["--help"], true),
+        (vec!["--version"], true),
+        (vec!["serve", "invalid"], false),
+        (vec!["serve", "api", "worker"], false),
+    ] {
+        let output = run_aster_drive_with_env_in_dir(&args, &[], &dir);
+        assert_eq!(output.status.success(), succeeds, "{output:?}");
+        assert!(
+            !dir.join("data").exists(),
+            "CLI parsing must precede configuration/database initialization"
+        );
+    }
+    std::fs::remove_dir(&dir).unwrap();
+}
+
 fn run_aster_drive_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
     Command::new(aster_drive_bin())
         .args(args)
@@ -243,6 +264,41 @@ async fn seed_migration_fixture(database_url: &str) -> i64 {
     seed_tag_fixture(state.writer_db(), file_id).await;
     seed_runtime_coordination_fixture(state.writer_db()).await;
     seed_admin_content_access_fixture(state.writer_db(), file_id).await;
+    // A nonempty receipt proves migration preserves recovery state, not just its table.
+    let now = Utc::now();
+    let task = aster_drive_model::entities::background_task::ActiveModel {
+        kind: Set(aster_drive_model::types::BackgroundTaskKind::ArchiveCompress),
+        status: Set(aster_drive_model::types::BackgroundTaskStatus::Canceled),
+        display_name: Set("migration publication fixture".to_string()),
+        payload_json: Set(aster_drive_model::types::StoredTaskPayload(
+            "{}".to_string(),
+        )),
+        progress_current: Set(0),
+        progress_total: Set(0),
+        attempt_count: Set(1),
+        max_attempts: Set(3),
+        processing_token: Set(2),
+        next_run_at: Set(now),
+        expires_at: Set(now + Duration::hours(24)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::task_resource_publication::ActiveModel {
+        task_id: Set(task.id),
+        entry_key: Set("a".repeat(64)),
+        resource_snapshot: Set(
+            serde_json::json!({"version":1,"fixture_file_id":file_id,"unicode":"迁移产物"})
+                .to_string(),
+        ),
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+
     file_id
 }
 
@@ -696,6 +752,27 @@ async fn assert_migrated_fixture(
     )
     .await
     .unwrap();
+    let publication = aster_drive_model::entities::task_resource_publication::Entity::find()
+        .one(&target_db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(publication.entry_key, "a".repeat(64));
+    assert_eq!(
+        serde_json::from_str::<Value>(&publication.resource_snapshot).unwrap(),
+        serde_json::json!({"version":1,"fixture_file_id":file_id,"unicode":"迁移产物"})
+    );
+    let producer =
+        aster_drive_model::entities::background_task::Entity::find_by_id(publication.task_id)
+            .one(&target_db)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        producer.status,
+        aster_drive_model::types::BackgroundTaskStatus::Canceled
+    );
+    assert_eq!(producer.processing_token, 2);
     let users = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM users").await;
     let folders = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM folders").await;
     let files = scalar_i64(&target_db, target_backend, "SELECT COUNT(*) FROM files").await;

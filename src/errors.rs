@@ -611,6 +611,9 @@ impl From<aster_forge_tasks::TaskCoreError> for AsterError {
             aster_forge_tasks::TaskCoreError::LeaseRenewalTimedOut { .. } => {
                 precondition_failed_with_code(ApiErrorCode::TaskLeaseRenewalTimedOut, message)
             }
+            aster_forge_tasks::TaskCoreError::CancellationRequested { .. } => {
+                precondition_failed_with_code(ApiErrorCode::TaskCancellationRequested, message)
+            }
             aster_forge_tasks::TaskCoreError::WorkerShutdownRequested { .. } => {
                 precondition_failed_with_code(ApiErrorCode::TaskWorkerShutdownRequested, message)
             }

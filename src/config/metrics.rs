@@ -4,7 +4,9 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::node_mode::NodeRuntimeMode;
 use crate::errors::{AsterError, Result};
+use crate::runtime::role::ServeRole;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -99,7 +101,8 @@ impl ObservabilityConfig {
 
     pub fn create_provider(
         &self,
-        role: crate::config::node_mode::NodeRuntimeMode,
+        node_mode: NodeRuntimeMode,
+        role: ServeRole,
         instance_id: &str,
     ) -> Result<aster_forge_metrics::MetricsProvider> {
         self.validate()?;
@@ -113,6 +116,7 @@ impl ObservabilityConfig {
                 service_name: "asterdrive".into(),
                 service_version: crate::build_info::VERSION.into(),
                 environment: self.environment.clone(),
+                node_mode: node_mode.as_str().into(),
                 role: role.as_str().into(),
                 instance_id: instance_id.to_owned(),
             })
@@ -220,15 +224,21 @@ mod tests {
     #[cfg(feature = "metrics")]
     #[tokio::test]
     async fn configured_provider_exports_profile_and_role_identity() {
-        use crate::config::node_mode::NodeRuntimeMode;
         use aster_forge_metrics::{MetricDescriptor, ProductCounter};
         use std::time::Duration;
 
         let mut config = ObservabilityConfig::default();
         config.prometheus.enabled = true;
         config.environment = "test".into();
-        for role in [NodeRuntimeMode::Primary, NodeRuntimeMode::Follower] {
-            let provider = config.create_provider(role, "profile-test-boot").unwrap();
+        for (mode, role) in [
+            (NodeRuntimeMode::Primary, ServeRole::All),
+            (NodeRuntimeMode::Primary, ServeRole::Api),
+            (NodeRuntimeMode::Primary, ServeRole::Worker),
+            (NodeRuntimeMode::Follower, ServeRole::All),
+        ] {
+            let provider = config
+                .create_provider(mode, role, "profile-test-boot")
+                .unwrap();
             assert!(provider.enabled());
             let handle = provider
                 .register_batch(&[
@@ -250,6 +260,7 @@ mod tests {
                 "service_name=\"asterdrive\"".to_owned(),
                 format!("service_version=\"{}\"", crate::build_info::VERSION),
                 format!("aster_role=\"{}\"", role.as_str()),
+                format!("aster_node_mode=\"{}\"", mode.as_str()),
                 "deployment_environment_name=\"test\"".into(),
                 "service_instance_id=\"profile-test-boot\"".into(),
                 "service_namespace=\"aster\"".into(),
@@ -264,7 +275,6 @@ mod tests {
     #[cfg(feature = "otlp-metrics")]
     #[tokio::test]
     async fn configured_otlp_payload_contains_profile_resource_attributes() {
-        use crate::config::node_mode::NodeRuntimeMode;
         use aster_forge_metrics::{MetricDescriptor, ProductCounter};
         use std::time::Duration;
         use std::{
@@ -296,6 +306,16 @@ mod tests {
                 if request.len() >= header_end + 4 + length {
                     let body = &request[header_end + 4..header_end + 4 + length];
                     assert!(
+                        body.windows("aster.role".len())
+                            .any(|value| value == b"aster.role")
+                    );
+                    assert!(body.windows(3).any(|value| value == b"all"));
+                    assert!(
+                        body.windows("aster.node.mode".len())
+                            .any(|value| value == b"aster.node.mode")
+                    );
+                    assert!(body.windows(7).any(|value| value == b"primary"));
+                    assert!(
                         body.windows("service.namespace".len())
                             .any(|w| w == b"service.namespace")
                     );
@@ -324,7 +344,11 @@ mod tests {
         config.otlp_metrics.interval_seconds = 60;
         config.otlp_metrics.timeout_seconds = 2;
         let provider = config
-            .create_provider(NodeRuntimeMode::Primary, "otlp-profile-test")
+            .create_provider(
+                NodeRuntimeMode::Primary,
+                ServeRole::All,
+                "otlp-profile-test",
+            )
             .unwrap();
         let handle = provider
             .register_batch(&[
@@ -364,7 +388,8 @@ mod tests {
         assert!(
             !config
                 .create_provider(
-                    crate::config::node_mode::NodeRuntimeMode::Primary,
+                    NodeRuntimeMode::Primary,
+                    ServeRole::All,
                     "disabled-instance"
                 )
                 .unwrap()

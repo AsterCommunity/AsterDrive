@@ -5,7 +5,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             service_name: "asterdrive".into(),
             service_version: env!("CARGO_PKG_VERSION").into(),
             environment: "catalog".into(),
-            role: "catalog".into(),
+            node_mode: "primary".into(),
+            role: "all".into(),
             instance_id: "catalog".into(),
         },
     )?;

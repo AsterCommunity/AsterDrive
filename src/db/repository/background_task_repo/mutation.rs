@@ -15,7 +15,7 @@ pub async fn create<C: ConnectionTrait>(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn clear_failed_dedupe_key<C: ConnectionTrait>(
+pub async fn clear_unsuccessful_dedupe_key<C: ConnectionTrait>(
     db: &C,
     id: i64,
     dedupe_key: &str,
@@ -26,7 +26,10 @@ pub async fn clear_failed_dedupe_key<C: ConnectionTrait>(
             Expr::value(Option::<String>::None),
         )
         .filter(background_task::Column::Id.eq(id))
-        .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Failed))
+        .filter(
+            background_task::Column::Status
+                .is_in([BackgroundTaskStatus::Failed, BackgroundTaskStatus::Canceled]),
+        )
         .filter(background_task::Column::DedupeKey.eq(dedupe_key))
         .exec(db)
         .await
@@ -516,7 +519,10 @@ pub async fn reset_for_manual_retry<C: ConnectionTrait>(
         )
         .col_expr(background_task::Column::UpdatedAt, Expr::value(now))
         .filter(background_task::Column::Id.eq(id))
-        .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Failed));
+        .filter(
+            background_task::Column::Status
+                .is_in([BackgroundTaskStatus::Failed, BackgroundTaskStatus::Canceled]),
+        );
     if let Some(steps_json) = steps_json {
         update = update.col_expr(
             background_task::Column::StepsJson,

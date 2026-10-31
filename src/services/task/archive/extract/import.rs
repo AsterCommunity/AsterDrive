@@ -30,6 +30,7 @@ pub(super) struct ArchiveExtractImportSummary {
     pub(super) folder_ids: Vec<i64>,
     pub(super) affected_parent_ids: Vec<Option<i64>>,
     pub(super) storage_delta: i64,
+    pub(super) reused_publication: bool,
 }
 
 pub(super) async fn materialize_archive_extract_stage(
@@ -71,7 +72,17 @@ pub(super) async fn materialize_archive_extract_stage(
             .ok_or_else(|| {
                 AsterError::validation_error("archive directory name must be valid UTF-8")
             })?;
-        let created = create_folder_exact_in_scope(state, scope, Some(parent_id), name).await?;
+        let created = create_folder_exact_in_scope(
+            state,
+            scope,
+            Some(parent_id),
+            name,
+            &crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                context.lease_guard().lease(),
+                &format!("directory:{}", relative_dir.to_string_lossy()),
+            ),
+        )
+        .await?;
         summary.folder_ids.push(created.id);
         summary.affected_parent_ids.push(created.parent_id);
         folder_ids.insert(relative_dir.clone(), created.id);
@@ -98,6 +109,12 @@ pub(super) async fn materialize_archive_extract_stage(
         let size = i64::try_from(metadata.len()).map_aster_err_with(|| {
             AsterError::internal_error("extracted file size exceeds i64 range")
         })?;
+        let publication =
+            crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                context.lease_guard().lease(),
+                &format!("file:{}", relative_file.to_string_lossy()),
+            );
+        let already_published = publication.find_file(state.writer_db()).await?.is_some();
         let created = storage::store_from_temp_exact_name_silent_with_hints(
             state,
             storage::StoreFromTempParams::new(
@@ -108,6 +125,7 @@ pub(super) async fn materialize_archive_extract_stage(
                 size,
             ),
             storage::StoreFromTempHints {
+                task_publication: Some(publication),
                 operation_context: storage::StorageOperationContext::new(context.clone()),
                 ..Default::default()
             },
@@ -117,8 +135,9 @@ pub(super) async fn materialize_archive_extract_stage(
         summary.affected_parent_ids.push(created.folder_id);
         summary.storage_delta = summary
             .storage_delta
-            .checked_add(size)
+            .checked_add(if already_published { 0 } else { size })
             .ok_or_else(|| AsterError::internal_error("archive extract storage delta overflow"))?;
+        summary.reused_publication |= already_published;
         imported_bytes = imported_bytes
             .checked_add(size)
             .ok_or_else(|| AsterError::internal_error("archive extract progress overflow"))?;

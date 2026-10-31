@@ -92,7 +92,11 @@ pub(super) async fn create_unique_folder_in_scope(
     scope: WorkspaceStorageScope,
     parent_id: Option<i64>,
     base_name: &str,
+    publication: &crate::db::repository::task_resource_publication_repo::TaskResourcePublication,
 ) -> Result<folder::Model> {
+    if let Some(folder) = publication.find_folder(state.writer_db()).await? {
+        return Ok(folder);
+    }
     let normalized_base_name =
         aster_forge_validation::filename::normalize_validate_name(base_name)?;
     let mut final_name =
@@ -101,7 +105,8 @@ pub(super) async fn create_unique_folder_in_scope(
     // `resolve_unique_*` 基于当前快照，只能降低冲突概率。真正创建时仍要用
     // 数据库唯一约束兜底，并在并发冲突时推进到下一个副本名。
     for attempt in 0..MAX_AUTO_FOLDER_NAME_RETRIES {
-        match create_folder_exact_in_scope(state, scope, parent_id, &final_name).await {
+        match create_folder_exact_in_scope(state, scope, parent_id, &final_name, publication).await
+        {
             Ok(folder) => return Ok(folder),
             Err(err) if folder_repo::is_duplicate_name_error(&err, &final_name) => {
                 if attempt + 1 == MAX_AUTO_FOLDER_NAME_RETRIES {
@@ -127,7 +132,11 @@ pub(super) async fn create_folder_exact_in_scope(
     scope: WorkspaceStorageScope,
     parent_id: Option<i64>,
     name: &str,
+    publication: &crate::db::repository::task_resource_publication_repo::TaskResourcePublication,
 ) -> Result<folder::Model> {
+    if let Some(folder) = publication.find_folder(state.writer_db()).await? {
+        return Ok(folder);
+    }
     let name = aster_forge_validation::filename::normalize_validate_name(name)?;
     let exists = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
@@ -148,6 +157,11 @@ pub(super) async fn create_folder_exact_in_scope(
     let now = Utc::now();
     let created_by_username = load_scope_actor_username(state.writer_db(), scope).await?;
     let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    publication.lock_owner(&txn).await?;
+    if let Some(folder) = publication.find_folder(&txn).await? {
+        aster_forge_db::transaction::commit(txn).await?;
+        return Ok(folder);
+    }
     let folder = crate::services::workspace::activity::create_folder(
         &txn,
         folder::ActiveModel {
@@ -165,6 +179,7 @@ pub(super) async fn create_folder_exact_in_scope(
         crate::services::workspace::activity::ActivitySource::Task,
     )
     .await?;
+    publication.insert_folder(&txn, &folder).await?;
     aster_forge_db::transaction::commit(txn).await?;
     Ok(folder)
 }

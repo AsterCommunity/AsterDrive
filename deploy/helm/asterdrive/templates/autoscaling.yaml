@@ -1,0 +1,29 @@
+{{- if .Values.split.enabled }}
+{{- range $role := list "api" "worker" }}
+{{- $settings := index $.Values.split $role }}
+{{- if $settings.autoscaling.enabled }}
+{{- if gt (int $settings.autoscaling.minReplicas) (int $settings.autoscaling.maxReplicas) }}
+{{- fail "autoscaling.minReplicas must not exceed maxReplicas" }}
+{{- end }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "asterdrive.fullnameWithSuffix" (dict "context" $ "suffix" $role) }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ include "asterdrive.fullnameWithSuffix" (dict "context" $ "suffix" $role) }}
+  minReplicas: {{ $settings.autoscaling.minReplicas }}
+  maxReplicas: {{ $settings.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $settings.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}
+{{- end }}

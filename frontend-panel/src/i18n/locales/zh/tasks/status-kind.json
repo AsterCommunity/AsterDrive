@@ -73,5 +73,6 @@
 	"storage_migration_skipped_blobs": "已跳过对象",
 	"storage_migration_failed_blobs": "失败对象",
 	"storage_migration_migrated_bytes": "字节数",
-	"status_text_storage_policy_forced_purge_completed": "策略 #{{policyId}} 已清除：{{purgedFiles}} 个文件、{{deletedBlobRecords}} 条 Blob 记录、{{freedLogicalBytes}} 逻辑字节"
+	"status_text_storage_policy_forced_purge_completed": "策略 #{{policyId}} 已清除：{{purgedFiles}} 个文件、{{deletedBlobRecords}} 条 Blob 记录、{{freedLogicalBytes}} 逻辑字节",
+	"status_canceling": "取消中"
 }

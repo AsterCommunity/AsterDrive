@@ -308,7 +308,7 @@ async fn create_folder(client: &Client, base_url: &str, token: &str, name: &str)
     );
 }
 
-async fn read_sse_until<S>(
+pub(super) async fn read_sse_until<S>(
     stream: &mut S,
     expectation: &str,
     predicate: impl Fn(&str) -> bool,

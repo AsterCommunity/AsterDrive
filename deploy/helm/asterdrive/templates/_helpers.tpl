@@ -146,9 +146,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- fail (printf "extraEnv must not override chart-managed key %s" $name) }}
 {{- end }}
 {{- end }}
-{{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" }}
+{{- range $key := list "app.kubernetes.io/name" "app.kubernetes.io/instance" "app.kubernetes.io/component" }}
 {{- if hasKey $.Values.podLabels $key }}
 {{- fail (printf "podLabels must not override StatefulSet selector label %s" $key) }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{- define "asterdrive.workloadName" -}}
+{{- if .Values.runtimeRole -}}
+{{- include "asterdrive.fullnameWithSuffix" (dict "context" . "suffix" .Values.runtimeRole) -}}
+{{- else -}}
+{{- include "asterdrive.fullname" . -}}
+{{- end -}}
 {{- end }}

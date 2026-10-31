@@ -2,7 +2,7 @@
 
 以下路径都相对于 `/api/v1`，且都需要认证。
 
-这组接口负责“列出现有任务、查看详情、重试失败任务”。真正创建任务的入口分散在其他模块里，管理员还可以通过存储迁移接口创建一类特殊任务。
+这组接口负责“列出现有任务、查看详情、重试失败或已取消任务”。真正创建任务的入口分散在其他模块里，管理员还可以通过存储迁移接口创建一类特殊任务。
 
 ## 个人空间
 
@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `GET` | `/tasks` | 分页列出当前用户个人空间任务 |
 | `GET` | `/tasks/{id}` | 读取单个个人空间任务 |
-| `POST` | `/tasks/{id}/retry` | 重试失败的个人空间任务 |
+| `POST` | `/tasks/{id}/retry` | 重试失败或已取消的个人空间任务 |
 | `POST` | `/tasks/offline-download` | 创建个人空间链接导入任务 |
 
 ## 团队空间
@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | `GET` | `/teams/{team_id}/tasks` | 分页列出指定团队任务 |
 | `GET` | `/teams/{team_id}/tasks/{id}` | 读取单个团队任务 |
-| `POST` | `/teams/{team_id}/tasks/{id}/retry` | 重试失败的团队任务 |
+| `POST` | `/teams/{team_id}/tasks/{id}/retry` | 重试失败或已取消的团队任务 |
 | `POST` | `/teams/{team_id}/tasks/offline-download` | 创建团队空间链接导入任务 |
 
 ## 谁会创建这些任务
@@ -139,6 +139,7 @@
 - `result`
 - `steps`
 - `can_retry`
+- `can_cancel`
 - `lease_expires_at`
 - `started_at`
 - `finished_at`
@@ -153,7 +154,7 @@
 - 执行期内部状态不会出现在 `TaskInfo` 里；例如 aria2 引擎的 GID 会持久化在 `background_tasks.runtime_json`，但不会放进 `payload` 或 `result`
 - 离线下载成功后的 `result.download_engine` 是公开的下载器名称，不是 aria2 内部状态
 - `steps` 会给出更细的阶段状态、阶段进度和阶段文案
-- `can_retry = true` 目前只在 `status = failed` 且失败类型允许手动重试时出现
+- `can_retry = true` 适用于允许手动重试的 failed 任务和已确认取消的 canceled 任务；`can_cancel` 表示是否允许发起取消请求
 - `progress_total <= 0` 时，成功任务的 `progress_percent` 会直接视为 `100`
 - `expires_at` 表示任务临时产物什么时候可以清理，不表示 `background_tasks` 历史记录一定会在这个时间删库
 
@@ -174,10 +175,11 @@
 - `offline_download`
 - `system_runtime`
 
-当前 `BackgroundTaskStatus` 有六种：
+当前 `BackgroundTaskStatus` 有七种：
 
 - `pending`
 - `processing`
+- `canceling`
 - `retry`
 - `succeeded`
 - `failed`
@@ -199,13 +201,13 @@
 
 ## `POST /tasks/{id}/retry`
 
-这条接口和团队对应版本都只接受失败态任务：
+这条接口和团队对应版本接受失败或已确认取消的任务：
 
-- 只有 `status = failed` 才能重试
+- 只有 `status = failed` 或 `status = canceled` 才能重试
 - 成功重试后，任务会被重置回待执行状态
 - 当前实现会先清掉该任务旧的临时目录，再做重置
 
-如果任务当前不是 `failed`，会返回 `400`。
+其他状态返回 `400`；重试期间发生并发状态变化时返回 `409`。
 
 ## 当前实现现状
 
@@ -221,3 +223,7 @@
 - `POST /admin/file-blobs/maintenance` 会创建 `blob_maintenance`，`integrity_check` 不写入 blob，`ref_count_reconcile` 只修正引用计数，`orphan_cleanup` 会先重新核算引用再清理仍然无引用的 blob
 
 所以如果你只用了下载 ticket 打包链路，任务列表为空是正常现象；如果你用了压缩 / 解压链路，列表就应该能看到对应任务。
+
+## 协作取消
+
+个人/团队任务新增 `POST /api/v1/tasks/{id}/cancel` / `POST /api/v1/teams/{team_id}/tasks/{id}/cancel`。`TaskInfo.can_cancel` 由后端提供。排队任务直接 Canceled，运行任务先 Canceling 后由 owner 确认，重复请求幂等，成功/失败终态返回 `409` 拒绝请求。取消中继续轮询且不可重试；Canceled 可手动 retry，保留同 TaskID 的发布 checkpoint 和已提交产物。系统维护不支持 workspace 取消。取消不是回滚。

@@ -65,9 +65,14 @@ fn attach_optional_routes(
     operation_id = "health",
     responses(
         (status = 200, description = "Service is healthy", body = inline(crate::api::response::HealthResponse)),
+        (status = 503, description = "Role is initializing or a local task worker stopped", body = inline(crate::api::response::HealthResponse)),
     ),
 )]
-pub async fn health() -> HttpResponse {
+pub async fn health(role: Option<web::Data<crate::runtime::role::RoleHealth>>) -> HttpResponse {
+    if role.as_ref().is_some_and(|role| !role.live()) {
+        return HttpResponse::ServiceUnavailable()
+            .json(status_response("initializing_or_worker_stopped"));
+    }
     HttpResponse::Ok().json(status_response("ok"))
 }
 
@@ -81,7 +86,10 @@ pub async fn health() -> HttpResponse {
         (status = 503, description = "Service unavailable"),
     ),
 )]
-pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
+pub async fn primary_ready(
+    state: web::Data<PrimaryAppState>,
+    role: Option<web::Data<crate::runtime::role::RoleHealth>>,
+) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         state.metrics.forge_recorder().role_readiness(false);
         return ready_database_error(error);
@@ -91,6 +99,13 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
         return ready_cache_error(error);
     }
 
+    if role.as_ref().is_some_and(|health| !health.ready()) {
+        state.metrics.forge_recorder().role_readiness(false);
+        return HttpResponse::ServiceUnavailable().json(crate::api::response::failure(
+            ApiErrorCode::ConfigError,
+            "Role is initializing, unavailable, or draining",
+        ));
+    }
     let result = health::check_primary_ready(state.get_ref()).await;
     state
         .metrics
@@ -177,7 +192,7 @@ fn ready_storage_error(error: crate::errors::AsterError) -> HttpResponse {
 }
 
 pub async fn ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
-    primary_ready(state).await
+    primary_ready(state, None).await
 }
 
 pub async fn memory() -> HttpResponse {
@@ -591,7 +606,7 @@ mod tests {
                 let response = if follower {
                     follower_ready(web::Data::new(state.follower_view())).await
                 } else {
-                    super::primary_ready(web::Data::new(state)).await
+                    super::primary_ready(web::Data::new(state), None).await
                 };
                 let ready = failure == "none";
                 assert_eq!(

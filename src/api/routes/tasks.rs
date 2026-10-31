@@ -34,6 +34,7 @@ pub fn routes(
         .route("/offline-download", web::post().to(create_offline_download))
         .route("/{id}", web::get().to(get_task))
         .route("/{id}/retry", web::post().to(retry_task))
+        .route("/{id}/cancel", web::post().to(cancel_task))
 }
 
 pub fn team_routes() -> actix_web::Scope {
@@ -45,6 +46,7 @@ pub fn team_routes() -> actix_web::Scope {
         )
         .route("/{id}", web::get().to(team_get_task))
         .route("/{id}/retry", web::post().to(team_retry_task))
+        .route("/{id}/cancel", web::post().to(team_cancel_task))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -350,5 +352,52 @@ pub(crate) async fn create_offline_download_response(
         },
     )
     .await;
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    post,path="/api/v1/tasks/{id}/cancel",tag="tasks",operation_id="cancel_task",
+    params(("id"=i64,Path,description="Task ID")),
+    responses((status=200,description="Task canceled or cancellation requested; committed changes are retained",body=inline(ApiResponse<task::types::TaskInfo>)),(status=401,description="Unauthorized"),(status=404,description="Task not found"),(status=409,description="Task already finished")),security(("bearer"=[]))
+)]
+pub async fn cancel_task(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    id: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let ctx = AuditContext::from_request(&req, &claims);
+    let task = task::cancel::request(
+        state.get_ref(),
+        WorkspaceStorageScope::Personal {
+            user_id: claims.user_id,
+        },
+        *id,
+        &ctx,
+    )
+    .await?;
+    Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    post,path="/api/v1/teams/{team_id}/tasks/{id}/cancel",tag="teams",operation_id="cancel_team_task",
+    params(("team_id"=i64,Path,description="Team ID"),("id"=i64,Path,description="Task ID")),
+    responses((status=200,description="Task canceled or cancellation requested; committed changes are retained",body=inline(ApiResponse<task::types::TaskInfo>)),(status=401,description="Unauthorized"),(status=403,description="Forbidden"),(status=404,description="Task not found"),(status=409,description="Task already finished")),security(("bearer"=[]))
+)]
+pub(crate) async fn team_cancel_task(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    ids: web::Path<(i64, i64)>,
+) -> Result<HttpResponse> {
+    let ctx = AuditContext::from_request(&req, &claims);
+    let (team_id, task_id) = ids.into_inner();
+    let task = task::cancel::request(
+        state.get_ref(),
+        team_scope(team_id, claims.user_id),
+        task_id,
+        &ctx,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(task)))
 }

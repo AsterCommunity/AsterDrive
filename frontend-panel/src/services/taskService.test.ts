@@ -66,4 +66,13 @@ describe("taskService", () => {
 		});
 		expect(apiPost).toHaveBeenCalledWith("/teams/3/tasks/11/retry");
 	});
+	it("freezes a cancellation endpoint to the workspace selected at command creation", async () => {
+		apiPost.mockResolvedValue({ status: "canceled" });
+		const original = createTaskService(PERSONAL_WORKSPACE);
+		useWorkspaceStore.getState().setWorkspace({ kind: "team", teamId: 42 });
+		await original.cancelTask(7);
+		await taskService.cancelTask(8);
+		expect(apiPost).toHaveBeenNthCalledWith(1, "/tasks/7/cancel");
+		expect(apiPost).toHaveBeenNthCalledWith(2, "/teams/42/tasks/8/cancel");
+	});
 });

@@ -99,3 +99,8 @@ endpoint = "http://127.0.0.1:4318/v1/metrics"  # full OTLP HTTP/protobuf signal 
 interval_seconds = 60
 timeout_seconds = 5
 # headers = { Authorization = "Bearer <collector credential>" }  # outbound only; distinct from pull Basic Auth
+
+# Per-process shutdown budgets; shared task quotas are runtime system settings.
+[worker]
+drain_timeout_secs = 20
+cancellation_timeout_secs = 5

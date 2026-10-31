@@ -39,6 +39,27 @@ pub async fn list_claimable_by_kinds<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub(crate) async fn list_claimable_by_kinds_for_update<C: ConnectionTrait>(
+    db: &C,
+    now: DateTime<Utc>,
+    stale_before: DateTime<Utc>,
+    kinds: &[BackgroundTaskKind],
+    limit: u64,
+) -> Result<Vec<background_task::Model>> {
+    if kinds.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut query = list_claimable_query(now, stale_before, limit)
+        .filter(background_task::Column::Kind.is_in(kinds.iter().copied()));
+    if db.get_database_backend() != sea_orm::DbBackend::Sqlite {
+        query = query.lock_with_behavior(
+            sea_orm::sea_query::LockType::Update,
+            sea_orm::sea_query::LockBehavior::SkipLocked,
+        );
+    }
+    query.all(db).await.map_err(AsterError::from)
+}
+
 pub async fn try_claim<C: ConnectionTrait>(
     db: &C,
     id: i64,
@@ -56,7 +77,12 @@ pub async fn try_claim<C: ConnectionTrait>(
     let result = BackgroundTask::update_many()
         .col_expr(
             background_task::Column::Status,
-            Expr::value(BackgroundTaskStatus::Processing.to_value()),
+            Expr::case(
+                background_task::Column::Status.eq(BackgroundTaskStatus::Canceling),
+                BackgroundTaskStatus::Canceling.to_value(),
+            )
+            .finally(BackgroundTaskStatus::Processing.to_value())
+            .into(),
         )
         .col_expr(
             background_task::Column::ProcessingStartedAt,

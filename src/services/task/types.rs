@@ -871,6 +871,8 @@ pub struct TaskInfo {
     pub result: Option<TaskResult>,
     pub steps: Vec<TaskStepInfo>,
     pub can_retry: bool,
+    /// Whether this scoped user task can accept a cancellation request.
+    pub can_cancel: bool,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub lease_expires_at: Option<chrono::DateTime<chrono::Utc>>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]

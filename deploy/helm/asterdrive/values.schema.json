@@ -17,6 +17,200 @@
     "probes"
   ],
   "properties": {
+    "split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "api",
+        "worker"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "api": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "replicaCount",
+            "resources",
+            "nodeSelector",
+            "affinity",
+            "tolerations",
+            "terminationGracePeriodSeconds",
+            "podDisruptionBudget",
+            "autoscaling"
+          ],
+          "properties": {
+            "replicaCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resources": {
+              "type": "object"
+            },
+            "nodeSelector": {
+              "type": "object"
+            },
+            "affinity": {
+              "type": "object"
+            },
+            "tolerations": {
+              "type": "array"
+            },
+            "terminationGracePeriodSeconds": {
+              "type": "integer",
+              "minimum": 35
+            },
+            "podDisruptionBudget": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "minAvailable",
+                "maxUnavailable"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minAvailable": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "maxUnavailable": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              }
+            },
+            "autoscaling": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "minReplicas",
+                "maxReplicas",
+                "targetCPUUtilizationPercentage"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minReplicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxReplicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "targetCPUUtilizationPercentage": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              }
+            }
+          }
+        },
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "replicaCount",
+            "resources",
+            "nodeSelector",
+            "affinity",
+            "tolerations",
+            "terminationGracePeriodSeconds",
+            "podDisruptionBudget",
+            "autoscaling"
+          ],
+          "properties": {
+            "replicaCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resources": {
+              "type": "object"
+            },
+            "nodeSelector": {
+              "type": "object"
+            },
+            "affinity": {
+              "type": "object"
+            },
+            "tolerations": {
+              "type": "array"
+            },
+            "terminationGracePeriodSeconds": {
+              "type": "integer",
+              "minimum": 35
+            },
+            "podDisruptionBudget": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "minAvailable",
+                "maxUnavailable"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minAvailable": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                },
+                "maxUnavailable": {
+                  "type": [
+                    "integer",
+                    "string"
+                  ]
+                }
+              }
+            },
+            "autoscaling": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "minReplicas",
+                "maxReplicas",
+                "targetCPUUtilizationPercentage"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "minReplicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "maxReplicas": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "targetCPUUtilizationPercentage": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "image": {
       "type": "object",

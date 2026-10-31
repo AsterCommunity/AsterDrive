@@ -6,12 +6,11 @@ mod staging;
 use aster_forge_tasks::TaskExecutionContext;
 use std::path::Path;
 
-use aster_forge_tasks::{TaskLease, set_task_step_active, set_task_step_succeeded};
+use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 use chrono::Utc;
 
 use super::common::{build_folder_display_path, create_unique_folder_in_scope};
 use crate::config::operations;
-use crate::db::repository::background_task_repo;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::files::archive::core::format::{
@@ -20,7 +19,7 @@ use crate::services::files::archive::core::format::{
 use crate::services::{
     events::storage_change,
     task::{
-        cleanup_task_temp_dir_for_task_kind, create_typed_task_record, get_task_in_scope,
+        cleanup_task_temp_dir_for_lease, create_typed_task_record, get_task_in_scope,
         is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
         mark_task_succeeded,
         spec::{self, ArchiveExtractTask, decode_payload_as},
@@ -37,7 +36,6 @@ use crate::services::{
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use aster_drive_model::entities::{background_task, file};
-use aster_drive_model::types::BackgroundTaskStatus;
 use import::materialize_archive_extract_stage;
 use staging::{
     ArchiveExtractLimits, ArchiveExtractStageOptions, StageArchiveForExtractParams,
@@ -179,6 +177,10 @@ pub(super) async fn process_archive_extract_task(
             scope,
             payload.target_folder_id,
             &payload.output_folder_name,
+            &crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                context.lease_guard().lease(),
+                "extract:root",
+            ),
         )
         .await?;
 
@@ -198,7 +200,9 @@ pub(super) async fn process_archive_extract_task(
             &steps,
         )
         .await?;
-        let import_summary = match materialize_archive_extract_stage(
+        // Each published directory/file commits with its receipt. Keep committed output
+        // on cancellation or failure so a retry can resume without duplicate mutations.
+        let import_summary = materialize_archive_extract_stage(
             state,
             &context,
             scope,
@@ -207,33 +211,24 @@ pub(super) async fn process_archive_extract_task(
             &created_root,
             &mut steps,
         )
-        .await
-        {
-            Ok(summary) => summary,
-            Err(error) => {
-                cleanup_created_extract_root_after_import_error(
-                    state,
-                    scope,
-                    created_root.id,
-                    &context,
-                    &error,
-                )
-                .await;
-                return Err(error);
-            }
-        };
+        .await?;
+        let event = storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderCreated,
+            scope,
+            import_summary.file_ids,
+            import_summary.folder_ids,
+            import_summary.affected_parent_ids,
+        );
         storage_change::publish(
             state,
-            storage_change::StorageChangeEvent::new(
-                storage_change::StorageChangeKind::FolderCreated,
-                scope,
-                import_summary.file_ids,
-                import_summary.folder_ids,
-                import_summary.affected_parent_ids,
-            )
-            .with_storage_delta(import_summary.storage_delta),
+            if import_summary.reused_publication {
+                event.with_quota_refresh()
+            } else {
+                event.with_storage_delta(import_summary.storage_delta)
+            },
         );
-        cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await?;
+        cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease())
+            .await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_IMPORT_RESULT,
@@ -266,10 +261,39 @@ pub(super) async fn process_archive_extract_task(
     match result {
         Ok(()) => Ok(()),
         Err(error) => {
+            // Partial publications are durable. Ask only this workspace to reread
+            // metadata/quota when an interrupted import cannot emit its final batch.
+            let published_root =
+                crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                    lease_guard.lease(),
+                    "extract:root",
+                );
+            match published_root.find_folder(state.writer_db()).await {
+                Ok(Some(_)) => {
+                    if let Ok(scope) = task_scope(task) {
+                        let event = storage_change::StorageChangeEvent::new(
+                            storage_change::StorageChangeKind::SyncRequired,
+                            scope,
+                            vec![],
+                            vec![],
+                            vec![],
+                        )
+                        .with_quota_refresh();
+                        storage_change::publish(state, event);
+                    }
+                }
+                Ok(None) => {}
+                Err(lookup_error) => {
+                    tracing::warn!(task_id=task.id,%lookup_error,"cannot inspect interrupted archive publication")
+                }
+            }
             if !is_task_lease_lost(&error)
                 && !is_task_lease_renewal_timed_out(&error)
-                && let Err(cleanup_error) =
-                    cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await
+                && let Err(cleanup_error) = cleanup_task_temp_dir_for_lease(
+                    &[&state.config().server.temp_dir],
+                    lease_guard.lease(),
+                )
+                .await
             {
                 tracing::warn!(
                     task_id = task.id,
@@ -277,120 +301,6 @@ pub(super) async fn process_archive_extract_task(
                 );
             }
             Err(error)
-        }
-    }
-}
-
-async fn cleanup_created_extract_root_after_import_error(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    root_folder_id: i64,
-    context: &TaskExecutionContext,
-    error: &AsterError,
-) {
-    if !is_task_lease_lost(error) && !is_task_lease_renewal_timed_out(error) {
-        cleanup_created_extract_root(state, scope, root_folder_id).await;
-        return;
-    }
-
-    let lease = context.lease_guard().lease();
-    match background_task_repo::find_by_id(state.writer_db(), lease.task_id).await {
-        Ok(current_task)
-            if should_cleanup_created_extract_root_for_lease_error(&current_task, lease) =>
-        {
-            cleanup_created_extract_root(state, scope, root_folder_id).await;
-        }
-        Ok(current_task) => {
-            tracing::info!(
-                task_id = lease.task_id,
-                processing_token = lease.processing_token,
-                current_processing_token = current_task.processing_token,
-                current_status = ?current_task.status,
-                root_folder_id,
-                "skipping archive extract root cleanup because the task lease moved"
-            );
-        }
-        Err(query_error) => {
-            tracing::warn!(
-                task_id = lease.task_id,
-                processing_token = lease.processing_token,
-                root_folder_id,
-                "failed to check archive extract task lease before cleanup: {query_error}"
-            );
-        }
-    }
-}
-
-fn should_cleanup_created_extract_root_for_lease_error(
-    current_task: &background_task::Model,
-    lease: TaskLease,
-) -> bool {
-    current_task.status == BackgroundTaskStatus::Processing
-        && current_task.processing_token == lease.processing_token
-}
-
-async fn cleanup_created_extract_root(
-    state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
-    root_folder_id: i64,
-) {
-    match crate::services::files::folder::collect_folder_tree_in_scope(
-        state.writer_db(),
-        scope,
-        root_folder_id,
-        true,
-        None,
-    )
-    .await
-    {
-        Ok((files, folder_ids)) => {
-            if let Err(error) =
-                crate::services::files::file::batch_purge_in_scope(state, scope, files).await
-            {
-                tracing::warn!(
-                    root_folder_id,
-                    "failed to purge partially imported archive files: {error}"
-                );
-            }
-            if let Err(error) = crate::db::repository::property_repo::delete_all_for_entities(
-                state.writer_db(),
-                aster_drive_model::types::EntityType::Folder,
-                &folder_ids,
-            )
-            .await
-            {
-                tracing::warn!(
-                    root_folder_id,
-                    "failed to delete partially imported archive folder properties: {error}"
-                );
-            }
-            if let Err(error) = crate::db::repository::share_repo::delete_by_folder_ids(
-                state.writer_db(),
-                &folder_ids,
-            )
-            .await
-            {
-                tracing::warn!(
-                    root_folder_id,
-                    "failed to delete partially imported archive shares: {error}"
-                );
-            }
-            crate::services::files::folder::invalidate_folder_path_chains(state, &folder_ids).await;
-            if let Err(error) =
-                crate::db::repository::folder_repo::delete_many(state.writer_db(), &folder_ids)
-                    .await
-            {
-                tracing::warn!(
-                    root_folder_id,
-                    "failed to delete partially imported archive folders: {error}"
-                );
-            }
-        }
-        Err(error) => {
-            tracing::warn!(
-                root_folder_id,
-                "failed to collect partially imported archive root for cleanup: {error}"
-            );
         }
     }
 }
@@ -440,67 +350,4 @@ fn ensure_source_archive_allowed(
         )));
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::Utc;
-
-    use super::should_cleanup_created_extract_root_for_lease_error;
-    use aster_drive_model::entities::background_task;
-    use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
-    use aster_forge_tasks::TaskLease;
-
-    fn task_model(status: BackgroundTaskStatus, processing_token: i64) -> background_task::Model {
-        let now = Utc::now();
-        background_task::Model {
-            id: 42,
-            kind: BackgroundTaskKind::ArchiveExtract,
-            status,
-            creator_user_id: Some(7),
-            team_id: None,
-            share_id: None,
-            display_name: "Extract archive.zip".to_string(),
-            dedupe_key: None,
-            payload_json: StoredTaskPayload("{}".to_string()),
-            result_json: None,
-            runtime_json: None,
-            steps_json: None,
-            progress_current: 0,
-            progress_total: 0,
-            status_text: None,
-            attempt_count: 0,
-            max_attempts: 1,
-            next_run_at: now,
-            processing_token,
-            processing_started_at: Some(now),
-            last_heartbeat_at: Some(now),
-            lease_expires_at: Some(now),
-            started_at: Some(now),
-            finished_at: None,
-            last_error: None,
-            failure_can_retry: None,
-            expires_at: now,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-
-    #[test]
-    fn lease_error_cleanup_only_when_task_still_matches_current_token() {
-        let lease = TaskLease::new(42, 3);
-
-        assert!(should_cleanup_created_extract_root_for_lease_error(
-            &task_model(BackgroundTaskStatus::Processing, 3),
-            lease,
-        ));
-        assert!(!should_cleanup_created_extract_root_for_lease_error(
-            &task_model(BackgroundTaskStatus::Processing, 4),
-            lease,
-        ));
-        assert!(!should_cleanup_created_extract_root_for_lease_error(
-            &task_model(BackgroundTaskStatus::Succeeded, 3),
-            lease,
-        ));
-    }
 }

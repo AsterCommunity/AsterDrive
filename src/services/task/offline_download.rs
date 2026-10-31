@@ -12,8 +12,9 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     files::folder,
     task::{
-        create_typed_task_record, get_task_in_scope, is_task_lease_lost,
-        is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
+        cleanup_task_temp_dir_for_lease, create_typed_task_record, get_task_in_scope,
+        is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
+        mark_task_succeeded,
         spec::{self, OfflineDownloadTask, decode_payload_as},
         steps::{
             TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_STORE_RESULT, TASK_STEP_VALIDATE_SOURCE,
@@ -99,6 +100,64 @@ pub(super) async fn process_offline_download_task(
     context: TaskExecutionContext,
 ) -> Result<()> {
     let lease_guard = context.lease_guard().clone();
+    context.ensure_active()?;
+    let publication =
+        crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+            lease_guard.lease(),
+            "download",
+        );
+    if let Some(stored) = publication.find_file(state.writer_db()).await? {
+        let metadata: PublishedDownloadMetadata =
+            serde_json::from_value(publication.metadata(state.writer_db()).await?.ok_or_else(
+                || AsterError::internal_error("missing published download metadata"),
+            )?)
+            .map_err(|_| AsterError::internal_error("invalid published download metadata"))?;
+        let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
+        for step in [
+            TASK_STEP_WAITING,
+            TASK_STEP_VALIDATE_SOURCE,
+            TASK_STEP_DOWNLOAD_SOURCE,
+            TASK_STEP_VERIFY_SOURCE,
+            TASK_STEP_STORE_RESULT,
+        ] {
+            set_task_step_succeeded(&mut steps, step, Some("File imported"), None)?;
+        }
+        let result = OfflineDownloadTaskResult {
+            file_id: stored.id,
+            file_name: stored.name.clone(),
+            folder_id: stored.folder_id,
+            file_path: build_download_result_path(state, task_scope(task)?, &stored).await?,
+            source_display_url: metadata.source_display_url,
+            content_length: stored.size,
+            sha256: metadata.sha256,
+            download_engine: metadata.engine,
+        };
+        let raw = spec::serialize_result::<OfflineDownloadTask>(&result)?;
+        crate::services::events::storage_change::publish(
+            state,
+            crate::services::events::storage_change::StorageChangeEvent::new(
+                crate::services::events::storage_change::StorageChangeKind::FileCreated,
+                task_scope(task)?,
+                vec![stored.id],
+                vec![],
+                vec![stored.folder_id],
+            )
+            .with_quota_refresh(),
+        );
+        return mark_task_succeeded(
+            state,
+            &lease_guard,
+            Some(&raw),
+            stored.size,
+            stored.size,
+            Some("Offline download imported"),
+            &steps,
+        )
+        .await;
+    }
+
+    let temp_root = offline_download_temp_root(state);
+    let scratch_roots = [state.config().server.temp_dir.as_str(), temp_root.as_str()];
     let result = async {
         let scope = task_scope(task)?;
         let payload = decode_payload_as::<OfflineDownloadTask>(task)?;
@@ -134,7 +193,6 @@ pub(super) async fn process_offline_download_task(
             .source_display_url
             .clone()
             .unwrap_or_else(|| redact_url_for_display(&source_url));
-        let temp_root = offline_download_temp_root(state);
         let task_temp_dir =
             aster_forge_tasks::prepare_task_temp_dir_in_root(&temp_root, lease_guard.lease())
                 .await?;
@@ -260,6 +318,14 @@ pub(super) async fn process_offline_download_task(
                 downloaded.bytes_written,
             ),
             storage::StoreFromTempHints {
+                task_publication: Some(
+                    crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                        context.lease_guard().lease(),
+                        "download",
+                    ).with_metadata(serde_json::to_value(PublishedDownloadMetadata {
+                        sha256:downloaded.sha256.clone(),source_display_url:source_display_url.clone(),engine:downloaded.engine,
+                    }).map_err(|_|AsterError::internal_error("serialize published download metadata"))?),
+                ),
                 precomputed_hash: Some(&downloaded.sha256),
                 operation_context: storage::StorageOperationContext::new(context.clone()),
                 ..Default::default()
@@ -268,7 +334,7 @@ pub(super) async fn process_offline_download_task(
             true,
         )
         .await?;
-        aster_forge_tasks::cleanup_task_temp_dir_for_task_in_root(&temp_root, task.id).await?;
+        cleanup_task_temp_dir_for_lease(&scratch_roots, lease_guard.lease()).await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_STORE_RESULT,
@@ -305,11 +371,7 @@ pub(super) async fn process_offline_download_task(
             if !is_task_lease_lost(&error)
                 && !is_task_lease_renewal_timed_out(&error)
                 && let Err(cleanup_error) =
-                    aster_forge_tasks::cleanup_task_temp_dir_for_task_in_root(
-                        &offline_download_temp_root(state),
-                        task.id,
-                    )
-                    .await
+                    cleanup_task_temp_dir_for_lease(&scratch_roots, lease_guard.lease()).await
             {
                 tracing::warn!(
                     task_id = task.id,
@@ -360,3 +422,11 @@ async fn build_download_result_path(
 
 #[cfg(test)]
 mod tests;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishedDownloadMetadata {
+    sha256: String,
+    source_display_url: String,
+    engine: Option<operations::OfflineDownloadEngine>,
+}

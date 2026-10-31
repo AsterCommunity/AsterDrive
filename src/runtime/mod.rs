@@ -3,6 +3,7 @@
 pub mod assembly;
 mod audit_recovery;
 pub mod components;
+pub mod role;
 pub mod shutdown;
 pub mod startup;
 pub mod tasks;

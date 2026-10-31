@@ -52,6 +52,7 @@ pub fn primary_http_component(
     workers: usize,
     state: web::Data<PrimaryAppState>,
     metrics: web::Data<dyn aster_forge_metrics::MetricsRecorder>,
+    mut role_health: crate::runtime::role::RoleHealth,
 ) -> TryRuntimeComponentWithShutdown<
     HttpServiceComponent,
     impl FnOnce(CancellationToken) -> io::Result<HttpServiceComponent>,
@@ -60,6 +61,9 @@ pub fn primary_http_component(
     aster_forge_runtime::try_runtime_component_with_shutdown(move |shutdown_token| {
         let configure_db = state.writer_db().clone();
         let shutdown_data = web::Data::new(shutdown_token.clone());
+        role_health.shutdown = shutdown_token.clone();
+        let role = role_health.role;
+        let role_health = web::Data::new(role_health);
         let app_state = state.clone();
         #[cfg(feature = "metrics")]
         let metrics_auth = web::Data::new(crate::api::middleware::metrics_auth::MetricsAuth::new(
@@ -84,9 +88,9 @@ pub fn primary_http_component(
                 }
             };
             app.wrap(actix_web::middleware::Compress::default())
+                .wrap(crate::api::middleware::cors::runtime_cors())
                 .wrap(aster_forge_middleware::actix::metrics::MetricsMiddleware)
                 .wrap(aster_forge_middleware::actix::request_id::RequestIdMiddleware)
-                .wrap(crate::api::middleware::cors::runtime_cors())
                 .wrap(aster_forge_middleware::actix::security_headers::default_headers())
                 .app_data(actix_web::web::PayloadConfig::new(
                     crate::api::extractors::DEFAULT_PAYLOAD_LIMIT,
@@ -97,8 +101,15 @@ pub fn primary_http_component(
                 .app_data(app_state.clone())
                 .app_data(metrics.clone())
                 .app_data(shutdown_data.clone())
+                .app_data(role_health.clone())
                 .configure(move |cfg| {
-                    crate::api::configure_primary(cfg, &db, &route_config.observability)
+                    if role.serves_api() {
+                        crate::api::configure_primary(cfg, &db, &route_config.observability);
+                    } else {
+                        cfg.service(crate::api::routes::health::primary_routes(
+                            &route_config.observability,
+                        ));
+                    }
                 })
         })
         .keep_alive(std::time::Duration::from_secs(30))

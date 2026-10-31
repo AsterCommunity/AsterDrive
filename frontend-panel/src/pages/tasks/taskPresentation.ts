@@ -11,6 +11,7 @@ import type {
 export const ACTIVE_TASK_STATUSES = new Set<BackgroundTaskStatus>([
 	"pending",
 	"processing",
+	"canceling",
 	"retry",
 ]);
 
@@ -186,6 +187,7 @@ export function statusBadgeVariant(status: BackgroundTaskStatus) {
 	switch (status) {
 		case "pending":
 		case "processing":
+		case "canceling":
 		case "retry":
 			return "secondary";
 		case "succeeded":
@@ -200,6 +202,7 @@ export function statusBadgeVariant(status: BackgroundTaskStatus) {
 export function taskMetaTextClass(status: BackgroundTaskStatus) {
 	switch (status) {
 		case "processing":
+		case "canceling":
 		case "retry":
 			return "text-primary";
 		case "succeeded":
@@ -305,6 +308,8 @@ export function formatTaskStatus(
 			return t("tasks:status_pending");
 		case "processing":
 			return t("tasks:status_processing");
+		case "canceling":
+			return t("tasks:status_canceling");
 		case "retry":
 			return t("tasks:status_retry");
 		case "succeeded":
@@ -394,6 +399,7 @@ export function taskSummaryTimestamp(t: TaskTranslate, task: TaskInfo) {
 				date: formatDateAbsolute(task.created_at),
 			});
 		case "processing":
+		case "canceling":
 		case "retry":
 			if (task.started_at) {
 				return t("tasks:summary_started_at", {

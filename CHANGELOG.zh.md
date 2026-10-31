@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **API/worker 与任务契约迁移** — 所有角色必须升级到同一版本并同步迁移 Forge consumer。既有任务并发设置现在限制每个 worker，集群总额度使用新设置。数据库迁移新增 `task_resource_publications`。不支持混合版本执行：停止旧 writer，保留任务表与存储并统一升级后再恢复消费。回退旧 binary 必须同时恢复匹配的数据库和存储备份。（#634）
+- **指标节点与角色标识** — `aster_node_mode="primary"` / `"follower"` 独立标识节点模式，`aster_role="all"`、`"api"` / `"worker"` 标识进程职责。旧 `aster_role="primary"` / `"follower"` 过滤条件需迁移，Follower 当前的 role 为 `all`。内置看板增加节点模式与职责筛选，外部看板和告警需同步更新。（#634）
+
 ### Added
+
+- **CORS 策略拒绝响应** — 来源及 preflight 方法/请求头拒绝使用现有 `forbidden` 错误码返回 Drive envelope，并保留安全头、请求 ID 和 HTTP 指标。解析失败仍为校验错误，响应构造失败仍为内部错误；允许、inactive、豁免请求及 handler 自身响应保持原有行为。（#668）
+
+- **API/worker 角色与协作取消** — 同一二进制支持 `serve all/api/worker`，默认 all；Follower 仍由配置决定。独立的容量受限消费者在单 owner 调度租约之外按本进程空槽持续认领，支持事务内共享额度、fenced 接管、角色探针和分阶段关闭；Helm/Kustomize 提供独立工作负载及 HPA。workspace 取消先展示 Canceling，确认停止后为 Canceled，保留已提交变更并允许同记录重试。归档/离线产物与产品变更同事务保存发布记录，恢复不重复创建文件或扣配额；恢复通知要求重新读取权威用量，不重放存储增量。（#634）
 
 - **可审计的管理员工作空间查看** — 管理员通过共享文件浏览器只读查看个人或团队目录、缩略图及完整回收站（原位置与到期时间，不提供恢复或永久删除），下载保留的当前/历史版本，并由整块可点击的 blob 引用卡片定位逻辑文件；Blob 详情支持带 ID 的可刷新 URL，上传用户与其他字段左右对齐。用户入口位于左侧基础信息下，带新标签页图标；打开的独立文件页与普通文件页及回收站共用导航工具栏，目录树整行可点击，侧栏显示目标身份。目录、缩略图和详情沿用工作空间访问上下文；详情切换不收起面板，退出动画结束后才释放内容，版本历史独立显示并保留详情。逻辑文件下载直接初始化，不再另填原因；工作空间查看仍需原因与短期会话绑定上下文，管理员下载保留实时授权、init 审计及同事务提交。审计保存目标名称快照，展示目标 ID、翻译后的原因/结果及备注，不以当前账号名称重建历史。下载 init 固定 revision 并保留 presigned 交付，已签发地址沿用原有效期。升级新增 `admin_content_accesses` 表，数据库搬迁保留访问上下文与会话绑定。
 

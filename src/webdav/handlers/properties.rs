@@ -264,6 +264,7 @@ where
         capability_snapshot,
         &request_kind,
         &root_values,
+        aster_forge_webdav::DavPropertyMaterializationLimits::default(),
     ) {
         Ok(item) => item,
         Err(error) => {
@@ -567,6 +568,7 @@ where
                     &resource.capabilities,
                     &request_kind,
                     &values,
+                    aster_forge_webdav::DavPropertyMaterializationLimits::default(),
                 ) {
                     Ok(item) => yield Ok(item),
                     Err(error) => {

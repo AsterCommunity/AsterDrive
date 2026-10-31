@@ -1,8 +1,9 @@
+{{- define "asterdrive.pdb" -}}
 {{- if .Values.podDisruptionBudget.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "asterdrive.fullname" . }}
+  name: {{ include "asterdrive.workloadName" . }}
   labels:
     {{- include "asterdrive.labels" . | nindent 4 }}
 spec:
@@ -13,5 +14,21 @@ spec:
   {{- end }}
   selector:
     matchLabels:
+      {{- with .Values.runtimeRole }}
+      app.kubernetes.io/component: {{ . }}
+      {{- end }}
       {{- include "asterdrive.selectorLabels" . | nindent 6 }}
+{{- end }}
+
+{{- end }}
+{{- if .Values.split.enabled }}
+{{- range $role := list "api" "worker" }}
+{{- $ctx := deepCopy $ }}
+{{- $_ := set $ctx.Values "runtimeRole" $role }}
+{{- $_ := set $ctx.Values "podDisruptionBudget" (index $.Values.split $role).podDisruptionBudget }}
+---
+{{ include "asterdrive.pdb" $ctx }}
+{{- end }}
+{{- else }}
+{{ include "asterdrive.pdb" . }}
 {{- end }}

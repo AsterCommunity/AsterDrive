@@ -15,81 +15,26 @@ use aster_forge_tasks::BackgroundTasks;
 
 const MAINTENANCE_CLEANUP_JITTER_CAP: Duration = Duration::from_secs(30);
 
-async fn spawn_background_task_dispatcher(
-    shutdown_token: CancellationToken,
-    state: web::Data<PrimaryAppState>,
-) {
-    aster_forge_tasks::run_dispatch_worker(
-        SystemRuntimeTaskKind::BackgroundTaskDispatch.as_str(),
-        shutdown_token,
-        state,
-        |state| background_task_dispatch_interval(state.get_ref()),
-        |state| background_task_dispatch_idle_max_interval(state.get_ref()),
-        |state: web::Data<PrimaryAppState>| async move {
-            state.background_task_dispatch_wakeup.notified().await;
-        },
-        run_background_task_dispatch_iteration,
-    )
-    .await;
-}
-
-async fn run_background_task_dispatch_iteration(
-    state: web::Data<PrimaryAppState>,
-    shutdown_token: CancellationToken,
-) -> aster_forge_tasks::BackgroundTaskDispatchIteration {
-    let iteration = std::sync::Arc::new(std::sync::Mutex::new(
-        aster_forge_tasks::BackgroundTaskDispatchIteration::idle(),
-    ));
-    let iteration_for_record = iteration.clone();
-    let iteration_for_panic = iteration.clone();
-    aster_forge_tasks::run_recorded_task_iteration(
-        SystemRuntimeTaskKind::BackgroundTaskDispatch,
-        SystemRuntimeTaskKind::BackgroundTaskDispatch.as_str(),
-        state,
-        &move |state: web::Data<PrimaryAppState>| {
-            let shutdown_token = shutdown_token.clone();
-            let iteration_for_record = iteration_for_record.clone();
-            async move {
-                let result = crate::services::task::dispatch::dispatch_due_with_shutdown(
-                    state.get_ref(),
-                    shutdown_token,
-                )
-                .await;
-                let value = match &result {
-                    Ok(stats) if stats.has_activity() => {
-                        aster_forge_tasks::BackgroundTaskDispatchIteration::active()
-                    }
-                    Ok(_) => aster_forge_tasks::BackgroundTaskDispatchIteration::idle(),
-                    Err(_) => aster_forge_tasks::BackgroundTaskDispatchIteration::failed(),
-                };
-                match iteration_for_record.lock() {
-                    Ok(mut stored) => *stored = value,
-                    Err(poisoned) => *poisoned.into_inner() = value,
-                }
-                background_task_dispatch_outcome(result)
-            }
-        },
-        &move |panic_message| {
-            match iteration_for_panic.lock() {
-                Ok(mut stored) => {
-                    *stored = aster_forge_tasks::BackgroundTaskDispatchIteration::failed()
-                }
-                Err(poisoned) => {
-                    *poisoned.into_inner() =
-                        aster_forge_tasks::BackgroundTaskDispatchIteration::failed()
-                }
-            }
+async fn cleanup_local_task_artifacts(
+    s: web::Data<PrimaryAppState>,
+) -> crate::services::task::RuntimeTaskRunOutcome {
+    // task-cleanup 只清理过期任务产物，不删任务记录。
+    // 也就是说 admin/tasks 里的历史事件仍然保留，只是 temp 目录会被回收。
+    match crate::services::task::cleanup_expired(s.get_ref()).await {
+        Ok(count) if count > 0 => {
+            tracing::info!("cleaned up {count} expired task artifacts");
+            crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                "cleaned up {count} expired task artifacts"
+            )))
+        }
+        Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
+        Err(error) => {
+            tracing::warn!("background task cleanup failed: {error}");
             crate::services::task::RuntimeTaskRunOutcome::failed(
-                Some("Task panicked".to_string()),
-                panic_message,
+                Some("Task artifact cleanup failed".to_string()),
+                error.to_string(),
             )
-        },
-        &record_runtime_task_outcome,
-    )
-    .await;
-    match iteration.lock() {
-        Ok(stored) => *stored,
-        Err(poisoned) => *poisoned.into_inner(),
+        }
     }
 }
 
@@ -113,29 +58,6 @@ async fn record_runtime_task_outcome(
     }
 }
 
-fn background_task_dispatch_outcome(
-    result: crate::errors::Result<aster_forge_tasks::DispatchStats>,
-) -> crate::services::task::RuntimeTaskRunOutcome {
-    match result {
-        Ok(stats) => {
-            if stats.has_activity() {
-                tracing::info!(
-                    claimed = stats.claimed,
-                    succeeded = stats.succeeded,
-                    retried = stats.retried,
-                    failed = stats.failed,
-                    "processed background task batch"
-                );
-            }
-            crate::services::task::RuntimeTaskRunOutcome::quiet()
-        }
-        Err(error) => crate::services::task::RuntimeTaskRunOutcome::failed(
-            Some("Background task dispatch failed".to_string()),
-            error.to_string(),
-        ),
-    }
-}
-
 fn build_background_tasks_base(
     metrics: &aster_drive_metrics::SharedMetricsRecorder,
     shutdown_token: CancellationToken,
@@ -147,14 +69,38 @@ fn build_background_tasks_base(
     tasks
 }
 
-/// Spawn all primary-only periodic background cleanup tasks.
+/// Spawn maintenance for resources owned by this Primary process, independently of its role.
 pub fn spawn_primary_background_tasks(
     state: web::Data<PrimaryAppState>,
     share_download_rollback_worker: ShareDownloadRollbackWorker,
     shutdown_token: CancellationToken,
 ) -> BackgroundTasks {
-    let mut tasks = build_background_tasks_base(&state.metrics, shutdown_token);
+    let grace = state.config.worker.consumer_config();
+    let mut tasks = build_background_tasks_base(&state.metrics, shutdown_token)
+        .with_shutdown_grace(
+            grace.drain_timeout + grace.cancellation_timeout + Duration::from_secs(5),
+        );
     let shutdown_token = tasks.shutdown_token();
+    tasks.push(aster_forge_tasks::run_periodic_task(
+        aster_forge_tasks::PeriodicTask {
+            name: SystemRuntimeTaskKind::TaskCleanup,
+            task_name: SystemRuntimeTaskKind::TaskCleanup.as_str(),
+            interval_fn: maintenance_cleanup_interval_for_web_state,
+            jitter_cap: Some(MAINTENANCE_CLEANUP_JITTER_CAP),
+            shutdown_token: shutdown_token.clone(),
+            state: state.clone(),
+            hooks: aster_forge_tasks::RecordedTaskHooks::new(
+                cleanup_local_task_artifacts,
+                |panic| {
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
+                        Some("Task cleanup panicked".to_string()),
+                        panic,
+                    )
+                },
+                record_runtime_task_outcome,
+            ),
+        },
+    ));
     if state.metrics.enabled() {
         tasks.push(metrics_sampling_loop(
             state.clone(),
@@ -189,8 +135,29 @@ pub fn spawn_primary_background_tasks(
         )),
     );
 
-    tasks.push(run_primary_runtime_group(shutdown_token.clone(), state));
+    tasks
+}
 
+pub(crate) fn spawn_task_consumers(
+    state: web::Data<PrimaryAppState>,
+    statuses: Vec<aster_forge_tasks::TaskRuntimeStatus>,
+    stop: CancellationToken,
+) -> BackgroundTasks {
+    let budget = state.config.worker.consumer_config();
+    let mut tasks = BackgroundTasks::with_shutdown_token(stop.clone()).with_shutdown_grace(
+        budget.drain_timeout + budget.cancellation_timeout + Duration::from_secs(5),
+    );
+    crate::services::task::dispatch::spawn_consumers(state, statuses, stop, &mut tasks);
+    tasks
+}
+
+pub(crate) fn spawn_scheduler(
+    state: web::Data<PrimaryAppState>,
+    status: aster_forge_tasks::TaskRuntimeStatus,
+    stop: CancellationToken,
+) -> BackgroundTasks {
+    let mut tasks = BackgroundTasks::with_shutdown_token(stop.clone());
+    tasks.push(run_primary_runtime_group(stop, state, status));
     tasks
 }
 
@@ -208,6 +175,7 @@ async fn spawn_storage_change_subscription(
 async fn run_primary_runtime_group(
     shutdown_token: CancellationToken,
     state: web::Data<PrimaryAppState>,
+    status: aster_forge_tasks::TaskRuntimeStatus,
 ) {
     let config = aster_forge_tasks::LeasedScheduledRuntimeConfig::new(
         "aster_drive",
@@ -223,6 +191,7 @@ async fn run_primary_runtime_group(
         },
         record_scheduled_runtime_task_outcome,
     )
+    .status(status)
     .claim_ttl(Duration::from_secs(120))
     .lease_ttl(Duration::from_secs(30))
     .lease_renew_interval(Duration::from_secs(10))
@@ -230,7 +199,6 @@ async fn run_primary_runtime_group(
 
     config
         .run(shutdown_token, |runtime| {
-            runtime.worker(spawn_background_task_dispatcher);
             runtime.scheduled(
                 SystemRuntimeTaskKind::MailOutboxDispatch,
                 mail_outbox_dispatch_interval_for_web_state,
@@ -546,31 +514,6 @@ async fn run_primary_runtime_group(
                 },
             );
             runtime.scheduled(
-                SystemRuntimeTaskKind::TaskCleanup,
-                maintenance_cleanup_interval_for_web_state,
-                Some(MAINTENANCE_CLEANUP_JITTER_CAP),
-                |s| async move {
-                    // task-cleanup 只清理过期任务产物，不删任务记录。
-                    // 也就是说 admin/tasks 里的历史事件仍然保留，只是 temp 目录会被回收。
-                    match crate::services::task::cleanup_expired(s.get_ref()).await {
-                        Ok(count) if count > 0 => {
-                            tracing::info!("cleaned up {count} expired task artifacts");
-                            crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
-                                "cleaned up {count} expired task artifacts"
-                            )))
-                        }
-                        Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
-                        Err(error) => {
-                            tracing::warn!("background task cleanup failed: {error}");
-                            crate::services::task::RuntimeTaskRunOutcome::failed(
-                                Some("Task artifact cleanup failed".to_string()),
-                                error.to_string(),
-                            )
-                        }
-                    }
-                },
-            );
-            runtime.scheduled(
                 SystemRuntimeTaskKind::WopiSessionCleanup,
                 maintenance_cleanup_interval_for_web_state,
                 Some(MAINTENANCE_CLEANUP_JITTER_CAP),
@@ -683,20 +626,6 @@ where
 fn mail_outbox_dispatch_interval_for_web_state(state: &web::Data<PrimaryAppState>) -> Duration {
     Duration::from_secs(
         crate::config::operations::mail_outbox_dispatch_interval_secs(&state.runtime_config),
-    )
-}
-
-fn background_task_dispatch_interval(state: &PrimaryAppState) -> Duration {
-    Duration::from_secs(
-        crate::config::operations::background_task_dispatch_interval_secs(&state.runtime_config),
-    )
-}
-
-fn background_task_dispatch_idle_max_interval(state: &PrimaryAppState) -> Duration {
-    Duration::from_secs(
-        crate::config::operations::background_task_dispatch_idle_max_interval_secs(
-            &state.runtime_config,
-        ),
     )
 }
 

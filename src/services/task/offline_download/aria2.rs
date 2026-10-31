@@ -246,7 +246,7 @@ impl Aria2OfflineDownloadEngine {
 
             let status = tokio::select! {
                 biased;
-                shutdown = context.shutdown_requested() => {
+                shutdown = context.stop_requested() => {
                     shutdown?;
                     continue;
                 }

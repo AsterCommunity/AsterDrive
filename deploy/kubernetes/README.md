@@ -73,3 +73,18 @@ Chart 默认引用 `asterdrive-cluster` Secret，不生成 Secret，也不提供
 - 生产示例的 NetworkPolicy 只限制入站，保留外部依赖所需的出站流量。启用出站默认拒绝前要先完整枚举 DNS、数据库、Redis、存储、身份提供方、SMTP 和远端节点。
 
 完整限制与验收步骤见用户文档的“负载均衡与多实例”和“Kubernetes 部署”。
+
+## API / worker 分离
+
+默认仍以 `serve all` 运行。Helm 设置 `split.enabled=true`；Kustomize 使用
+`kubectl apply -k deploy/kubernetes/overlays/split`。两角色保持稳定 StatefulSet endpoint，
+业务 Service 只选 API，worker HTTP 仅用于探针与 metrics。
+
+独立调节 `split.api` / `split.worker` 的 replicas、resources、nodeSelector、affinity、tolerations、
+terminationGracePeriodSeconds、PDB 和 autoscaling；HPA 开启时不写固定 replicas。
+worker 可缩到0，API 保持同步服务，任务持久排队。缩容前给足 preStop + drain20s + cancel5s +依赖收尾。
+共享 staging、头像、存储与数据库/Redis 要求对所有角色生效；task scratch 可为 Pod 私有。
+先停旧写入并统一版本迁移，新增发布记录表；回完整模式使用同一新版本 `serve all`。
+完整迁移与取消语义见 `docs/src/content/docs/deploy/roles.md`。
+
+运行 `python3 scripts/ci/test-role-manifests.py` 验证渲染、路由、worker0、HPA 和非法配置。

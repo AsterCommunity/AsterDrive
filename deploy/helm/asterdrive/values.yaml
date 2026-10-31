@@ -125,3 +125,29 @@ tmpVolume:
 
 extraEnv: []
 extraEnvFrom: []
+
+# Enable independent API and worker StatefulSets using the same image and shared state.
+split:
+  enabled: false
+  api:
+    replicaCount: 2
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "2", memory: 2Gi}
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    terminationGracePeriodSeconds: 45
+    podDisruptionBudget: {enabled: true, minAvailable: 1, maxUnavailable: ""}
+    autoscaling: {enabled: false, minReplicas: 1, maxReplicas: 10, targetCPUUtilizationPercentage: 80}
+  worker:
+    replicaCount: 2
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {cpu: "4", memory: 4Gi}
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    terminationGracePeriodSeconds: 45
+    podDisruptionBudget: {enabled: true, minAvailable: 1, maxUnavailable: ""}
+    autoscaling: {enabled: false, minReplicas: 1, maxReplicas: 10, targetCPUUtilizationPercentage: 80}

@@ -401,6 +401,45 @@ describe("useStorageChangeEvents", () => {
 		expect(mockState.fileStore.refresh).not.toHaveBeenCalled();
 	});
 
+	it.each(["personal", "team"] as const)(
+		"rereads %s quota for repeated recovery events without a storage delta or SSE reconnect",
+		async (kind) => {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+			await connectStorageEvents();
+			const stream = MockEventSource.instances[0];
+			for (let attempt = 1; attempt <= 2; attempt += 1) {
+				stream?.emit({
+					kind: "file.created",
+					workspace: kind === "personal" ? { kind } : { kind, team_id: 42 },
+					file_ids: [5],
+					folder_ids: [],
+					affected_parent_ids: [7],
+					root_affected: false,
+					affects_quota: true,
+					storage_delta: null,
+					at: `2026-04-08T00:00:0${attempt}Z`,
+				});
+				await waitFor(() => {
+					if (kind === "personal") {
+						expect(mockState.auth.refreshUser).toHaveBeenCalledWith({
+							fields: ["quota"],
+						});
+						expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(attempt);
+						expect(mockState.teamStore.reload).not.toHaveBeenCalled();
+					} else {
+						expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
+						expect(mockState.teamStore.reload).toHaveBeenCalledTimes(attempt);
+						expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
+					}
+				});
+			}
+			expect(MockEventSource.instances).toHaveLength(1);
+		},
+	);
+
 	it("refreshes only personal quota for quota-affecting personal events", async () => {
 		const { useStorageChangeEvents } = await import(
 			"@/hooks/useStorageChangeEvents"

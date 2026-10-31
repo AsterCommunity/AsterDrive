@@ -59,7 +59,10 @@ pub(super) fn active_processing_by_kinds_condition(
     kinds: &[BackgroundTaskKind],
 ) -> Condition {
     Condition::all()
-        .add(background_task::Column::Status.eq(BackgroundTaskStatus::Processing))
+        .add(background_task::Column::Status.is_in([
+            BackgroundTaskStatus::Processing,
+            BackgroundTaskStatus::Canceling,
+        ]))
         .add(background_task::Column::LeaseExpiresAt.is_not_null())
         .add(background_task::Column::LeaseExpiresAt.gt(now))
         .add(background_task::Column::Kind.is_in(kinds.iter().copied()))
@@ -83,7 +86,10 @@ pub(super) fn claimable_condition(now: DateTime<Utc>, _stale_before: DateTime<Ut
 
 fn processing_stale_condition(now: DateTime<Utc>) -> Condition {
     Condition::all()
-        .add(background_task::Column::Status.eq(BackgroundTaskStatus::Processing))
+        .add(background_task::Column::Status.is_in([
+            BackgroundTaskStatus::Processing,
+            BackgroundTaskStatus::Canceling,
+        ]))
         .add(background_task::Column::LeaseExpiresAt.is_not_null())
         .add(background_task::Column::LeaseExpiresAt.lte(now))
 }

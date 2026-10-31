@@ -24,6 +24,7 @@ pub mod site_url;
 pub mod system_config;
 pub mod webdav;
 pub mod wopi;
+pub mod worker;
 
 pub use deployment::{DeploymentConfig, DeploymentProfile};
 pub use loader::ConfigLoadReport;

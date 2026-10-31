@@ -40,7 +40,7 @@ impl OfflineDownloadRateLimiter {
             })?;
             tokio::select! {
                 biased;
-                shutdown = context.shutdown_requested() => shutdown?,
+                shutdown = context.stop_requested() => shutdown?,
                 result = limiter.limiter.until_n_ready(batch) => {
                     result.map_aster_err_ctx(
                         "reserve offline download throttle capacity",

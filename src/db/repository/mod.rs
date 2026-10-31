@@ -56,3 +56,5 @@ pub mod wopi_session_repo;
 pub mod workspace_activity_repo;
 
 pub mod admin_content_access_repo;
+
+pub(crate) mod task_resource_publication_repo;

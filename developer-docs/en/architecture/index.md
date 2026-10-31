@@ -81,16 +81,14 @@ The follower periodically calls the primary's `/api/v1/internal/remote-node-cont
 
 1. `src/main.rs` enters `run_primary_http_server()`
 2. `src/api/primary.rs` registers the route modules under `/api/v1`
-3. The request passes through global middleware:
-   - compression
-   - request ID
-   - runtime CORS
-   - security response headers
+3. Global middleware runs from outermost to innermost: security headers → request ID → HTTP metrics → runtime CORS → compression. CORS short-circuit responses pass through the first three layers; route-level rate-limit responses still pass through CORS.
 4. The corresponding handler in `src/api/routes/**` is hit
 5. Protected endpoints then go through route-level JWT auth and rate limiting
 6. `src/services/**` applies business rules
 7. `src/db/repository/**` handles database reads and writes; binary content flows into `src/storage/**`
 8. The route layer returns unified JSON, or directly returns file streams / SSE / WebDAV / Prometheus text responses
+
+Runtime CORS uses Forge's explicit `rejection_response` to map origin and preflight method/header denials to Drive's HTTP 403 / `forbidden` envelope, without inferring rejection from response status or body size. Malformed requests remain validation errors and response-header construction failures remain internal errors. Denials omit CORS grant headers and merge the required `Vary` fields. Allowed, same-origin, no-Origin, static-exempt and inactive requests pass through; a handler's own empty 403 stays unchanged. Extension origins, credentials and hot reload remain runtime configuration policy; follower internal-storage CORS retains its separate contract.
 
 Things to remember:
 

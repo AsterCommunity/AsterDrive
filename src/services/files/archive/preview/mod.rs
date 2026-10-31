@@ -303,7 +303,7 @@ where
         context.ensure_active()?;
         let read = tokio::select! {
             biased;
-            shutdown = context.shutdown_requested() => {
+            shutdown = context.stop_requested() => {
                 shutdown?;
                 return Err(AsterError::storage_driver_error(
                     "archive preview copy interrupted by shutdown",

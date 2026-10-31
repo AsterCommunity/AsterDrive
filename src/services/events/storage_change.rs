@@ -243,6 +243,14 @@ impl StorageChangeEvent {
         self
     }
 
+    /// Refresh authoritative usage after replaying a publication whose original event may
+    /// have been lost. No arithmetic delta is replayed for already committed mutations.
+    pub(crate) fn with_quota_refresh(mut self) -> Self {
+        self.affects_quota = true;
+        self.storage_delta = None;
+        self
+    }
+
     pub fn sync_required() -> Self {
         Self {
             audience: StorageChangeAudience::Any,
@@ -573,6 +581,46 @@ mod tests {
             ]
         );
         assert!(targets.keys.is_empty());
+    }
+
+    #[test]
+    fn quota_refresh_preserves_scope_and_clears_any_previous_delta() {
+        for scope in [
+            WorkspaceStorageScope::Personal { user_id: 11 },
+            WorkspaceStorageScope::Team {
+                team_id: 42,
+                actor_user_id: 11,
+            },
+        ] {
+            for delta in [-512, 0, 512] {
+                let event = StorageChangeEvent::new(
+                    StorageChangeKind::FileCreated,
+                    scope,
+                    vec![7],
+                    vec![],
+                    vec![None],
+                )
+                .with_storage_delta(delta)
+                .with_quota_refresh();
+                assert!(event.affects_quota);
+                assert!(event.storage_delta.is_none());
+                assert_eq!(event.file_ids, vec![7]);
+                assert!(event.root_affected);
+                let payload = serde_json::to_value(&event).unwrap();
+                assert_eq!(payload["affects_quota"], true);
+                assert!(payload["storage_delta"].is_null());
+                match scope {
+                    WorkspaceStorageScope::Personal { user_id } => {
+                        assert_eq!(event.audience, super::StorageChangeAudience::User(user_id));
+                        assert_eq!(payload["workspace"]["kind"], "personal");
+                    }
+                    WorkspaceStorageScope::Team { team_id, .. } => {
+                        assert_eq!(event.audience, super::StorageChangeAudience::Team(team_id));
+                        assert_eq!(payload["workspace"]["team_id"], team_id);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

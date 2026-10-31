@@ -783,14 +783,14 @@ async fn bounded_copy_future_size_and_allocations_are_bounded() {
         future_size < 16 * 1024,
         "archive preview copy future is {future_size} bytes"
     );
-    // The copy owns one reusable 64 KiB buffer. The task shutdown listener may
+    // The copy owns one reusable 64 KiB buffer. The process-shutdown and lease-control listeners may
     // allocate a small fixed control object while it is first registered; that
     // overhead must stay constant and must not scale with the number of chunks.
     const COPY_BUFFER_BYTES: usize = 64 * 1024;
     const CONTROL_PLANE_ALLOCATION_BUDGET: usize = 4 * 1024;
     assert!(
-        allocations.count <= 2,
-        "archive preview copy allocated {} objects; expected one buffer plus fixed control-plane overhead",
+        allocations.count <= 3,
+        "archive preview copy allocated {} objects; expected one buffer plus two fixed cancellation listeners",
         allocations.count
     );
     assert!(

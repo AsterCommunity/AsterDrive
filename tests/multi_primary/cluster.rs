@@ -22,7 +22,7 @@ use hkdf::Hkdf;
 use reqwest::header::SET_COOKIE;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
-    QueryFilter, Set,
+    PaginatorTrait, QueryFilter, Set,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -733,6 +733,20 @@ impl ServerProcess {
         database_pool_size: u32,
         database_url: &str,
     ) -> Self {
+        Self::spawn_role_with_database_url(name, services, database_pool_size, database_url, "all")
+    }
+
+    fn spawn_role(name: &str, services: &SharedServices, role: &str) -> Self {
+        Self::spawn_role_with_database_url(name, services, 5, &services.database_url, role)
+    }
+
+    fn spawn_role_with_database_url(
+        name: &str,
+        services: &SharedServices,
+        database_pool_size: u32,
+        database_url: &str,
+        role: &str,
+    ) -> Self {
         let port = available_loopback_port();
         let mut command = Command::new(env!("CARGO_BIN_EXE_aster_drive"));
         for (key, _) in std::env::vars_os() {
@@ -741,6 +755,7 @@ impl ServerProcess {
             }
         }
         command
+            .args(["serve", role])
             .env("ASTER__DEPLOYMENT__PROFILE", "cluster")
             .env(
                 "ASTER__DEPLOYMENT__INTERNAL_ENDPOINT",
@@ -2361,66 +2376,75 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
 #[ignore = "requires Docker and a real AsterDrive primary process"]
 async fn redis_outage_only_marks_cluster_readiness_unavailable_and_recovers() {
     let _guard = e2e_lock().lock().await;
-    let services = SharedServices::start_for_redis_readiness_outage().await;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .expect("build Redis readiness E2E HTTP client");
-    let mut primary = ServerProcess::spawn("primary-redis-readiness", &services);
-    wait_for_health(&client, &mut primary).await;
-    let _access_token = setup_and_login(&client, &primary).await;
+    for role in ["all", "api", "worker"] {
+        let services = SharedServices::start_for_redis_readiness_outage().await;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("build Redis readiness E2E HTTP client");
+        let mut primary = ServerProcess::spawn_role("primary-redis-readiness", &services, role);
+        wait_for_health(&client, &mut primary).await;
+        if role == "worker" {
+            let mut bootstrap = ServerProcess::spawn_role("redis-bootstrap-api", &services, "api");
+            wait_for_health(&client, &mut bootstrap).await;
+            setup_and_login(&client, &bootstrap).await;
+            bootstrap.terminate();
+        } else {
+            setup_and_login(&client, &primary).await;
+        }
 
-    let initial_ready = wait_for_ready_status(
-        &client,
-        &mut primary,
-        reqwest::StatusCode::OK,
-        Duration::from_secs(30),
-    )
-    .await;
-    assert_eq!(initial_ready["data"]["status"], "ready");
+        let initial_ready = wait_for_ready_status(
+            &client,
+            &mut primary,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        )
+        .await;
+        assert_eq!(initial_ready["data"]["status"], "ready");
 
-    services.redis.stop().await;
-    let unavailable = wait_for_ready_code(
-        &client,
-        &mut primary,
-        "config.error",
-        Duration::from_secs(30),
-    )
-    .await;
-    assert_eq!(unavailable["msg"], "Cache unavailable");
-    assert!(
-        client
-            .get(format!("{}/health", primary.base_url()))
-            .send()
-            .await
-            .expect("request liveness during Redis outage")
-            .status()
-            .is_success(),
-        "Redis outage must not make the liveness endpoint fail"
-    );
+        services.redis.stop().await;
+        let unavailable = wait_for_ready_code(
+            &client,
+            &mut primary,
+            "config.error",
+            Duration::from_secs(30),
+        )
+        .await;
+        assert_eq!(unavailable["msg"], "Cache unavailable");
+        assert!(
+            client
+                .get(format!("{}/health", primary.base_url()))
+                .send()
+                .await
+                .expect("request liveness during Redis outage")
+                .status()
+                .is_success(),
+            "Redis outage must not make the liveness endpoint fail"
+        );
 
-    services.redis.restart().await;
-    let recovered = wait_for_ready_status(
-        &client,
-        &mut primary,
-        reqwest::StatusCode::OK,
-        Duration::from_secs(60),
-    )
-    .await;
-    assert_eq!(recovered["data"]["status"], "ready");
-    assert!(
-        client
-            .get(format!("{}/health", primary.base_url()))
-            .send()
-            .await
-            .expect("request liveness after Redis recovery")
-            .status()
-            .is_success(),
-        "liveness endpoint must remain healthy after Redis recovery"
-    );
+        services.redis.restart().await;
+        let recovered = wait_for_ready_status(
+            &client,
+            &mut primary,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(60),
+        )
+        .await;
+        assert_eq!(recovered["data"]["status"], "ready");
+        assert!(
+            client
+                .get(format!("{}/health", primary.base_url()))
+                .send()
+                .await
+                .expect("request liveness after Redis recovery")
+                .status()
+                .is_success(),
+            "liveness endpoint must remain healthy after Redis recovery"
+        );
 
-    primary.terminate();
-    services.cleanup_database().await;
+        primary.terminate();
+        services.cleanup_database().await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3175,5 +3199,735 @@ async fn reverse_tunnel_owner_failover_fences_stale_primary() {
         .close()
         .await
         .expect("close reverse tunnel failover E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and two API plus two worker processes"]
+async fn split_roles_isolate_consumption_and_recover_a_zero_worker_backlog() {
+    use aster_drive_model::{entities::background_task, types::BackgroundTaskStatus};
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let db = services.connect_database().await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let mut api_a = ServerProcess::spawn_role("split-api-a", &services, "api");
+    wait_for_health(&client, &mut api_a).await;
+    let token = setup_and_login(&client, &api_a).await;
+    for (key, value) in [
+        ("cors_enabled", "true"),
+        ("cors_allowed_origins", r#"["https://allowed.example.com"]"#),
+    ] {
+        aster_drive::db::repository::config_repo::upsert_with_actor(&db, key, value, None)
+            .await
+            .unwrap();
+    }
+    let mut api_b = ServerProcess::spawn_role("split-api-b", &services, "api");
+    wait_for_health(&client, &mut api_b).await;
+    // Exercise the production component's outer middleware on a CORS short circuit.
+    let rejected = client
+        .get(format!("{}/api/v1/auth/config", api_b.base_url()))
+        .header("Origin", "https://blocked.example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
+    assert!(uuid::Uuid::parse_str(rejected.headers()["X-Request-ID"].to_str().unwrap()).is_ok());
+    assert_eq!(rejected.headers()["X-Content-Type-Options"], "nosniff");
+    assert!(
+        !rejected
+            .headers()
+            .contains_key("Access-Control-Allow-Origin")
+    );
+    assert_eq!(rejected.json::<Value>().await.unwrap()["code"], "forbidden");
+    login(&client, &api_b, "admin", ADMIN_PASSWORD).await;
+    let task_a = create_trash_purge_task(&client, &api_a, &token).await;
+    let task_b = create_trash_purge_task(&client, &api_b, &token).await;
+    let mail = create_due_invitation_mail(&db).await;
+    for _ in 0..10 {
+        for id in [task_a, task_b] {
+            let task = background_task::Entity::find_by_id(id)
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(task.status, BackgroundTaskStatus::Pending);
+            assert_eq!(task.processing_token, 0);
+        }
+        assert_eq!(
+            aster_forge_db::runtime_lease::Entity::find()
+                .count(&db)
+                .await
+                .unwrap(),
+            0,
+            "API must not become scheduler leader"
+        );
+        assert_eq!(
+            services.smtp.message_count().await,
+            0,
+            "API must not dispatch the mail outbox"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut worker_a = ServerProcess::spawn_role("split-worker-a", &services, "worker");
+    let mut worker_b = ServerProcess::spawn_role("split-worker-b", &services, "worker");
+    wait_for_health(&client, &mut worker_a).await;
+    wait_for_health(&client, &mut worker_b).await;
+    wait_for_ready_status(
+        &client,
+        &mut worker_a,
+        reqwest::StatusCode::OK,
+        Duration::from_secs(30),
+    )
+    .await;
+    wait_for_ready_status(
+        &client,
+        &mut worker_b,
+        reqwest::StatusCode::OK,
+        Duration::from_secs(30),
+    )
+    .await;
+    for worker in [&worker_a, &worker_b] {
+        for path in ["/", "/api/v1/auth/login", "/api/v1/tasks", "/webdav"] {
+            assert_eq!(
+                client
+                    .get(format!("{}{path}", worker.base_url()))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                reqwest::StatusCode::NOT_FOUND
+            );
+        }
+    }
+    for id in [task_a, task_b] {
+        let task = wait_for_background_task(
+            &db,
+            id,
+            &mut worker_a,
+            &mut worker_b,
+            Duration::from_secs(30),
+        )
+        .await;
+        assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
+        assert_eq!(task.processing_token, 1);
+    }
+    wait_for_mail_outbox_sent(&db, mail.id, &services, &mut worker_a, &mut worker_b).await;
+    assert_single_live_runtime_lease(&db).await;
+    worker_a.terminate_gracefully();
+    worker_b.terminate_gracefully();
+    let queued = create_trash_purge_task(&client, &api_b, &token).await;
+    let pending_mail = create_due_invitation_mail(&db).await;
+    // API shutdown may flush process-owned state, but may not consume durable queues.
+    api_a.terminate_gracefully();
+    assert_eq!(
+        background_task::Entity::find_by_id(queued)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        BackgroundTaskStatus::Pending
+    );
+    assert_eq!(services.smtp.message_count().await, 1);
+    assert!(
+        client
+            .get(format!("{}/health/ready", api_b.base_url()))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    let mut resumed = ServerProcess::spawn_role("split-worker-resumed", &services, "worker");
+    wait_for_health(&client, &mut resumed).await;
+    let finished = wait_for_background_task(
+        &db,
+        queued,
+        &mut resumed,
+        &mut api_b,
+        Duration::from_secs(30),
+    )
+    .await;
+    assert_eq!(finished.status, BackgroundTaskStatus::Succeeded);
+    wait_for_mail_outbox_sent(&db, pending_mail.id, &services, &mut resumed, &mut api_b).await;
+    resumed.terminate_gracefully();
+    api_b.terminate_gracefully();
+    db.close().await.unwrap();
+    services.cleanup_database().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker, PostgreSQL coordination and real role processes"]
+async fn split_workers_execute_concurrently_outside_the_scheduler_lease() {
+    use aster_drive_model::{entities::background_task, types::BackgroundTaskStatus};
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let db = services.connect_database().await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let mut api = ServerProcess::spawn_role("concurrency-api", &services, "api");
+    wait_for_health(&client, &mut api).await;
+    let token = setup_and_login(&client, &api).await;
+    db.execute_unprepared(
+        "UPDATE system_config SET value = '1' WHERE key = 'background_task_max_concurrency'",
+    )
+    .await
+    .unwrap();
+    let ids = vec![
+        create_trash_purge_task(&client, &api, &token).await,
+        create_trash_purge_task(&client, &api, &token).await,
+    ];
+    let mut options = sea_orm::ConnectOptions::new(services.database_url.clone());
+    options.max_connections(1).min_connections(1);
+    let gate = Database::connect(options).await.unwrap();
+    gate.execute_unprepared("SELECT pg_advisory_lock(63401)")
+        .await
+        .unwrap();
+    db.execute_unprepared("CREATE FUNCTION role_completion_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'succeeded' AND OLD.kind = 'trash_purge_all' THEN PERFORM pg_advisory_xact_lock(63401); END IF; RETURN NEW; END $$; CREATE TRIGGER role_completion_gate BEFORE UPDATE ON background_tasks FOR EACH ROW EXECUTE FUNCTION role_completion_gate();").await.unwrap();
+    let mut a = ServerProcess::spawn_role("concurrency-worker-a", &services, "worker");
+    let mut b = ServerProcess::spawn_role("concurrency-worker-b", &services, "worker");
+    wait_for_health(&client, &mut a).await;
+    wait_for_health(&client, &mut b).await;
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            a.assert_running();
+            b.assert_running();
+            let count = background_task::Entity::find()
+                .filter(background_task::Column::Id.is_in(ids.clone()))
+                .filter(background_task::Column::Status.eq(BackgroundTaskStatus::Processing))
+                .count(&db)
+                .await
+                .unwrap();
+            if count == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect(
+        "both workers must hold a task concurrently even though only one holds the scheduler lease",
+    );
+    gate.execute_unprepared("SELECT pg_advisory_unlock(63401)")
+        .await
+        .unwrap();
+    for id in ids {
+        assert_eq!(
+            wait_for_background_task(&db, id, &mut a, &mut b, Duration::from_secs(30))
+                .await
+                .status,
+            BackgroundTaskStatus::Succeeded
+        );
+    }
+    a.terminate_gracefully();
+    b.terminate_gracefully();
+    api.terminate_gracefully();
+    gate.close().await.unwrap();
+    db.close().await.unwrap();
+    services.cleanup_database().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker, shared PostgreSQL/Redis/S3 and real role processes; waits for lease expiry"]
+async fn split_archive_reuses_a_committed_s3_output_after_worker_sigkill() {
+    use aster_drive_model::{
+        entities::{
+            background_task, file, file_blob, storage_policy, task_resource_publication, user,
+        },
+        types::BackgroundTaskStatus,
+    };
+    use sea_orm::IntoActiveModel;
+    use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
+    let _guard = e2e_lock().lock().await;
+    let s3 = GenericImage::new("rustfs/rustfs", "1.0.0-alpha.90")
+        .with_exposed_port(testcontainers::core::IntoContainerPort::tcp(9000))
+        .with_env_var("RUSTFS_ACCESS_KEY", "rustfsadmin")
+        .with_env_var("RUSTFS_SECRET_KEY", "rustfsadmin123")
+        .start()
+        .await
+        .unwrap();
+    let endpoint = format!(
+        "http://127.0.0.1:{}",
+        s3.get_host_port_ipv4(9000).await.unwrap()
+    );
+    let bucket = format!("roles-{}", uuid::Uuid::new_v4().simple());
+    let config = aws_sdk_s3::Config::builder()
+        .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
+        .region(aws_sdk_s3::config::Region::new("us-east-1"))
+        .credentials_provider(aws_credential_types::Credentials::new(
+            "rustfsadmin",
+            "rustfsadmin123",
+            None,
+            None,
+            "fixture",
+        ))
+        .endpoint_url(&endpoint)
+        .force_path_style(true)
+        .build();
+    let s3_client = aws_sdk_s3::Client::from_conf(config);
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(3),
+                s3_client.create_bucket().bucket(&bucket).send(),
+            )
+            .await;
+            if tokio::time::timeout(
+                Duration::from_secs(3),
+                s3_client.head_bucket().bucket(&bucket).send(),
+            )
+            .await
+            .is_ok_and(|result| result.is_ok())
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("S3 fixture must accept bucket operations");
+    let services = SharedServices::start().await;
+    let db = services.connect_database().await;
+    let policy = storage_policy::Entity::find()
+        .filter(storage_policy::Column::IsDefault.eq(true))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let policy_id = policy.id;
+    let mut active = policy.into_active_model();
+    active.storage_config = Set(encode_multi_primary_policy_config(
+        S3_CONNECTOR_ID,
+        MultiPrimaryS3ConnectorConfigV1 {
+            endpoint,
+            bucket: bucket.clone(),
+            s3_region: "us-east-1".into(),
+            ..Default::default()
+        },
+    ));
+    active.update(&db).await.unwrap();
+    persist_multi_primary_connector_credential(
+        &db,
+        policy_id,
+        S3_CONNECTOR_ID,
+        &MultiPrimaryS3StaticCredentialsV1 {
+            s3_access_key_id: "rustfsadmin".into(),
+            s3_secret_access_key: "rustfsadmin123".into(),
+        },
+    )
+    .await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap();
+    let mut api_a = ServerProcess::spawn_role("s3-api-a", &services, "api");
+    wait_for_health(&client, &mut api_a).await;
+    let token = setup_and_login(&client, &api_a).await;
+    let mut api_b = ServerProcess::spawn_role("s3-api-b", &services, "api");
+    wait_for_health(&client, &mut api_b).await;
+    let source = b"a durable archive source across API and worker processes";
+    let init: Value = client
+        .post(format!("{}/api/v1/files/upload/init", api_a.base_url()))
+        .bearer_auth(&token)
+        .json(&json!({"filename":"source.txt","total_size":source.len()}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(init["data"]["mode"], "stream", "{init}");
+    let upload_id = init["data"]["upload_id"].as_str().unwrap();
+    let response = client
+        .put(format!(
+            "{}/api/v1/files/upload/{upload_id}/body",
+            api_b.base_url()
+        ))
+        .bearer_auth(&token)
+        .header("Content-Type", "application/octet-stream")
+        .body(source.to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let uploaded: Value = response.json().await.unwrap();
+    let source_id = uploaded["data"]["id"].as_i64().unwrap();
+    assert_eq!(
+        download_file(&client, &api_a, &token, source_id).await,
+        source
+    );
+    let response = client
+        .post(format!(
+            "{}/api/v1/batch/archive-compress",
+            api_b.base_url()
+        ))
+        .bearer_auth(&token)
+        .json(&json!({"file_ids":[source_id],"folder_ids":[],"archive_name":"durable.zip"}))
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let task: Value = response.json().await.unwrap();
+    let task_id = task["data"]["id"].as_i64().unwrap();
+    let mut opts = sea_orm::ConnectOptions::new(services.database_url.clone());
+    opts.min_connections(1).max_connections(1);
+    let gate = Database::connect(opts).await.unwrap();
+    gate.execute_unprepared("SELECT pg_advisory_lock(63402)")
+        .await
+        .unwrap();
+    db.execute_unprepared("CREATE FUNCTION archive_terminal_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'succeeded' AND OLD.kind = 'archive_compress' THEN PERFORM pg_advisory_xact_lock(63402); END IF; RETURN NEW; END $$; CREATE TRIGGER archive_terminal_gate BEFORE UPDATE ON background_tasks FOR EACH ROW EXECUTE FUNCTION archive_terminal_gate();").await.unwrap();
+    let sse_client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let response = sse_client
+        .get(format!("{}/api/v1/auth/events/storage", api_a.base_url()))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let mut events = response.bytes_stream();
+    let mut first = ServerProcess::spawn_role("archive-worker-first", &services, "worker");
+    wait_for_health(&client, &mut first).await;
+    tokio::time::timeout(Duration::from_secs(45), async {
+        loop {
+            first.assert_running();
+            if task_resource_publication::Entity::find()
+                .filter(task_resource_publication::Column::TaskId.eq(task_id))
+                .count(&db)
+                .await
+                .unwrap()
+                == 1
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("archive file and publication receipt must commit before the terminal gate");
+    assert_eq!(file::Entity::find().count(&db).await.unwrap(), 2);
+    let claimed = background_task::Entity::find_by_id(task_id)
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(claimed.status, BackgroundTaskStatus::Processing);
+    // SIGKILL does not cancel an already submitted PostgreSQL statement while
+    // its backend is blocked. End that dead client's session before opening the
+    // gate, so this case specifically exercises output-committed/terminal-lost.
+    first.terminate();
+    db.execute_unprepared("SELECT pg_terminate_backend(pid) FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND locktype='advisory' AND objid=63402 AND NOT granted").await.unwrap();
+    let mut replacement =
+        ServerProcess::spawn_role("archive-worker-replacement", &services, "worker");
+    wait_for_health(&client, &mut replacement).await;
+    gate.execute_unprepared("SELECT pg_advisory_unlock(63402)")
+        .await
+        .unwrap();
+    let completed = wait_for_background_task(
+        &db,
+        task_id,
+        &mut replacement,
+        &mut api_a,
+        Duration::from_secs(95),
+    )
+    .await;
+    assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+    assert_eq!(completed.processing_token, claimed.processing_token + 1);
+    assert_eq!(
+        file::Entity::find().count(&db).await.unwrap(),
+        2,
+        "takeover must reuse the first logical archive"
+    );
+    let files = file::Entity::find().all(&db).await.unwrap();
+    let used: i64 = files.iter().map(|file| file.size).sum();
+    let owner = user::Entity::find()
+        .filter(user::Column::Username.eq("admin"))
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        owner.storage_used, used,
+        "quota must be charged once per published file"
+    );
+    for blob in file_blob::Entity::find().all(&db).await.unwrap() {
+        assert_eq!(
+            i64::from(blob.ref_count),
+            i64::try_from(files.iter().filter(|file| file.blob_id == blob.id).count()).unwrap()
+        );
+    }
+    let archive = files
+        .iter()
+        .find(|file| file.name == "durable.zip")
+        .unwrap();
+    let bytes = download_file(&client, &api_b, &token, archive.id).await;
+    assert!(!bytes.is_empty());
+    assert_eq!(
+        task_resource_publication::Entity::find()
+            .filter(task_resource_publication::Column::TaskId.eq(task_id))
+            .count(&db)
+            .await
+            .unwrap(),
+        1
+    );
+    super::storage_events::read_sse_until(
+        &mut events,
+        "worker output on another API's SSE",
+        |data| {
+            data.lines()
+                .filter_map(|line| {
+                    line.strip_prefix("data: ")
+                        .or_else(|| line.strip_prefix("data:"))
+                })
+                .filter_map(|json| serde_json::from_str::<Value>(json).ok())
+                .any(|event| {
+                    event["kind"] == "file.created"
+                        && event["file_ids"]
+                            .as_array()
+                            .is_some_and(|ids| ids.contains(&json!(archive.id)))
+                })
+        },
+    )
+    .await;
+    replacement.terminate_gracefully();
+    api_a.terminate_gracefully();
+    api_b.terminate_gracefully();
+    gate.close().await.unwrap();
+    db.close().await.unwrap();
+    services.cleanup_database().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and real API/worker processes; verifies live cancel and SIGKILL takeover"]
+async fn split_running_cancellation_is_acknowledged_and_survives_worker_sigkill() {
+    use aster_drive_model::{
+        entities::{background_task, folder, folder_tree_operation_member},
+        types::BackgroundTaskStatus,
+    };
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let db = services.connect_database().await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
+    let mut api_a = ServerProcess::spawn_role("cancel-api-a", &services, "api");
+    wait_for_health(&client, &mut api_a).await;
+    let token = setup_and_login(&client, &api_a).await;
+    let mut api_b = ServerProcess::spawn_role("cancel-api-b", &services, "api");
+    wait_for_health(&client, &mut api_b).await;
+    let mut opts = sea_orm::ConnectOptions::new(services.database_url.clone());
+    opts.min_connections(1).max_connections(1);
+    let gate = Database::connect(opts).await.unwrap();
+    db.execute_unprepared("CREATE FUNCTION cancel_staging_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(63403); RETURN NEW; END $$; CREATE TRIGGER cancel_staging_gate BEFORE INSERT ON folder_tree_operation_members FOR EACH ROW EXECUTE FUNCTION cancel_staging_gate();").await.unwrap();
+    for kill in [false, true] {
+        let response = client
+            .post(format!("{}/api/v1/folders", api_a.base_url()))
+            .bearer_auth(&token)
+            .json(&json!({"name":format!("cancel-{kill}"),"parent_id":null}))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let created: Value = response.json().await.unwrap();
+        assert_eq!(status, reqwest::StatusCode::CREATED, "{created}");
+        let root_id = created["data"]["id"]
+            .as_i64()
+            .expect("root folder must be created");
+        // Root + 10,000 children exceeds the synchronous mutation budget.
+        db.execute_unprepared(&format!("INSERT INTO folders (name,parent_id,team_id,owner_user_id,created_by_user_id,created_by_username,created_at,updated_at,icon_kind) SELECT 'child-'||n, {root_id}, NULL, owner_user_id,created_by_user_id,created_by_username,created_at,updated_at,'default' FROM folders CROSS JOIN generate_series(1,10000) n WHERE id={root_id}")).await.unwrap();
+        let response = client
+            .delete(format!("{}/api/v1/folders/{root_id}", api_a.base_url()))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::ACCEPTED);
+        let queued: Value = response.json().await.unwrap();
+        let task_id = queued["data"]["id"].as_i64().unwrap();
+        gate.execute_unprepared("SELECT pg_advisory_lock(63403)")
+            .await
+            .unwrap();
+        let mut worker = ServerProcess::spawn_role("cancel-worker", &services, "worker");
+        wait_for_health(&client, &mut worker).await;
+        tokio::time::timeout(Duration::from_secs(30),async {
+            loop {
+                worker.assert_running();
+                let blocked = db.query_one_raw(sea_orm::Statement::from_string(sea_orm::DbBackend::Postgres,
+                    "SELECT COUNT(*) AS count FROM pg_locks WHERE database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND locktype='advisory' AND objid=63403 AND NOT granted".to_string())).await.unwrap().unwrap().try_get::<i64>("","count").unwrap();
+                if blocked > 0 { break; }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }).await.expect("worker must enter the staging transaction before cancellation");
+        let claimed = background_task::Entity::find_by_id(task_id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claimed.status, BackgroundTaskStatus::Processing);
+        let response = client
+            .post(format!(
+                "{}/api/v1/tasks/{task_id}/cancel",
+                api_b.base_url()
+            ))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let canceling: Value = response.json().await.unwrap();
+        assert_eq!(canceling["data"]["status"], "canceling");
+        assert_eq!(canceling["data"]["can_retry"], false);
+        if kill {
+            worker.terminate();
+        }
+        gate.execute_unprepared("SELECT pg_advisory_unlock(63403)")
+            .await
+            .unwrap();
+        if kill {
+            worker = ServerProcess::spawn_role("cancel-replacement", &services, "worker");
+            wait_for_health(&client, &mut worker).await;
+        }
+        let canceled = wait_for_background_task(
+            &db,
+            task_id,
+            &mut worker,
+            &mut api_b,
+            Duration::from_secs(95),
+        )
+        .await;
+        assert_eq!(canceled.status, BackgroundTaskStatus::Canceled);
+        assert_eq!(
+            canceled.processing_token,
+            claimed.processing_token + i64::from(kill)
+        );
+        assert!(canceled.lease_expires_at.is_none());
+        assert!(
+            folder::Entity::find_by_id(root_id)
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap()
+                .deleted_at
+                .is_none(),
+            "cancellation must stop before publishing the folder mutation"
+        );
+        assert_eq!(
+            folder_tree_operation_member::Entity::find()
+                .filter(folder_tree_operation_member::Column::TaskId.eq(task_id))
+                .count(&db)
+                .await
+                .unwrap(),
+            0
+        );
+        // The namespace lock must have been removed together with cancellation acknowledgement.
+        let renamed = client
+            .patch(format!("{}/api/v1/folders/{root_id}", api_a.base_url()))
+            .bearer_auth(&token)
+            .json(&json!({"name":format!("canceled-{kill}")}))
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            renamed.status().is_success(),
+            "{}",
+            renamed.text().await.unwrap()
+        );
+        worker.terminate_gracefully();
+    }
+    api_a.terminate_gracefully();
+    api_b.terminate_gracefully();
+    gate.close().await.unwrap();
+    db.close().await.unwrap();
+    services.cleanup_database().await;
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and real roles; measures a fixed six-task fixture at local concurrency one"]
+async fn split_worker_scaling_measures_throughput_and_queue_wait() {
+    use aster_drive_model::{entities::background_task, types::BackgroundTaskStatus};
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let db = services.connect_database().await;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let mut api = ServerProcess::spawn_role("scaling-api", &services, "api");
+    wait_for_health(&client, &mut api).await;
+    let token = setup_and_login(&client, &api).await;
+    db.execute_unprepared(
+        "UPDATE system_config SET value='1' WHERE key='background_task_max_concurrency'",
+    )
+    .await
+    .unwrap();
+    // A fixed one-second database gate gives each otherwise empty task identical
+    // work. This measures queue scheduling, not archive/storage performance.
+    db.execute_unprepared("CREATE FUNCTION scaling_work_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status='succeeded' AND OLD.kind='trash_purge_all' THEN PERFORM pg_sleep(1); END IF; RETURN NEW; END $$; CREATE TRIGGER scaling_work_fixture BEFORE UPDATE ON background_tasks FOR EACH ROW EXECUTE FUNCTION scaling_work_fixture();").await.unwrap();
+    let mut first = ServerProcess::spawn_role("scaling-worker-a", &services, "worker");
+    wait_for_health(&client, &mut first).await;
+    let mut measurements = Vec::new();
+    let mut second = None;
+    for workers in [1, 2] {
+        if workers == 2 {
+            let mut worker = ServerProcess::spawn_role("scaling-worker-b", &services, "worker");
+            wait_for_health(&client, &mut worker).await;
+            second = Some(worker);
+        }
+        let started = std::time::Instant::now();
+        let mut ids = Vec::new();
+        for _ in 0..6 {
+            ids.push(create_trash_purge_task(&client, &api, &token).await);
+        }
+        for id in &ids {
+            assert_eq!(
+                wait_for_background_task(&db, *id, &mut first, &mut api, Duration::from_secs(30))
+                    .await
+                    .status,
+                BackgroundTaskStatus::Succeeded
+            );
+        }
+        let elapsed = started.elapsed().as_secs_f64();
+        let rows = background_task::Entity::find()
+            .filter(background_task::Column::Id.is_in(ids))
+            .all(&db)
+            .await
+            .unwrap();
+        let mean_queue_wait_seconds = rows
+            .iter()
+            .map(|task| {
+                assert_eq!(task.processing_token, 1);
+                (task.started_at.unwrap() - task.created_at)
+                    .to_std()
+                    .unwrap()
+                    .as_secs_f64()
+            })
+            .sum::<f64>()
+            / 6.0;
+        measurements.push(json!({"workers":workers,"local_concurrency":1,"tasks":6,"fixture_work_seconds":1,"elapsed_seconds":elapsed,"tasks_per_second":6.0/elapsed,"mean_queue_wait_seconds":mean_queue_wait_seconds}));
+    }
+    eprintln!("split worker controlled scaling: {}", json!(measurements));
+    // Timings are reported, not used as a flaky host-speed assertion. The gate
+    // test separately proves simultaneous ownership outside the scheduler lease.
+    if let Some(mut worker) = second {
+        worker.terminate_gracefully();
+    }
+    first.terminate_gracefully();
+    api.terminate_gracefully();
+    db.close().await.unwrap();
     services.cleanup_database().await;
 }

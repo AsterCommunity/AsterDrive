@@ -58,6 +58,7 @@ pub(crate) async fn ensure_media_metadata_task(
         match existing.status {
             BackgroundTaskStatus::Pending
             | BackgroundTaskStatus::Processing
+            | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
                 state.wake_background_task_dispatcher();
                 return Ok(());
