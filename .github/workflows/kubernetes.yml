@@ -4,18 +4,24 @@ on:
   push:
     branches: [master]
     paths:
+      - 'Cargo.toml'
+      - 'frontend-panel/package.json'
       - 'deploy/kubernetes/**'
       - 'deploy/helm/**'
       - '.github/workflows/kubernetes.yml'
       - 'scripts/ci/test-role-manifests.py'
       - 'scripts/ci/smoke-role-runtime.py'
+      - 'scripts/ci/check-release-versions.py'
   pull_request:
     paths:
+      - 'Cargo.toml'
+      - 'frontend-panel/package.json'
       - 'deploy/kubernetes/**'
       - 'deploy/helm/**'
       - '.github/workflows/kubernetes.yml'
       - 'scripts/ci/test-role-manifests.py'
       - 'scripts/ci/smoke-role-runtime.py'
+      - 'scripts/ci/check-release-versions.py'
 
 permissions:
   contents: read
@@ -42,6 +48,9 @@ jobs:
 
       - name: Install manifest assertion dependency
         run: python -m pip install PyYAML==6.0.3
+
+      - name: Check release version references
+        run: python scripts/ci/check-release-versions.py
 
       - name: Validate runtime smoke entry point
         run: python scripts/ci/smoke-role-runtime.py --help

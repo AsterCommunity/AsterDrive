@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-11-01
+
+### Release Highlights
+
+**存储扩展、工作空间可见性与独立 worker。** 本版本新增 Google Drive 存储及浏览器可恢复直传、文件归属与工作空间活动、可审计的管理员工作空间查看，以及可独立扩缩的 API/worker 角色与任务协作取消，同时升级 Aster Metrics v1 并加强安全边界。**所有角色及 primary/follower 节点必须统一升级**，使用配套前端、迁移监控查询，并按下文要求完成备份与数据库迁移。
+
 ### Breaking
 
 - **API/worker 与任务契约迁移** — 所有角色必须升级到同一版本并同步迁移 Forge consumer。既有任务并发设置现在限制每个 worker，集群总额度使用新设置。数据库迁移新增 `task_resource_publications`。不支持混合版本执行：停止旧 writer，保留任务表与存储并统一升级后再恢复消费。回退旧 binary 必须同时恢复匹配的数据库和存储备份。（#634）
 - **指标节点与角色标识** — `aster_node_mode="primary"` / `"follower"` 独立标识节点模式，`aster_role="all"`、`"api"` / `"worker"` 标识进程职责。旧 `aster_role="primary"` / `"follower"` 过滤条件需迁移，Follower 当前的 role 为 `all`。内置看板增加节点模式与职责筛选，外部看板和告警需同步更新。（#634）
+- **内部协议与浏览器上传兼容性** — 所有 primary 与 follower 的内部存储协议必须统一为 v7，旧签名不再接受。浏览器上传响应以协调指令替代独立的 `upload_url` 和 `next_expected_ranges` 字段，自定义客户端须随服务端迁移；已有 OneDrive 和 Google Drive 上传会话可通过配套前端继续恢复。
 
 ### Added
 
@@ -32,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **回收站导航** — 回收站共用文件浏览器的地址栏、刷新按钮和视图切换，导航及内容对齐方式与普通文件浏览保持一致。
 
 - **Node.js 构建工具链** — 本地开发与 CI 通过 `.nvmrc` 统一选择 Node.js 26.13.0；Docker 前端构建固定同一补丁版本并检查实际二进制版本。前端和文档 package 要求 Node.js >=26.13.0 <27。
+- **部署发行版本** — Helm 应用元数据与默认镜像 tag、production Kustomize 示例统一指向 0.7.0，使 API/worker 部署模板使用配套发行版本；CI 对照 Rust workspace 版本校验这些引用及前端版本。
 
 ### Fixed
 
@@ -50,6 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TOTP 重放防护** — 每个 TOTP 码在登录挑战与敏感操作确认（删除 factor、重新生成恢复码）中只能消费一次：验证成功时原子记录匹配的 30 秒时间步，接受窗口内的重放按无效码拒绝。新增 `mfa_totp_used_steps` 表支撑该防护并自动清理过期记录；删除 factor 与管理员重置 MFA 时会一并清理。
 - **审计链路的可信客户端 IP 解析** — 所有被审计端点的客户端 IP 现在从 `network_trust.trusted_proxies` 解析（启动时解析一次并以共享 app data 注入），不再采信客户端可伪造的 `Forwarded`/`X-Forwarded-For`/`X-Real-IP` 头。来自不可信 peer 的请求记录 TCP peer 地址，伪造的转发头无法把任意 IP 写进审计行。未配置代理时记录 peer 地址，自托管直连部署行为不变。旧提取入口已删除；`AuditContext::from_request`/`AuditRequestInfo::from_request` 保持原签名。
 - **杂项加固** — 内部与 presigned 签名验证改用常数时间比较；一次性 nonce 条目保留至超出时间戳接受窗口；follower 注册接入限流；审计 CSV 导出做公式中和并严格校验客户端 IP；未知账号执行哑密码验证以削弱用户枚举的时序信号。
+
+### Database Migrations
+
+- 四个 migration 新增 `mfa_totp_used_steps`、`workspace_activities`、`admin_content_accesses` 和 `task_resource_publications`，并为文件和目录增加可空的业务修改字段；历史业务修改者保持未知。先备份数据库与存储、排空旧消费者并停止旧 writer，再统一升级所有角色，保留排队任务及其输入。首个新进程执行受协调的数据库迁移，初始化完成并验证 API 后再恢复消费。降级须恢复匹配的数据库与存储备份。
+
+### Notes
+
+- Prometheus 与 OTLP metrics 仍是可选构建能力，须显式配置启用。本版本不新增 OTLP traces 或 logs。
+- `.cargo/audit.toml` 保留 `rsa`（RUSTSEC-2023-0071）、`paste`（RUSTSEC-2024-0436）及 `h2 0.3`（RUSTSEC-2026-0258）例外，并记录 `crypto-bigint 0.5.x`（RUSTSEC-2026-0387）例外。本次发布不宣称已修复这些上游 advisory。
 
 ## [v0.6.3] - 2026-10-22
 
@@ -6347,7 +6364,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...HEAD
+[v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
 [v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1

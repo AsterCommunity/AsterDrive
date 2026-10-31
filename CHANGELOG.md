@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.0] - 2026-11-01
+
+### Release Highlights
+
+**Storage, workspace visibility, and independent workers.** This release adds Google Drive storage with resumable browser uploads, file attribution and workspace activity, audited administrator workspace inspection, and independently scalable API/worker roles with cooperative task cancellation. Aster Metrics v1 and security hardening complete the upgrade. **Upgrade all roles and primary/follower nodes together**, use the matching frontend, migrate monitoring queries, and review the backup and migration requirements below.
+
 ### Breaking
 
 - **API/worker and task contract migration** — Upgrade every role to one release and migrate Forge consumers together. Existing task concurrency settings now limit each worker; configure the new cluster-wide settings separately. Migration creates `task_resource_publications`. Mixed-version execution is unsupported: stop old writers, preserve the task table and storage, upgrade together, then resume consumers. Rollback to an older binary requires restoring a matching database and storage backup. (#634)
 - **Metrics node and role identity** — `aster_node_mode="primary"` or `"follower"` identifies the node independently of `aster_role="all"`, `"api"` or `"worker"`. The former `aster_role="primary"` / `"follower"` filters must migrate; Follower currently exports role `all`. Update external dashboards and alerts alongside the bundled node-mode/role selectors. (#634)
+- **Internal protocol and browser upload compatibility** — Internal storage requires protocol v7 on every primary and follower; old signatures are rejected. Browser upload responses replace standalone `upload_url` and `next_expected_ranges` fields with coordinated instructions, so custom clients must migrate with the server. Existing OneDrive and Google Drive upload sessions remain recoverable with the matching frontend.
 
 ### Added
 
@@ -32,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Recycle-bin navigation** — The recycle bin uses the file browser address bar, refresh control and view switcher, keeping navigation and content alignment consistent with regular file browsing.
 
 - **Node.js build toolchain** — Local development and CI select Node.js 26.13.0 from `.nvmrc`; the Docker frontend build pins the same patch and checks its binary version. Frontend and documentation packages require Node.js >=26.13.0 <27.
+- **Deployment release versions** — Helm application metadata and its default image tag, plus the production Kustomize example, now target 0.7.0 so the API/worker manifests use the matching release. CI checks these references and the frontend version against the Rust workspace version.
 
 ### Fixed
 
@@ -50,6 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TOTP replay protection** — Each TOTP code can now be consumed once across login challenges and sensitive-action confirmations (factor deletion, recovery-code regeneration): successful verification atomically records the matched 30-second time step, and replays within the acceptance window are rejected as invalid codes. A new `mfa_totp_used_steps` table backs the guard and prunes expired steps automatically; factor deletion and admin MFA resets clean up the records.
 - **Trusted client IP resolution for audit trails** — Every audited endpoint now derives the client IP from `network_trust.trusted_proxies` (resolved once at startup and injected as shared app data) instead of trusting client-supplied `Forwarded`/`X-Forwarded-For`/`X-Real-IP` headers. Requests from untrusted peers record the TCP peer address; a spoofed forwarded header can no longer plant arbitrary IPs into audit rows. With no proxies configured the peer address is recorded, so self-hosted direct deployments keep working unchanged. The legacy extraction entry points were removed; `AuditContext::from_request`/`AuditRequestInfo::from_request` keep their signatures.
 - **Assorted hardening** — Constant-time signature comparisons for internal and presigned verification, single-use nonce entries kept alive beyond the timestamp acceptance window, rate limiting on follower enrollment, audit CSV export neutralization with strict client IP validation, and a dummy password verification for unknown accounts to damp user-enumeration timing signals.
+
+### Database Migrations
+
+- Four migrations add `mfa_totp_used_steps`, `workspace_activities`, `admin_content_accesses`, and `task_resource_publications`, plus nullable last-modification fields on files and folders. Historical business modifiers remain unknown. Back up the database and storage, drain old consumers and stop old writers, then upgrade all roles together without deleting queued tasks or their inputs. The first new process runs the coordinated migrations; resume consumers after initialization and API verification. Downgrading requires restoring a matching database and storage backup.
+
+### Notes
+
+- Prometheus and OTLP metrics remain optional build capabilities and require explicit runtime configuration. This release does not add OTLP traces or logs.
+- `.cargo/audit.toml` retains exceptions for `rsa` (RUSTSEC-2023-0071), `paste` (RUSTSEC-2024-0436), and `h2 0.3` (RUSTSEC-2026-0258), and records `crypto-bigint 0.5.x` (RUSTSEC-2026-0387). These upstream advisories are not claimed fixed by this release.
 
 ## [v0.6.3] - 2026-10-22
 
@@ -6349,7 +6366,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...HEAD
+[v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
 [v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2
 [v0.6.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.0...v0.6.1

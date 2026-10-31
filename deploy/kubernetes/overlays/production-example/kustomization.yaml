@@ -7,7 +7,7 @@ resources:
   - network-policy.yaml
 images:
   - name: ghcr.io/astercommunity/asterdrive
-    newTag: 0.4.0
+    newTag: 0.7.0
 patches:
   - target:
       kind: Namespace
