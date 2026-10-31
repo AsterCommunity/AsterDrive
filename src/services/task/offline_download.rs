@@ -142,7 +142,7 @@ pub(super) async fn process_offline_download_task(
                 vec![],
                 vec![stored.folder_id],
             )
-            .with_storage_delta(0),
+            .with_quota_refresh(),
         );
         return mark_task_succeeded(
             state,

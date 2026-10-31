@@ -107,7 +107,7 @@ pub(super) async fn process_archive_compress_task(
                 vec![],
                 vec![stored.folder_id],
             )
-            .with_storage_delta(0),
+            .with_quota_refresh(),
         );
         let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
         for step in [

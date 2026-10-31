@@ -1251,6 +1251,103 @@ fn publication_folder_snapshot() -> folder::Model {
 }
 
 #[tokio::test]
+async fn reused_temp_file_receipts_refresh_scoped_quota_without_replaying_storage_writes() {
+    use crate::db::repository::task_resource_publication_repo::TaskResourcePublication;
+    use crate::services::{events::storage_change::StorageChangeKind, workspace::storage};
+    use sea_orm::PaginatorTrait;
+    let state = build_dispatch_test_state().await;
+    for scope in [
+        WorkspaceStorageScope::Personal { user_id: 11 },
+        WorkspaceStorageScope::Team {
+            team_id: 42,
+            actor_user_id: 11,
+        },
+    ] {
+        let task = insert_dispatch_test_task(
+            state.writer_db(),
+            BackgroundTaskKind::ArchiveCompress,
+            BackgroundTaskStatus::Processing,
+            0,
+            Some(Utc::now() + chrono::Duration::seconds(60)),
+        )
+        .await;
+        let now = Utc::now();
+        let file = file::Model {
+            id: 99,
+            name: "published.zip".into(),
+            folder_id: None,
+            team_id: match scope {
+                WorkspaceStorageScope::Team { team_id, .. } => Some(team_id),
+                _ => None,
+            },
+            blob_id: 1,
+            size: 512,
+            owner_user_id: Some(11),
+            created_by_user_id: Some(11),
+            created_by_username: "fixture".into(),
+            modified_by_user_id: None,
+            modified_by_username: None,
+            modified_at: None,
+            mime_type: "application/zip".into(),
+            extension: "zip".into(),
+            compound_extension: None,
+            file_category: FileCategory::Archive,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        };
+        let receipt =
+            TaskResourcePublication::new(TaskLease::new(task.id, task.processing_token), "archive");
+        receipt.insert_file(state.writer_db(), &file).await.unwrap();
+        let mut events = state.storage_change_bus.subscribe();
+        // Repeated recoveries may duplicate notifications; the silent variant must remain silent.
+        for emit in [true, true, false] {
+            let stored = storage::store_from_temp_internal(
+                &state,
+                storage::StoreFromTempParams::new(
+                    scope,
+                    None,
+                    "ignored.zip",
+                    "/missing/recovery-input",
+                    512,
+                ),
+                storage::StoreFromTempHints {
+                    task_publication: Some(receipt.clone()),
+                    ..Default::default()
+                },
+                storage::NewFileMode::ResolveUnique,
+                emit,
+            )
+            .await
+            .unwrap();
+            assert_eq!(stored, file);
+            if emit {
+                let event = events.try_recv().unwrap();
+                assert_eq!(event.kind, StorageChangeKind::FileCreated);
+                assert_eq!(event.file_ids, vec![file.id]);
+                assert!(event.affects_quota);
+                assert!(event.storage_delta.is_none());
+                let payload = serde_json::to_value(event).unwrap();
+                match scope {
+                    WorkspaceStorageScope::Personal { .. } => {
+                        assert_eq!(payload["workspace"]["kind"], "personal")
+                    }
+                    WorkspaceStorageScope::Team { team_id, .. } => {
+                        assert_eq!(payload["workspace"]["team_id"], team_id)
+                    }
+                }
+            }
+            assert!(events.try_recv().is_err());
+            assert_eq!(
+                file::Entity::find().count(state.writer_db()).await.unwrap(),
+                0,
+                "receipt replay must not create another file or read the missing temp input"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn task_publication_is_transactional_and_survives_owner_takeover() {
     use crate::db::repository::task_resource_publication_repo::TaskResourcePublication;
     use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};

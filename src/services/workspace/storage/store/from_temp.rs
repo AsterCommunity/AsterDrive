@@ -44,7 +44,7 @@ pub(crate) async fn store_from_temp_internal(
                     vec![],
                     vec![file.folder_id],
                 )
-                .with_storage_delta(0),
+                .with_quota_refresh(),
             );
         }
         return Ok(file);

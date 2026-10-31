@@ -5338,7 +5338,26 @@ async fn test_archive_publication_survives_terminal_failure_without_duplicate_qu
     retry.status = Set(BackgroundTaskStatus::Pending);
     retry.next_run_at = Set(Utc::now() - Duration::seconds(1));
     retry.update(db).await.unwrap();
+    // A browser may have missed the first attempt's event after the output committed.
+    let mut events = state.storage_change_bus.subscribe();
     task::dispatch_due(&state).await.unwrap();
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        event.kind,
+        aster_drive::services::events::storage_change::StorageChangeKind::FileCreated
+    );
+    assert_eq!(event.file_ids, vec![published.id]);
+    assert!(
+        event.affects_quota,
+        "recovery must refresh authoritative usage even if the original event was lost"
+    );
+    assert_eq!(
+        event.storage_delta, None,
+        "recovery must not replay the committed delta"
+    );
     let completed = background_task_repo::find_by_id(db, task_id).await.unwrap();
     assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
     let steps: Value =
@@ -5428,8 +5447,8 @@ async fn test_offline_download_publication_recovery_republishes_file_event_witho
         .unwrap();
     assert_eq!(event.kind, StorageChangeKind::FileCreated);
     assert_eq!(event.file_ids, vec![file_id]);
-    assert_eq!(event.storage_delta, Some(0));
-    assert!(!event.affects_quota);
+    assert_eq!(event.storage_delta, None);
+    assert!(event.affects_quota);
     assert!(event.root_affected);
     assert!(events.try_recv().is_err());
     let completed = background_task_repo::find_by_id(db, queued.id)
