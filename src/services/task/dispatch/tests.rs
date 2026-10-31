@@ -1350,7 +1350,8 @@ async fn reused_temp_file_receipts_refresh_scoped_quota_without_replaying_storag
 #[tokio::test]
 async fn task_publication_is_transactional_and_survives_owner_takeover() {
     use crate::db::repository::task_resource_publication_repo::TaskResourcePublication;
-    use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+    use aster_drive_model::types::file_blob::FileBlobBacking;
+    use sea_orm::{ColumnTrait, IntoActiveModel, QueryFilter, sea_query::Expr};
     let db = build_dispatch_test_db().await;
     let task = insert_dispatch_test_task(
         &db,
@@ -1388,10 +1389,94 @@ async fn task_publication_is_transactional_and_survives_owner_takeover() {
         TaskLease::new(task.id, task.processing_token + 1),
         "directory:root",
     );
-    assert_eq!(successor.find_folder(&db).await.unwrap(), Some(snapshot));
+    assert_eq!(
+        successor.find_folder(&db).await.unwrap(),
+        Some(snapshot.clone())
+    );
     assert!(
         successor.find_file(&db).await.is_err(),
         "resource kind mismatch must not silently trigger a duplicate publication"
+    );
+    let deleted_folder = folder::ActiveModel {
+        id: Set(snapshot.id),
+        name: Set(snapshot.name.clone()),
+        created_by_username: Set("fixture".to_string()),
+        created_at: Set(snapshot.created_at),
+        updated_at: Set(snapshot.updated_at),
+        deleted_at: Set(Some(Utc::now())),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .unwrap();
+    assert!(
+        successor.find_folder(&db).await.is_err(),
+        "a soft-deleted live resource must not be restored from its publication snapshot"
+    );
+    let mut deleted_folder = deleted_folder.into_active_model();
+    deleted_folder.deleted_at = Set(None);
+    deleted_folder.update(&db).await.unwrap();
+    assert_eq!(
+        successor.find_folder(&db).await.unwrap(),
+        Some(snapshot),
+        "an active live resource should remain reusable"
+    );
+    let now = Utc::now();
+    let mut policy = crate::storage::connectors::test_support::local_policy(
+        std::env::temp_dir()
+            .join(format!("task-publication-{}", task.id))
+            .to_string_lossy()
+            .into_owned(),
+    );
+    policy.name = "Task Publication Test Policy".to_string();
+    let policy = crate::storage::connectors::test_support::insertable_policy(policy)
+        .insert(&db)
+        .await
+        .unwrap();
+    let blob = file_blob::ActiveModel {
+        hash: Set(format!("task-publication-{}", task.id)),
+        size: Set(0),
+        policy_id: Set(policy.id),
+        storage_path: Set(Some(format!("task-publication-{}", task.id))),
+        backing: Set(FileBlobBacking::Stored),
+        ref_count: Set(1),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .unwrap();
+    let file = file::ActiveModel {
+        name: Set("published.txt".to_string()),
+        blob_id: Set(blob.id),
+        size: Set(0),
+        created_by_username: Set("fixture".to_string()),
+        mime_type: Set("text/plain".to_string()),
+        extension: Set("txt".to_string()),
+        file_category: Set(FileCategory::Document),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(Some(now)),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .unwrap();
+    let file_receipt = TaskResourcePublication::new(
+        TaskLease::new(task.id, task.processing_token + 1),
+        "file:published.txt",
+    );
+    file_receipt.insert_file(&db, &file).await.unwrap();
+    assert!(
+        file_receipt.find_file(&db).await.is_err(),
+        "a soft-deleted file must not be restored from its publication snapshot"
+    );
+    file::Entity::delete_by_id(file.id).exec(&db).await.unwrap();
+    assert_eq!(
+        file_receipt.find_file(&db).await.unwrap(),
+        Some(file),
+        "a missing live row retains the snapshot replay contract"
     );
     background_task::Entity::delete_by_id(task.id)
         .exec(&db)

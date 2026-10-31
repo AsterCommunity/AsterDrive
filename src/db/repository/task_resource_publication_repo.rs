@@ -48,6 +48,15 @@ impl TaskResourcePublication {
         self
     }
 
+    async fn load_snapshot<C: ConnectionTrait>(&self, db: &C) -> Result<Option<Snapshot>> {
+        let row =
+            task_resource_publication::Entity::find_by_id((self.lease.task_id, self.key.clone()))
+                .one(db)
+                .await?;
+        row.map(|row| decode_snapshot(&row.resource_snapshot))
+            .transpose()
+    }
+
     pub fn entry_key(&self) -> &str {
         &self.key
     }
@@ -61,58 +70,43 @@ impl TaskResourcePublication {
             .all(db)
             .await?;
         rows.into_iter()
-            .filter_map(
-                |row| match serde_json::from_str::<Snapshot>(&row.resource_snapshot) {
-                    Ok(snapshot) if snapshot.version == 1 => {
-                        matches!(snapshot.resource, Resource::File(_)).then_some(Ok(row.entry_key))
-                    }
-                    Ok(_) => Some(Err(AsterError::internal_error(
-                        "unsupported task publication snapshot version",
-                    ))),
-                    Err(_) => Some(Err(AsterError::internal_error(
-                        "invalid persisted task publication snapshot",
-                    ))),
-                },
-            )
+            .filter_map(|row| {
+                decode_snapshot(&row.resource_snapshot)
+                    .map(|snapshot| {
+                        matches!(snapshot.resource, Resource::File(_)).then_some(row.entry_key)
+                    })
+                    .transpose()
+            })
             .collect()
     }
 
     pub async fn metadata<C: ConnectionTrait>(&self, db: &C) -> Result<Option<serde_json::Value>> {
-        let row =
-            task_resource_publication::Entity::find_by_id((self.lease.task_id, self.key.clone()))
-                .one(db)
-                .await?;
-        row.map(|row| {
-            serde_json::from_str::<Snapshot>(&row.resource_snapshot)
-                .map(|snapshot| snapshot.metadata)
-                .map_err(|_| AsterError::internal_error("invalid task publication metadata"))
-        })
-        .transpose()
-        .map(Option::flatten)
+        Ok(self
+            .load_snapshot(db)
+            .await?
+            .and_then(|snapshot| snapshot.metadata))
     }
 
     async fn find<C: ConnectionTrait>(&self, db: &C) -> Result<Option<Resource>> {
-        let row =
-            task_resource_publication::Entity::find_by_id((self.lease.task_id, self.key.clone()))
-                .one(db)
-                .await?;
-        row.map(|row| {
-            let snapshot: Snapshot = serde_json::from_str(&row.resource_snapshot)
-                .map_err(|_| AsterError::internal_error("invalid persisted task file receipt"))?;
-            if snapshot.version != 1 {
-                return Err(AsterError::internal_error(
-                    "unsupported task file receipt version",
-                ));
-            }
-            Ok(snapshot.resource)
-        })
-        .transpose()
+        Ok(self
+            .load_snapshot(db)
+            .await?
+            .map(|snapshot| snapshot.resource))
     }
 
     pub async fn find_file<C: ConnectionTrait>(&self, db: &C) -> Result<Option<file::Model>> {
         match self.find(db).await? {
             None => Ok(None),
-            Some(Resource::File(file)) => Ok(Some(file)),
+            Some(Resource::File(file)) => {
+                if file::Entity::find_by_id(file.id)
+                    .one(db)
+                    .await?
+                    .is_some_and(|current| current.deleted_at.is_some())
+                {
+                    return Err(AsterError::file_not_found(format!("file #{}", file.id)));
+                }
+                Ok(Some(file))
+            }
             Some(Resource::Folder(_)) => Err(AsterError::internal_error(
                 "task publication resource kind mismatch",
             )),
@@ -121,7 +115,19 @@ impl TaskResourcePublication {
     pub async fn find_folder<C: ConnectionTrait>(&self, db: &C) -> Result<Option<folder::Model>> {
         match self.find(db).await? {
             None => Ok(None),
-            Some(Resource::Folder(folder)) => Ok(Some(folder)),
+            Some(Resource::Folder(folder)) => {
+                if folder::Entity::find_by_id(folder.id)
+                    .one(db)
+                    .await?
+                    .is_some_and(|current| current.deleted_at.is_some())
+                {
+                    return Err(AsterError::folder_not_found(format!(
+                        "folder #{}",
+                        folder.id
+                    )));
+                }
+                Ok(Some(folder))
+            }
             Some(Resource::File(_)) => Err(AsterError::internal_error(
                 "task publication resource kind mismatch",
             )),
@@ -172,4 +178,15 @@ impl TaskResourcePublication {
     ) -> Result<()> {
         self.insert(db, Resource::Folder(folder.clone())).await
     }
+}
+
+fn decode_snapshot(raw: &str) -> Result<Snapshot> {
+    let snapshot: Snapshot = serde_json::from_str(raw)
+        .map_err(|_| AsterError::internal_error("invalid persisted task publication snapshot"))?;
+    if snapshot.version != 1 {
+        return Err(AsterError::internal_error(
+            "unsupported task publication snapshot version",
+        ));
+    }
+    Ok(snapshot)
 }

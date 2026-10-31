@@ -271,14 +271,14 @@ pub(super) async fn process_archive_extract_task(
             match published_root.find_folder(state.writer_db()).await {
                 Ok(Some(_)) => {
                     if let Ok(scope) = task_scope(task) {
-                        let mut event = storage_change::StorageChangeEvent::new(
+                        let event = storage_change::StorageChangeEvent::new(
                             storage_change::StorageChangeKind::SyncRequired,
                             scope,
                             vec![],
                             vec![],
                             vec![],
-                        );
-                        event.affects_quota = true;
+                        )
+                        .with_quota_refresh();
                         storage_change::publish(state, event);
                     }
                 }
