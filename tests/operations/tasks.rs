@@ -1081,6 +1081,128 @@ async fn test_offline_download_disabled_registry_rejects_task_creation() {
 }
 
 #[actix_web::test]
+async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_other_attempts() {
+    const CONTENT: &[u8] = b"offline download cleanup fixture";
+    // Isolated RPC fixture writes the requested output itself; no source download or
+    // external DNS is involved, while the production task/storage lifecycle still runs.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let rpc_calls = Arc::new(AtomicUsize::new(0));
+    let calls = rpc_calls.clone();
+    let rpc = actix_web::HttpServer::new(move || {
+        let calls = calls.clone();
+        App::new().default_service(web::to(move |request: web::Json<Value>| {
+            let calls = calls.clone();
+            async move {
+                let result = match request["method"].as_str().unwrap() {
+                    "aria2.addUri" => {
+                        let options = request["params"].as_array().unwrap().last().unwrap();
+                        let output = Path::new(options["dir"].as_str().unwrap())
+                            .join(options["out"].as_str().unwrap());
+                        tokio::fs::write(output, CONTENT).await.unwrap();
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        serde_json::json!("cleanup-fixture")
+                    }
+                    "aria2.tellStatus" => serde_json::json!({
+                        "status":"complete", "totalLength":CONTENT.len().to_string(),
+                        "completedLength":CONTENT.len().to_string()
+                    }),
+                    "aria2.removeDownloadResult" => serde_json::json!("OK"),
+                    method => panic!("unexpected fixture RPC method {method}"),
+                };
+                actix_web::HttpResponse::Ok().json(serde_json::json!({
+                    "jsonrpc":"2.0", "id":request["id"], "result":result
+                }))
+            }
+        }))
+    })
+    .workers(1)
+    .listen(listener)
+    .unwrap()
+    .run();
+    let rpc_handle = rpc.handle();
+    actix_web::rt::spawn(rpc);
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    for (key, value) in [
+        (OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, r#"{"version":1,"engines":[{"kind":"aria2","enabled":true},{"kind":"builtin","enabled":false}]}"#.to_string()),
+        (OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY, format!("http://127.0.0.1:{port}/jsonrpc")),
+    ] {
+        aster_drive::services::ops::config::set(&state, key, &value, 1).await.unwrap();
+    }
+    let main_root = state.config.server.temp_dir.as_str();
+    let custom_root = Path::new(main_root).join("offline-attempts");
+    for (root, preserve_newer) in [
+        (main_root, false),
+        (custom_root.to_str().unwrap(), false),
+        (custom_root.to_str().unwrap(), true),
+    ] {
+        aster_drive::services::ops::config::set(&state, OFFLINE_DOWNLOAD_TEMP_DIR_KEY, root, 1)
+            .await
+            .unwrap();
+        let response = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/v1/tasks/offline-download")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"url":"https://1.1.1.1/cleanup-fixture", "filename":"cleanup-fixture.txt"}))
+            .to_request()).await;
+        assert_eq!(response.status(), 200);
+        let created: Value = test::read_body_json(response).await;
+        let id = created["data"]["id"].as_i64().unwrap();
+        for scratch_root in [main_root, root] {
+            let attempt = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 1);
+            tokio::fs::create_dir_all(&attempt).await.unwrap();
+            tokio::fs::write(Path::new(&attempt).join("metadata"), b"current")
+                .await
+                .unwrap();
+            if preserve_newer {
+                let newer = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 2);
+                tokio::fs::create_dir_all(&newer).await.unwrap();
+                tokio::fs::write(Path::new(&newer).join("metadata"), b"newer")
+                    .await
+                    .unwrap();
+            }
+        }
+        let stats = task::dispatch_due(&state).await.unwrap();
+        let completed = background_task_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        assert_eq!(stats.succeeded, 1, "{completed:?}");
+        assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+        assert_eq!(completed.processing_token, 1);
+        for scratch_root in [main_root, root] {
+            let attempt = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 1);
+            assert!(
+                !Path::new(&attempt).exists(),
+                "own attempt must be removed from {scratch_root}"
+            );
+            let parent = aster_forge_utils::paths::task_temp_dir(scratch_root, id);
+            assert_eq!(
+                Path::new(&parent).exists(),
+                preserve_newer,
+                "only empty task parents may be removed"
+            );
+            if preserve_newer {
+                let newer = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 2);
+                assert_eq!(
+                    tokio::fs::read(Path::new(&newer).join("metadata"))
+                        .await
+                        .unwrap(),
+                    b"newer"
+                );
+            }
+        }
+    }
+    assert_eq!(
+        rpc_calls.load(Ordering::SeqCst),
+        3,
+        "all success paths must execute"
+    );
+    rpc_handle.stop(true).await;
+}
+
+#[actix_web::test]
 async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
     let state = common::setup().await;
     let aria2 = start_aria2_context(&state.config.server.temp_dir).await;

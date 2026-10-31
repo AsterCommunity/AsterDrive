@@ -333,7 +333,7 @@ pub(super) async fn process_offline_download_task(
             true,
         )
         .await?;
-        aster_forge_tasks::cleanup_task_temp_dir_for_lease_in_root(&temp_root, lease_guard.lease()).await?;
+        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_STORE_RESULT,
