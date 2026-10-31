@@ -118,7 +118,7 @@ export function TeamManageWebdavSection({
 		dialogState.createDialogOpen,
 	);
 	const isTestCurrent = useDialogActivity(
-		recentCredentials,
+		recentCredentials.at(-1),
 		dialogState.credentialsDialogOpen,
 	);
 
@@ -177,13 +177,14 @@ export function TeamManageWebdavSection({
 	};
 
 	const handleTest = async () => {
-		if (!recentCredentials) return;
+		const latestCredentials = recentCredentials.at(-1);
+		if (!latestCredentials) return;
 		dialogState.setTesting(true);
 		dialogState.setTestResult(null);
 		try {
 			await webdavAccountService.test({
-				username: recentCredentials.username,
-				password: recentCredentials.password,
+				username: latestCredentials.username,
+				password: latestCredentials.password,
 			});
 			if (!isTestCurrent()) return;
 			dialogState.setTestResult(true);

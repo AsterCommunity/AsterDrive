@@ -102,6 +102,28 @@ function closeAndDispose() {
 }
 
 describe("WebDAV creation draft ownership", () => {
+	it("collects overlapping successful credentials and clears the whole collection on close", () => {
+		const { result } = renderHook(() => useWebdavAccountDialogState());
+		act(() => {
+			result.current.setCreateDialogOpen(true);
+			result.current.showCreatedCredentials(
+				{ username: "first", password: "one" },
+				false,
+			);
+			result.current.showCreatedCredentials(
+				{ username: "second", password: "two" },
+				false,
+			);
+		});
+		expect(result.current.showPassword).toEqual([
+			{ username: "first", password: "one" },
+			{ username: "second", password: "two" },
+		]);
+		expect(result.current.credentialsDialogOpen).toBe(true);
+		act(() => result.current.clearCredentials());
+		expect(result.current.showPassword).toEqual([]);
+	});
+
 	it.each(["active", "closed", "reopened"])(
 		"clears only completed drafts when the creation session is %s",
 		(session) => {
@@ -135,7 +157,7 @@ describe("WebDAV creation draft ownership", () => {
 					session === "active",
 				),
 			);
-			expect(result.current.showPassword).toEqual(credentials);
+			expect(result.current.showPassword).toEqual([credentials]);
 			expect(result.current.credentialsDialogOpen).toBe(true);
 			expect(result.current).toMatchObject(
 				session === "reopened"
@@ -217,6 +239,43 @@ describe.each(["personal", "team"])("%s WebDAV dialog lifecycle", (scope) => {
 		expect(
 			activeDialog().getByRole("button", { name: "create" }),
 		).toBeDisabled();
+	});
+
+	it("displays every successful overlapping creation and tests the latest credentials", async () => {
+		const first = deferred<{ username: string; password: string }>();
+		const second = deferred<{ username: string; password: string }>();
+		mock.create
+			.mockReturnValueOnce(first.promise)
+			.mockReturnValueOnce(second.promise);
+		mount();
+		openCreate();
+		fireEvent.click(activeDialog().getByRole("button", { name: "create" }));
+		closeAndDispose();
+		openCreate();
+		fireEvent.click(activeDialog().getByRole("button", { name: "create" }));
+		await act(async () => {
+			first.resolve({ username: "first-user", password: "first-secret" });
+			await first.promise;
+		});
+		await screen.findByDisplayValue("first-secret");
+		await act(async () => {
+			second.resolve({ username: "second-user", password: "second-secret" });
+			await second.promise;
+		});
+		expect(screen.getByDisplayValue("first-user")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("first-secret")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("second-user")).toBeInTheDocument();
+		expect(screen.getByDisplayValue("second-secret")).toBeInTheDocument();
+		mock.test.mockClear();
+		fireEvent.click(
+			activeDialog().getByRole("button", { name: "admin:test_connection" }),
+		);
+		await waitFor(() =>
+			expect(mock.test).toHaveBeenCalledWith({
+				username: "second-user",
+				password: "second-secret",
+			}),
+		);
 	});
 
 	it("reports active create/test failures and allows retry", async () => {
@@ -309,11 +368,8 @@ describe.each(["personal", "team"])("%s WebDAV dialog lifecycle", (scope) => {
 		mount();
 		await createCredentials();
 		const dialog = activeDialog();
-		const fields = dialog.getAllByRole("textbox");
-		for (const input of fields) {
-			const row = input.parentElement;
-			if (row) fireEvent.click(within(row).getByRole("button"));
-		}
+		const copyButtons = dialog.getAllByRole("button");
+		for (const button of copyButtons.slice(0, -1)) fireEvent.click(button);
 		await waitFor(() =>
 			expect(mock.copy).toHaveBeenCalledWith("created-secret"),
 		);

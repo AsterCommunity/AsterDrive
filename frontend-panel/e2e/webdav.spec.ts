@@ -47,8 +47,9 @@ test("retains generated credentials after closing creation and restores a newer 
 	release();
 	const credentials = dialogByTitle(page, "Latest Credentials");
 	await expect(credentials).toBeVisible();
-	await expect(credentials.locator("input").first()).toHaveValue(username);
-	const password = await credentials.locator("input").last().inputValue();
+	await expect(credentials.locator("input").nth(0)).toHaveValue(username);
+	const passwordInputs = credentials.locator("input");
+	const password = await passwordInputs.last().inputValue();
 	expect(password.length).toBeGreaterThan(0);
 	await expect(createDialog).toHaveCount(0);
 	await page.keyboard.press("Escape");

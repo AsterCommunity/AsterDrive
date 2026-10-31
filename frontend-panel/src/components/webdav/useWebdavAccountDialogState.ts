@@ -12,7 +12,7 @@ interface WebdavAccountDialogState {
 	newPassword: string;
 	newUsername: string;
 	selectedFolderId: number | undefined;
-	showPassword: WebdavCredentials | null;
+	showPassword: WebdavCredentials[];
 	testing: boolean;
 	testResult: boolean | null;
 }
@@ -36,7 +36,7 @@ const initialWebdavAccountDialogState: WebdavAccountDialogState = {
 	newPassword: "",
 	newUsername: "",
 	selectedFolderId: undefined,
-	showPassword: null,
+	showPassword: [],
 	testing: false,
 	testResult: null,
 };
@@ -79,12 +79,12 @@ function webdavAccountDialogReducer(
 							selectedFolderId: undefined,
 						}
 					: {}),
-				showPassword: action.credentials,
+				showPassword: [...state.showPassword, action.credentials],
 				testing: false,
 				testResult: null,
 			};
 		case "credentialsCleared":
-			return { ...state, showPassword: null };
+			return { ...state, showPassword: [] };
 		case "testingChanged":
 			return { ...state, testing: action.testing };
 		case "testResultChanged":
