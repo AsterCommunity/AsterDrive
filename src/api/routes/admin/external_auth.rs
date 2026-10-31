@@ -260,7 +260,11 @@ pub async fn test_external_auth_provider_params(
 ) -> Result<HttpResponse> {
     let input = body.into_inner();
     let provider_kind = input.provider_kind.as_str();
-    let result = external::test_provider_params(state.get_ref(), input).await;
+    let registry = req
+        .app_data::<web::Data<aster_forge_external_auth::ExternalAuthProviderRegistry>>()
+        .map(|data| data.get_ref())
+        .unwrap_or_else(|| aster_forge_external_auth::default_registry());
+    let result = external::test_provider_params(state.get_ref(), registry, input).await;
     let success = result.is_ok();
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
@@ -306,7 +310,11 @@ pub async fn test_external_auth_provider(
 ) -> Result<HttpResponse> {
     let provider =
         external::get_admin_provider(state.get_ref(), request_origin(&req), *path).await?;
-    let result = external::test_provider(state.get_ref(), *path).await?;
+    let registry = req
+        .app_data::<web::Data<aster_forge_external_auth::ExternalAuthProviderRegistry>>()
+        .map(|data| data.get_ref())
+        .unwrap_or_else(|| aster_forge_external_auth::default_registry());
+    let result = external::test_provider(state.get_ref(), registry, *path).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     audit::log_with_details(
         state.get_ref(),

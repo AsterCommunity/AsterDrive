@@ -21,7 +21,9 @@ use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
-use aster_forge_external_auth::ExternalAuthProviderKind;
+use aster_forge_external_auth::{
+    ExternalAuthProviderKind, ExternalAuthProviderRegistry, default_registry,
+};
 use aster_forge_middleware::actix::csrf::{self, RequestSourceMode};
 use aster_forge_utils::numbers::u64_to_i64;
 
@@ -82,8 +84,13 @@ pub async fn start_login(
     let origin = ExternalAuthRequestOrigin { scheme, host };
     let (kind, provider) = path.into_inner();
     let provider_kind = parse_provider_kind(&kind)?;
+    let registry = req
+        .app_data::<web::Data<ExternalAuthProviderRegistry>>()
+        .map(|data| data.get_ref())
+        .unwrap_or_else(|| default_registry());
     let result = external::start_login(
         state.get_ref(),
+        registry,
         origin,
         provider_kind,
         &provider,
@@ -211,6 +218,9 @@ async fn finish_login_inner(
     };
     let result = match external::finish_callback(
         state.get_ref(),
+        req.app_data::<web::Data<ExternalAuthProviderRegistry>>()
+            .map(|data| data.get_ref())
+            .unwrap_or_else(|| default_registry()),
         callback_route,
         &query,
         browser_binding_secret,

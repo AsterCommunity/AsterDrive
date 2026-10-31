@@ -222,26 +222,6 @@ fn oidc_external_auth_provider_model(
     }
 }
 
-pub fn google_external_auth_provider_model(
-    key: &str,
-    issuer_url: &str,
-    enabled: bool,
-) -> external_auth_provider::ActiveModel {
-    external_auth_provider::ActiveModel {
-        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Google),
-        options: Set(
-            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
-        ),
-        scopes: Set("openid profile email".to_string()),
-        subject_claim: Set(Some("sub".to_string())),
-        display_name_claim: Set(Some("name".to_string())),
-        email_claim: Set(Some("email".to_string())),
-        email_verified_claim: Set(Some("email_verified".to_string())),
-        avatar_url_claim: Set(Some("picture".to_string())),
-        ..oidc_external_auth_provider_model(key, issuer_url, enabled, "openid profile email")
-    }
-}
-
 pub fn microsoft_external_auth_provider_model(
     key: &str,
     issuer_url: &str,
@@ -288,41 +268,6 @@ where
     let req = test::TestRequest::post()
         .uri(&format!(
             "/api/v1/auth/external-auth/oidc/{provider_key}/start"
-        ))
-        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
-        .set_json(serde_json::json!({ "return_path": return_path }))
-        .to_request();
-    let resp = test::call_service(app, req).await;
-    assert_eq!(resp.status(), 200);
-    let binding_cookie = external_auth_binding_cookie_from_response(&resp);
-    let body: Value = test::read_body_json(resp).await;
-    let auth_url = body["data"]["authorization_url"]
-        .as_str()
-        .expect("authorization url should be returned");
-    request_mock_authorize(auth_url).await;
-    let state = mock_provider.last_authorize_request().state;
-    remember_external_auth_binding(&state, binding_cookie);
-    state
-}
-
-pub async fn start_google_login<S, B, E>(
-    app: &S,
-    mock_provider: &mock::MockOidcProvider,
-    provider_key: &str,
-    return_path: &str,
-) -> String
-where
-    S: actix_web::dev::Service<
-            actix_http::Request,
-            Response = actix_web::dev::ServiceResponse<B>,
-            Error = E,
-        >,
-    B: MessageBody,
-    E: std::fmt::Debug,
-{
-    let req = test::TestRequest::post()
-        .uri(&format!(
-            "/api/v1/auth/external-auth/google/{provider_key}/start"
         ))
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .set_json(serde_json::json!({ "return_path": return_path }))
@@ -391,31 +336,6 @@ where
 {
     let callback = format!(
         "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={state_value}"
-    );
-    let req = test::TestRequest::get()
-        .uri(&callback)
-        .insert_header(("Cookie", external_auth_binding_cookie_header(state_value)))
-        .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .to_request();
-    test::call_service(app, req).await
-}
-
-pub async fn finish_google_callback<S, B, E>(
-    app: &S,
-    provider_key: &str,
-    state_value: &str,
-) -> ServiceResponse<B>
-where
-    S: actix_web::dev::Service<
-            actix_http::Request,
-            Response = actix_web::dev::ServiceResponse<B>,
-            Error = E,
-        >,
-    B: MessageBody,
-    E: std::fmt::Debug,
-{
-    let callback = format!(
-        "/api/v1/auth/external-auth/google/{provider_key}/callback?code=mock-code&state={state_value}"
     );
     let req = test::TestRequest::get()
         .uri(&callback)

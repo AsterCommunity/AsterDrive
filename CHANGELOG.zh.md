@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **内置外部认证目的地址** — Google、GitHub 与 QQ 登录遵守 Forge 固定的供应商目的地址，数据库内的端点覆盖不能重定向这些 driver。Google 连接测试明确拒绝自定义 issuer，不再接受随后被忽略的覆盖值。
 - **WebDAV 上传接收上限** — PUT 在每块数据写入前校验配置的请求体上限、存储策略边界与 workspace 剩余配额，覆盖无 Content-Length 的上传。超限立即停止读取并清理临时文件或远端暂存对象；已知长度请求在暂存前预检。最终存储策略仍按实际大小路由，配额仍在完成事务中权威校验。（#650）
 - **内部协议请求体覆盖（v7）** — primary↔follower 控制面与对象协议的 HMAC 签名现包含规范的请求体 SHA-256 行，并以 `x-aster-content-sha256` 声明头在线传输：follower 在读取 body 前即可验签，收完流式字节后再对账。全部对象上传均被覆盖且零新增缓冲：digest 发送前已知的路径直接先承诺签名；relay 流式直推等收完才知道 digest 的路径签显式占位，由新增的响应签名机制对账——follower 把算出的 digest 以绑定本次请求 nonce 的 HMAC 响应签名回传，primary 验签并比对后才接受传输。任何篡改都会被拒绝，摘要校验失败不会触碰正式对象。旧版五行签名直接拒绝：**primary 与 follower 实例必须同时升级**——混合版本集群的内部请求一律 401，不做静默降级。出站远程请求现禁用重定向，签名请求头不会泄露到其他源。
 - **分享密码 cookie 过期与密码绑定** — 公开分享的密码 cookie 现以 HMAC 绑定已验证的密码哈希与签发时间戳，一小时后过期并允许有限的时钟偏移；分享密码修改或 cookie 被篡改后立即失效。旧版本签发的 cookie 不再通过验证。

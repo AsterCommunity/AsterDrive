@@ -15,7 +15,6 @@ use aster_drive_model::entities::{
     external_auth_login_flow, external_auth_provider, user,
 };
 use aster_drive_model::types::AuditAction;
-use aster_drive_model::types::external_auth_provider::ExternalAuthCallbackMode;
 use chrono::{Duration, Utc};
 use external_auth::oidc::*;
 use sea_orm::{
@@ -454,7 +453,7 @@ async fn admin_update_external_auth_provider_rejects_identity_fields() {
 }
 
 #[actix_web::test]
-async fn admin_create_and_test_google_provider_uses_oidc_defaults() {
+async fn admin_google_provider_uses_fixed_defaults_and_rejects_test_issuer_override() {
     let (mock_provider, server) = start_mock_external_auth_provider().await;
     let state = common::setup().await;
     configure_oidc_public_site_url(&state);
@@ -510,21 +509,9 @@ async fn admin_create_and_test_google_provider_uses_oidc_defaults() {
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["provider"], "Google");
-    assert_eq!(body["data"]["issuer"], mock_provider.issuer);
-    assert_eq!(
-        body["data"]["authorization_endpoint"],
-        format!("{}/authorize", mock_provider.issuer)
-    );
-    assert_eq!(
-        body["data"]["token_endpoint"],
-        format!("{}/token", mock_provider.issuer)
-    );
-    assert_eq!(body["data"]["jwks_key_count"], 1);
-    assert_eq!(body["data"]["checks"][0]["name"], "discovery");
-    assert_eq!(body["data"]["checks"][1]["name"], "jwks");
+    assert!(body["msg"].as_str().unwrap().contains("issuer_url"));
 
     server.stop(true).await;
 }
@@ -1703,123 +1690,6 @@ async fn browser_binding_cookie_respects_secure_runtime_policy() {
     assert!(cookie.secure().unwrap_or(false));
 
     server.stop(true).await;
-}
-
-#[actix_web::test]
-async fn google_callback_uses_oidc_sub_as_stable_identity() {
-    let (mock_provider, server) = start_mock_external_auth_provider().await;
-    mock_provider.set_subject("google-subject-1");
-    mock_provider.set_email("google-user@example.com");
-
-    let state = common::setup().await;
-    configure_oidc_public_site_url(&state);
-    let app = create_test_app!(state.clone());
-    let (_admin_token, _) = register_and_login!(app);
-    let mut provider_model =
-        google_external_auth_provider_model("google-test", &mock_provider.issuer, true);
-    provider_model.auto_provision_enabled = Set(true);
-    provider_model.callback_mode = Set(ExternalAuthCallbackMode::Unified);
-    let provider = provider_model
-        .insert(state.writer_db())
-        .await
-        .expect("Google provider should insert");
-
-    let state_value = start_google_login(&app, &mock_provider, &provider.key, "/files").await;
-    let authorize_request = mock_provider.last_authorize_request();
-    assert_eq!(
-        authorize_request.redirect_uri,
-        "http://localhost:8080/api/v1/auth/external-auth/callback"
-    );
-    let scope = authorize_request
-        .scope
-        .as_deref()
-        .expect("Google OIDC authorization request should include scopes");
-    assert!(scope.split_whitespace().any(|item| item == "openid"));
-    assert!(scope.split_whitespace().any(|item| item == "profile"));
-    assert!(scope.split_whitespace().any(|item| item == "email"));
-
-    let resp = external_auth::finish_unified_external_auth_callback(&app, &state_value).await;
-    assert_eq!(resp.status(), 302);
-    assert_eq!(
-        resp.headers()
-            .get("Location")
-            .and_then(|value| value.to_str().ok()),
-        Some("http://localhost:8080/files")
-    );
-    assert!(common::extract_cookie(&resp, "aster_access").is_some());
-
-    let identities = external_auth_identity::Entity::find()
-        .all(state.writer_db())
-        .await
-        .expect("identities should query");
-    assert_eq!(identities.len(), 1);
-    let user_id = identities[0].user_id;
-    assert_eq!(identities[0].identity_namespace, mock_provider.issuer);
-    assert_eq!(identities[0].subject, "google-subject-1");
-    assert_eq!(
-        identities[0].email_snapshot.as_deref(),
-        Some("google-user@example.com")
-    );
-
-    mock_provider.set_email("renamed-google-user@example.com");
-    let state_value = start_google_login(&app, &mock_provider, &provider.key, "/files").await;
-    let resp = finish_google_callback(&app, &provider.key, &state_value).await;
-    assert_eq!(resp.status(), 302);
-
-    let identities = external_auth_identity::Entity::find()
-        .all(state.writer_db())
-        .await
-        .expect("identities should query");
-    assert_eq!(identities.len(), 1);
-    assert_eq!(identities[0].user_id, user_id);
-    assert_eq!(identities[0].subject, "google-subject-1");
-    assert_eq!(
-        identities[0].email_snapshot.as_deref(),
-        Some("renamed-google-user@example.com")
-    );
-
-    server.stop(true).await;
-}
-
-#[actix_web::test]
-async fn google_callback_rejects_unverified_missing_or_non_boolean_email_verified() {
-    for (case_name, configure_claim) in [("false", 0_u8), ("missing", 1_u8), ("string", 2_u8)] {
-        let (mock_provider, server) = start_mock_external_auth_provider().await;
-        mock_provider.set_subject(&format!("google-{case_name}-subject"));
-        mock_provider.set_email(&format!("google-{case_name}@example.com"));
-        match configure_claim {
-            0 => mock_provider.set_email_verified(false),
-            1 => mock_provider.clear_email_verified_claim(),
-            2 => mock_provider.set_email_verified_claim(serde_json::json!("true")),
-            _ => unreachable!("test case should be covered"),
-        }
-
-        let state = common::setup().await;
-        configure_oidc_public_site_url(&state);
-        let app = create_test_app!(state.clone());
-        let mut provider_model =
-            google_external_auth_provider_model("google-test", &mock_provider.issuer, true);
-        provider_model.auto_provision_enabled = Set(true);
-        let provider = provider_model
-            .insert(state.writer_db())
-            .await
-            .expect("Google provider should insert");
-
-        let state_value = start_google_login(&app, &mock_provider, &provider.key, "/files").await;
-        let resp = finish_google_callback(&app, &provider.key, &state_value).await;
-        assert_oidc_error_redirect(&resp);
-
-        let identities = external_auth_identity::Entity::find()
-            .all(state.writer_db())
-            .await
-            .expect("identities should query");
-        assert!(
-            identities.is_empty(),
-            "{case_name} email_verified claim should not create identity"
-        );
-
-        server.stop(true).await;
-    }
 }
 
 #[actix_web::test]

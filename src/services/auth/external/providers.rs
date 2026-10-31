@@ -18,7 +18,7 @@ use aster_forge_external_auth::providers::microsoft::{
 };
 use aster_forge_external_auth::{
     ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderKind,
-    ExternalAuthProviderOptions, ExternalAuthProviderTestResult,
+    ExternalAuthProviderOptions, ExternalAuthProviderRegistry, ExternalAuthProviderTestResult,
     MicrosoftExternalAuthProviderOptions, default_registry, normalize as external_auth_normalize,
     parse_external_auth_provider_options, serialize_external_auth_provider_options,
 };
@@ -349,13 +349,6 @@ fn normalize_provider_issuer_url_input(
             value,
             "Use options.microsoft.tenant for Microsoft providers",
         ),
-        ExternalAuthProviderKind::Google if allow_test_override => {
-            Ok(external_auth_normalize::normalize_issuer_url_input(
-                value,
-                false,
-                super::EXTERNAL_AUTH_IDENTITY_NAMESPACE_MAX_LEN,
-            )?)
-        }
         ExternalAuthProviderKind::GitHub
         | ExternalAuthProviderKind::Google
         | ExternalAuthProviderKind::Qq => normalize_specialized_issuer_url_input(
@@ -904,11 +897,12 @@ mod policy_tests {
 
 pub async fn test_provider(
     state: &impl SharedRuntimeState,
+    registry: &ExternalAuthProviderRegistry,
     id: i64,
 ) -> Result<ExternalAuthProviderTestResult> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
     let runtime_provider = external_auth_provider_config(&provider);
-    let result = default_registry()
+    let result = registry
         .driver_for_provider(&runtime_provider)?
         .test_provider(&runtime_provider)
         .await?;
@@ -918,10 +912,11 @@ pub async fn test_provider(
 
 pub async fn test_provider_params(
     _state: &impl SharedRuntimeState,
+    registry: &ExternalAuthProviderRegistry,
     input: ExternalAuthProviderTestParamsInput,
 ) -> Result<ExternalAuthProviderTestResult> {
     let provider = external_auth_provider_config_from_test_params(input)?;
-    Ok(default_registry()
+    Ok(registry
         .driver_for_provider(&provider)?
         .test_provider(&provider)
         .await?)

@@ -13,5 +13,6 @@ mod mfa;
 mod oauth2;
 mod oidc;
 mod preferences;
+mod provider_boundary;
 mod user_invitations;
 mod user_management;

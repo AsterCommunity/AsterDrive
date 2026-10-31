@@ -12,7 +12,7 @@ use crate::services::auth::flow::{
 use aster_drive_model::entities::external_auth_login_flow;
 use aster_forge_crypto as hash;
 use aster_forge_external_auth::{
-    ExternalAuthCallback, ExternalAuthProviderKind, default_registry,
+    ExternalAuthCallback, ExternalAuthProviderKind, ExternalAuthProviderRegistry,
     normalize as external_auth_normalize,
 };
 use aster_forge_utils::numbers::u64_to_i64;
@@ -40,6 +40,7 @@ fn browser_binding_secret() -> String {
 
 pub async fn start_login(
     state: &impl SharedRuntimeState,
+    registry: &ExternalAuthProviderRegistry,
     origin: ExternalAuthRequestOrigin,
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
@@ -76,7 +77,7 @@ pub async fn start_login(
         &provider.key,
     )?;
     let runtime_provider = external_auth_provider_config(&provider);
-    let auth_start = default_registry()
+    let auth_start = registry
         .driver_for_provider(&runtime_provider)?
         .start_authorization(&runtime_provider, &redirect_uri)
         .await?;
@@ -122,6 +123,7 @@ pub async fn start_login(
 
 pub async fn finish_callback(
     state: &impl SharedRuntimeState,
+    registry: &ExternalAuthProviderRegistry,
     callback_route: ExternalAuthCallbackRoute,
     query: &ExternalAuthCallbackQuery,
     browser_binding_secret: Option<&str>,
@@ -210,7 +212,7 @@ pub async fn finish_callback(
         ));
     }
     let runtime_provider = external_auth_provider_config(&provider);
-    let user_claims = default_registry()
+    let user_claims = registry
         .driver_for_provider(&runtime_provider)?
         .exchange_callback(
             &runtime_provider,

@@ -1840,12 +1840,14 @@ pub fn system_config_model(key: &str, value: &str) -> aster_forge_db::system_con
 /// 创建标准测试 App
 #[macro_export]
 macro_rules! create_test_app {
-    ($state:expr) => {{
+    ($state:expr $(, $registry:expr)?) => {{
         use actix_web::{App, test, web};
         let state = $state;
         let db = state.writer_db().clone();
+        let app = App::new();
+        $(let app = app.app_data(web::Data::new($registry));)?
         test::init_service(
-            App::new()
+            app
                 .wrap(aster_forge_middleware::actix::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(
                     aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,

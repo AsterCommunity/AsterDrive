@@ -53,6 +53,8 @@
 - 非 Microsoft provider 带 `options.microsoft` 会被服务端拒绝
 - 专用 provider 的固定 endpoint 不应通过 `issuer_url`、`authorization_url`、`token_url` 或 `userinfo_url` 覆盖
 
+测试也遵守固定 endpoint 契约。Drive 的登录与连接测试 service 显式接收 Forge registry，HTTP adapter 从当前 App 的 `web::Data<ExternalAuthProviderRegistry>` 获取依赖，未注册时使用 Forge 默认 registry。测试 App 可注入独立 registry，让 driver 返回规范化 profile 或交换失败；不修改全局 registry，也不复制供应商协议实现。供应商 endpoint、issuer、原始 claim 与响应解析由 Forge 测试，Drive 验证身份绑定、邮箱策略、浏览器绑定及 session。Google 草稿连接测试同样拒绝自定义 issuer，拒绝发生在调用 driver 之前。
+
 ## Provider descriptor
 
 每个 Forge driver 通过 `ExternalAuthProviderDescriptor` 暴露能力。Drive 的 `src/services/auth/external/providers.rs` 从 `default_registry()` 读取 descriptor，再由管理端 `GET /admin/external-auth/provider-kinds` 返回给前端。前端据此决定字段是否必填、是否显示手动 endpoint、默认 scope 和 claim 区域。
@@ -168,7 +170,7 @@ UserInfo claim 默认：
 - avatar URL claim 预设为 ID Token `picture`
 - authorization / token / userinfo 手动 endpoint 不支持
 
-Google 专用 provider 仍允许测试传入 loopback issuer，以便集成测试使用本地 mock OIDC server；生产 UI 不展示 issuer 输入。外部身份绑定必须依赖稳定的 `sub`，不要把 email 作为主键。Google API / Google Drive 授权属于后续资源访问能力，不应混进登录 provider 默认 scope。
+Google 专用 provider 固定使用正式 issuer，连接测试也不接受 loopback issuer 覆盖；集成测试通过 App 独立的 registry 注入规范化 profile。外部身份绑定必须依赖稳定的 `sub`，不要把 email 作为主键。Google API / Google Drive 授权属于独立的资源访问能力，不混进登录 provider 默认 scope。
 
 前端后台对 Google 做了特异性 UI：
 
