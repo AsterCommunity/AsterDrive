@@ -13,7 +13,7 @@ pub struct PreparedPrimaryRuntime {
 pub async fn prepare_primary(
     role: crate::runtime::role::ServeRole,
 ) -> Result<PreparedPrimaryRuntime> {
-    let common = prepare_common(NodeRuntimeMode::Primary, role.as_str()).await?;
+    let common = prepare_common(NodeRuntimeMode::Primary, role).await?;
 
     let runtime_config = Arc::new(
         crate::config::RuntimeConfig::with_password_hash_max_concurrency(

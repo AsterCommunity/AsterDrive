@@ -3189,6 +3189,19 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     let archive_file_id = result["target_file_id"].as_i64().unwrap();
     assert_eq!(result["target_folder_id"], Value::Null);
     assert_eq!(result["target_path"], "/bundle-export.zip");
+    let steps = body["data"]["steps"].as_array().unwrap();
+    for (key, detail) in [
+        ("waiting", "Worker claimed task"),
+        ("prepare_sources", "Archive sources are ready"),
+        ("build_archive", "Archive file created"),
+        ("store_result", "Archive is ready"),
+    ] {
+        let step = steps.iter().find(|step| step["key"] == key).unwrap();
+        assert_eq!(
+            step["detail"], detail,
+            "normal completion must preserve {key} detail"
+        );
+    }
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/files/{archive_file_id}/download"))
@@ -5328,6 +5341,15 @@ async fn test_archive_publication_survives_terminal_failure_without_duplicate_qu
     task::dispatch_due(&state).await.unwrap();
     let completed = background_task_repo::find_by_id(db, task_id).await.unwrap();
     assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+    let steps: Value =
+        serde_json::from_str(completed.steps_json.as_ref().unwrap().as_ref()).unwrap();
+    assert!(
+        steps
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|step| step["status"] == "succeeded")
+    );
     assert_eq!(file::Entity::find().count(db).await.unwrap(), files_before);
     assert_eq!(
         user::Entity::find_by_id(owner.id)
@@ -5348,6 +5370,85 @@ async fn test_archive_publication_survives_terminal_failure_without_duplicate_qu
             .await
             .unwrap(),
         1
+    );
+}
+
+#[actix_web::test]
+async fn test_offline_download_publication_recovery_republishes_file_event_without_quota_delta() {
+    use aster_drive::services::events::storage_change::StorageChangeKind;
+    use aster_drive_model::entities::{file, task_resource_publication, user};
+    use sha2::{Digest, Sha256};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file_named!(app, token, "published-download.txt");
+    let db = state.writer_db();
+    let stored = file::Entity::find_by_id(file_id)
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let user_before = user::Entity::find_by_id(stored.owner_user_id.unwrap())
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let files_before = file::Entity::find().count(db).await.unwrap();
+    let response = test::call_service(&app, test::TestRequest::post()
+        .uri("/api/v1/tasks/offline-download")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"url":"https://example.com/download", "filename":"published-download.txt"}))
+        .to_request()).await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    let queued = background_task_repo::find_by_id(db, body["data"]["id"].as_i64().unwrap())
+        .await
+        .unwrap();
+    let mut queued = queued.into_active_model();
+    queued.payload_json = Set(StoredTaskPayload("{}".to_string()));
+    let queued = queued.update(db).await.unwrap();
+    // Seed the durable output from a previous attempt. The source payload is deliberately
+    // unusable: recovery must neither fetch it nor repeat the file/quota mutation.
+    task_resource_publication::ActiveModel {
+        task_id: Set(queued.id),
+        entry_key: Set(hex::encode(Sha256::digest(b"download"))),
+        resource_snapshot: Set(serde_json::json!({
+            "version": 1,
+            "resource": {"kind": "file", "value": stored},
+            "metadata": {"sha256": "persisted-hash", "source_display_url": "https://example.com/download", "engine": "builtin"}
+        }).to_string()),
+    }.insert(db).await.unwrap();
+    let mut events = state.storage_change_bus.subscribe();
+    let stats = task::dispatch_due(&state).await.unwrap();
+    assert_eq!(stats.succeeded, 1);
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(event.kind, StorageChangeKind::FileCreated);
+    assert_eq!(event.file_ids, vec![file_id]);
+    assert_eq!(event.storage_delta, Some(0));
+    assert!(!event.affects_quota);
+    assert!(event.root_affected);
+    assert!(events.try_recv().is_err());
+    let completed = background_task_repo::find_by_id(db, queued.id)
+        .await
+        .unwrap();
+    assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+    let result: Value =
+        serde_json::from_str(completed.result_json.as_ref().unwrap().as_ref()).unwrap();
+    assert_eq!(result["file_id"], file_id);
+    assert_eq!(result["sha256"], "persisted-hash");
+    assert_eq!(file::Entity::find().count(db).await.unwrap(), files_before);
+    assert_eq!(
+        user::Entity::find_by_id(stored.owner_user_id.unwrap())
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        user_before.storage_used
     );
 }
 

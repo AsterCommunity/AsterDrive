@@ -6253,6 +6253,62 @@ async fn test_passkey_register_login_and_replay_protection() {
 }
 
 #[actix_web::test]
+async fn test_passkey_login_rejects_invalid_assertions_without_updating_credentials_or_sessions() {
+    let state = common::setup_with_memory_cache().await;
+    configure_passkey_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (access, _) = register_and_login!(app);
+    let (mut softpasskey, passkey) = register_test_passkey(&app, &access, "Laptop").await;
+    let user_id = testuser_id(state.writer_db()).await;
+    let passkey_id = passkey["id"].as_i64().unwrap();
+    let stored = passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let sessions = auth_session_repo::list_active_for_user(state.writer_db(), user_id)
+        .await
+        .unwrap();
+
+    for corrupt_signature in [true, false] {
+        let (flow_id, challenge) = passkey_login_start(&app, None).await;
+        let (challenge, user_handle) = allow_test_passkey_credential(challenge, &stored);
+        let mut credential = softpasskey
+            .do_authentication(Url::parse(TEST_BROWSER_ORIGIN).unwrap(), challenge)
+            .unwrap();
+        credential.response.user_handle = Some(user_handle.as_bytes().to_vec());
+        let valid_credential = serde_json::to_value(credential).unwrap();
+        let mut invalid_credential = valid_credential.clone();
+        let submitted_flow = if corrupt_signature {
+            invalid_credential["response"]["signature"] = Value::String("AA".to_string());
+            flow_id
+        } else {
+            // The assertion belongs to an earlier, distinct challenge.
+            passkey_login_start(&app, None).await.0
+        };
+        let response = passkey_login_finish(&app, &submitted_flow, invalid_credential).await;
+        assert_eq!(response.status(), 401);
+        assert!(common::extract_cookie(&response, "aster_access").is_none());
+        assert!(common::extract_cookie(&response, "aster_refresh").is_none());
+        let after = passkey_repo::find_by_id_for_user(state.writer_db(), passkey_id, user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after.credential, stored.credential);
+        assert_eq!(after.last_used_at, stored.last_used_at);
+        assert_eq!(
+            auth_session_repo::list_active_for_user(state.writer_db(), user_id)
+                .await
+                .unwrap()
+                .len(),
+            sessions.len()
+        );
+        // Even a failed verification consumes the submitted one-time flow.
+        let replay = passkey_login_finish(&app, &submitted_flow, valid_credential).await;
+        assert_eq!(replay.status(), 401);
+    }
+}
+
+#[actix_web::test]
 async fn test_passkey_login_without_identifier() {
     let state = common::setup_with_memory_cache().await;
     configure_passkey_public_site_url(&state);

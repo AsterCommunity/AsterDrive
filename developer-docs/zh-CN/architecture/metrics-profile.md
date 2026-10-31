@@ -24,6 +24,8 @@ Drive 的主数据库池身份固定为 main，实际池名为 main.writer / mai
 
 共享 upload/Blob/remote/task 快照有效期为 180 秒，后台采样失败保留 last-good 和旧时间。首次成功前省略，真实空集合为零；查询同时过滤 valid=1 和 freshness。同一共享库取新鲜成功代表，不 sum primary 副本；独立库通过不同 job/target 分开。无数据不补零。capacity 是独立最小值，不能相加或用不同目标的 min 推导比例。
 
+产品身份 `service_name=asterdrive`、节点模式 `aster_node_mode=primary/follower` 与职责 `aster_role=all/api/worker` 独立；Follower 当前职责为 all。Prometheus 和 OTLP 分别导出 `aster_node_mode` / `aster.node.mode`，内置看板提供单独筛选。旧 `aster_role=primary/follower` 查询应迁移为节点模式过滤，不使用复合字符串或兼容别名。
+
 ## 迁移与限制
 
 应用、生成目录和 Grafana 一起升级；查询加 schema 过滤，删除旧序列，不长期双发、不改写历史。自定义 rules/alerts 按目录更新；回退使用配套旧镜像/旧看板。pull/OTLP 双路进入同一存储只能消费一路。

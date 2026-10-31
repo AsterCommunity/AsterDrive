@@ -31,7 +31,7 @@ application/credential keys and reachable storage. Both roles use the same versi
 
 API acceptance persists the task and required inputs. Consumers run outside the scheduler leader lease and
 claim only local free slots. One transaction locks the authoritative quota, selects and fences rows.
-Polling discovers remote work without Notify, bounded by configured idle max (currently at most164 seconds).
+Polling discovers remote work without Notify, bounded by configured idle max (currently at most 164 seconds).
 With zero workers, tasks remain queued and synchronous API operations remain available; existing admission policies still apply.
 
 Execution is at least once. Old tokens cannot overwrite progress, checkpoints or terminal states.
@@ -47,12 +47,12 @@ The server supplies `can_cancel`; system maintenance is excluded.
 
 - Pending/Retry becomes Canceled without executing the handler.
 - Processing becomes Canceling; the UI continues polling until a worker acknowledges Canceled.
-- Canceling/Canceled requests are idempotent; Succeeded/Failed returns409.
+- Canceling/Canceled requests are idempotent; Succeeded/Failed returns 409.
 - After a crash, an expired Canceling lease is reclaimed only to acknowledge cancellation, without rerunning business work.
 - Cancellation stops subsequent work and retains committed changes. It does not roll back. Canceling cannot retry;
   acknowledged Canceled tasks may be retried manually with the same ID and receipts.
 
-The normal task lease is60 seconds with a10-second heartbeat. Crash takeover waits for the remaining lease plus polling/database recovery.
+The normal task lease is 60 seconds with a 10-second heartbeat. Crash takeover waits for the remaining lease plus polling/database recovery.
 Blocking external calls can delay cooperative stopping; requesting cancellation does not mean execution has already stopped.
 
 ## Limits, health and shutdown
@@ -62,25 +62,25 @@ Existing `background_task_max_concurrency`, `background_task_archive_max_concurr
 `background_task_storage_migration_max_concurrency` now bound each worker's corresponding lane.
 Shared settings are `task_fallback_cluster_concurrency`, `task_archive_cluster_concurrency`,
 `task_thumbnail_cluster_concurrency`, `task_offline_download_cluster_concurrency` and
-`task_storage_migration_cluster_concurrency`:0 means unlimited cluster-wide, maximum65536.
+`task_storage_migration_cluster_concurrency`: 0 means unlimited cluster-wide, maximum 65536.
 Claims reread the database quota even with stale in-memory configuration. Lowering a limit does not kill running work.
 
-`/health` and `/health/live` describe local liveness, independent of transient database/Redis availability.
+`/health` describes local liveness, independent of transient database/Redis availability.
 `/health/ready` requires initialization and critical dependencies; workers additionally require live consumers/scheduler.
-Empty queues and healthy standby schedulers are ready. Shutdown stops claims and readiness, drains for20 seconds,
-then requests cooperative cancellation for5 seconds before closing audit/database. The outer task group adds5 seconds.
-Static `[worker]` settings `drain_timeout_secs` and `cancellation_timeout_secs` have a combined24-hour maximum.
+Empty queues and healthy standby schedulers are ready. Shutdown stops claims and readiness, drains for 20 seconds,
+then requests cooperative cancellation for 5 seconds before closing audit/database. The outer task group adds 5 seconds.
+Static `[worker]` settings `drain_timeout_secs` and `cancellation_timeout_secs` have a combined 24-hour maximum.
 Pod grace must also cover preStop, HTTP drain and audit flushing.
 
 With the metrics feature and Prometheus enabled, `/health/metrics` exports queue depth,
 `aster_task_pending_oldest_age_seconds`, active executions, retry/failure and `aster_task_lease_takeovers_total`.
-Resource roles distinguish all/api/worker/follower without unbounded runtime-ID metric labels.
+Resources distinguish `aster_node_mode=primary/follower` from `aster_role=all/api/worker`; Follower currently uses follower + all. Node mode and process responsibility can evolve independently, without unbounded runtime-ID metric labels.
 
 ## Deployment and mandatory migration
 
 Helm defaults to `split.enabled=false`. Enable it for independent `split.api` and `split.worker`
 replicas/resources/scheduling/PDB/grace/autoscaling. Business Service selects API only.
-Workers may scale to0 with HPA disabled; HPA owns replicas when enabled.
+Workers may scale to 0 with HPA disabled; HPA owns replicas when enabled.
 Kustomize provides `deploy/kubernetes/overlays/split`. StatefulSets retain stable internal endpoints.
 
 This is a uniform-version migration with no legacy Forge API or mixed task schema/payload compatibility layer:

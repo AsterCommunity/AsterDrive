@@ -65,7 +65,7 @@ API 接受异步任务前持久化输入。普通消费者不持有 scheduler �
 `task_storage_migration_cluster_concurrency` 控制，0表示不设集群总额度，最大65536。
 claim 事务重读数据库权威值，陈旧的进程内 snapshot 不得绕过额度；降低额度不强杀已运行任务。
 
-`/health` 与 `/health/live` 反映本地进程活性，暂时数据库/Redis 故障不直接触发 liveness 重启。
+`/health` 反映本地进程活性，暂时数据库/Redis 故障不直接触发 liveness 重启。
 `/health/ready` 需要初始化和关键依赖健康，worker 额外检查消费者和 scheduler 活性；
 空队列或健康 standby scheduler 不要求持有领导租约。关闭后立即停止 claim、退出 readiness，
 默认 drain20秒，再协作取消5秒，最后关闭 audit/DB。外层任务组另留5秒退出余量。
@@ -74,7 +74,7 @@ Pod grace 必须覆盖 preStop、业务 HTTP drain、worker budget 与审计收�
 
 metrics 构建并启用 Prometheus 后，`/health/metrics` 提供队列深度、最老等待时间
 `aster_task_pending_oldest_age_seconds`、执行并发、retry/failure 和
-`aster_task_lease_takeovers_total`。资源 role 区分 all/api/worker/follower；不以 runtime ID 作为无界指标标签。
+`aster_task_lease_takeovers_total`。资源 `aster_node_mode` 区分 primary/follower，`aster_role` 区分 all/api/worker；Follower 当前为 follower + all，后续可独立拆分职责。不以 runtime ID 作为无界指标标签。
 
 ## 部署与强制迁移
 

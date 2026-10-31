@@ -547,6 +547,60 @@ describe("TasksPage", () => {
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
 	});
 
+	it("immediately displays a canceled queued task while preserving other task cards", async () => {
+		const task = createTask({
+			can_cancel: true,
+			payload: {
+				kind: "archive_extract",
+				file_id: 99,
+				source_file_name: "queued.zip",
+				target_folder_id: null,
+				output_folder_name: "queued",
+			},
+			status: "pending",
+		});
+		const other = createTask({
+			id: 2,
+			payload: {
+				kind: "archive_extract",
+				file_id: 100,
+				source_file_name: "other-running.zip",
+				target_folder_id: null,
+				output_folder_name: "other",
+			},
+		});
+		mockState.listInWorkspace.mockResolvedValue({
+			items: [task, other],
+			total: 2,
+		});
+		mockState.cancelTask.mockResolvedValue({
+			...task,
+			status: "canceled",
+			can_cancel: false,
+			can_retry: true,
+		});
+		render(<TasksPage />);
+		fireEvent.click(await screen.findByText("queued.zip"));
+		fireEvent.click(screen.getByRole("button", { name: /tasks:cancel_task/ }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm cancellation" }),
+		);
+		expect(
+			await screen.findByText("tasks:status_canceled"),
+		).toBeInTheDocument();
+		expect(mockState.cancelTask).toHaveBeenCalledWith(task.id);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("tasks:cancel_success");
+		expect(screen.getByText("other-running.zip")).toBeInTheDocument();
+		expect(screen.getByText("tasks:status_processing")).toBeInTheDocument();
+		expect(
+			screen.queryByText("tasks:status_canceling"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /tasks:retry_task/ }),
+		).toBeEnabled();
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
+
 	it("keeps the authoritative running state if cancellation fails", async () => {
 		const task = createTask({ can_cancel: true });
 		const error = new Error("unavailable");

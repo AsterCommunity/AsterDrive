@@ -46,6 +46,15 @@ class RoleManifests(unittest.TestCase):
         workloads = [doc for doc in docs if doc["kind"] == "StatefulSet"]
         self.assertEqual(len(workloads), 1)
         self.assertEqual(workloads[0]["spec"]["template"]["spec"]["containers"][0]["args"], ["serve", "all"])
+        # Preserve the original immutable selector and keep old, unlabeled Pods routable.
+        selector = {"app.kubernetes.io/name": "asterdrive", "app.kubernetes.io/instance": "asterdrive"}
+        self.assertEqual(workloads[0]["spec"]["selector"]["matchLabels"], selector)
+        self.assertEqual(workloads[0]["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/component"], "all")
+        for doc in docs:
+            if doc["kind"] == "Service":
+                self.assertEqual(doc["spec"]["selector"], selector)
+            elif doc["kind"] == "PodDisruptionBudget":
+                self.assertEqual(doc["spec"]["selector"]["matchLabels"], selector)
 
     def test_independent_resources_and_zero_workers(self):
         roles = check_split(self, helm("--set", "split.enabled=true", "--set", "split.api.replicaCount=3", "--set", "split.worker.replicaCount=0"))

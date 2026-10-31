@@ -20,7 +20,9 @@ spec:
   selector:
     matchLabels:
       {{- include "asterdrive.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: {{ default "all" .Values.runtimeRole }}
+      {{- with .Values.runtimeRole }}
+      app.kubernetes.io/component: {{ . }}
+      {{- end }}
   updateStrategy:
     type: RollingUpdate
   template:

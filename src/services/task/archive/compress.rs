@@ -110,6 +110,13 @@ pub(super) async fn process_archive_compress_task(
             .with_storage_delta(0),
         );
         let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
+        for step in [
+            TASK_STEP_WAITING,
+            TASK_STEP_PREPARE_SOURCES,
+            TASK_STEP_BUILD_ARCHIVE,
+        ] {
+            set_task_step_succeeded(&mut steps, step, Some("Archive is ready"), None)?;
+        }
         return finish_archive_result(
             state,
             &lease_guard,
@@ -334,14 +341,12 @@ async fn finish_archive_result(
     steps: &mut [TaskStepInfo],
     progress_total: i64,
 ) -> Result<()> {
-    for step in [
-        TASK_STEP_WAITING,
-        TASK_STEP_PREPARE_SOURCES,
-        TASK_STEP_BUILD_ARCHIVE,
+    set_task_step_succeeded(
+        steps,
         TASK_STEP_STORE_RESULT,
-    ] {
-        set_task_step_succeeded(steps, step, Some("Archive is ready"), None)?;
-    }
+        Some("Archive is ready"),
+        None,
+    )?;
     let result = ArchiveCompressTaskResult {
         target_file_id: stored.id,
         target_file_name: stored.name.clone(),

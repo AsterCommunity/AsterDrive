@@ -1058,6 +1058,18 @@
       "unit": "s"
     },
     {
+      "attributes": [
+        "kind"
+      ],
+      "buckets": [],
+      "description": "Expired processing leases successfully reclaimed by this instance.",
+      "integer_attributes": [],
+      "kind": "Counter",
+      "name": "aster.task.lease.takeovers",
+      "prometheus": "aster_task_lease_takeovers_total",
+      "unit": "{takeover}"
+    },
+    {
       "attributes": [],
       "buckets": [],
       "description": "aster.task.pending under aster-metrics/v1.",
@@ -1066,6 +1078,16 @@
       "name": "aster.task.pending",
       "prometheus": "aster_task_pending",
       "unit": "{task}"
+    },
+    {
+      "attributes": [],
+      "buckets": [],
+      "description": "Age of the oldest durably queued task.",
+      "integer_attributes": [],
+      "kind": "Gauge",
+      "name": "aster.task.pending.oldest_age",
+      "prometheus": "aster_task_pending_oldest_age_seconds",
+      "unit": "s"
     },
     {
       "attributes": [

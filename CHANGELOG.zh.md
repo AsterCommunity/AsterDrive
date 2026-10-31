@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **API/worker 与任务契约迁移** — 所有角色必须升级到同一版本并同步迁移 Forge consumer。既有任务并发设置现在限制每个 worker，集群总额度使用新设置。数据库迁移新增 `task_resource_publications`。不支持混合版本执行：停止旧 writer，保留任务表与存储并统一升级后再恢复消费。回退旧 binary 必须同时恢复匹配的数据库和存储备份。（#634）
+- **指标节点与角色标识** — `aster_node_mode="primary"` / `"follower"` 独立标识节点模式，`aster_role="all"`、`"api"` / `"worker"` 标识进程职责。旧 `aster_role="primary"` / `"follower"` 过滤条件需迁移，Follower 当前的 role 为 `all`。内置看板增加节点模式与职责筛选，外部看板和告警需同步更新。（#634）
+
 ### Added
+
+- **CORS 策略拒绝响应** — 来源及 preflight 方法/请求头拒绝使用现有 `forbidden` 错误码返回 Drive envelope，并保留安全头、请求 ID 和 HTTP 指标。解析失败仍为校验错误，响应构造失败仍为内部错误；允许、inactive、豁免请求及 handler 自身响应保持原有行为。（#668）
 
 - **API/worker 角色与协作取消** — 同一二进制支持 `serve all/api/worker`，默认 all；Follower 仍由配置决定。持续补位消费者移出单 owner 调度租约，支持事务内共享额度、fenced 接管、角色探针和分阶段关闭；Helm/Kustomize 提供独立工作负载及 HPA。workspace 取消先展示 Canceling，确认停止后为 Canceled，保留已提交变更并允许同记录重试。归档/离线产物与产品变更同事务保存发布记录，恢复不重复创建文件或扣配额。（#634）
 
@@ -56,8 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **前端依赖** — 将 `follow-redirects` 更新至 `1.16.1`，修复跨源凭据剥离和敏感请求头处理问题（GHSA-q3jh-wrc6-jgq8、GHSA-8r9p-f939-6h3c）；将 `serialize-javascript` 更新至 `7.1.2`，`postcss-selector-parser` 更新至 `7.1.6`。Selector parser override 同时覆盖 Typography 固定的构建依赖。
 
 ### Breaking
-
-- **API/worker 与任务契约迁移** — 所有角色必须升级到同一版本并同步迁移 Forge consumer。既有任务并发设置现在限制每个 worker，集群总额度使用新设置。数据库迁移新增 `task_resource_publications`。不支持混合版本执行：停止旧 writer，保留任务表与存储并统一升级后再恢复消费。回退旧 binary 必须同时恢复匹配的数据库和存储备份。（#634）
 
 - **会话升级** — 旧本地 JWT 会话与新的严格会话 token 格式不兼容，用户与客户端升级后需要重新登录。多 Primary 应统一升级，避免混用 token 格式。自定义 `auth.jwt_secret` 必须至少 32 字节。
 - **指标启用** — 使用 `metrics` feature 的构建现在还需设置 `observability.prometheus.enabled = true` 才会暴露 `/health/metrics`；导出器默认关闭。配置启用未编译进二进制的导出器时会报配置错误。

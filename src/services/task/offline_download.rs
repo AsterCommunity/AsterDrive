@@ -133,6 +133,17 @@ pub(super) async fn process_offline_download_task(
             download_engine: metadata.engine,
         };
         let raw = spec::serialize_result::<OfflineDownloadTask>(&result)?;
+        crate::services::events::storage_change::publish(
+            state,
+            crate::services::events::storage_change::StorageChangeEvent::new(
+                crate::services::events::storage_change::StorageChangeKind::FileCreated,
+                task_scope(task)?,
+                vec![stored.id],
+                vec![],
+                vec![stored.folder_id],
+            )
+            .with_storage_delta(0),
+        );
         return mark_task_succeeded(
             state,
             &lease_guard,

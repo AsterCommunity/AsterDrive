@@ -107,6 +107,7 @@ fn dashboard_selectors_use_registered_names_and_supported_labels() {
         "service_name",
         "deployment_environment_name",
         "aster_role",
+        "aster_node_mode",
         "service_instance_id",
         "aster_metrics_schema_version",
     ]);
@@ -143,6 +144,7 @@ fn dashboard_selectors_use_registered_names_and_supported_labels() {
                 "service_name=\"asterdrive\"",
                 "deployment_environment_name=~\"$environment\"",
                 "aster_role=~\"$role\"",
+                "aster_node_mode=~\"$node_mode\"",
                 "service_instance_id=~\"$runtime_instance\"",
             ] {
                 assert!(expression.contains(filter), "{title} missing {filter}");
@@ -188,7 +190,8 @@ async fn dashboard_resource_filters_exist_in_actual_prometheus_output() {
             service_name: "asterdrive".into(),
             service_version: "test".into(),
             environment: "dashboard-test".into(),
-            role: "primary".into(),
+            node_mode: "primary".into(),
+            role: "all".into(),
             instance_id: "test-boot-id".into(),
         })
         .unwrap()
@@ -211,7 +214,8 @@ async fn dashboard_resource_filters_exist_in_actual_prometheus_output() {
     for label in [
         "service_name=\"asterdrive\"",
         "deployment_environment_name=\"dashboard-test\"",
-        "aster_role=\"primary\"",
+        "aster_role=\"all\"",
+        "aster_node_mode=\"primary\"",
         "service_instance_id=\"test-boot-id\"",
     ] {
         assert!(sample.contains(label), "missing {label}: {sample}");

@@ -11,7 +11,9 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app.kubernetes.io/component: {{ ternary "api" "all" .Values.split.enabled }}
+    {{- if .Values.split.enabled }}
+    app.kubernetes.io/component: api
+    {{- end }}
     {{- include "asterdrive.selectorLabels" . | nindent 4 }}
   ports:
     - name: http

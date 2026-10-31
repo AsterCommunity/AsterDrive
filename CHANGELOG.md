@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **API/worker and task contract migration** — Upgrade every role to one release and migrate Forge consumers together. Existing task concurrency settings now limit each worker; configure the new cluster-wide settings separately. Migration creates `task_resource_publications`. Mixed-version execution is unsupported: stop old writers, preserve the task table and storage, upgrade together, then resume consumers. Rollback to an older binary requires restoring a matching database and storage backup. (#634)
+- **Metrics node and role identity** — `aster_node_mode="primary"` or `"follower"` identifies the node independently of `aster_role="all"`, `"api"` or `"worker"`. The former `aster_role="primary"` / `"follower"` filters must migrate; Follower currently exports role `all`. Update external dashboards and alerts alongside the bundled node-mode/role selectors. (#634)
+
 ### Added
 
 - **CORS policy rejection responses** — Origin and preflight method/header denials now return the Drive error envelope with the existing `forbidden` code. Rejections retain security headers, request IDs and HTTP observation; parsing failures remain validation errors and response construction failures remain internal errors. Allowed, inactive, exempt and handler-generated responses retain their own behavior. (#668)
@@ -58,8 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Frontend dependencies** — Update `follow-redirects` to `1.16.1` for cross-origin credential stripping and sensitive-header handling (GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c), `serialize-javascript` to `7.1.2`, and `postcss-selector-parser` to `7.1.6`. The selector parser override also covers Typography's pinned build dependency.
 
 ### Breaking
-
-- **API/worker and task contract migration** — Upgrade every role to one release and migrate Forge consumers together. Existing task concurrency settings now limit each worker; configure the new cluster-wide settings separately. Migration creates `task_resource_publications`. Mixed-version execution is unsupported: stop old writers, preserve the task table and storage, upgrade together, then resume consumers. Rollback to an older binary requires restoring a matching database and storage backup. (#634)
 
 - **Session upgrade** — Existing local JWT sessions are incompatible with the strict session-token format; users and clients must sign in again after upgrading. Upgrade all primary instances together to avoid mixing token formats. Custom `auth.jwt_secret` values must contain at least 32 bytes.
 - **Metrics enablement** — A build with the `metrics` feature now requires `observability.prometheus.enabled = true` to expose `/health/metrics`; exporters default to disabled. Enabling an exporter that was not compiled into the binary is a configuration error.

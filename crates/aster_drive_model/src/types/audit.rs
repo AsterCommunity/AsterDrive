@@ -100,7 +100,6 @@ macro_rules! define_audit_action_list {
             TeamRestore,
             TeamUpdate,
             TaskRetry,
-            TaskCancelRequested,
             ArchiveCompress,
             ArchiveExtract,
             ArchiveDownload,
@@ -179,6 +178,7 @@ macro_rules! define_audit_action_list {
             AdminWorkspaceInspect,
             AdminFileDownload,
             AdminRevisionDownload,
+            TaskCancelRequested,
         }
     };
 }

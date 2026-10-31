@@ -202,6 +202,7 @@ export function statusBadgeVariant(status: BackgroundTaskStatus) {
 export function taskMetaTextClass(status: BackgroundTaskStatus) {
 	switch (status) {
 		case "processing":
+		case "canceling":
 		case "retry":
 			return "text-primary";
 		case "succeeded":
@@ -398,6 +399,7 @@ export function taskSummaryTimestamp(t: TaskTranslate, task: TaskInfo) {
 				date: formatDateAbsolute(task.created_at),
 			});
 		case "processing":
+		case "canceling":
 		case "retry":
 			if (task.started_at) {
 				return t("tasks:summary_started_at", {

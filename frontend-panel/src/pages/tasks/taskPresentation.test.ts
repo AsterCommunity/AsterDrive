@@ -728,6 +728,7 @@ describe("taskPresentation storage policy migration", () => {
 		expect(statusBadgeVariant("pending")).toBe("secondary");
 		expect(statusBadgeVariant("processing")).toBe("secondary");
 		expect(taskMetaTextClass("processing")).toBe("text-primary");
+		expect(taskMetaTextClass("canceling")).toBe("text-primary");
 		expect(taskMetaTextClass("retry")).toBe("text-primary");
 		expect(taskMetaTextClass("succeeded")).toBe("text-foreground");
 		expect(taskMetaTextClass("failed")).toBe("text-destructive");
@@ -846,6 +847,14 @@ describe("taskPresentation storage policy migration", () => {
 	});
 
 	it("formats task timestamps and timelines using status-specific labels", () => {
+		for (const startedAt of [null, "2026-04-17T00:01:00Z"]) {
+			expect(
+				taskSummaryTimestamp(
+					t,
+					createTask({ status: "canceling", started_at: startedAt }),
+				),
+			).toMatch(startedAt ? /^Started / : /^Created /);
+		}
 		expect(taskSummaryTimestamp(t, createTask())).toMatch(/^Created /);
 		expect(
 			taskSummaryTimestamp(

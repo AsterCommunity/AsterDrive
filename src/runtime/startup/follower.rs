@@ -10,7 +10,11 @@ pub struct PreparedFollowerRuntime {
 
 /// 准备从节点运行时（配置和日志应在此之前初始化）
 pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
-    let common = prepare_common(NodeRuntimeMode::Follower, "follower").await?;
+    let common = prepare_common(
+        NodeRuntimeMode::Follower,
+        crate::runtime::role::ServeRole::All,
+    )
+    .await?;
     let runtime_config = Arc::new(
         crate::config::RuntimeConfig::with_password_hash_max_concurrency(
             common.cfg.auth.password_hash_max_concurrency,
