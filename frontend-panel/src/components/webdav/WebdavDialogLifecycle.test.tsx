@@ -2,12 +2,14 @@ import {
 	act,
 	fireEvent,
 	render,
+	renderHook,
 	screen,
 	waitFor,
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TeamManageWebdavSection } from "@/components/settings/team-manage-detail/TeamManageWebdavSection";
+import { useWebdavAccountDialogState } from "@/components/webdav/useWebdavAccountDialogState";
 import WebdavAccountsPage from "@/pages/WebdavAccountsPage";
 import { DialogTestRoot } from "@/test/DialogTestRoot";
 import { deferred } from "@/test/deferred";
@@ -99,6 +101,63 @@ function closeAndDispose() {
 	}
 }
 
+describe("WebDAV creation draft ownership", () => {
+	it.each(["active", "closed", "reopened"])(
+		"clears only completed drafts when the creation session is %s",
+		(session) => {
+			const { result } = renderHook(() => useWebdavAccountDialogState());
+			act(() => {
+				result.current.setCreateDialogOpen(true);
+				result.current.setNewUsername("submitted-user");
+				result.current.setNewPassword("submitted-password");
+				result.current.setSelectedFolderId(7);
+				result.current.setCreating(true);
+			});
+			if (session !== "active") {
+				act(() => result.current.setCreateDialogOpen(false));
+			}
+			if (session === "reopened") {
+				act(() => {
+					result.current.setCreateDialogOpen(true);
+					result.current.setNewUsername("new-draft");
+					result.current.setNewPassword("new-password");
+					result.current.setSelectedFolderId(9);
+					result.current.setCreating(true);
+				});
+			}
+			const credentials = {
+				username: "submitted-user",
+				password: "one-time-password",
+			};
+			act(() =>
+				result.current.showCreatedCredentials(
+					credentials,
+					session === "active",
+				),
+			);
+			expect(result.current.showPassword).toEqual(credentials);
+			expect(result.current.credentialsDialogOpen).toBe(true);
+			expect(result.current).toMatchObject(
+				session === "reopened"
+					? {
+							newUsername: "new-draft",
+							newPassword: "new-password",
+							selectedFolderId: 9,
+							createDialogOpen: true,
+							creating: true,
+						}
+					: {
+							newUsername: "",
+							newPassword: "",
+							selectedFolderId: undefined,
+							createDialogOpen: false,
+							creating: false,
+						},
+			);
+		},
+	);
+});
+
 describe.each(["personal", "team"])("%s WebDAV dialog lifecycle", (scope) => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -130,6 +189,35 @@ describe.each(["personal", "team"])("%s WebDAV dialog lifecycle", (scope) => {
 		fireEvent.click(activeDialog().getByRole("button", { name: "create" }));
 		await screen.findByDisplayValue("created-secret");
 	}
+
+	it("clears the completed draft when creation closed without reopening", async () => {
+		const pending = deferred<{ username: string; password: string }>();
+		mock.create.mockReturnValueOnce(pending.promise);
+		mount();
+		openCreate();
+		fireEvent.change(activeDialog().getByLabelText("password"), {
+			target: { value: "submitted-password" },
+		});
+		fireEvent.click(activeDialog().getByRole("button", { name: "create" }));
+		closeAndDispose();
+		await act(async () => {
+			pending.resolve({
+				username: "draft-user",
+				password: "submitted-password",
+			});
+			await pending.promise;
+		});
+		expect(screen.getByDisplayValue("submitted-password")).toBeInTheDocument();
+		closeAndDispose();
+		fireEvent.click(
+			screen.getByRole("button", { name: "webdav:create_webdav_account" }),
+		);
+		expect(activeDialog().getByLabelText("username")).toHaveValue("");
+		expect(activeDialog().getByLabelText("password")).toHaveValue("");
+		expect(
+			activeDialog().getByRole("button", { name: "create" }),
+		).toBeDisabled();
+	});
 
 	it("reports active create/test failures and allows retry", async () => {
 		const createError = new Error("create failed");

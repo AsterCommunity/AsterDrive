@@ -70,7 +70,7 @@ function webdavAccountDialogReducer(
 			return {
 				...state,
 				credentialsDialogOpen: true,
-				...(action.finishCreate
+				...(action.finishCreate || !state.createDialogOpen
 					? {
 							createDialogOpen: false,
 							creating: false,
