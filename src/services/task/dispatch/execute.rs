@@ -90,6 +90,17 @@ impl aster_forge_tasks::TaskHeartbeatStore for BackgroundTaskExecutionStore {
 impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, BackgroundTaskKind>
     for BackgroundTaskExecutionStore
 {
+    async fn confirm_task_succeeded(
+        &self,
+        _task: &background_task::Model,
+        lease: TaskLease,
+    ) -> Result<bool> {
+        let current =
+            background_task_repo::find_by_id(self.state.writer_db(), lease.task_id).await?;
+        Ok(current.processing_token == lease.processing_token
+            && current.status == BackgroundTaskStatus::Succeeded)
+    }
+
     fn is_cancellation_requested_error(&self, error: &AsterError) -> bool {
         error.api_error_code_override()
             == Some(crate::api::api_error_code::ApiErrorCode::TaskCancellationRequested)

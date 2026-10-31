@@ -88,9 +88,9 @@ pub fn primary_http_component(
                 }
             };
             app.wrap(actix_web::middleware::Compress::default())
+                .wrap(crate::api::middleware::cors::runtime_cors())
                 .wrap(aster_forge_middleware::actix::metrics::MetricsMiddleware)
                 .wrap(aster_forge_middleware::actix::request_id::RequestIdMiddleware)
-                .wrap(crate::api::middleware::cors::runtime_cors())
                 .wrap(aster_forge_middleware::actix::security_headers::default_headers())
                 .app_data(actix_web::web::PayloadConfig::new(
                     crate::api::extractors::DEFAULT_PAYLOAD_LIMIT,

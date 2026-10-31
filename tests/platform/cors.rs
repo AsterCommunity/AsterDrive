@@ -4,9 +4,299 @@ use crate::common;
 
 use actix_web::{App, body::to_bytes, http::header, test, web};
 use serde_json::Value;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 const EXPECTED_ALLOW_HEADERS: &str = "authorization, accept, content-type, depth, destination, if, lock-token, overwrite, range, timeout, x-csrf-token, x-wopi-lock, x-wopi-oldlock, x-wopi-override, x-wopi-overwriterelativetarget, x-wopi-requestedname, x-wopi-relativetarget, x-wopi-size, x-wopi-suggestedtarget";
 const EXPECTED_EXPOSE_HEADERS: &str = "accept-ranges, content-length, content-range, dav, etag, lock-token, x-wopi-itemversion, x-wopi-invalidfilenameerror, x-wopi-lock, x-wopi-lockfailurereason, x-wopi-validrelativetarget";
+
+async fn configured_cors_state() -> aster_drive::runtime::PrimaryAppState {
+    let state = common::setup().await;
+    for (key, value) in [
+        ("cors_enabled", "true"),
+        ("cors_allowed_origins", r#"["https://allowed.example.com"]"#),
+    ] {
+        state
+            .runtime_config
+            .apply(common::system_config_model(key, value));
+    }
+    state
+}
+
+#[actix_web::test]
+async fn test_runtime_cors_rejection_factory_uses_drive_envelope_without_executing_handler() {
+    let state = configured_cors_state().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let handler_calls = calls.clone();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_drive::api::middleware::cors::runtime_cors())
+            .app_data(web::Data::new(state))
+            .default_service(web::to(move || {
+                handler_calls.fetch_add(1, Ordering::SeqCst);
+                async { actix_web::HttpResponse::Ok().finish() }
+            })),
+    )
+    .await;
+    for (method, origin, requested_method, requested_headers, message) in [
+        (
+            "GET",
+            "https://blocked.example.com",
+            None,
+            None,
+            "CORS origin is not allowed",
+        ),
+        (
+            "OPTIONS",
+            "https://blocked.example.com",
+            Some("GET"),
+            None,
+            "CORS origin is not allowed",
+        ),
+        (
+            "OPTIONS",
+            "https://allowed.example.com",
+            Some("TRACE"),
+            None,
+            "CORS preflight method is not allowed",
+        ),
+        (
+            "OPTIONS",
+            "https://allowed.example.com",
+            Some("GET"),
+            Some("x-denied"),
+            "CORS preflight headers are not allowed",
+        ),
+    ] {
+        let mut request = test::TestRequest::default()
+            .method(method.parse().unwrap())
+            .uri("/probe")
+            .insert_header((header::ORIGIN, origin));
+        if let Some(method) = requested_method {
+            request = request.insert_header((header::ACCESS_CONTROL_REQUEST_METHOD, method));
+        }
+        if let Some(headers) = requested_headers {
+            request = request.insert_header((header::ACCESS_CONTROL_REQUEST_HEADERS, headers));
+        }
+        let response = test::call_service(&app, request.to_request()).await;
+        assert_eq!(response.status(), 403);
+        for name in [
+            header::ORIGIN.as_str(),
+            "Access-Control-Request-Method",
+            "Access-Control-Request-Headers",
+        ] {
+            header_contains(&response, header::VARY, name);
+        }
+        for name in [
+            "access-control-allow-origin",
+            "access-control-allow-credentials",
+            "access-control-allow-methods",
+            "access-control-allow-headers",
+            "access-control-expose-headers",
+            "access-control-max-age",
+        ] {
+            assert!(
+                !response.headers().contains_key(name),
+                "rejection granted {name}"
+            );
+        }
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["code"], "forbidden");
+        assert_eq!(body["msg"], message);
+        assert!(body["data"].is_null());
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
+async fn test_runtime_cors_factory_does_not_rewrite_handler_responses_or_bypasses() {
+    let state = configured_cors_state().await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let handler_calls = calls.clone();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_drive::api::middleware::cors::runtime_cors())
+            .app_data(web::Data::new(state.clone()))
+            .default_service(web::to(move |request: actix_web::HttpRequest| {
+                handler_calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    let mut response = actix_web::HttpResponse::Forbidden();
+                    response.append_header((header::VARY, "Accept-Encoding"));
+                    response.append_header((
+                        header::VARY,
+                        if request.path() == "/wildcard" {
+                            "*"
+                        } else {
+                            "Accept-Language"
+                        },
+                    ));
+                    response.insert_header(("X-Product-Header", "preserved"));
+                    response.finish()
+                }
+            })),
+    )
+    .await;
+    for (path, origin) in [
+        ("/probe", Some("https://allowed.example.com")),
+        ("/probe", Some("http://localhost:8080")),
+        ("/probe", None),
+        ("/assets/example.js", Some("https://blocked.example.com")),
+        ("/wildcard", Some("https://allowed.example.com")),
+    ] {
+        let mut request = test::TestRequest::get()
+            .uri(path)
+            .insert_header((header::HOST, "localhost:8080"));
+        if let Some(origin) = origin {
+            request = request.insert_header((header::ORIGIN, origin));
+        }
+        let response = test::call_service(&app, request.to_request()).await;
+        assert_eq!(response.status(), 403);
+        assert_eq!(
+            response.headers().get("X-Product-Header").unwrap(),
+            "preserved"
+        );
+        header_contains(&response, header::VARY, "Accept-Encoding");
+        header_contains(
+            &response,
+            header::VARY,
+            if path == "/wildcard" {
+                "*"
+            } else {
+                "Accept-Language"
+            },
+        );
+        assert!(
+            test::read_body(response).await.is_empty(),
+            "handler's own empty 403 must remain empty"
+        );
+    }
+    // Dynamic inactive policy bypasses even malformed Origin; no rejection or parser inference.
+    for (key, value) in [("cors_enabled", "false"), ("cors_allowed_origins", "[]")] {
+        state
+            .runtime_config
+            .apply(common::system_config_model(key, value));
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/probe")
+                .insert_header((header::ORIGIN, "null"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 403);
+        assert!(test::read_body(response).await.is_empty());
+        state
+            .runtime_config
+            .apply(common::system_config_model("cors_enabled", "true"));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 7);
+}
+
+#[derive(Default)]
+struct CorsMetricsProbe {
+    statuses: std::sync::Mutex<Vec<u16>>,
+}
+
+impl aster_forge_metrics::DbMetricsRecorder for CorsMetricsProbe {
+    fn enabled(&self) -> bool {
+        true
+    }
+    fn record_db_query(&self, _: &aster_forge_metrics::DbQueryMetric) {}
+}
+
+impl aster_forge_metrics::MetricsRecorder for CorsMetricsProbe {
+    fn record_http_request(&self, _: &str, _: &str, _: &str, status: u16, _: f64) {
+        self.statuses.lock().unwrap().push(status);
+    }
+}
+
+#[actix_web::test]
+async fn test_runtime_cors_rejection_and_rate_limit_keep_outer_response_middleware() {
+    use actix_governor::Governor;
+    use std::num::{NonZeroU32, NonZeroU64};
+    let state = configured_cors_state().await;
+    let metrics = Arc::new(CorsMetricsProbe::default());
+    let recorder: aster_forge_metrics::SharedMetricsRecorder = metrics.clone();
+    let governor = aster_drive::api::middleware::rate_limit::build_governor(
+        &aster_drive::config::RateLimitTier {
+            seconds_per_request: NonZeroU64::new(3600).unwrap(),
+            burst_size: NonZeroU32::new(1).unwrap(),
+        },
+        &[],
+    );
+    let calls = Arc::new(AtomicUsize::new(0));
+    let handler_calls = calls.clone();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_drive::api::middleware::cors::runtime_cors())
+            .wrap(aster_forge_middleware::actix::request_id::RequestIdMiddleware)
+            .wrap(aster_forge_middleware::actix::metrics::MetricsMiddleware)
+            .wrap(aster_forge_middleware::actix::security_headers::default_headers())
+            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(recorder))
+            .service(
+                web::resource("/probe")
+                    .wrap(Governor::new(&governor))
+                    .to(move || {
+                        handler_calls.fetch_add(1, Ordering::SeqCst);
+                        async { actix_web::HttpResponse::Ok().finish() }
+                    }),
+            ),
+    )
+    .await;
+    for (origin, expected_status, expected_code) in [
+        ("https://blocked.example.com", 403, Some("forbidden")),
+        ("https://allowed.example.com", 200, None),
+        ("https://allowed.example.com", 429, Some("rate_limited")),
+    ] {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/probe")
+                .peer_addr("127.0.0.1:6340".parse().unwrap())
+                .insert_header((header::ORIGIN, origin))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status().as_u16(), expected_status);
+        assert!(
+            uuid::Uuid::parse_str(
+                response
+                    .headers()
+                    .get("X-Request-ID")
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            response.headers().get("X-Content-Type-Options").unwrap(),
+            "nosniff"
+        );
+        if expected_status == 429 {
+            assert!(response.headers().contains_key("Retry-After"));
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                    .unwrap(),
+                origin
+            );
+        }
+        let body = test::read_body(response).await;
+        if let Some(code) = expected_code {
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap()["code"],
+                code
+            );
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(*metrics.statuses.lock().unwrap(), vec![403, 200, 429]);
+}
 
 macro_rules! create_test_app_with_cors {
     ($state:expr) => {{
@@ -53,10 +343,10 @@ fn header_contains<B>(
 ) {
     let actual = resp
         .headers()
-        .get(name)
-        .unwrap()
-        .to_str()
-        .unwrap()
+        .get_all(name)
+        .map(|value| value.to_str().unwrap())
+        .collect::<Vec<_>>()
+        .join(", ")
         .to_ascii_lowercase();
     assert!(
         actual.contains(&value.to_ascii_lowercase()),

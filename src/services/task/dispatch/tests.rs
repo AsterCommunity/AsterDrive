@@ -1546,3 +1546,164 @@ async fn attempt_cleanup_preserves_newer_scratch_and_prunes_only_empty_parents()
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn success_confirmation_requires_terminal_state_and_current_token() {
+    use sea_orm::{ColumnTrait, QueryFilter, sea_query::Expr};
+    let state = build_dispatch_test_state().await;
+    let task = insert_dispatch_test_task(
+        state.writer_db(),
+        BackgroundTaskKind::ArchiveCompress,
+        BackgroundTaskStatus::Processing,
+        0,
+        Some(Utc::now() + chrono::Duration::seconds(60)),
+    )
+    .await;
+    let store = BackgroundTaskExecutionStore::new(state.clone());
+    let lease = TaskLease::new(task.id, task.processing_token);
+    assert!(
+        !aster_forge_tasks::ClaimedTaskExecutionStore::confirm_task_succeeded(&store, &task, lease)
+            .await
+            .unwrap()
+    );
+    for status in [
+        BackgroundTaskStatus::Canceled,
+        BackgroundTaskStatus::Retry,
+        BackgroundTaskStatus::Succeeded,
+    ] {
+        background_task::Entity::update_many()
+            .col_expr(background_task::Column::Status, Expr::value(status))
+            .filter(background_task::Column::Id.eq(task.id))
+            .exec(state.writer_db())
+            .await
+            .unwrap();
+        assert_eq!(
+            aster_forge_tasks::ClaimedTaskExecutionStore::confirm_task_succeeded(
+                &store, &task, lease
+            )
+            .await
+            .unwrap(),
+            status == BackgroundTaskStatus::Succeeded
+        );
+    }
+    assert!(
+        !aster_forge_tasks::ClaimedTaskExecutionStore::confirm_task_succeeded(
+            &store,
+            &task,
+            TaskLease::new(task.id, lease.processing_token - 1)
+        )
+        .await
+        .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn cancellation_fences_outcome_adapters_and_defers_cleanup_to_acknowledgement() {
+    use aster_forge_tasks::{ClaimedTaskExecutionStore, TaskPermanentFailure, TaskRetryUpdate};
+    use sea_orm::IntoActiveModel;
+
+    let state = build_dispatch_test_state().await;
+    let task = insert_dispatch_test_task(
+        state.writer_db(),
+        BackgroundTaskKind::FolderTreeMutation,
+        BackgroundTaskStatus::Processing,
+        0,
+        Some(Utc::now() + chrono::Duration::seconds(60)),
+    )
+    .await;
+    let mut update = task.into_active_model();
+    update.payload_json = Set(StoredTaskPayload(
+        serde_json::to_string(
+            &crate::services::task::types::FolderTreeMutationTaskPayload {
+                folder_id: 42,
+                operation: FolderTreeMutationOperation::Delete,
+            },
+        )
+        .unwrap(),
+    ));
+    let task = update.update(state.writer_db()).await.unwrap();
+    let store = BackgroundTaskExecutionStore::new(state.clone());
+    let lease = TaskLease::new(task.id, task.processing_token);
+    crate::db::repository::folder_tree_operation_repo::stage_ids(
+        state.writer_db(),
+        task.id,
+        EntityType::Folder,
+        &[42],
+    )
+    .await
+    .unwrap();
+
+    // Keep the worker's Processing snapshot while cancellation commits to authoritative storage.
+    let mut cancel = task.clone().into_active_model();
+    cancel.status = Set(BackgroundTaskStatus::Canceling);
+    let canceled = cancel.update(state.writer_db()).await.unwrap();
+    assert!(
+        !store
+            .mark_task_retry(
+                &task,
+                lease,
+                TaskRetryUpdate {
+                    attempt_count: 1,
+                    retry_at: Utc::now(),
+                    storage_error: "retry must not win",
+                    display_error: "retry must not win",
+                    failed_steps_json: Some("[]"),
+                },
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .mark_task_failed(
+                &task,
+                lease,
+                TaskPermanentFailure {
+                    attempt_count: 1,
+                    storage_error: "failure must not win",
+                    display_error: "failure must not win",
+                    failed_steps_json: Some("[]"),
+                    failure_can_retry: false,
+                    finished_at: Utc::now(),
+                },
+            )
+            .await
+            .unwrap()
+    );
+    assert!(!store.release_task_for_shutdown(&task, lease).await.unwrap());
+    assert_eq!(
+        background_task_repo::find_by_id(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        canceled
+    );
+    assert!(
+        !store
+            .cancel_task_if_requested(&task, TaskLease::new(task.id, lease.processing_token - 1))
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        crate::db::repository::folder_tree_operation_repo::count(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        1,
+        "rejected failure and stale acknowledgement must not clean staged product state"
+    );
+    assert!(store.cancel_task_if_requested(&task, lease).await.unwrap());
+    assert_eq!(
+        background_task_repo::find_by_id(state.writer_db(), task.id)
+            .await
+            .unwrap()
+            .status,
+        BackgroundTaskStatus::Canceled
+    );
+    assert_eq!(
+        crate::db::repository::folder_tree_operation_repo::count(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        0,
+        "only the current owner's cancellation acknowledgement performs terminal cleanup"
+    );
+    assert!(!store.cancel_task_if_requested(&task, lease).await.unwrap());
+}

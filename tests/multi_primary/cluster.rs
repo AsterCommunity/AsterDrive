@@ -3218,8 +3218,32 @@ async fn split_roles_isolate_consumption_and_recover_a_zero_worker_backlog() {
     let mut api_a = ServerProcess::spawn_role("split-api-a", &services, "api");
     wait_for_health(&client, &mut api_a).await;
     let token = setup_and_login(&client, &api_a).await;
+    for (key, value) in [
+        ("cors_enabled", "true"),
+        ("cors_allowed_origins", r#"["https://allowed.example.com"]"#),
+    ] {
+        aster_drive::db::repository::config_repo::upsert_with_actor(&db, key, value, None)
+            .await
+            .unwrap();
+    }
     let mut api_b = ServerProcess::spawn_role("split-api-b", &services, "api");
     wait_for_health(&client, &mut api_b).await;
+    // Exercise the production component's outer middleware on a CORS short circuit.
+    let rejected = client
+        .get(format!("{}/api/v1/auth/config", api_b.base_url()))
+        .header("Origin", "https://blocked.example.com")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
+    assert!(uuid::Uuid::parse_str(rejected.headers()["X-Request-ID"].to_str().unwrap()).is_ok());
+    assert_eq!(rejected.headers()["X-Content-Type-Options"], "nosniff");
+    assert!(
+        !rejected
+            .headers()
+            .contains_key("Access-Control-Allow-Origin")
+    );
+    assert_eq!(rejected.json::<Value>().await.unwrap()["code"], "forbidden");
     login(&client, &api_b, "admin", ADMIN_PASSWORD).await;
     let task_a = create_trash_purge_task(&client, &api_a, &token).await;
     let task_b = create_trash_purge_task(&client, &api_b, &token).await;

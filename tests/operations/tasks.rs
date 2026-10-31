@@ -1388,6 +1388,103 @@ async fn test_touch_heartbeat_refreshes_processing_task_liveness() {
 }
 
 #[actix_web::test]
+async fn test_outcome_writes_atomically_fence_cancellation_and_processing_token() {
+    let state = common::setup().await;
+    for (status, token_offset) in [
+        (BackgroundTaskStatus::Canceling, 0),
+        (BackgroundTaskStatus::Canceled, 0),
+        (BackgroundTaskStatus::Processing, -1),
+        (BackgroundTaskStatus::Processing, 0),
+    ] {
+        for outcome in ["retry", "failed", "shutdown"] {
+            let task = insert_pending_lane_task(
+                &state,
+                BackgroundTaskKind::ArchiveCompress,
+                "outcome-cancellation-fence",
+                "{}",
+            )
+            .await;
+            let mut update = task.into_active_model();
+            update.status = Set(status);
+            update.processing_token = Set(7);
+            update.processing_started_at = Set(Some(Utc::now()));
+            update.last_heartbeat_at = Set(Some(Utc::now()));
+            update.lease_expires_at = Set(Some(Utc::now() + Duration::seconds(60)));
+            let task = update.update(state.writer_db()).await.unwrap();
+            // Reload timestamps as stored by this backend before comparing the entire row.
+            let before = background_task_repo::find_by_id(state.writer_db(), task.id)
+                .await
+                .unwrap();
+            let token = task.processing_token + token_offset;
+            let marked = match outcome {
+                "retry" => {
+                    background_task_repo::mark_retry(
+                        state.writer_db(),
+                        task.id,
+                        token,
+                        1,
+                        Utc::now() + Duration::seconds(30),
+                        "retry outcome",
+                        Some("[]"),
+                    )
+                    .await
+                }
+                "failed" => {
+                    background_task_repo::mark_failed(
+                        state.writer_db(),
+                        background_task_repo::TaskFailureUpdate {
+                            id: task.id,
+                            processing_token: token,
+                            attempt_count: 1,
+                            last_error: "failure outcome",
+                            finished_at: Utc::now(),
+                            expires_at: Utc::now() + Duration::hours(1),
+                            steps_json: Some("[]"),
+                            failure_can_retry: false,
+                        },
+                    )
+                    .await
+                }
+                "shutdown" => {
+                    background_task_repo::release_processing(
+                        state.writer_db(),
+                        task.id,
+                        token,
+                        Utc::now(),
+                        BackgroundTaskStatus::Retry,
+                    )
+                    .await
+                }
+                _ => unreachable!(),
+            }
+            .unwrap();
+            let after = background_task_repo::find_by_id(state.writer_db(), task.id)
+                .await
+                .unwrap();
+            let expected = status == BackgroundTaskStatus::Processing && token_offset == 0;
+            assert_eq!(marked, expected, "{status:?} / {token_offset} / {outcome}");
+            if expected {
+                assert_eq!(
+                    after.status,
+                    if outcome == "failed" {
+                        BackgroundTaskStatus::Failed
+                    } else {
+                        BackgroundTaskStatus::Retry
+                    }
+                );
+                assert_eq!(after.attempt_count, i32::from(outcome != "shutdown"));
+                assert!(after.lease_expires_at.is_none());
+            } else {
+                assert_eq!(
+                    after, before,
+                    "rejected {outcome} must preserve the entire row"
+                );
+            }
+        }
+    }
+}
+
+#[actix_web::test]
 async fn test_processing_token_fences_stale_worker_updates_after_reclaim() {
     let state = common::setup().await;
     let now = Utc::now();
@@ -5252,6 +5349,97 @@ async fn test_archive_publication_survives_terminal_failure_without_duplicate_qu
             .unwrap(),
         1
     );
+}
+
+#[actix_web::test]
+async fn test_cancel_after_committed_retry_or_failure_respects_the_committed_state() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let source_id = upload_test_file_named!(app, token, "outcome-first.txt");
+    for should_retry in [true, false] {
+        let create = test::TestRequest::post()
+            .uri("/api/v1/batch/archive-compress")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "file_ids": [source_id],
+                "folder_ids": [],
+                "archive_name": format!("outcome-first-{should_retry}.zip")
+            }))
+            .to_request();
+        let response = test::call_service(&app, create).await;
+        assert_eq!(response.status(), 200);
+        let body: Value = test::read_body_json(response).await;
+        let id = body["data"]["id"].as_i64().unwrap();
+        let now = Utc::now();
+        assert!(
+            background_task_repo::try_claim(
+                state.writer_db(),
+                id,
+                0,
+                now,
+                now - Duration::seconds(60),
+                1,
+                now + Duration::seconds(60),
+            )
+            .await
+            .unwrap()
+        );
+        let marked = if should_retry {
+            background_task_repo::mark_retry(
+                state.writer_db(),
+                id,
+                1,
+                1,
+                now + Duration::seconds(30),
+                "committed retry",
+                None,
+            )
+            .await
+        } else {
+            background_task_repo::mark_failed(
+                state.writer_db(),
+                background_task_repo::TaskFailureUpdate {
+                    id,
+                    processing_token: 1,
+                    attempt_count: 1,
+                    last_error: "committed failure",
+                    finished_at: now,
+                    expires_at: now + Duration::hours(1),
+                    steps_json: None,
+                    failure_can_retry: false,
+                },
+            )
+            .await
+        };
+        assert!(marked.unwrap());
+        let before = background_task_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        let cancel = test::TestRequest::post()
+            .uri(&format!("/api/v1/tasks/{id}/cancel"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        let response = test::call_service(&app, cancel).await;
+        assert_eq!(response.status(), if should_retry { 200 } else { 409 });
+        let after = background_task_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        if should_retry {
+            assert_eq!(after.status, BackgroundTaskStatus::Canceled);
+            assert_eq!(after.attempt_count, 1);
+            assert_eq!(after.processing_token, 1);
+            assert_eq!(after.last_error, before.last_error);
+            assert!(after.lease_expires_at.is_none());
+        } else {
+            assert_eq!(
+                after, before,
+                "cancellation must not overwrite committed failure"
+            );
+        }
+    }
 }
 
 #[actix_web::test]
