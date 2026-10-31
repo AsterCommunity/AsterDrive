@@ -1578,24 +1578,12 @@ async fn cancellation_acknowledgement_is_fenced_to_the_current_owner() {
 
 #[tokio::test]
 async fn attempt_cleanup_preserves_newer_scratch_and_prunes_only_empty_parents() {
-    let mut state = build_dispatch_test_state().await;
     let root = aster_forge_test::temp::TestTempDir::new("task-cleanup-main");
     let other = aster_forge_test::temp::TestTempDir::new("task-cleanup-offline");
-    std::sync::Arc::make_mut(&mut state.config).server.temp_dir =
-        root.path().to_str().unwrap().to_string();
-    config_repo::upsert_with_actor(
-        state.writer_db(),
-        "offline_download_temp_dir",
+    let roots = [
+        root.path().to_str().unwrap(),
         other.path().to_str().unwrap(),
-        None,
-    )
-    .await
-    .unwrap();
-    state
-        .runtime_config
-        .reload(state.writer_db())
-        .await
-        .unwrap();
+    ];
     let old = TaskLease::new(634, 1);
     let new = TaskLease::new(634, 2);
     for scratch_root in [root.path(), other.path()] {
@@ -1611,7 +1599,7 @@ async fn attempt_cleanup_preserves_newer_scratch_and_prunes_only_empty_parents()
                 .unwrap();
         }
     }
-    super::super::cleanup_task_temp_dir_for_lease(&state, old)
+    super::super::cleanup_task_temp_dir_for_lease(&roots, old)
         .await
         .unwrap();
     for scratch_root in [root.path(), other.path()] {
@@ -1627,7 +1615,7 @@ async fn attempt_cleanup_preserves_newer_scratch_and_prunes_only_empty_parents()
             b"retained"
         );
     }
-    super::super::cleanup_task_temp_dir_for_lease(&state, new)
+    super::super::cleanup_task_temp_dir_for_lease(&roots, new)
         .await
         .unwrap();
     for scratch_root in [root.path(), other.path()] {
@@ -1639,7 +1627,7 @@ async fn attempt_cleanup_preserves_newer_scratch_and_prunes_only_empty_parents()
             .exists()
         );
     }
-    super::super::cleanup_task_temp_dir_for_lease(&state, new)
+    super::super::cleanup_task_temp_dir_for_lease(&roots, new)
         .await
         .unwrap();
 }

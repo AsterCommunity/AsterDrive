@@ -156,6 +156,8 @@ pub(super) async fn process_offline_download_task(
         .await;
     }
 
+    let temp_root = offline_download_temp_root(state);
+    let scratch_roots = [state.config().server.temp_dir.as_str(), temp_root.as_str()];
     let result = async {
         let scope = task_scope(task)?;
         let payload = decode_payload_as::<OfflineDownloadTask>(task)?;
@@ -191,7 +193,6 @@ pub(super) async fn process_offline_download_task(
             .source_display_url
             .clone()
             .unwrap_or_else(|| redact_url_for_display(&source_url));
-        let temp_root = offline_download_temp_root(state);
         let task_temp_dir =
             aster_forge_tasks::prepare_task_temp_dir_in_root(&temp_root, lease_guard.lease())
                 .await?;
@@ -333,7 +334,7 @@ pub(super) async fn process_offline_download_task(
             true,
         )
         .await?;
-        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
+        cleanup_task_temp_dir_for_lease(&scratch_roots, lease_guard.lease()).await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_STORE_RESULT,
@@ -370,7 +371,7 @@ pub(super) async fn process_offline_download_task(
             if !is_task_lease_lost(&error)
                 && !is_task_lease_renewal_timed_out(&error)
                 && let Err(cleanup_error) =
-                    cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await
+                    cleanup_task_temp_dir_for_lease(&scratch_roots, lease_guard.lease()).await
             {
                 tracing::warn!(
                     task_id = task.id,

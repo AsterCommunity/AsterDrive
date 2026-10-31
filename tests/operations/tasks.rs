@@ -13,7 +13,7 @@ use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use tokio::io::{AsyncRead, empty};
 use tokio::sync::broadcast;
@@ -1081,18 +1081,33 @@ async fn test_offline_download_disabled_registry_rejects_task_creation() {
 }
 
 #[actix_web::test]
-async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_other_attempts() {
+async fn test_offline_download_cleans_selected_scratch_roots_across_config_changes() {
     const CONTENT: &[u8] = b"offline download cleanup fixture";
+    let scratch = aster_forge_test::temp::TestTempDir::new("offline-cleanup");
+    let scratch_path = scratch.path().to_path_buf();
+    let mut state = common::setup().await;
+    Arc::make_mut(&mut state.config).server.temp_dir = scratch_path.to_str().unwrap().to_string();
+    let changed_root = scratch.join("reconfigured");
+    let switch_config = Arc::new(AtomicBool::new(false));
     // Isolated RPC fixture writes the requested output itself; no source download or
     // external DNS is involved, while the production task/storage lifecycle still runs.
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
     let rpc_calls = Arc::new(AtomicUsize::new(0));
     let calls = rpc_calls.clone();
+    let rpc_state = state.clone();
+    let rpc_switch = switch_config.clone();
+    let rpc_root = changed_root.clone();
     let rpc = actix_web::HttpServer::new(move || {
         let calls = calls.clone();
+        let state = rpc_state.clone();
+        let switch_config = rpc_switch.clone();
+        let changed_root = rpc_root.clone();
         App::new().default_service(web::to(move |request: web::Json<Value>| {
             let calls = calls.clone();
+            let state = state.clone();
+            let switch_config = switch_config.clone();
+            let changed_root = changed_root.clone();
             async move {
                 let result = match request["method"].as_str().unwrap() {
                     "aria2.addUri" => {
@@ -1100,6 +1115,17 @@ async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_o
                         let output = Path::new(options["dir"].as_str().unwrap())
                             .join(options["out"].as_str().unwrap());
                         tokio::fs::write(output, CONTENT).await.unwrap();
+                        if switch_config.load(Ordering::SeqCst) {
+                            // Change the live config after the attempt directory is in use.
+                            aster_drive::services::ops::config::set(
+                                &state,
+                                OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
+                                changed_root.to_str().unwrap(),
+                                1,
+                            )
+                            .await
+                            .unwrap();
+                        }
                         calls.fetch_add(1, Ordering::SeqCst);
                         serde_json::json!("cleanup-fixture")
                     }
@@ -1122,7 +1148,6 @@ async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_o
     .run();
     let rpc_handle = rpc.handle();
     actix_web::rt::spawn(rpc);
-    let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
     for (key, value) in [
@@ -1133,11 +1158,16 @@ async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_o
     }
     let main_root = state.config.server.temp_dir.as_str();
     let custom_root = Path::new(main_root).join("offline-attempts");
-    for (root, preserve_newer) in [
-        (main_root, false),
-        (custom_root.to_str().unwrap(), false),
-        (custom_root.to_str().unwrap(), true),
+    for (root, preserve_newer, change_config, fail_checksum) in [
+        (main_root, false, false, false),
+        (custom_root.to_str().unwrap(), false, false, false),
+        (custom_root.to_str().unwrap(), true, false, false),
+        (main_root, false, true, false),
+        (custom_root.to_str().unwrap(), true, true, false),
+        (custom_root.to_str().unwrap(), false, true, true),
+        (custom_root.to_str().unwrap(), true, true, true),
     ] {
+        switch_config.store(change_config, Ordering::SeqCst);
         aster_drive::services::ops::config::set(&state, OFFLINE_DOWNLOAD_TEMP_DIR_KEY, root, 1)
             .await
             .unwrap();
@@ -1145,7 +1175,7 @@ async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_o
             .uri("/api/v1/tasks/offline-download")
             .insert_header(("Cookie", common::access_cookie_header(&token)))
             .insert_header(common::csrf_header_for(&token))
-            .set_json(serde_json::json!({"url":"https://1.1.1.1/cleanup-fixture", "filename":"cleanup-fixture.txt"}))
+            .set_json(serde_json::json!({"url":"https://1.1.1.1/cleanup-fixture", "filename":"cleanup-fixture.txt", "expected_sha256":fail_checksum.then(|| "0".repeat(64))}))
             .to_request()).await;
         assert_eq!(response.status(), 200);
         let created: Value = test::read_body_json(response).await;
@@ -1164,12 +1194,56 @@ async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_o
                     .unwrap();
             }
         }
+        let unrelated =
+            aster_forge_utils::paths::task_token_temp_dir(changed_root.to_str().unwrap(), id, 1);
+        if change_config {
+            tokio::fs::create_dir_all(&unrelated).await.unwrap();
+            tokio::fs::write(Path::new(&unrelated).join("metadata"), b"unrelated")
+                .await
+                .unwrap();
+        }
         let stats = task::dispatch_due(&state).await.unwrap();
         let completed = background_task_repo::find_by_id(state.writer_db(), id)
             .await
             .unwrap();
-        assert_eq!(stats.succeeded, 1, "{completed:?}");
-        assert_eq!(completed.status, BackgroundTaskStatus::Succeeded);
+        assert_eq!(
+            stats.succeeded,
+            usize::from(!fail_checksum),
+            "{completed:?}"
+        );
+        assert_eq!(stats.failed, usize::from(fail_checksum), "{completed:?}");
+        assert_eq!(
+            completed.status,
+            if fail_checksum {
+                assert!(
+                    completed
+                        .last_error
+                        .as_deref()
+                        .unwrap()
+                        .contains("sha256 mismatch")
+                );
+                BackgroundTaskStatus::Failed
+            } else {
+                BackgroundTaskStatus::Succeeded
+            }
+        );
+        if change_config {
+            assert_eq!(
+                state
+                    .runtime_config
+                    .get(OFFLINE_DOWNLOAD_TEMP_DIR_KEY)
+                    .as_deref(),
+                changed_root.to_str(),
+                "the fixture must change the live config before cleanup",
+            );
+            assert_eq!(
+                tokio::fs::read(Path::new(&unrelated).join("metadata"))
+                    .await
+                    .unwrap(),
+                b"unrelated",
+                "cleanup must not follow the changed config into an unrelated directory",
+            );
+        }
         assert_eq!(completed.processing_token, 1);
         for scratch_root in [main_root, root] {
             let attempt = aster_forge_utils::paths::task_token_temp_dir(scratch_root, id, 1);
@@ -1196,10 +1270,15 @@ async fn test_offline_download_success_cleans_both_scratch_roots_and_preserves_o
     }
     assert_eq!(
         rpc_calls.load(Ordering::SeqCst),
-        3,
-        "all success paths must execute"
+        7,
+        "all success and failure paths must execute"
     );
     rpc_handle.stop(true).await;
+    drop(scratch);
+    assert!(
+        !scratch_path.exists(),
+        "including preserved token 2 test files"
+    );
 }
 
 #[actix_web::test]

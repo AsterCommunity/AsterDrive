@@ -223,7 +223,8 @@ pub(super) async fn process_archive_extract_task(
             )
             .with_storage_delta(import_summary.storage_delta),
         );
-        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
+        cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease())
+            .await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_IMPORT_RESULT,
@@ -284,8 +285,11 @@ pub(super) async fn process_archive_extract_task(
             }
             if !is_task_lease_lost(&error)
                 && !is_task_lease_renewal_timed_out(&error)
-                && let Err(cleanup_error) =
-                    cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await
+                && let Err(cleanup_error) = cleanup_task_temp_dir_for_lease(
+                    &[&state.config().server.temp_dir],
+                    lease_guard.lease(),
+                )
+                .await
             {
                 tracing::warn!(
                     task_id = task.id,

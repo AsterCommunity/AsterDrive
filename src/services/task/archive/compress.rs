@@ -317,14 +317,15 @@ pub(super) async fn process_archive_compress_task(
             EMIT_ARCHIVE_STORAGE_EVENT,
         )
         .await?;
-        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
+        cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease()).await?;
         finish_archive_result(state, &lease_guard, stored, &mut steps, progress_total).await
     }
     .await;
 
     if result.is_err()
         && let Err(cleanup_error) =
-            cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await
+            cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease())
+                .await
     {
         tracing::warn!(
             task_id = task.id,

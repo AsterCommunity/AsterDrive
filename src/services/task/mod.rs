@@ -848,20 +848,15 @@ pub(super) async fn mark_task_succeeded(
 }
 
 /// Removes only this attempt's scratch and then prunes an empty task directory.
+/// Roots must be captured by the caller when preparing scratch, not read from live config.
 /// Non-recursive pruning cannot remove a newer owner's token directory, even during takeover.
 pub(super) async fn cleanup_task_temp_dir_for_lease(
-    state: &impl SharedRuntimeState,
+    roots: &[&str],
     lease: aster_forge_tasks::TaskLease,
 ) -> Result<()> {
-    let mut roots = vec![state.config().server.temp_dir.clone()];
-    if let Some(root) = operations::offline_download_temp_dir(state.runtime_config())
-        && !roots.contains(&root)
-    {
-        roots.push(root);
-    }
     for root in roots {
-        aster_forge_tasks::cleanup_task_temp_dir_for_lease_in_root(&root, lease).await?;
-        let parent = aster_forge_utils::paths::task_temp_dir(&root, lease.task_id);
+        aster_forge_tasks::cleanup_task_temp_dir_for_lease_in_root(root, lease).await?;
+        let parent = aster_forge_utils::paths::task_temp_dir(root, lease.task_id);
         if let Err(error) = tokio::fs::remove_dir(parent).await
             && !matches!(
                 error.kind(),

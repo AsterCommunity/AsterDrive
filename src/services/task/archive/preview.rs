@@ -248,7 +248,8 @@ pub(super) async fn process_archive_preview_task(
         .await?;
 
         preview::store_cached_manifest(state, &source_file, &blob, &limits, &manifest).await?;
-        cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await?;
+        cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease())
+            .await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_PERSIST_MANIFEST,
@@ -281,7 +282,8 @@ pub(super) async fn process_archive_preview_task(
 
     if result.is_err()
         && let Err(cleanup_error) =
-            cleanup_task_temp_dir_for_lease(state, lease_guard.lease()).await
+            cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease())
+                .await
     {
         tracing::warn!(
             task_id = task.id,
