@@ -30,6 +30,7 @@ pub(super) struct ArchiveExtractImportSummary {
     pub(super) folder_ids: Vec<i64>,
     pub(super) affected_parent_ids: Vec<Option<i64>>,
     pub(super) storage_delta: i64,
+    pub(super) reused_publication: bool,
 }
 
 pub(super) async fn materialize_archive_extract_stage(
@@ -136,6 +137,7 @@ pub(super) async fn materialize_archive_extract_stage(
             .storage_delta
             .checked_add(if already_published { 0 } else { size })
             .ok_or_else(|| AsterError::internal_error("archive extract storage delta overflow"))?;
+        summary.reused_publication |= already_published;
         imported_bytes = imported_bytes
             .checked_add(size)
             .ok_or_else(|| AsterError::internal_error("archive extract progress overflow"))?;

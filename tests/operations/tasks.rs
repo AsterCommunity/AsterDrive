@@ -6002,15 +6002,12 @@ async fn test_cancel_partial_extract_retains_files_quota_and_resumes_the_same_pu
     );
     assert!(first_folder.parent_id.is_some());
     let scope_owner = first.owner_user_id.unwrap();
-    assert_eq!(
-        user::Entity::find_by_id(scope_owner)
-            .one(state.writer_db())
-            .await
-            .unwrap()
-            .unwrap()
-            .storage_used,
-        source_size + 5
-    );
+    let owner = user::Entity::find_by_id(scope_owner)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(owner.storage_used, source_size + 5);
     let event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
         .await
         .unwrap()
@@ -6032,6 +6029,14 @@ async fn test_cancel_partial_extract_retains_files_quota_and_resumes_the_same_pu
         .execute_unprepared(drop_sql)
         .await
         .unwrap();
+    let mut owner = user::Entity::find_by_id(scope_owner)
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    owner.storage_quota = Set(source_size + 11);
+    owner.update(state.writer_db()).await.unwrap();
     let request = test::TestRequest::post()
         .uri(&format!("/api/v1/tasks/{id}/retry"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -6039,6 +6044,16 @@ async fn test_cancel_partial_extract_retains_files_quota_and_resumes_the_same_pu
         .to_request();
     assert_eq!(test::call_service(&app, request).await.status(), 200);
     assert_eq!(task::drain(&state).await.unwrap().succeeded, 1);
+    let retry_event = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        retry_event.kind,
+        aster_drive::services::events::storage_change::StorageChangeKind::FolderCreated
+    );
+    assert!(retry_event.affects_quota);
+    assert_eq!(retry_event.storage_delta, None);
     assert_eq!(
         file::Entity::find().count(state.writer_db()).await.unwrap(),
         3

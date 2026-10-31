@@ -47,6 +47,36 @@ impl TaskResourcePublication {
         self.metadata = Some(metadata);
         self
     }
+
+    pub fn entry_key(&self) -> &str {
+        &self.key
+    }
+
+    pub async fn published_file_keys<C: ConnectionTrait>(
+        db: &C,
+        task_id: i64,
+    ) -> Result<std::collections::HashSet<String>> {
+        let rows = task_resource_publication::Entity::find()
+            .filter(task_resource_publication::Column::TaskId.eq(task_id))
+            .all(db)
+            .await?;
+        rows.into_iter()
+            .filter_map(
+                |row| match serde_json::from_str::<Snapshot>(&row.resource_snapshot) {
+                    Ok(snapshot) if snapshot.version == 1 => {
+                        matches!(snapshot.resource, Resource::File(_)).then_some(Ok(row.entry_key))
+                    }
+                    Ok(_) => Some(Err(AsterError::internal_error(
+                        "unsupported task publication snapshot version",
+                    ))),
+                    Err(_) => Some(Err(AsterError::internal_error(
+                        "invalid persisted task publication snapshot",
+                    ))),
+                },
+            )
+            .collect()
+    }
+
     pub async fn metadata<C: ConnectionTrait>(&self, db: &C) -> Result<Option<serde_json::Value>> {
         let row =
             task_resource_publication::Entity::find_by_id((self.lease.task_id, self.key.clone()))

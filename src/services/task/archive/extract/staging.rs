@@ -312,6 +312,7 @@ pub(super) fn stage_zip_archive_for_extract(
         steps,
         options,
         preflight.total_uncompressed_bytes,
+        unpublished_archive_bytes(db, context, handle, &preflight.entries)?,
     )?;
 
     let preflight_entry_count = preflight.entries.len();
@@ -417,6 +418,7 @@ fn prepare_archive_staging_after_preflight(
     steps: &mut [TaskStepInfo],
     options: ArchiveExtractStageOptions,
     total_bytes: i64,
+    unpublished_bytes: i64,
 ) -> Result<ArchiveStagingProgress> {
     let total_staging_bytes = options
         .source_archive_size
@@ -431,8 +433,9 @@ fn prepare_archive_staging_after_preflight(
             options.max_staging_bytes
         )));
     }
-    if total_bytes > 0 {
-        handle.block_on(async { storage::check_quota(db, options.scope, total_bytes).await })?;
+    if unpublished_bytes > 0 {
+        handle
+            .block_on(async { storage::check_quota(db, options.scope, unpublished_bytes).await })?;
     }
     let total_progress = total_bytes
         .checked_mul(2)
@@ -451,6 +454,38 @@ fn prepare_archive_staging_after_preflight(
         total_progress,
         processed_bytes: 0,
         file_count: 0,
+    })
+}
+
+fn unpublished_archive_bytes(
+    db: &sea_orm::DatabaseConnection,
+    context: &TaskExecutionContext,
+    handle: &tokio::runtime::Handle,
+    entries: &[ArchiveScanEntry],
+) -> Result<i64> {
+    let lease = context.lease_guard().lease();
+    let published = handle.block_on(
+        crate::db::repository::task_resource_publication_repo::TaskResourcePublication::published_file_keys(
+            db,
+            lease.task_id,
+        ),
+    )?;
+    entries.iter().try_fold(0_i64, |total, entry| {
+        if entry.kind.is_dir() {
+            return Ok(total);
+        }
+        let publication =
+            crate::db::repository::task_resource_publication_repo::TaskResourcePublication::new(
+                lease,
+                &format!("file:{}", entry.relative_path.to_string_lossy()),
+            );
+        if published.contains(publication.entry_key()) {
+            Ok(total)
+        } else {
+            total
+                .checked_add(entry.size)
+                .ok_or_else(|| AsterError::internal_error("archive extract quota size overflow"))
+        }
     })
 }
 

@@ -212,16 +212,20 @@ pub(super) async fn process_archive_extract_task(
             &mut steps,
         )
         .await?;
+        let event = storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderCreated,
+            scope,
+            import_summary.file_ids,
+            import_summary.folder_ids,
+            import_summary.affected_parent_ids,
+        );
         storage_change::publish(
             state,
-            storage_change::StorageChangeEvent::new(
-                storage_change::StorageChangeKind::FolderCreated,
-                scope,
-                import_summary.file_ids,
-                import_summary.folder_ids,
-                import_summary.affected_parent_ids,
-            )
-            .with_storage_delta(import_summary.storage_delta),
+            if import_summary.reused_publication {
+                event.with_quota_refresh()
+            } else {
+                event.with_storage_delta(import_summary.storage_delta)
+            },
         );
         cleanup_task_temp_dir_for_lease(&[&state.config().server.temp_dir], lease_guard.lease())
             .await?;
