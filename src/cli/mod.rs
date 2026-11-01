@@ -2,7 +2,6 @@
 //!
 //! `command` 拥有根参数、帮助和分发；进程入口只衔接服务启动与退出状态。
 
-#[cfg(feature = "operations-cli")]
 mod build_info;
 pub mod command;
 #[cfg(feature = "operations-cli")]

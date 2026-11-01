@@ -31,6 +31,8 @@ fn service_help_and_invalid_roles_never_bootstrap_an_instance() {
         if args[0] == "serve" {
             assert!(help.contains("all") && help.contains("api") && help.contains("worker"));
         } else {
+            assert!(help.contains("  version "));
+            assert!(help.contains(env!("CARGO_PKG_DESCRIPTION")));
             assert_eq!(help.contains("  config "), cfg!(feature = "operations-cli"));
             assert_eq!(help.contains("  doctor "), cfg!(feature = "operations-cli"));
             assert_eq!(help.contains("  node "), cfg!(feature = "operations-cli"));
@@ -45,6 +47,55 @@ fn service_help_and_invalid_roles_never_bootstrap_an_instance() {
         assert!(!output.status.success());
     }
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn build_details_are_available_without_operations_or_instance_configuration() {
+    let dir = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-service-version-{}", uuid::Uuid::new_v4())),
+        "build information fixture",
+    );
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let config = dir.path().join("invalid.toml");
+    let content = "invalid TOML credential-marker";
+    std::fs::write(&config, content).unwrap();
+    let run = |args: &[&str]| {
+        let output = command()
+            .current_dir(dir.path())
+            .args(["--config-file", config.to_str().unwrap()])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("credential-marker"));
+        output
+    };
+    let output = run(&["version", "--json"]);
+    let identity: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(identity["version"], env!("CARGO_PKG_VERSION"));
+    for field in ["revision", "target", "profile", "build_time"] {
+        assert!(!identity[field].as_str().unwrap().is_empty());
+    }
+    assert_eq!(
+        identity["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|feature| feature == "operations-cli"),
+        cfg!(feature = "operations-cli")
+    );
+    let output = run(&["version"]);
+    let output = String::from_utf8(output.stdout).unwrap();
+    for label in ["Revision:", "Target:", "Profile:", "Features:", "Built:"] {
+        assert!(output.contains(label));
+    }
+    assert_eq!(std::fs::read_to_string(config).unwrap(), content);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
 #[cfg(unix)]

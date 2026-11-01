@@ -4,12 +4,9 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::io;
 
 #[cfg(feature = "operations-cli")]
-use super::{
-    build_info::render_build_info, config, context::CliContext, database_migration, doctor, node,
-    shared,
-};
+use super::{config, context::CliContext, database_migration, doctor, node, shared};
 
-use super::help;
+use super::{build_info::render_build_info, help};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -17,7 +14,7 @@ use super::help;
     display_name = "AsterDrive",
     version,
     propagate_version = true,
-    about = "Self-hosted file storage.",
+    about = env!("CARGO_PKG_DESCRIPTION"),
     after_help = if cfg!(feature = "operations-cli") { "Examples:\n  aster_drive serve\n  aster_drive --data-dir /srv/asterdrive/data doctor\n  aster_drive config --help\n\nRunning without a command starts all server roles." } else { "Examples:\n  aster_drive serve\n  aster_drive --data-dir /srv/asterdrive/data serve worker\n\nRunning without a command starts all server roles." },
     styles = help::cli_styles()
 )]
@@ -89,7 +86,6 @@ enum RootCommand {
     #[cfg(feature = "operations-cli")]
     /// Generate an authentication verifier
     HashPassword,
-    #[cfg(feature = "operations-cli")]
     /// Show build information
     Version {
         /// Output build information as JSON
@@ -115,7 +111,6 @@ pub async fn execute() -> io::Result<CommandOutcome> {
         crate::config::ConfigLocation::resolve(cli.config_file.as_deref(), cli.data_dir.as_deref())
             .map_err(io_other)?;
     let serve_role = match cli.command {
-        #[cfg(feature = "operations-cli")]
         Some(RootCommand::Version { json }) => {
             let output = render_build_info(json).map_err(io_other)?;
             println!("{output}");
@@ -233,7 +228,6 @@ mod role_cli_tests {
             let role = match RootCli::try_parse_from(args).unwrap().command {
                 None => ServeRole::All,
                 Some(RootCommand::Serve { role }) => role,
-                #[cfg(feature = "operations-cli")]
                 other => panic!("unexpected command: {other:?}"),
             };
             assert_eq!(role, expected);

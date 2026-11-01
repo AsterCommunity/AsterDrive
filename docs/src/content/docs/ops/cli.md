@@ -23,7 +23,7 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 
 `./aster_drive [serve [all|api|worker]]`。无参数或 `serve` 默认 `all`。Follower 由 config 决定，不能用命令行角色代替。职责、取消、并发及迁移见[API 与 worker 分离](/deploy/roles/)。
 
-`serve all/api/worker`、无子命令启动和 `--config-file` / `--data-dir` 在禁用 `operations-cli` Cargo feature 时仍然可用；`operations-cli` 只控制下文的运维子命令。仅构建服务可用 `cargo build --no-default-features --features server`，Docker 对应 `--build-arg CARGO_FEATURES=server`。
+`serve all/api/worker`、无子命令启动、`--config-file` / `--data-dir`、`version` / `version --json` 在禁用 `operations-cli` Cargo feature 时仍然可用；`operations-cli` 只控制下文的运维子命令。仅构建服务可用 `cargo build --no-default-features --features server`，Docker 对应 `--build-arg CARGO_FEATURES=server`。
 
 ## 命令速查
 

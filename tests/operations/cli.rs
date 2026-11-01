@@ -1047,7 +1047,7 @@ fn test_root_binary_help_lists_config_subcommand() {
         stdout.lines().next(),
         Some(concat!("AsterDrive ", env!("CARGO_PKG_VERSION")))
     );
-    assert!(stdout.contains("Self-hosted file storage."));
+    assert!(stdout.contains(env!("CARGO_PKG_DESCRIPTION")));
     assert!(stdout.contains("serve"));
     assert!(stdout.contains("Run the server with all, API, or worker responsibilities"));
     assert!(stdout.contains("config"));
@@ -3591,7 +3591,9 @@ fn root_help_is_compact_hides_environment_values_and_orders_common_commands_firs
         assert!(text.starts_with(concat!(
             "AsterDrive ",
             env!("CARGO_PKG_VERSION"),
-            "\nSelf-hosted file storage.\n"
+            "\n",
+            env!("CARGO_PKG_DESCRIPTION"),
+            "\n"
         )));
         assert!(
             !text.contains("[env:")

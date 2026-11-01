@@ -23,7 +23,7 @@ Running `./aster_drive` directly starts the service. Running it with a subcomman
 
 `./aster_drive [serve [all|api|worker]]` defaults to `all`. Follower remains config-selected. See [separate roles](/en/deploy/roles/) for ownership, cancellation, limits and migration.
 
-Server startup (`serve all/api/worker` or no subcommand) and `--config-file` / `--data-dir` remain available without the `operations-cli` Cargo feature. That feature controls the operational subcommands below. Build a service-only binary with `cargo build --no-default-features --features server`, or pass `--build-arg CARGO_FEATURES=server` to Docker.
+Server startup (`serve all/api/worker` or no subcommand), `--config-file` / `--data-dir`, and `version` / `version --json` remain available without the `operations-cli` Cargo feature. That feature controls the operational subcommands below. Build a service-only binary with `cargo build --no-default-features --features server`, or pass `--build-arg CARGO_FEATURES=server` to Docker.
 
 ## Command Quick Reference
 
