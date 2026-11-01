@@ -33,9 +33,9 @@ impl fmt::Display for ConfigChoice<'_> {
 }
 
 pub(super) fn select_key(current: &[system_config::Model]) -> CliResult<String> {
-    if !std::io::stdin().is_terminal() {
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Err(AsterError::validation_error(
-            "configuration key required without an interactive terminal; use config set KEY VALUE",
+            "configuration key required without interactive stdin and stderr; use config set KEY VALUE",
         )
         .into());
     }
@@ -76,9 +76,9 @@ pub(super) fn prompt_value(
     sensitive: bool,
     current: &[system_config::Model],
 ) -> CliResult<Option<ImportItem>> {
-    if !std::io::stdin().is_terminal() {
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Err(AsterError::validation_error(
-            "value required without an interactive terminal; use config set KEY VALUE, --value-stdin, --value-file PATH, or --clear",
+            "value required without interactive stdin and stderr; use config set KEY VALUE, --value-stdin, --value-file PATH, or --clear",
         ).into());
     }
     let definition = CONFIG_REGISTRY.get(key);

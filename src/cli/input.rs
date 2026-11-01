@@ -21,9 +21,9 @@ pub(super) fn read_terminal_value<V>(
 where
     V: StringValidator + 'static,
 {
-    if !std::io::stdin().is_terminal() {
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Err(AsterError::validation_error(
-            "interactive terminal required; select an explicit value, stdin, or a private input file",
+            "interactive input requires terminal stdin and stderr; use a pipe or an explicit input source",
         ).into());
     }
     let limit = |value: &str| {

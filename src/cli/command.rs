@@ -84,7 +84,7 @@ enum RootCommand {
         args: database_migration::DatabaseMigrateArgs,
     },
     #[cfg(feature = "operations-cli")]
-    /// Generate an authentication verifier (hidden terminal prompt, or stdin until EOF)
+    /// Generate an authentication verifier (masked terminal input, or stdin until EOF)
     HashPassword,
     /// Show build information
     Version {

@@ -44,3 +44,20 @@ pub(super) async fn execute() -> CliResult<()> {
     println!("{hash}");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::valid_password;
+
+    #[test]
+    fn validation_counts_utf8_bytes_and_rejects_empty_and_control_input() {
+        for value in ["", "\n", "\r\n", "a\nb", "a\tb", "a\0b", "a\x1bb", "a\x7fb"] {
+            assert!(!valid_password(value));
+        }
+        assert!(valid_password("  abc  "));
+        assert!(valid_password(&"x".repeat(4096)));
+        assert!(!valid_password(&"x".repeat(4097)));
+        assert!(valid_password(&"猫".repeat(1365)));
+        assert!(!valid_password(&"猫".repeat(1366)));
+    }
+}

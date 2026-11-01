@@ -264,7 +264,7 @@ Enter keeps an existing value without writing or publishing a reload notificatio
 ./aster_drive config set branding_title ''
 ```
 
-Without an interactive terminal, missing keys or values fail immediately. Prompts go to stderr and stdout contains results only; use `config --output-format json set branding_title` for JSON. Explicit CLI arguments take precedence over `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`. Duplicate keys or multiple value sources are rejected. Piped input still requires `--value-stdin`; use stdin or files for multiline values.
+Interactive input requires terminal stdin and stderr; stdout can be redirected. Without a usable interactive terminal, missing keys or values fail immediately. Prompts go to stderr and stdout contains results only; use `config --output-format json set branding_title` for JSON. Explicit CLI arguments take precedence over `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`. Duplicate keys or multiple value sources are rejected. Piped input still requires `--value-stdin`; use stdin or files for multiline values.
 
 Automation can use stdin or a file with mode `0600`:
 

@@ -217,13 +217,13 @@ username = "prometheus"
 password_hash = '$argon2id$v=19$...' # replace with a complete verifier
 ```
 
-Generate the verifier without putting a password in process arguments or initializing the database. In a terminal, the command prompts for hidden input; press Enter to finish. stdout contains only one hash line:
+Generate the verifier without putting a password in process arguments or initializing the database. Terminal input uses the shared `inquire` prompt, showing asterisks without a reveal toggle. Press Enter to finish; empty or oversized input can be edited and retried. Interactive input requires terminal stdin and stderr; prompts go to stderr and stdout can be redirected and contains only one hash line. Ctrl+C, Ctrl+D or Esc cancels with exit status `130`:
 
 ```bash
 ./aster_drive hash-password
 ```
 
-Scripts can still provide stdin through a pipe. One trailing LF, CRLF, or CR is accepted, and leading and trailing spaces are preserved. Never put the password in command arguments:
+Passwords must contain 1–4096 UTF-8 bytes without control characters; terminal editing keys are handled by the input library. Scripts can still provide stdin through a pipe. One trailing LF, CRLF, or CR is accepted, and leading and trailing spaces are preserved. Empty, oversized or other control-containing pipe input fails without emitting a hash. Never put the password in command arguments:
 
 ```bash
 # Bash: input is not echoed or stored in shell history

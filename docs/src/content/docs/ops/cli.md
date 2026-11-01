@@ -264,7 +264,7 @@ ASTER_CLI_COPY_BATCH_SIZE=100
 ./aster_drive config set branding_title ''
 ```
 
-没有交互终端时不会自动等待输入，缺少 key 或值会立即报错。交互提示写入 stderr，stdout 保留结果输出；可用 `config --output-format json set branding_title` 获取 JSON。显式命令参数优先于 `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`；一个命令不能重复指定 key 或多个值来源。管道仍须显式选择 `--value-stdin`，多行值建议使用 stdin 或文件。
+交互需要 stdin 和 stderr 都连接终端，stdout 可重定向。没有可用交互终端时不会自动等待输入，缺少 key 或值会立即报错。交互提示写入 stderr，stdout 保留结果输出；可用 `config --output-format json set branding_title` 获取 JSON。显式命令参数优先于 `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`；一个命令不能重复指定 key 或多个值来源。管道仍须显式选择 `--value-stdin`，多行值建议使用 stdin 或文件。
 
 自动化可使用 stdin 或权限为 `0600` 的文件：
 

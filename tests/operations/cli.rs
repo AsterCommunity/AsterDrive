@@ -1386,6 +1386,15 @@ async fn cli_terminal_input_visibility_retry_keep_cancel_selection_and_hashing()
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let hashes: Vec<(String, String)> = serde_json::from_slice(&output.stdout)
+        .expect("PTY harness must return verifier cases as JSON");
+    assert!(!hashes.is_empty(), "PTY harness returned no verifier cases");
+    for (password, hash) in hashes {
+        assert!(
+            aster_forge_crypto::verify_password(&password, &hash).unwrap(),
+            "interactive verifier did not preserve the entered credential"
+        );
+    }
 }
 
 #[tokio::test]

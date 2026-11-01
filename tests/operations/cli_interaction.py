@@ -38,8 +38,12 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
              canceled=False, expect_color=False):
     # stdout is deliberately a pipe: prompts and terminal echo must not corrupt JSON.
     stdout_read, stdout_write = os.pipe()
+    ready_read, ready_write = os.pipe()
     pid, terminal = pty.fork()
     if pid == 0:
+        os.close(ready_write)
+        os.read(ready_read, 1)
+        os.close(ready_read)
         os.close(stdout_read)
         os.dup2(stdout_write, 1)
         os.close(stdout_write)
@@ -56,10 +60,16 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
             else:
                 child_environment[key] = value
         os.execve(binary, [*prefix, *args], child_environment)
+    os.close(ready_read)
     os.close(stdout_write)
     fcntl.ioctl(terminal, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+    original_mode = termios.tcgetattr(terminal)
+    os.set_blocking(terminal, False)
+    os.write(ready_write, b"1")
+    os.close(ready_write)
     output = bytearray()
     stdout = bytearray()
+    pending = b""
     exited = False
     step = 0
     offset = 0
@@ -68,9 +78,13 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
     try:
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            for descriptor in select.select([terminal, stdout_read], [], [], 0.02)[0]:
+            readable, writable, _ = select.select(
+                [terminal, stdout_read], [terminal] if pending else [], [], 0.02)
+            for descriptor in readable:
                 try:
                     chunk = os.read(descriptor, 65536)
+                except BlockingIOError:
+                    continue
                 except OSError as error:
                     if error.errno != errno.EIO:
                         raise
@@ -78,9 +92,9 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
                 (output if descriptor == terminal else stdout).extend(chunk)
             requests = output.count(b"\x1b[6n")
             if requests > cursor_reports:
-                os.write(terminal, b"\x1b[1;1R" * (requests - cursor_reports))
+                pending += b"\x1b[1;1R" * (requests - cursor_reports)
                 cursor_reports = requests
-            if step < len(steps):
+            if step < len(steps) and not pending:
                 prompt, response, expected_echo = steps[step]
                 position = ansi.sub(b"", output).find(prompt, offset)
                 echo = bool(termios.tcgetattr(terminal)[3] & termios.ECHO)
@@ -88,8 +102,14 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
                     if root == "node" and step == 0 and prompt == b"Primary URL":
                         assert b"Enter a non-empty" not in output, "validation appeared before input"
                     offset = position + len(prompt)
-                    os.write(terminal, response)
+                    pending = response
                     step += 1
+            if writable and pending:
+                try:
+                    written = os.write(terminal, pending[:1024])
+                except BlockingIOError:
+                    written = 0
+                pending = pending[written:]
             child, status = os.waitpid(pid, os.WNOHANG)
             if child:
                 exited = True
@@ -111,7 +131,8 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
             if not read_any:
                 break
         assert step == len(steps), f"interactive CLI missed expected prompts: {step}/{len(steps)}"
-        assert bool(termios.tcgetattr(terminal)[3] & termios.ECHO), "terminal echo was not restored"
+        assert not pending, "interactive CLI exited before test input was sent"
+        assert termios.tcgetattr(terminal) == original_mode, "terminal mode was not restored"
         assert (os.waitstatus_to_exitcode(status) == 0) == succeeds, "unexpected CLI exit status"
         assert bool(re.search(rb"\x1b\[[0-9;]*m", output)) == expect_color, "unexpected terminal color policy"
         if canceled:
@@ -279,13 +300,68 @@ interact(["enroll", "https://example.invalid", "--token-prompt"],
 interact(["enroll", "https://example.invalid"],
     [(b"Enrollment token", b"\x04", False)], succeeds=False, root="node", canceled=True)
 
-interact([], [(b"Password (masked)", new_secret, False),
-              (b"*" * len(new_secret), b"\r", False)],
-         root="hash-password", forbidden=(new_secret,))
-interact([], [(b"Password (masked)", b"\r", False),
-              (b"must contain 1..4096", new_secret + b"\r", False)],
-         root="hash-password", forbidden=(new_secret,))
+config_path = os.path.join(working_dir, "data/config.toml")
+with open(config_path, "rb") as stream:
+    initial_config = stream.read()
+initial_backup = cli("export", "--include-sensitive")
+# A terminal stdin without a usable prompt terminal must fail without reading
+# plaintext, changing terminal mode, or writing instance state.
+master, slave = pty.openpty()
+try:
+    original_mode = termios.tcgetattr(slave)
+    for args in [["hash-password"],
+                 ["config", "--database-url", database_url, "set"],
+                 ["config", "--database-url", database_url, "set", "branding_title"],
+                 ["node", "enroll", "https://example.invalid"]]:
+        detached = subprocess.run([binary, *args], stdin=slave,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  cwd=working_dir, env=environment,
+                                  start_new_session=True, timeout=20)
+        assert detached.returncode != 0, "detached terminal must fail closed"
+        assert not detached.stdout, "terminal setup failure polluted structured output"
+        assert b"stdin and stderr" in detached.stderr
+        if args[0] == "hash-password":
+            assert b"pipe" in detached.stderr
+        assert termios.tcgetattr(slave) == original_mode, "terminal setup failure changed input mode"
+        assert not select.select([master], [], [], 0)[0], "setup failure wrote a terminal prompt"
+finally:
+    os.close(slave)
+    os.close(master)
+with open(config_path, "rb") as stream:
+    assert stream.read() == initial_config, "terminal setup failure changed instance configuration"
+assert cli("export", "--include-sensitive") == initial_backup
+
+# Verifier generation stays offline even with unusable instance configuration.
+invalid_config = b"not valid TOML"
+with open(config_path, "wb") as stream:
+    stream.write(invalid_config)
+initial_paths = sorted(os.listdir(working_dir))
+hashes = []
+for password, entered in [
+        (new_secret.decode(), new_secret),
+        ("  猫😀  ", "  猫😀  ".encode()),
+        ("abc", "猫😀\x7f\x7fabc".encode()),
+        ("x" * 4096, b"x" * 4096),
+        ("猫" * 1365, ("猫" * 1365).encode())]:
+    result, _ = interact([], [(b"Password (masked)", entered, False),
+                             (b"*" * min(len(password), 8), b"\r", False)],
+                         root="hash-password", forbidden=(entered,))
+    hashes.append((password, result.decode().strip()))
+result, _ = interact([], [(b"Password (masked)", b"\r", False),
+                         (b"must contain 1..4096", new_secret + b"\r", False)],
+                     root="hash-password", forbidden=(new_secret,))
+hashes.append((new_secret.decode(), result.decode().strip()))
+for entered in [b"x" * 4097, ("猫" * 1366).encode()]:
+    interact([], [(b"Password (masked)", entered + b"\r", False),
+                  (b"must contain 1..4096", b"\x03", False)],
+             root="hash-password", succeeds=False, canceled=True, forbidden=(entered,))
+interact([], [(b"Password (masked)", new_secret + b"\x12\x03", False)],
+         root="hash-password", succeeds=False, canceled=True, forbidden=(new_secret,))
 for key in (b"\x03", b"\x04", b"\x1b"):
     interact([], [(b"Password (masked)", key, False)],
              root="hash-password", succeeds=False, canceled=True)
-print("CLI visibility, retries, keep, cancel, EOF, JSON, selection, enrollment and hashing passed")
+with open(config_path, "rb") as stream:
+    assert stream.read() == invalid_config, "offline verifier command changed instance configuration"
+assert sorted(os.listdir(working_dir)) == initial_paths, "offline verifier command created instance files"
+assert os.listdir(os.path.join(working_dir, "data")) == ["config.toml"]
+json.dump(hashes, sys.stdout)
