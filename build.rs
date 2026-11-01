@@ -163,9 +163,17 @@ fn configure_build_revision(manifest_dir: &Path) -> io::Result<()> {
             .map_or("unknown", |dirty| if dirty { "true" } else { "false" })
     );
     for path in identity.watch_paths {
-        println!("cargo:rerun-if-changed={}", path.display());
+        if let Some(path) = nearest_existing_watch_path(&path) {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
     Ok(())
+}
+
+fn nearest_existing_watch_path(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .find(|candidate| candidate.exists())
+        .map(Path::to_path_buf)
 }
 
 fn configure_build_features() {
@@ -495,6 +503,51 @@ mod tests {
         let untracked = source_identity(root.path(), None).unwrap();
         assert_eq!(untracked.dirty, Some(true));
         assert!(untracked.watch_paths.contains(&root.path().join("new.rs")));
+    }
+
+    #[test]
+    fn missing_git_and_source_paths_fall_back_to_existing_parents() {
+        let root = directory("missing-watch-paths");
+        let head = repository(root.path());
+        let packed_refs = root.path().join(".git/packed-refs");
+        if packed_refs.exists() {
+            std::fs::remove_file(&packed_refs).unwrap();
+        }
+        let packed_refs_identity = source_identity(root.path(), None).unwrap();
+        assert!(packed_refs_identity.watch_paths.contains(&packed_refs));
+        assert_eq!(
+            nearest_existing_watch_path(&packed_refs),
+            packed_refs.parent().map(Path::to_path_buf)
+        );
+
+        let branch = git(root.path(), &["symbolic-ref", "--short", "HEAD"]);
+        let loose_ref = root.path().join(git(
+            root.path(),
+            &["rev-parse", "--git-path", &format!("refs/heads/{branch}")],
+        ));
+        std::fs::remove_file(&loose_ref).unwrap();
+        let deleted_ref_identity = source_identity(root.path(), None).unwrap();
+        assert_eq!(deleted_ref_identity.revision, "unknown");
+        assert!(deleted_ref_identity.watch_paths.contains(&loose_ref));
+        assert_eq!(
+            nearest_existing_watch_path(&loose_ref),
+            loose_ref.parent().map(Path::to_path_buf)
+        );
+
+        let root = directory("deleted-tracked-watch");
+        let _head = repository(root.path());
+        let tracked = root.path().join("source.rs");
+        std::fs::remove_file(&tracked).unwrap();
+        let deleted_file_identity = source_identity(root.path(), None).unwrap();
+        assert!(deleted_file_identity.watch_paths.contains(&tracked));
+        assert_eq!(
+            nearest_existing_watch_path(&tracked),
+            tracked.parent().map(Path::to_path_buf)
+        );
+
+        // Keep the fixture's revision in scope so this test also proves the
+        // repository remained readable before the deliberate ref deletion.
+        assert!(!head.is_empty());
     }
 
     #[test]
