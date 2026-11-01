@@ -225,7 +225,7 @@ pub async fn ack_enrollment_token<S: SharedRuntimeState>(
 }
 
 pub fn build_enrollment_command(master_url: &str, token: &str) -> String {
-    format!("{ENROLL_COMMAND_BINARY} node enroll --master-url {master_url} --token {token}")
+    format!("{ENROLL_COMMAND_BINARY} node enroll --master-url {master_url} --token {token} --yes")
 }
 
 fn normalize_ack_token_hash(value: &str) -> String {

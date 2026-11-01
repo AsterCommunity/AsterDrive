@@ -59,15 +59,21 @@ describe("RemoteNodeEnrollmentPanel", () => {
 		rerender(
 			<RemoteNodeEnrollmentPanel
 				command={{
-					command: "asterdrive follower enroll --token abc",
+					command:
+						"aster_drive node enroll --master-url https://primary.example.com --token abc --yes",
 					expires_at: "2026-09-11T00:00:00Z",
 				}}
 				onCopy={onCopy}
 			/>,
 		);
+		expect(
+			screen.getByText(
+				"aster_drive node enroll --master-url https://primary.example.com --token abc --yes",
+			),
+		).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: /copy/i }));
 		expect(onCopy).toHaveBeenCalledWith(
-			"asterdrive follower enroll --token abc",
+			"aster_drive node enroll --master-url https://primary.example.com --token abc --yes",
 		);
 	});
 });

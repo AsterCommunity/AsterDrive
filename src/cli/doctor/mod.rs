@@ -27,6 +27,10 @@ pub struct DoctorArgs {
     pub deep: bool,
     #[arg(long, env = "ASTER_CLI_DOCTOR_FIX", default_value_t = false)]
     pub fix: bool,
+    #[arg(long, env = "ASTER_CLI_DOCTOR_DRY_RUN", default_value_t = false)]
+    pub dry_run: bool,
+    #[arg(long, env = "ASTER_CLI_YES", default_value_t = false)]
+    pub yes: bool,
     #[arg(
         long = "scope",
         env = "ASTER_CLI_DOCTOR_SCOPE",
@@ -103,6 +107,7 @@ pub struct DoctorReport {
     strict: bool,
     deep: bool,
     fix: bool,
+    dry_run: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     scopes: Vec<DoctorDeepScope>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -147,6 +152,7 @@ impl DoctorReport {
             strict: args.strict,
             deep,
             fix: args.fix,
+            dry_run: args.dry_run,
             scopes,
             policy_id: args.policy_id,
             status,

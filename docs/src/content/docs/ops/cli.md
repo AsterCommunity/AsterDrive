@@ -45,6 +45,44 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 
 当前二进制未编译的 Prometheus／OTLP 导出器及其专属设置会被跳过，不阻断离线 `config` 操作或服务启动。`doctor` 检查实际生效的实例配置；已编译并启用的导出器仍须通过配置与凭据校验。
 
+## 写操作预览与确认
+
+`config validate` 只验证候选值或备份是否符合配置规则；它不写库。`--dry-run` 用于展示实际写操作按当前数据库状态会产生的变更，且不写数据库、不发送配置刷新通知：
+
+```bash
+./aster_drive config --database-url "$DB_URL" set branding_title '新标题' --dry-run
+./aster_drive config --database-url "$DB_URL" delete custom.example --dry-run
+./aster_drive config --database-url "$DB_URL" import --input-file /secure/config.json --dry-run
+./aster_drive doctor --database-url "$DB_URL" --deep --fix --dry-run
+./aster_drive database-migrate --source-database-url "$SOURCE_URL" --target-database-url "$TARGET_URL" --dry-run
+```
+
+交互终端中的 `config set`、`config delete`、`config import`、`doctor --fix`、`node enroll` 和实际 `database-migrate` 会在执行前要求确认，默认选项为否。无交互终端时必须显式传 `--yes`（也可设置 `ASTER_CLI_YES=true`），否则命令在写入前失败。`--yes` 只跳过确认，不跳过备份要求、参数验证或各命令已有的安全检查。建议先看 dry-run 输出，再运行实际写操作。
+
+`validate` 与 `--dry-run` 的差别：前者校验输入本身；后者解析输入并与当前状态比较，展示将新增、更新或删除的内容。
+
+配置写操作在交互确认前展示已校验的计划；敏感值继续脱敏。`node enroll` 不提供 dry-run，因为远端 enrollment token 的消费无法离线预演。`doctor --fix --dry-run` 保留审计扫描并列出计数差异。数据库迁移的预览和只验证模式要求 SQLite 目标文件已存在（新目标可先用 `touch` 创建空文件），不会替操作者创建数据库；实际迁移仍可创建目标文件。
+
+## Shell 自动补全
+
+补全脚本从 CLI 的 Clap 命令定义生成，安装时不连接服务或数据库，也不访问网络。安装当前 `$SHELL` 对应的补全：
+
+```bash
+./aster_drive completions install
+```
+
+也可以显式指定 Bash、Zsh 或 Fish：
+
+```bash
+./aster_drive completions install bash
+./aster_drive completions install zsh
+./aster_drive completions install fish
+```
+
+脚本安装到用户级标准目录：Bash 使用 `$XDG_DATA_HOME/bash-completion/completions/aster_drive`（默认 `~/.local/share/...`），Zsh 使用 `$XDG_DATA_HOME/zsh/site-functions/_aster_drive`，Fish 使用 `$XDG_CONFIG_HOME/fish/completions/aster_drive.fish`。Bash 需安装并初始化 `bash-completion`；Zsh 用户需在 `compinit` 前把 site-functions 目录加入 `fpath`，例如 `fpath=("${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions" $fpath)`。Fish 会自动读取其 completions 目录。重启 shell 或重新加载补全配置后生效。脚本内容包含根命令、子命令、参数及 Clap 声明的枚举值。
+
+补全安装后，可用 `bash -n <安装路径>`、`zsh -n <安装路径>` 或 `fish -n <安装路径>` 检查对应脚本语法，再在新终端输入 `aster_drive ` 后按 Tab 验证子命令，在 `aster_drive serve ` 后按 Tab 验证枚举值。
+
 ## 先准备数据库地址
 
 最常见的写法：

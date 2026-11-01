@@ -152,8 +152,8 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - name: Install media processing dependencies
-        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
+      - name: Install media processing and shell test dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg zsh
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
@@ -231,8 +231,8 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
 
-      - name: Install media processing dependencies
-        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
+      - name: Install media processing and shell test dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg zsh
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2

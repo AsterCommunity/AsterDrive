@@ -45,6 +45,44 @@ When running outside the instance directory, use `--config-file /srv/asterdrive/
 
 Prometheus and OTLP exporters absent from the binary, including their exporter-specific settings, are skipped without blocking offline `config` operations or server startup. `doctor` checks the effective instance configuration. Compiled and enabled exporters still require valid settings and credentials.
 
+## Write Previews and Confirmation
+
+`config validate` checks whether a candidate value or backup satisfies configuration rules; it does not write. `--dry-run` shows the changes a write command would make against current database state and does not write to the database or publish a config reload notification:
+
+```bash
+./aster_drive config --database-url "$DB_URL" set branding_title 'New title' --dry-run
+./aster_drive config --database-url "$DB_URL" delete custom.example --dry-run
+./aster_drive config --database-url "$DB_URL" import --input-file /secure/config.json --dry-run
+./aster_drive doctor --database-url "$DB_URL" --deep --fix --dry-run
+./aster_drive database-migrate --source-database-url "$SOURCE_URL" --target-database-url "$TARGET_URL" --dry-run
+```
+
+Interactive terminals ask for confirmation before `config set`, `config delete`, `config import`, `doctor --fix`, `node enroll`, and an actual `database-migrate`; the default answer is no. Without a terminal, pass `--yes` (or set `ASTER_CLI_YES=true`), otherwise the command fails before writing. `--yes` only skips confirmation; it does not skip backup requirements, input validation, or command-specific safety checks. Review the dry-run output before applying a change.
+
+The distinction is simple: `validate` checks the input itself; `--dry-run` resolves it against current state and shows what would be added, updated, or deleted.
+
+Interactive config writes display the validated plan before confirmation, keeping sensitive values redacted. `node enroll` has no dry-run because consuming a remote enrollment token cannot be rehearsed offline. `doctor --fix --dry-run` performs the audit and lists counter differences. Migration previews and verification require an existing SQLite target file (use `touch` to prepare an empty target); only actual migrations can create the target database file.
+
+## Shell Completion
+
+Completion scripts are generated from the CLI's Clap command definitions. Installation does not connect to the service or database and does not access the network. Install for the shell named by `$SHELL`:
+
+```bash
+./aster_drive completions install
+```
+
+Or select Bash, Zsh, or Fish explicitly:
+
+```bash
+./aster_drive completions install bash
+./aster_drive completions install zsh
+./aster_drive completions install fish
+```
+
+Scripts go to user-level standard directories: Bash uses `$XDG_DATA_HOME/bash-completion/completions/aster_drive` (defaulting to `~/.local/share/...`), Zsh uses `$XDG_DATA_HOME/zsh/site-functions/_aster_drive`, and Fish uses `$XDG_CONFIG_HOME/fish/completions/aster_drive.fish`. Bash requires `bash-completion` to be installed and initialized. For Zsh, add the site-functions directory to `fpath` before `compinit`, for example `fpath=("${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions" $fpath)`. Fish loads its completions directory automatically. Restart the shell or reload its completion configuration to use the script. Generated contents include root and subcommands, options, and enum values declared to Clap.
+
+After installing completion, check script syntax with `bash -n <installed-path>`, `zsh -n <installed-path>`, or `fish -n <installed-path>`. In a new terminal, press Tab after `aster_drive ` to verify subcommands and after `aster_drive serve ` to verify enum values.
+
 ## Prepare the Database URL First
 
 The most common forms are:
