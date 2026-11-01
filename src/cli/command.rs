@@ -4,7 +4,7 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::io;
 
 #[cfg(feature = "operations-cli")]
-use super::{config, context::CliContext, database_migration, doctor, node, shared};
+use super::{CliError, config, context::CliContext, database_migration, doctor, node, shared};
 
 use super::{build_info::render_build_info, help};
 
@@ -118,8 +118,20 @@ pub async fn execute() -> io::Result<CommandOutcome> {
         }
         #[cfg(feature = "operations-cli")]
         Some(RootCommand::HashPassword) => {
-            super::hash_password::execute().await?;
-            return Ok(CommandOutcome::Exit(0));
+            return Ok(match super::hash_password::execute().await {
+                Ok(()) => CommandOutcome::Exit(0),
+                Err(CliError::Canceled) => {
+                    eprintln!(
+                        "\n{}",
+                        shared::CliTerminalPalette::stderr().warn("Canceled.")
+                    );
+                    CommandOutcome::Exit(130)
+                }
+                Err(CliError::Failed(error)) => {
+                    eprintln!("{error}");
+                    CommandOutcome::Exit(1)
+                }
+            });
         }
         #[cfg(feature = "operations-cli")]
         Some(RootCommand::Doctor {
@@ -157,7 +169,14 @@ pub async fn execute() -> io::Result<CommandOutcome> {
                     println!("{}", config::render_success(output_format, &data));
                     return Ok(CommandOutcome::Exit(0));
                 }
-                Err(error) => {
+                Err(CliError::Canceled) => {
+                    eprintln!(
+                        "\n{}",
+                        shared::CliTerminalPalette::stderr().warn("Canceled.")
+                    );
+                    return Ok(CommandOutcome::Exit(130));
+                }
+                Err(CliError::Failed(error)) => {
                     eprintln!("{}", config::render_error(output_format, &error));
                     return Ok(CommandOutcome::Exit(1));
                 }
@@ -192,7 +211,14 @@ pub async fn execute() -> io::Result<CommandOutcome> {
                 println!("{}", node::render_node_success(output_format, &data));
                 return Ok(CommandOutcome::Exit(0));
             }
-            Err(error) => {
+            Err(CliError::Canceled) => {
+                eprintln!(
+                    "\n{}",
+                    shared::CliTerminalPalette::stderr().warn("Canceled.")
+                );
+                return Ok(CommandOutcome::Exit(130));
+            }
+            Err(CliError::Failed(error)) => {
                 eprintln!("{}", node::render_node_error(output_format, &error));
                 return Ok(CommandOutcome::Exit(1));
             }
@@ -244,5 +270,78 @@ mod role_cli_tests {
         ] {
             assert!(RootCli::try_parse_from(args).is_err());
         }
+    }
+}
+
+#[cfg(all(test, feature = "operations-cli"))]
+mod config_cli_tests {
+    use super::*;
+
+    #[test]
+    fn config_accepts_positional_keys_values_and_interactive_selection() {
+        for args in [
+            vec!["config", "get", "branding_title"],
+            vec!["config", "delete", "custom.example"],
+            vec!["config", "set", "branding_title", "My Drive"],
+            vec!["config", "set", "branding_title"],
+            vec!["config", "set"],
+            vec!["config", "set", "branding_title", "--clear"],
+            vec!["config", "validate", "branding_title", "My Drive"],
+        ] {
+            assert!(RootCli::try_parse_from(std::iter::once("aster_drive").chain(args)).is_ok());
+        }
+    }
+
+    #[test]
+    fn config_rejects_duplicate_keys_and_value_sources_without_exposing_values() {
+        for args in [
+            vec!["config", "get", "branding_title", "--key", "branding_title"],
+            vec![
+                "config",
+                "set",
+                "mail_smtp_password",
+                "credential-marker",
+                "--value-stdin",
+            ],
+            vec![
+                "config",
+                "set",
+                "mail_smtp_password",
+                "--value",
+                "credential-marker",
+                "--clear",
+            ],
+        ] {
+            let error =
+                RootCli::try_parse_from(std::iter::once("aster_drive").chain(args)).unwrap_err();
+            assert!(!error.to_string().contains("credential-marker"));
+        }
+    }
+
+    #[test]
+    fn node_accepts_positional_primary_and_rejects_duplicate_targets() {
+        for args in [
+            vec!["node", "enroll"],
+            vec!["node", "enroll", "https://drive.example.com"],
+            vec![
+                "node",
+                "enroll",
+                "--master-url",
+                "https://drive.example.com",
+            ],
+        ] {
+            assert!(RootCli::try_parse_from(std::iter::once("aster_drive").chain(args)).is_ok());
+        }
+        assert!(
+            RootCli::try_parse_from([
+                "aster_drive",
+                "node",
+                "enroll",
+                "https://one.example.com",
+                "--master-url",
+                "https://two.example.com"
+            ])
+            .is_err()
+        );
     }
 }

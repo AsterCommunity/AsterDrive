@@ -8,7 +8,9 @@ use secrecy::{ExposeSecret, SecretString};
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
+mod interaction;
 mod transfer;
+use super::CliResult;
 use super::context::CliContext;
 use super::input::{SecretArg, read_secret};
 use transfer::{ConfigBackup, ImportItem, read_import_items};
@@ -49,17 +51,54 @@ pub enum ConfigCommand {
     Import(FileArgs),
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, Default, Args)]
+#[group(skip)]
 pub struct KeyArgs {
-    #[arg(long, env = "ASTER_CLI_CONFIG_KEY")]
-    pub key: String,
+    /// Runtime setting key
+    #[arg(index = 1, value_name = "KEY", conflicts_with = "key")]
+    pub positional_key: Option<String>,
+    /// Runtime setting key (also accepts ASTER_CLI_CONFIG_KEY)
+    #[arg(long, value_name = "KEY")]
+    pub key: Option<String>,
+}
+
+impl KeyArgs {
+    fn resolve(&self) -> Result<Option<String>> {
+        if self.positional_key.is_some() && self.key.is_some() {
+            return Err(AsterError::validation_error(
+                "provide KEY or --key, not both",
+            ));
+        }
+        let key = self
+            .positional_key
+            .clone()
+            .or_else(|| self.key.clone())
+            .or_else(|| std::env::var("ASTER_CLI_CONFIG_KEY").ok());
+        if key.as_ref().is_some_and(|key| key.trim().is_empty()) {
+            return Err(AsterError::validation_error(
+                "configuration key cannot be empty",
+            ));
+        }
+        Ok(key)
+    }
+
+    fn required(&self) -> Result<String> {
+        self.resolve()?.ok_or_else(|| {
+            AsterError::validation_error(
+                "configuration key required; use config get KEY or config delete KEY",
+            )
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, Args)]
 #[group(id = "config_value_input", multiple = false)]
 pub struct ValueInput {
+    /// Explicit value (prefer terminal, stdin or private files for secrets)
+    #[arg(index = 2, value_name = "VALUE", allow_negative_numbers = true)]
+    pub positional_value: Option<SecretArg>,
     /// Explicit value (secrets may be exposed in shell history and process listings)
-    #[arg(long, env = "ASTER_CLI_CONFIG_VALUE", hide_env_values = true)]
+    #[arg(long)]
     pub value: Option<SecretArg>,
     /// Read a value from stdin; remove one trailing line ending
     #[arg(long)]
@@ -67,31 +106,58 @@ pub struct ValueInput {
     /// Read a value from a private UTF-8 file; remove one trailing line ending
     #[arg(long)]
     pub value_file: Option<std::path::PathBuf>,
-    /// Read a value from the terminal without echo
+    /// Prompt in the terminal (sensitive input displays asterisks)
     #[arg(long)]
     pub value_prompt: bool,
+    /// Store an empty value, subject to the setting's validation rules
+    #[arg(long)]
+    pub clear: bool,
 }
 
 impl ValueInput {
     pub fn supplied(&self) -> bool {
-        self.value.is_some() || self.value_stdin || self.value_file.is_some() || self.value_prompt
+        self.explicitly_supplied() || std::env::var_os("ASTER_CLI_CONFIG_VALUE").is_some()
     }
 
-    pub fn read(&self, sensitive: bool) -> Result<SecretString> {
+    fn explicitly_supplied(&self) -> bool {
+        self.positional_value.is_some()
+            || self.value.is_some()
+            || self.value_stdin
+            || self.value_file.is_some()
+            || self.value_prompt
+            || self.clear
+    }
+
+    fn interactive(&self) -> bool {
+        self.value_prompt || !self.supplied()
+    }
+
+    pub fn read(&self) -> Result<SecretString> {
+        if self.clear {
+            return Ok(String::new().into());
+        }
+        let environment = if !self.explicitly_supplied() {
+            std::env::var("ASTER_CLI_CONFIG_VALUE")
+                .ok()
+                .map(SecretArg::from)
+        } else {
+            None
+        };
         read_secret(
-            self.value.as_ref(),
+            self.positional_value
+                .as_ref()
+                .or(self.value.as_ref())
+                .or(environment.as_ref()),
             self.value_stdin,
             self.value_file.as_deref(),
-            self.value_prompt || (!self.supplied() && sensitive),
-            "Configuration value: ",
         )
     }
 }
 
 #[derive(Debug, Clone, Args)]
 pub struct KeyValueArgs {
-    #[arg(long, env = "ASTER_CLI_CONFIG_KEY")]
-    pub key: String,
+    #[command(flatten)]
+    pub key: KeyArgs,
     #[command(flatten)]
     pub input: ValueInput,
 }
@@ -111,11 +177,11 @@ pub struct FileArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct ValidateArgs {
-    #[arg(long, env = "ASTER_CLI_CONFIG_KEY")]
-    pub key: Option<String>,
+    #[command(flatten)]
+    pub key: KeyArgs,
     #[command(flatten)]
     pub input: ValueInput,
-    #[arg(long, env = "ASTER_CLI_INPUT_FILE")]
+    #[arg(long)]
     pub input_file: Option<PathBuf>,
 }
 
@@ -140,6 +206,7 @@ enum ConfigCommandKind {
     Validate,
     Export,
     Import,
+    Unchanged,
 }
 
 #[derive(Debug)]
@@ -194,7 +261,7 @@ struct NormalizedImportItem {
 pub async fn execute_config_command(
     context: &CliContext,
     command: &ConfigCommand,
-) -> Result<ConfigCommandReport> {
+) -> CliResult<ConfigCommandReport> {
     let config_sync = match command {
         ConfigCommand::Set(_) | ConfigCommand::Delete(_) | ConfigCommand::Import(_) => {
             Some(build_cli_config_sync_runtime(&context.config)?)
@@ -208,7 +275,7 @@ async fn execute_config_command_with_runtime(
     database: &crate::config::DatabaseConfig,
     command: &ConfigCommand,
     config_sync: Option<&aster_forge_config::ConfigSyncRuntime>,
-) -> Result<ConfigCommandReport> {
+) -> CliResult<ConfigCommandReport> {
     let db = connect_existing_database(database).await?;
 
     match command {
@@ -224,26 +291,34 @@ async fn execute_config_command_with_runtime(
             )?),
         }),
         ConfigCommand::Get(args) => {
-            let config = config_repo::find_by_key(&db, &args.key)
+            let key = args.required()?;
+            let config = config_repo::find_by_key(&db, &key)
                 .await?
                 .map(system_config_to_view)
-                .ok_or_else(|| {
-                    AsterError::record_not_found(format!("config key '{}'", args.key))
-                })?;
+                .ok_or_else(|| AsterError::record_not_found(format!("config key '{key}'")))?;
             Ok(ConfigCommandReport::config(ConfigCommandKind::Get, config))
         }
         ConfigCommand::Set(args) => {
             let config_sync = required_cli_config_sync(config_sync)?;
             let current = config_repo::find_all(&db).await?;
-            let entry = resolve_value_entry(&args.key, &args.input, &current)?;
-            let txn = transaction::begin(&db).await?;
+            let key = match args.key.resolve()? {
+                Some(key) => key,
+                None => interaction::select_key(&current)?,
+            };
+            let Some(entry) = resolve_value_entry(&key, &args.input, &current)? else {
+                return Ok(ConfigCommandReport::config(
+                    ConfigCommandKind::Unchanged,
+                    interaction::unchanged_view(&key, &current)?,
+                ));
+            };
+            let txn = transaction::begin(&db).await.map_err(AsterError::from)?;
             let current = config_repo::find_all(&txn).await?;
             let normalized = normalize_entries(&current, &[entry])?;
             let normalized_item = normalized.into_iter().next().ok_or_else(|| {
                 AsterError::internal_error("single config entry normalization returned no item")
             })?;
             let saved = save_item(&txn, &normalized_item).await?;
-            transaction::commit(txn).await?;
+            transaction::commit(txn).await.map_err(AsterError::from)?;
             publish_cli_config_reload(config_sync, [saved.key.clone()]).await?;
             Ok(ConfigCommandReport::config(
                 ConfigCommandKind::Set,
@@ -252,9 +327,10 @@ async fn execute_config_command_with_runtime(
         }
         ConfigCommand::Delete(args) => {
             let config_sync = required_cli_config_sync(config_sync)?;
-            config_repo::delete_by_key(&db, &args.key).await?;
-            publish_cli_config_reload(config_sync, [args.key.clone()]).await?;
-            Ok(ConfigCommandReport::delete(args.key.clone()))
+            let key = args.required()?;
+            config_repo::delete_by_key(&db, &key).await?;
+            publish_cli_config_reload(config_sync, [key.clone()]).await?;
+            Ok(ConfigCommandReport::delete(key))
         }
         ConfigCommand::Validate(args) => {
             let current = config_repo::find_all(&db).await?;
@@ -280,7 +356,7 @@ async fn execute_config_command_with_runtime(
         ConfigCommand::Import(args) => {
             let config_sync = required_cli_config_sync(config_sync)?;
             let entries = read_import_items(&args.input_file)?;
-            let txn = transaction::begin(&db).await?;
+            let txn = transaction::begin(&db).await.map_err(AsterError::from)?;
             let current = config_repo::find_all(&txn).await?;
             let normalized = normalize_entries(&current, &entries)?;
             let mut saved = Vec::with_capacity(normalized.len());
@@ -288,7 +364,7 @@ async fn execute_config_command_with_runtime(
                 let model = save_item(&txn, &item).await?;
                 saved.push(system_config_to_view(model));
             }
-            transaction::commit(txn).await?;
+            transaction::commit(txn).await.map_err(AsterError::from)?;
             publish_cli_config_reload(config_sync, saved.iter().map(|config| config.key.clone()))
                 .await?;
             Ok(ConfigCommandReport::list(ConfigCommandKind::Import, saved))
@@ -591,6 +667,7 @@ fn config_list_title(kind: ConfigCommandKind) -> &'static str {
         ConfigCommandKind::Export => "Configuration export",
         ConfigCommandKind::Import => "Configuration import complete",
         ConfigCommandKind::Validate => "Configuration validation preview",
+        ConfigCommandKind::Unchanged => "Configuration unchanged",
         _ => "Configurations",
     }
 }
@@ -599,6 +676,7 @@ fn config_entry_title(kind: ConfigCommandKind) -> &'static str {
     match kind {
         ConfigCommandKind::Get => "Configuration value",
         ConfigCommandKind::Set => "Configuration updated",
+        ConfigCommandKind::Unchanged => "Configuration unchanged",
         ConfigCommandKind::Validate => "Configuration validation preview",
         _ => "Configuration",
     }
@@ -693,15 +771,34 @@ fn resolve_value_entry(
     key: &str,
     input: &ValueInput,
     current: &[system_config::Model],
-) -> Result<ImportItem> {
+) -> CliResult<Option<ImportItem>> {
     let definition = CONFIG_REGISTRY.get(key);
     let existing = current.iter().find(|model| model.key == key);
     let sensitive = definition.is_some_and(|def| def.is_sensitive)
         || existing.is_some_and(|model| model.is_sensitive);
-    let value = input.read(sensitive)?;
+    if input.interactive() {
+        return interaction::prompt_value(key, sensitive, current);
+    }
+    let value = input.read()?;
+    Ok(Some(value_entry(
+        key,
+        value.expose_secret(),
+        sensitive,
+        current,
+    )?))
+}
+
+fn value_entry(
+    key: &str,
+    value: &str,
+    sensitive: bool,
+    current: &[system_config::Model],
+) -> Result<ImportItem> {
+    let definition = CONFIG_REGISTRY.get(key);
+    let existing = current.iter().find(|model| model.key == key);
     Ok(ImportItem {
         key: key.into(),
-        value: parse_cli_config_value(key, value.expose_secret())?,
+        value: parse_cli_config_value(key, value)?,
         source: if definition.is_some() {
             ConfigSource::System
         } else {
@@ -718,13 +815,48 @@ fn resolve_value_entry(
 fn resolve_validate_entries(
     args: &ValidateArgs,
     current: &[system_config::Model],
-) -> Result<Vec<ImportItem>> {
-    match (&args.input_file, &args.key, args.input.supplied()) {
-        (Some(path), None, false) => read_import_items(path),
-        (None, Some(key), _) => Ok(vec![resolve_value_entry(key, &args.input, current)?]),
+) -> CliResult<Vec<ImportItem>> {
+    let explicit_key = args.key.positional_key.is_some() || args.key.key.is_some();
+    let explicit_value = args.input.explicitly_supplied();
+    if let Some(path) = &args.input_file {
+        if explicit_key || explicit_value {
+            return Err(AsterError::validation_error(
+                "validate requires either --input-file or KEY with a value input source",
+            )
+            .into());
+        }
+        return read_import_items(path).map_err(Into::into);
+    }
+    let environment_file = if explicit_key || explicit_value {
+        None
+    } else {
+        std::env::var_os("ASTER_CLI_INPUT_FILE").map(PathBuf::from)
+    };
+    let key = args.key.resolve()?;
+    match (&environment_file, key.as_deref(), args.input.supplied()) {
+        (Some(path), None, false) => read_import_items(path).map_err(Into::into),
+        (None, Some(key), _) => {
+            let entry = match resolve_value_entry(key, &args.input, current)? {
+                Some(entry) => entry,
+                None => {
+                    let saved = current
+                        .iter()
+                        .find(|model| model.key == key)
+                        .ok_or_else(|| {
+                            AsterError::validation_error("no saved value to validate")
+                        })?;
+                    let sensitive = saved.is_sensitive
+                        || CONFIG_REGISTRY.get(key).is_some_and(|def| def.is_sensitive);
+                    // Enter keeps the saved value, but validation must still check it.
+                    value_entry(key, &saved.value, sensitive, current)?
+                }
+            };
+            Ok(vec![entry])
+        }
         _ => Err(AsterError::validation_error(
             "validate requires either --input-file or --key with a value input source",
-        )),
+        )
+        .into()),
     }
 }
 
@@ -867,7 +999,10 @@ mod tests {
                 retry_count: 0,
             },
             &ConfigCommand::Set(KeyValueArgs {
-                key: "custom.cli_set".to_string(),
+                key: KeyArgs {
+                    key: Some("custom.cli_set".to_string()),
+                    ..Default::default()
+                },
                 input: super::ValueInput {
                     value: Some("enabled".parse().unwrap()),
                     ..Default::default()
@@ -895,7 +1030,10 @@ mod tests {
                 retry_count: 0,
             },
             &ConfigCommand::Set(KeyValueArgs {
-                key: "custom.cli_delete".to_string(),
+                key: KeyArgs {
+                    key: Some("custom.cli_delete".to_string()),
+                    ..Default::default()
+                },
                 input: super::ValueInput {
                     value: Some("enabled".parse().unwrap()),
                     ..Default::default()
@@ -914,7 +1052,8 @@ mod tests {
                 retry_count: 0,
             },
             &ConfigCommand::Delete(KeyArgs {
-                key: "custom.cli_delete".to_string(),
+                key: Some("custom.cli_delete".to_string()),
+                ..Default::default()
             }),
             Some(&runtime),
         )
@@ -1043,7 +1182,10 @@ mod tests {
                 include_sensitive: true,
             }),
             ConfigCommand::Validate(super::ValidateArgs {
-                key: Some("custom.preview".into()),
+                key: KeyArgs {
+                    key: Some("custom.preview".into()),
+                    ..Default::default()
+                },
                 input_file: None,
                 input: super::ValueInput {
                     value: Some("preview".parse().unwrap()),

@@ -1,11 +1,14 @@
 //! `aster_drive node` 的聚合入口。
 
-use super::input::{SecretArg, read_secret};
+use super::CliResult;
+use super::input::{SecretArg, read_secret, read_terminal_value};
 use crate::config::node_mode::NodeRuntimeMode;
 use crate::errors::{AsterError, Result};
 use clap::{Args, Subcommand};
+use inquire::validator::Validation;
 use secrecy::ExposeSecret;
 use serde::Serialize;
+use std::io::IsTerminal;
 
 use super::shared::{
     CliTerminalPalette, OutputFormat, ResolvedOutputFormat, human_key, prepare_database_config,
@@ -20,15 +23,14 @@ pub enum NodeCommand {
 
 #[derive(Debug, Clone, Args)]
 pub struct NodeEnrollArgs {
-    #[arg(long, env = "ASTER_CLI_MASTER_URL")]
-    pub master_url: String,
+    /// Primary URL (also accepts ASTER_CLI_MASTER_URL; prompts when omitted)
+    #[arg(index = 1, value_name = "MASTER_URL", conflicts_with = "master_url")]
+    pub positional_master_url: Option<String>,
+    /// Primary URL
+    #[arg(long)]
+    pub master_url: Option<String>,
     /// Explicit token (may be exposed in shell history and process listings)
-    #[arg(
-        long,
-        env = "ASTER_CLI_ENROLLMENT_TOKEN",
-        hide_env_values = true,
-        group = "token_input"
-    )]
+    #[arg(long, group = "token_input")]
     pub token: Option<SecretArg>,
     /// Read the enrollment token from stdin
     #[arg(long, group = "token_input")]
@@ -36,7 +38,7 @@ pub struct NodeEnrollArgs {
     /// Read the enrollment token from a private UTF-8 file
     #[arg(long, group = "token_input")]
     pub token_file: Option<std::path::PathBuf>,
-    /// Read the enrollment token without terminal echo (default when omitted)
+    /// Read the enrollment token with masked feedback (default when omitted)
     #[arg(long, group = "token_input")]
     pub token_prompt: bool,
     #[arg(long, env = "ASTER_CLI_DATABASE_URL")]
@@ -60,19 +62,82 @@ pub struct NodeEnrollReport {
 pub async fn execute_node_enroll(
     args: &NodeEnrollArgs,
     location: &crate::config::ConfigLocation,
-) -> Result<NodeEnrollReport> {
-    let token = read_secret(
-        args.token.as_ref(),
-        args.token_stdin,
-        args.token_file.as_deref(),
-        args.token_prompt
-            || (args.token.is_none() && !args.token_stdin && args.token_file.is_none()),
-        "Enrollment token: ",
-    )?;
+) -> CliResult<NodeEnrollReport> {
+    let supplied_master = args
+        .positional_master_url
+        .clone()
+        .or_else(|| args.master_url.clone())
+        .or_else(|| std::env::var("ASTER_CLI_MASTER_URL").ok());
+    let input = match supplied_master {
+        Some(url) => url,
+        None => {
+            if !std::io::stdin().is_terminal() {
+                return Err(AsterError::validation_error(
+                    "primary URL required; use node enroll MASTER_URL or --master-url URL",
+                )
+                .into());
+            }
+            read_terminal_value(false, "Primary URL", |value: &str| {
+                Ok(
+                    if crate::storage::remote_protocol::normalize_remote_base_url(value)
+                        .is_ok_and(|url| !url.is_empty())
+                    {
+                        Validation::Valid
+                    } else {
+                        Validation::Invalid("Enter a non-empty http/https primary URL".into())
+                    },
+                )
+            })?
+            .expose_secret()
+            .to_owned()
+        }
+    };
+    let master_url = match crate::storage::remote_protocol::normalize_remote_base_url(&input) {
+        Ok(url) if !url.is_empty() => url,
+        _ => {
+            return Err(AsterError::validation_error(
+                "primary URL must be a non-empty http/https URL",
+            )
+            .into());
+        }
+    };
+    let environment_token = if args.token.is_none()
+        && !args.token_stdin
+        && args.token_file.is_none()
+        && !args.token_prompt
+    {
+        std::env::var("ASTER_CLI_ENROLLMENT_TOKEN")
+            .ok()
+            .map(SecretArg::from)
+    } else {
+        None
+    };
+    let explicit_token = args.token.as_ref().or(environment_token.as_ref());
+    let prompt = args.token_prompt
+        || (explicit_token.is_none() && !args.token_stdin && args.token_file.is_none());
+    if prompt && !std::io::stdin().is_terminal() {
+        return Err(AsterError::validation_error(
+            "enrollment token required; use --token-stdin, --token-file PATH, or an interactive terminal",
+        ).into());
+    }
+    let token = if prompt {
+        read_terminal_value(true, "Enrollment token", |value: &str| {
+            Ok(if value.is_empty() || value.chars().any(char::is_control) {
+                Validation::Invalid(
+                    "enrollment token must be non-empty without control characters".into(),
+                )
+            } else {
+                Validation::Valid
+            })
+        })?
+    } else {
+        read_secret(explicit_token, args.token_stdin, args.token_file.as_deref())?
+    };
     if token.expose_secret().is_empty() || token.expose_secret().chars().any(char::is_control) {
         return Err(AsterError::validation_error(
             "enrollment token must be non-empty and contain no control characters",
-        ));
+        )
+        .into());
     }
     let config_path = ensure_follower_start_mode(location)?;
     let config = crate::config::get_config();
@@ -88,7 +153,7 @@ pub async fn execute_node_enroll(
     let result = crate::services::remote::node_enrollment::enroll(
         &db,
         crate::services::remote::node_enrollment::NodeEnrollmentInput {
-            master_url: args.master_url.clone(),
+            master_url,
             token: token.expose_secret().to_owned(),
         },
     )

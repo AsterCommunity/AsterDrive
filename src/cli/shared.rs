@@ -122,6 +122,12 @@ impl CliTerminalPalette {
         }
     }
 
+    pub(super) fn stderr() -> Self {
+        Self {
+            enabled: cli_colors_enabled(io::stderr().is_terminal()),
+        }
+    }
+
     fn wrap(&self, codes: &str, text: &str) -> String {
         if !self.enabled {
             return text.to_string();
