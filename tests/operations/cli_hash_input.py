@@ -1,10 +1,15 @@
-"""Test hash input on a controlling PTY, capturing both process outputs separately."""
+"""Verify hidden input and safe failure when stdin is a detached terminal.
+
+Keep stdout, stderr, and controlling-terminal output separate to detect prompt
+pollution and credential echo independently of the generated hash.
+"""
 import errno
 import json
 import os
 import pty
 import select
 import signal
+import subprocess
 import sys
 import tempfile
 import termios
@@ -13,8 +18,34 @@ import time
 binary, working_dir = sys.argv[1:]
 cases = json.load(sys.stdin)
 hashes = []
+# isatty(stdin) does not guarantee a controlling terminal. A new session keeps
+# the PTY slave as stdin but makes /dev/tty unavailable, exercising setup failure
+# without injecting a product-only hook or risking plaintext fallback.
+master, slave = pty.openpty()
+try:
+    original_mode = termios.tcgetattr(slave)
+    result = subprocess.run(
+        [binary, "hash-password"],
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=working_dir,
+        start_new_session=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode != 0, "detached terminal must fail closed"
+    assert not result.stdout, "detached terminal failure must leave stdout empty"
+    assert b"pipe the password through stdin" in result.stderr, "missing safe input guidance"
+    assert termios.tcgetattr(slave) == original_mode, "setup failure changed terminal mode"
+    assert not select.select([master], [], [], 0)[0], "setup failure wrote a terminal prompt"
+finally:
+    os.close(slave)
+    os.close(master)
+
 for index, case in enumerate(cases):
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        # Do not let exec change termios before the parent snapshots it.
         ready_read, ready_write = os.pipe()
         pid, terminal = pty.fork()
         if pid == 0:

@@ -3053,6 +3053,7 @@ async fn test_root_binary_database_migrate_human_output_supports_forced_color() 
     assert!(stderr.contains("\u{1b}["));
 }
 
+/// Pipe input must remain offline, bounded, and compatible with line endings.
 #[test]
 fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_it() {
     use std::io::Write;
@@ -3118,6 +3119,7 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+/// Real PTYs prove hidden editing, mode restoration, and safe detached failures.
 #[cfg(unix)]
 #[test]
 fn hash_password_hidden_terminal_input_is_strict_and_keeps_stdout_clean() {
@@ -3147,6 +3149,7 @@ fn hash_password_hidden_terminal_input_is_strict_and_keeps_stdout_clean() {
         ),
         ("\x03".to_owned(), None),
         ("\x04".to_owned(), None),
+        ("\x1a".to_owned(), None),
     ];
     let inputs: Vec<_> = cases
         .iter()
