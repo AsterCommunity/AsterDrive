@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **CLI 实例选择与凭据输入** — 服务启动和运维命令统一支持 `--config-file` / `--data-dir`。Config 与 doctor 默认使用解析后的实例数据库，显式 CLI 参数与 CLI 环境变量可覆盖目标。未编译的 Prometheus / OTLP 导出器及其专属设置不会阻断离线操作或服务启动，doctor 检查实际生效的配置。敏感配置值和 enrollment token 支持隐藏终端、stdin 与私有文件输入。
+- **交互式运维 CLI** — `config get/set/delete/validate` 支持位置 key，set/validate 支持位置 value，原有参数写法保持兼容。终端缺少值时自动提示，省略 key 时提供可搜索的选择列表。普通输入正常显示，敏感输入随键入显示星号且不能切换为明文；回车保留已保存值，`--clear` 或显式空字符串请求清空并继续校验，非法输入可编辑重试。取消恢复终端状态，另起一行提示 `Canceled.` 并以 `130` 退出，不再作为校验错误。交互元信息遵循终端配色，提示写入 stderr，stdout 保留结构化结果。Node enroll 支持位置参数或交互输入主控 URL，再以星号反馈 token 输入；离线密码哈希同时支持终端掩码输入和管道。显式输入优先于环境变量默认值，无终端且缺少必要输入时立即报错。交互支持统一归入 `operations-cli`，不新增独立 feature。
 
 ### Changed
 

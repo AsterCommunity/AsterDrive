@@ -1,24 +1,46 @@
-//! Offline password hashing command; stdin is never echoed.
+//! Offline verifier generation with hidden terminal input or bounded piped stdin.
 
-use std::io;
+use super::CliResult;
+use crate::errors::AsterError;
+use inquire::validator::Validation;
+use secrecy::{ExposeSecret, SecretString};
+use std::io::{IsTerminal, Read};
 
-pub(super) async fn execute() -> io::Result<()> {
-    use std::io::Read;
-    let mut password = String::new();
-    // Include CRLF and one overflow byte so a long input cannot be
-    // silently accepted after truncation at a line ending.
-    std::io::stdin().take(4099).read_to_string(&mut password)?;
-    let password = password.strip_suffix('\n').unwrap_or(&password);
-    let password = password.strip_suffix('\r').unwrap_or(password);
-    if password.is_empty() || password.len() > 4096 || password.chars().any(char::is_control) {
-        return Err(io::Error::other(
-            "password must contain 1..4096 bytes without control characters",
-        ));
+const INVALID_PASSWORD: &str = "password must contain 1..4096 bytes without control characters";
+
+fn valid_password(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 4096 && !value.chars().any(char::is_control)
+}
+
+pub(super) async fn execute() -> CliResult<()> {
+    let input: SecretString = if std::io::stdin().is_terminal() {
+        super::input::read_terminal_value(true, "Password (masked)", |value: &str| {
+            Ok(if valid_password(value) {
+                Validation::Valid
+            } else {
+                Validation::Invalid(INVALID_PASSWORD.into())
+            })
+        })?
+    } else {
+        let mut password = String::new();
+        // Include CRLF and one overflow byte so a long input cannot be
+        // silently accepted after truncation at a line ending.
+        std::io::stdin()
+            .take(4099)
+            .read_to_string(&mut password)
+            .map_err(|_| AsterError::validation_error("input must be valid UTF-8"))?;
+        let password = password.strip_suffix('\n').unwrap_or(&password);
+        let password = password.strip_suffix('\r').unwrap_or(password);
+        password.to_owned().into()
+    };
+    let password = input.expose_secret();
+    if !valid_password(password) {
+        return Err(AsterError::validation_error(INVALID_PASSWORD).into());
     }
     let hash = aster_forge_auth::PasswordHashRuntime::default()
         .hash_password(password)
         .await
-        .map_err(|error| io::Error::other(error.to_string()))?;
+        .map_err(|_| AsterError::internal_error("cannot generate authentication verifier"))?;
     println!("{hash}");
     Ok(())
 }

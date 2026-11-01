@@ -246,14 +246,34 @@ Validate first, then write to the database:
   --value '["https://drive.example.com","https://panel.example.com"]'
 ```
 
-Sensitive settings prompt without terminal echo by default. Automation can use stdin or a file with mode `0600`:
+Single-setting commands accept positional arguments; existing `--key` / `--value` scripts remain supported:
+
+```bash
+./aster_drive config get branding_title
+./aster_drive config set branding_title 'My Drive'
+./aster_drive config validate branding_title 'My Drive'
+./aster_drive config delete custom.example
+```
+
+In an interactive terminal, `config set branding_title` displays the setting's type, description and current value before prompting. `config set` opens a searchable list of keys and descriptions; use arrows and Enter to select. Ordinary input is displayed; sensitive input shows asterisks while typing, with previous and result values remaining redacted, including custom settings marked sensitive in the database. No shortcut reveals sensitive input. `--value-prompt` explicitly requests the same interaction and does not hide ordinary input. Booleans accept `true` / `false`, or `1` / `2` interactively. Other types use the displayed input hints; invalid values can be edited and retried. Terminal prompts use `inquire`, included in the existing `operations-cli` feature. Configuration keys, types, current values and hints use the existing terminal palette and respect color options such as `NO_COLOR`.
+
+Enter keeps an existing value without writing or publishing a reload notification. If no saved value exists, the prompt asks again. Ctrl+C, Ctrl+D or Esc cancels and restores terminal state, prints `Canceled.` on its own line, and exits with status `130` instead of a validation error. Clearing requires `--clear` or an explicit empty string and still passes the setting's validation:
+
+```bash
+./aster_drive config set branding_title --clear
+./aster_drive config set branding_title ''
+```
+
+Without an interactive terminal, missing keys or values fail immediately. Prompts go to stderr and stdout contains results only; use `config --output-format json set branding_title` for JSON. Explicit CLI arguments take precedence over `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`. Duplicate keys or multiple value sources are rejected. Piped input still requires `--value-stdin`; use stdin or files for multiline values.
+
+Automation can use stdin or a file with mode `0600`:
 
 ```bash
 printf '%s' 'smtp-secret' | ./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-stdin
 ./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-file /run/secrets/smtp-password
 ```
 
-Explicit `--value` and `ASTER_CLI_CONFIG_VALUE` remain available, but expose the value in command arguments, shell history, or process diagnostics.
+Positional values, explicit `--value` and `ASTER_CLI_CONFIG_VALUE` remain available, but may expose sensitive content in command arguments, shell history, or process diagnostics. Redacted CLI output cannot prevent exposure through those sources.
 
 `config export` emits the single versioned JSON backup format accepted directly by `import` and `validate --input-file`. Sensitive values are omitted by default and listed under `omitted_sensitive_keys`. A complete restore requires `--include-sensitive`; its output contains plaintext credentials and must be protected as a secret file. Import files require mode `0600`.
 
@@ -302,7 +322,9 @@ This command is only for follower nodes. After the primary admin panel generates
   --token-prompt
 ```
 
-Interactive token input hides terminal echo. Automation can use `--token-stdin`, `--token-file`, or `ASTER_CLI_ENROLLMENT_TOKEN`. Explicit `--token` exposes it in process arguments.
+You can also run `./aster_drive node enroll https://drive.example.com`, or omit the URL and enter it visibly before the hidden token prompt. Invalid interactive values can be edited and retried; cancellation happens before configuration initialization or enrollment requests. Existing `--master-url` scripts remain supported.
+
+Interactive token input shows asterisks while typing and has no plaintext reveal toggle. Automation can use `--token-stdin`, `--token-file`, or `ASTER_CLI_ENROLLMENT_TOKEN`. Explicit URL and token sources override their environment defaults; missing noninteractive input fails immediately. Explicit `--token` exposes it in process arguments.
 
 If you do not pass the database URL explicitly, the command reads `[database].url` from the current `data/config.toml`. You can also specify it directly:
 
@@ -323,6 +345,10 @@ It performs these steps:
 The command does not create a primary-managed remote storage target or start the HTTP service. After it succeeds, restart the follower process, create a target from the primary admin panel, and select it explicitly in the remote storage policy.
 
 For Docker followers, using startup environment variables to auto-enroll is recommended instead of entering the container manually to run this command. See [Docker Follower Node Deployment](/en/deploy/follower-node/).
+
+## Offline Password Hashing
+
+`./aster_drive hash-password` prompts for masked input in an interactive terminal and writes only the resulting hash to stdout; prompts go to stderr. Piped input remains supported. Passwords must contain 1–4096 UTF-8 bytes without control characters. Invalid interactive input can be edited and retried; cancellation does not load instance configuration or initialize a database.
 
 ## Cross-Database Migration: `database-migrate`
 

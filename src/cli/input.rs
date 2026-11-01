@@ -3,14 +3,69 @@ use std::io::{IsTerminal, Read};
 use std::path::Path;
 use std::str::FromStr;
 
+use inquire::validator::{StringValidator, Validation};
+use inquire::{InquireError, Password, PasswordDisplayMode, Text};
 use secrecy::{ExposeSecret, SecretString};
 
+use super::{CliError, CliResult};
 use crate::errors::{AsterError, Result};
 
 const MAX_INPUT_BYTES: u64 = 1024 * 1024;
 
+/// Terminal prompts use stderr so structured stdout remains machine-readable.
+pub(super) fn read_terminal_value<V>(
+    sensitive: bool,
+    label: &str,
+    validator: V,
+) -> CliResult<SecretString>
+where
+    V: StringValidator + 'static,
+{
+    if !std::io::stdin().is_terminal() {
+        return Err(AsterError::validation_error(
+            "interactive terminal required; select an explicit value, stdin, or a private input file",
+        ).into());
+    }
+    let limit = |value: &str| {
+        Ok(if value.len() as u64 > MAX_INPUT_BYTES {
+            Validation::Invalid("input exceeds 1 MiB limit".into())
+        } else {
+            Validation::Valid
+        })
+    };
+    let label = label.trim().trim_end_matches(':');
+    if sensitive {
+        Password::new(label)
+            .without_confirmation()
+            .with_display_mode(PasswordDisplayMode::Masked)
+            .with_validator(limit)
+            .with_validator(validator)
+            .prompt()
+    } else {
+        Text::new(label)
+            .with_validator(limit)
+            .with_validator(validator)
+            .prompt()
+    }
+    .map(SecretString::from)
+    .map_err(terminal_error)
+}
+
+pub(super) fn terminal_error(error: InquireError) -> CliError {
+    match error {
+        InquireError::OperationCanceled | InquireError::OperationInterrupted => CliError::Canceled,
+        _ => AsterError::config_error("interactive terminal input failed (values redacted)").into(),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SecretArg(SecretString);
+
+impl From<String> for SecretArg {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
 
 impl FromStr for SecretArg {
     type Err = std::convert::Infallible;
@@ -23,15 +78,8 @@ pub fn read_secret(
     explicit: Option<&SecretArg>,
     stdin: bool,
     file: Option<&Path>,
-    prompt: bool,
-    label: &str,
 ) -> Result<SecretString> {
-    if usize::from(explicit.is_some())
-        + usize::from(stdin)
-        + usize::from(file.is_some())
-        + usize::from(prompt)
-        > 1
-    {
+    if usize::from(explicit.is_some()) + usize::from(stdin) + usize::from(file.is_some()) > 1 {
         return Err(AsterError::validation_error(
             "choose exactly one input source",
         ));
@@ -56,13 +104,9 @@ pub fn read_secret(
         read_bounded(file)?
     } else if stdin {
         read_bounded(std::io::stdin().lock())?
-    } else if prompt && std::io::stdin().is_terminal() {
-        rpassword::prompt_password(label)
-            .map(SecretString::from)
-            .map_err(|_| AsterError::config_error("hidden terminal input failed"))?
     } else {
         return Err(AsterError::validation_error(
-            "input source required: select an explicit value, stdin, a private file, or an interactive terminal",
+            "input source required: select an explicit value, stdin, or a private file",
         ));
     };
     if value.expose_secret().len() as u64 > MAX_INPUT_BYTES {

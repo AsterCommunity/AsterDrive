@@ -246,14 +246,34 @@ ASTER_CLI_COPY_BATCH_SIZE=100
   --value '["https://drive.example.com","https://panel.example.com"]'
 ```
 
-敏感配置值默认在终端隐藏回显地提示输入。自动化可使用 stdin 或权限为 `0600` 的文件：
+单项操作支持位置参数；已有的 `--key` / `--value` 写法仍可用于脚本：
+
+```bash
+./aster_drive config get branding_title
+./aster_drive config set branding_title '我的网盘'
+./aster_drive config validate branding_title '我的网盘'
+./aster_drive config delete custom.example
+```
+
+在交互终端中，`config set branding_title` 会展示类型、说明和当前值，再提示输入新值；`config set` 提供可按 key 或说明搜索的选择列表，方向键移动、回车确认。普通值正常显示，敏感输入随键入显示 `*`，旧值和保存结果继续脱敏，包括数据库中标记为敏感的自定义项；不提供切换明文显示的快捷键。`--value-prompt` 显式触发同样的交互规则，不会隐藏普通配置的输入。布尔值接受 `true` / `false`，交互时也可用 `1` / `2`；其他类型按提示输入，校验失败可编辑重试。终端交互统一使用 `inquire`，随 `operations-cli` 编译。配置 key、类型、当前值和提示按现有终端配色显示，遵循 `NO_COLOR` 等颜色选项。
+
+直接回车保持已保存的值，不写库或发送刷新通知；没有已保存值时会继续要求输入。`Ctrl+C`、`Ctrl+D` 或 `Esc` 取消操作，并恢复终端状态；另起一行提示 `Canceled.`，退出码为 `130`，不作为校验错误输出。清空必须显式传 `--clear` 或空字符串，且仍须通过该项校验：
+
+```bash
+./aster_drive config set branding_title --clear
+./aster_drive config set branding_title ''
+```
+
+没有交互终端时不会自动等待输入，缺少 key 或值会立即报错。交互提示写入 stderr，stdout 保留结果输出；可用 `config --output-format json set branding_title` 获取 JSON。显式命令参数优先于 `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`；一个命令不能重复指定 key 或多个值来源。管道仍须显式选择 `--value-stdin`，多行值建议使用 stdin 或文件。
+
+自动化可使用 stdin 或权限为 `0600` 的文件：
 
 ```bash
 printf '%s' 'smtp-secret' | ./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-stdin
 ./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-file /run/secrets/smtp-password
 ```
 
-显式 `--value` 和 `ASTER_CLI_CONFIG_VALUE` 仍可使用，但值会暴露在命令参数、shell history 或进程诊断中。
+位置参数值、显式 `--value` 和 `ASTER_CLI_CONFIG_VALUE` 仍可使用，但可能在命令参数、shell history 或进程诊断中暴露敏感内容；CLI 输出脱敏不能消除这些来源的暴露。
 
 `config export` 输出唯一的版本化 JSON 备份格式，可直接交给 `import` 或 `validate --input-file`。默认省略敏感值，并在 `omitted_sensitive_keys` 列出。完整恢复需显式使用 `--include-sensitive`，输出含明文凭据，必须按秘密文件保管；导入文件要求权限为 `0600`。
 
@@ -302,7 +322,9 @@ printf '%s' 'smtp-secret' | ./aster_drive config --database-url "$DB_URL" set --
   --token-prompt
 ```
 
-交互式 token 输入隐藏回显；自动化可使用 `--token-stdin`、`--token-file` 或 `ASTER_CLI_ENROLLMENT_TOKEN`。显式 `--token` 会暴露在进程参数中。
+也可运行 `./aster_drive node enroll https://drive.example.com`，或者直接运行 `./aster_drive node enroll`，在终端中依次输入正常显示的主控 URL 和隐藏的 token。交互校验失败可重试，取消发生在配置初始化和接入请求之前。已有 `--master-url` 写法保持兼容。
+
+交互式 token 输入随键入显示星号，原文不能切换为明文显示；自动化可使用 `--token-stdin`、`--token-file` 或 `ASTER_CLI_ENROLLMENT_TOKEN`。显式 URL 和 token 输入来源优先于对应环境变量；缺少必要输入且没有终端时立即报错。显式 `--token` 会暴露在进程参数中。
 
 如果你没有显式传数据库地址，命令会读取当前 `data/config.toml` 里的 `[database].url`。也可以直接指定：
 
@@ -323,6 +345,10 @@ printf '%s' 'smtp-secret' | ./aster_drive config --database-url "$DB_URL" set --
 命令本身不会替你创建主控节点管理的远程存储目标，也不会启动 HTTP 服务。执行成功后，重启 follower 进程，再回主控后台创建目标，并在 remote 存储策略中显式选择它。
 
 Docker follower 更推荐用启动环境变量自动 enroll，不需要进容器手动跑这条命令，见 [Docker 部署从节点](/deploy/follower-node/)。
+
+## 离线生成密码哈希
+
+`./aster_drive hash-password` 在交互终端中用星号反馈密码输入，stdout 只输出生成的哈希；提示写入 stderr。也可继续通过管道传入密码。输入限制为 1–4096 个 UTF-8 字节，不允许控制字符；终端输入不合法时可编辑重试，取消不读取实例配置或初始化数据库。
 
 ## 跨数据库迁移：`database-migrate`
 
