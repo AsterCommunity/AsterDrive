@@ -7,6 +7,7 @@ import pty
 import re
 import select
 import signal
+import sqlite3
 import subprocess
 import struct
 import sys
@@ -203,6 +204,33 @@ for key, prompt, echo in [("branding_title", normal_prompt, False),
     interact(["set", key], [(prompt, b"\x1b", echo)], succeeds=False,
              forbidden=(old_secret, new_secret), canceled=True)
     assert cli("get", key) == before, "Escape changed value or timestamp"
+
+# Enter in validate checks the saved value rather than returning an empty preview.
+for key, prompt, sensitive in [("branding_title", normal_prompt, False),
+                               ("mail_smtp_password", secret_prompt, True),
+                               ("custom.sensitive", secret_prompt, True),
+                               ("public_site_url", normal_prompt, False)]:
+    before = cli("get", key)
+    result, _ = interact(["validate", key], [(prompt, b"\r", False)],
+                         hidden=sensitive, forbidden=(old_secret, new_secret))
+    assert result["data"]["count"] == 1, "Enter validated no saved values"
+    preview = result["data"]["configs"][0]
+    assert preview["key"] == key
+    assert preview["value"] == before["data"]["value"]
+    assert preview["is_sensitive"] == sensitive
+    assert cli("get", key) == before, "validation changed saved value or timestamp"
+
+# A legacy invalid value must actually pass through the normal validation rules.
+database_path = database_url.removeprefix("sqlite://").split("?", 1)[0]
+with sqlite3.connect(database_path) as connection:
+    connection.execute("UPDATE system_config SET value = ? WHERE key = ?",
+                       ("0", "wopi_discovery_cache_ttl_secs"))
+before = cli("get", "wopi_discovery_cache_ttl_secs")
+_, output = interact(["validate", "wopi_discovery_cache_ttl_secs"],
+                     [(normal_prompt, b"\r", False)], succeeds=False)
+assert b"configuration validation failed (values redacted)" in output
+assert cli("get", "wopi_discovery_cache_ttl_secs") == before
+cli("set", "wopi_discovery_cache_ttl_secs", "300")
 
 result, output = interact(["set", "auth_cookie_secure"],
     [(normal_prompt, b"not-a-boolean\r", False),

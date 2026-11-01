@@ -835,9 +835,24 @@ fn resolve_validate_entries(
     let key = args.key.resolve()?;
     match (&environment_file, key.as_deref(), args.input.supplied()) {
         (Some(path), None, false) => read_import_items(path).map_err(Into::into),
-        (None, Some(key), _) => Ok(resolve_value_entry(key, &args.input, current)?
-            .into_iter()
-            .collect()),
+        (None, Some(key), _) => {
+            let entry = match resolve_value_entry(key, &args.input, current)? {
+                Some(entry) => entry,
+                None => {
+                    let saved = current
+                        .iter()
+                        .find(|model| model.key == key)
+                        .ok_or_else(|| {
+                            AsterError::validation_error("no saved value to validate")
+                        })?;
+                    let sensitive = saved.is_sensitive
+                        || CONFIG_REGISTRY.get(key).is_some_and(|def| def.is_sensitive);
+                    // Enter keeps the saved value, but validation must still check it.
+                    value_entry(key, &saved.value, sensitive, current)?
+                }
+            };
+            Ok(vec![entry])
+        }
         _ => Err(AsterError::validation_error(
             "validate requires either --input-file or --key with a value input source",
         )
