@@ -197,16 +197,21 @@ fn completion_install_generates_shell_scripts_without_instance_bootstrap() {
         }
         assert!(!root.path().join("data").exists());
         if shell != "fish" {
-            let syntax = Command::new(shell)
+            match Command::new(shell)
                 .arg("-n")
                 .arg(root.path().join(relative_path))
                 .output()
-                .unwrap();
-            assert!(
-                syntax.status.success(),
-                "{}",
-                String::from_utf8_lossy(&syntax.stderr)
-            );
+            {
+                Ok(syntax) => assert!(
+                    syntax.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&syntax.stderr)
+                ),
+                Err(error) if shell == "zsh" && error.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!("Skipping zsh syntax check: interpreter is not installed");
+                }
+                Err(error) => panic!("failed to run {shell} syntax check: {error}"),
+            }
         }
     }
     let inferred = Command::new(aster_drive_bin())

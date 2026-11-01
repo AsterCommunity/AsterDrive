@@ -468,16 +468,8 @@ async fn execute_config_command_with_runtime(
             let entries = resolve_validate_entries(args, &current)?;
             let normalized = normalize_entries(&current, &entries)?;
             let previews: Vec<SystemConfig> = normalized
-                .into_iter()
-                .map(|item| {
-                    let mut view = preview_system_config(&item.key, &item.value);
-                    view.visibility = item.visibility;
-                    if item.is_sensitive {
-                        view.value = ConfigValue::redacted();
-                        view.is_sensitive = true;
-                    }
-                    view
-                })
+                .iter()
+                .map(NormalizedImportItem::preview)
                 .collect();
             Ok(ConfigCommandReport::list(
                 ConfigCommandKind::Validate,
