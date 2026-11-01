@@ -22,7 +22,7 @@ use crate::errors::{AsterError, Result};
 use aster_forge_utils::numbers::{i64_to_usize, usize_to_i64};
 
 use self::ui::ProgressReporter;
-use crate::cli::db_shared::{backend_name, join_strings, pending_migrations, redact_database_url};
+use crate::cli::db_shared::{backend_name, pending_migrations, redact_database_url};
 use apply::execute_apply_mode;
 use checkpoint::update_checkpoint;
 use helpers::now_ms;
@@ -382,7 +382,7 @@ pub async fn execute_database_migration(
     if !source_pending.is_empty() {
         return Err(AsterError::validation_error(format!(
             "source database has pending migrations: {}",
-            join_strings(&source_pending)
+            source_pending.join(", ")
         )));
     }
 
@@ -438,7 +438,7 @@ pub async fn execute_database_migration(
                     format!(
                         "would apply {} pending migrations: {}",
                         target_pending_before.len(),
-                        join_strings(&target_pending_before)
+                        target_pending_before.join(", ")
                     )
                 },
             });
@@ -462,7 +462,7 @@ pub async fn execute_database_migration(
             if !target_pending_before.is_empty() {
                 return Err(AsterError::validation_error(format!(
                     "verify-only requires target schema to be current, pending migrations: {}",
-                    join_strings(&target_pending_before)
+                    target_pending_before.join(", ")
                 )));
             }
 

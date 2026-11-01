@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CLI instance selection and credential input** — Server startup and operations accept `--config-file` / `--data-dir`. Service startup and `serve all/api/worker` remain available without the `operations-cli` Cargo feature. Config and doctor use the resolved instance database unless overridden by CLI arguments or CLI environment variables. Prometheus and OTLP settings for exporters absent from the binary are skipped for both offline operations and server startup; doctor checks the effective instance configuration. Sensitive config values and enrollment tokens support hidden terminal, stdin, and private-file input through a shared input module.
+
+### Changed
+
+- **Runtime configuration backups (breaking)** — `config export` emits a directly importable versioned backup, omitting sensitive values by default; complete backups require `--include-sensitive`. Import and file validation accept only this format and reject display metadata, unknown system keys, duplicate keys, and secret placeholders. Import commits the validated batch atomically and notifies running instances only after commit. Config reads, validation and doctor no longer initialize default settings or an unexpected instance.
+- **Service and operations commands (build feature rename)** — The default `cli` Cargo feature is renamed to `operations-cli`; update explicit Cargo and Docker feature lists. Service startup, `serve all/api/worker`, instance selection, build details (`version`), and help remain available without it. `version` / `version --json` report revision, working-tree provenance, target, profile, features and build time without loading instance configuration. Every command help page starts with the product name and package version. Command descriptions explain operator actions, and runtime settings help distinguishes display, backup, validation and restore operations.
+
 ## [v0.7.0] - 2026-11-01
 
 ### Release Highlights

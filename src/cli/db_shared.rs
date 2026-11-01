@@ -11,10 +11,6 @@ use url::Url;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 
-pub(super) fn join_strings(values: &[String]) -> String {
-    values.join(", ")
-}
-
 pub(super) fn backend_name(backend: DbBackend) -> &'static str {
     match backend {
         DbBackend::MySql => "mysql",
@@ -43,7 +39,7 @@ where
 
 fn unsupported_migration_versions_label(history: &MigrationHistory) -> String {
     if !history.unknown_applied.is_empty() {
-        join_strings(&history.unknown_applied)
+        history.unknown_applied.join(", ")
     } else if history.applied.is_empty() {
         "<empty migration history with existing schema objects>".to_string()
     } else {
@@ -88,10 +84,6 @@ pub(super) fn quote_ident(backend: DbBackend, ident: &str) -> String {
 
 pub(super) fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
-}
-
-pub(super) fn quote_sqlite_literal(value: &str) -> String {
-    quote_literal(value)
 }
 
 pub(super) fn redact_database_url(database_url: &str) -> String {

@@ -43,10 +43,17 @@ pub fn follower_seed_config() -> crate::config::Config {
     default
 }
 
-pub fn prepare_follower_bootstrap_config() -> Result<Option<std::path::PathBuf>> {
-    prepare_follower_bootstrap_config_with(&|name| std::env::var(name).ok(), &|default| {
-        crate::config::ensure_default_config_for_current_dir(default)
-    })
+pub fn prepare_follower_bootstrap_config<F>(
+    location: &crate::config::ConfigLocation,
+    get_env: &F,
+) -> Result<Option<std::path::PathBuf>>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if read_bootstrap_input(get_env)?.is_none() {
+        return Ok(None);
+    }
+    location.ensure_default(&follower_seed_config()).map(Some)
 }
 
 pub async fn enroll(
@@ -88,13 +95,7 @@ pub async fn enroll(
     Ok(NodeEnrollmentResult { action, binding })
 }
 
-pub async fn bootstrap_from_env_if_configured(
-    db: &DatabaseConnection,
-) -> Result<NodeEnrollmentBootstrapOutcome> {
-    bootstrap_from_env_with(db, &|name| std::env::var(name).ok()).await
-}
-
-async fn bootstrap_from_env_with<F>(
+pub async fn bootstrap_from_env_if_configured<F>(
     db: &DatabaseConnection,
     get_env: &F,
 ) -> Result<NodeEnrollmentBootstrapOutcome>
@@ -130,22 +131,6 @@ where
         }
         Err(error) => Err(error),
     }
-}
-
-fn prepare_follower_bootstrap_config_with<F, E>(
-    get_env: &F,
-    ensure_default_config: &E,
-) -> Result<Option<std::path::PathBuf>>
-where
-    F: Fn(&str) -> Option<String>,
-    E: Fn(&crate::config::Config) -> Result<std::path::PathBuf>,
-{
-    let Some(_) = read_bootstrap_input(get_env)? else {
-        return Ok(None);
-    };
-
-    let path = ensure_default_config(&follower_seed_config())?;
-    Ok(Some(path))
 }
 
 fn read_bootstrap_input<F>(get_env: &F) -> Result<Option<NodeEnrollmentInput>>
@@ -420,38 +405,39 @@ mod tests {
 
     #[test]
     fn prepare_follower_bootstrap_config_uses_follower_seed_defaults() {
-        let path = prepare_follower_bootstrap_config_with(
-            &|name| match name {
-                BOOTSTRAP_REMOTE_MASTER_URL_ENV => Some("http://localhost:3000".to_string()),
-                BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV => Some("enr_test".to_string()),
-                _ => None,
-            },
-            &|default| {
-                assert_eq!(
-                    default.server.start_mode,
-                    crate::config::node_mode::NodeRuntimeMode::Follower
-                );
-                assert_eq!(default.server.host, FOLLOWER_DEFAULT_SERVER_HOST);
-                Ok(std::path::PathBuf::from("data/config.toml"))
-            },
-        )
+        let root =
+            std::env::temp_dir().join(format!("aster-follower-bootstrap-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let config_file = root.join("config.toml");
+        let location = crate::config::ConfigLocation::resolve(Some(&config_file), None).unwrap();
+        let path = prepare_follower_bootstrap_config(&location, &|name| match name {
+            BOOTSTRAP_REMOTE_MASTER_URL_ENV => Some("http://localhost:3000".to_string()),
+            BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV => Some("enr_test".to_string()),
+            _ => None,
+        })
         .expect("bootstrap config preparation should succeed")
         .expect("bootstrap config should be prepared");
 
-        assert_eq!(path, std::path::PathBuf::from("data/config.toml"));
+        assert_eq!(path, config_file);
+        let config = std::fs::read_to_string(&path).unwrap();
+        assert!(config.contains("start_mode = \"follower\""));
+        assert!(config.contains("host = \"0.0.0.0\""));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn prepare_follower_bootstrap_config_is_noop_without_env() {
-        let called = std::cell::Cell::new(false);
-        let path = prepare_follower_bootstrap_config_with(&|_| None, &|_| {
-            called.set(true);
-            Ok(std::path::PathBuf::from("data/config.toml"))
-        })
-        .expect("empty bootstrap env should be ignored");
+        let root = std::env::temp_dir().join(format!(
+            "aster-follower-bootstrap-empty-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let config_file = root.join("config.toml");
+        let location = crate::config::ConfigLocation::resolve(Some(&config_file), None).unwrap();
+        let path = prepare_follower_bootstrap_config(&location, &|_| None)
+            .expect("empty bootstrap env should be ignored");
 
         assert!(path.is_none());
-        assert!(!called.get());
+        assert!(!config_file.exists());
     }
 
     #[test]
@@ -497,7 +483,7 @@ mod tests {
         )
         .await;
 
-        let outcome = bootstrap_from_env_with(&db, &|name| match name {
+        let outcome = bootstrap_from_env_if_configured(&db, &|name| match name {
             BOOTSTRAP_REMOTE_MASTER_URL_ENV => Some(server.base_url.clone()),
             BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV => Some("enr_test".to_string()),
             _ => None,
@@ -555,7 +541,7 @@ mod tests {
         .await
         .expect("existing binding should insert");
 
-        let outcome = bootstrap_from_env_with(&db, &|name| match name {
+        let outcome = bootstrap_from_env_if_configured(&db, &|name| match name {
             BOOTSTRAP_REMOTE_MASTER_URL_ENV => Some(server.base_url.clone()),
             BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV => Some("enr_completed".to_string()),
             _ => None,

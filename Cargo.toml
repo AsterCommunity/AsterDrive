@@ -137,9 +137,9 @@ panic = "abort"
 strip = true
 
 [features]
-default = ["server", "cli"]
+default = ["server", "operations-cli"]
 server = []
-cli = ["server", "dep:clap"]
+operations-cli = ["server", "dep:rpassword"]
 metrics = [
     "server",
     "aster_drive_metrics/prometheus",
@@ -160,7 +160,7 @@ openapi = [
     "aster_forge_runtime/openapi",
     "aster_forge_tasks/openapi",
 ]
-full = ["server", "cli", "metrics", "otlp-metrics", "openapi"]
+full = ["server", "operations-cli", "metrics", "otlp-metrics", "openapi"]
 benchmarks = ["dep:criterion"]
 jemalloc = ["dep:tikv-jemallocator", "aster_forge_alloc/jemalloc"]
 jemalloc-stats = [
@@ -221,7 +221,8 @@ azure_core = { version = "1.1.0", default-features = false, features = ["hmac_ru
 azure_storage_blob = { version = "1.1.0", default-features = false, features = ["tokio"] }
 chrono = { workspace = true }
 chrono-tz = "0.10"
-clap = { version = "4", features = ["derive", "env"], optional = true }
+clap = { version = "4", features = ["derive", "env"] }
+rpassword = { version = "7", optional = true }
 config = { version = "0.15", default-features = false, features = ["toml"] }
 criterion = { version = "0.8", optional = true }
 csv = "1.4"

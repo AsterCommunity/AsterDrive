@@ -27,7 +27,7 @@ If you manage production, run the full upgrade flow in a test environment before
 
 Plan for users and API clients to sign in again after upgrading: local session JWTs now use a strict token format, and previously issued tokens are incompatible. Upgrade all Primary instances in one maintenance window to avoid mixing old and new token formats. A custom `auth.jwt_secret` must contain at least 32 bytes.
 
-If the binary includes the `metrics` feature and the deployment needs `/health/metrics`, confirm `[observability.prometheus]` has `enabled = true` in `config.toml`; Prometheus and OTLP exporters are disabled by default. Enabling an exporter that was not compiled into the binary causes startup to fail.
+If the binary includes the `metrics` feature and the deployment needs `/health/metrics`, confirm `[observability.prometheus]` has `enabled = true` in `config.toml`; Prometheus and OTLP exporters are disabled by default. Exporters enabled in configuration but absent from the binary are skipped, including validation of their specific settings, without causing startup failure.
 
 After upgrading, follow the validation checklist in this guide and specifically confirm sign-in, Prometheus scraping, and migration completion in the application logs.
 

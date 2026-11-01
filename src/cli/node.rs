@@ -1,18 +1,20 @@
 //! `aster_drive node` 的聚合入口。
 
+use super::input::{SecretArg, read_secret};
 use crate::config::node_mode::NodeRuntimeMode;
 use crate::errors::{AsterError, Result};
 use clap::{Args, Subcommand};
+use secrecy::ExposeSecret;
 use serde::Serialize;
 
 use super::shared::{
-    CliTerminalPalette, OutputFormat, ResolvedOutputFormat, human_key, prepare_database,
-    prepare_database_config, render_error_json, render_success_envelope,
+    CliTerminalPalette, OutputFormat, ResolvedOutputFormat, human_key, prepare_database_config,
+    render_error_json, render_success_envelope,
 };
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum NodeCommand {
-    /// Redeem a master-issued enrollment token and write the local master binding
+    /// Connect this follower to its primary using an enrollment token
     Enroll(NodeEnrollArgs),
 }
 
@@ -20,8 +22,23 @@ pub enum NodeCommand {
 pub struct NodeEnrollArgs {
     #[arg(long, env = "ASTER_CLI_MASTER_URL")]
     pub master_url: String,
-    #[arg(long, env = "ASTER_CLI_ENROLLMENT_TOKEN")]
-    pub token: String,
+    /// Explicit token (may be exposed in shell history and process listings)
+    #[arg(
+        long,
+        env = "ASTER_CLI_ENROLLMENT_TOKEN",
+        hide_env_values = true,
+        group = "token_input"
+    )]
+    pub token: Option<SecretArg>,
+    /// Read the enrollment token from stdin
+    #[arg(long, group = "token_input")]
+    pub token_stdin: bool,
+    /// Read the enrollment token from a private UTF-8 file
+    #[arg(long, group = "token_input")]
+    pub token_file: Option<std::path::PathBuf>,
+    /// Read the enrollment token without terminal echo (default when omitted)
+    #[arg(long, group = "token_input")]
+    pub token_prompt: bool,
     #[arg(long, env = "ASTER_CLI_DATABASE_URL")]
     pub database_url: Option<String>,
 }
@@ -40,10 +57,64 @@ pub struct NodeEnrollReport {
     connectivity_hint: String,
 }
 
-pub async fn execute_node_command(command: &NodeCommand) -> Result<NodeEnrollReport> {
-    match command {
-        NodeCommand::Enroll(args) => execute_enroll(args).await,
+pub async fn execute_node_enroll(
+    args: &NodeEnrollArgs,
+    location: &crate::config::ConfigLocation,
+) -> Result<NodeEnrollReport> {
+    let token = read_secret(
+        args.token.as_ref(),
+        args.token_stdin,
+        args.token_file.as_deref(),
+        args.token_prompt
+            || (args.token.is_none() && !args.token_stdin && args.token_file.is_none()),
+        "Enrollment token: ",
+    )?;
+    if token.expose_secret().is_empty() || token.expose_secret().chars().any(char::is_control) {
+        return Err(AsterError::validation_error(
+            "enrollment token must be non-empty and contain no control characters",
+        ));
     }
+    let config_path = ensure_follower_start_mode(location)?;
+    let config = crate::config::get_config();
+    let database = args.database_url.as_deref().map_or_else(
+        || config.database.clone(),
+        |database_url| crate::config::DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+    );
+    let db = prepare_database_config(&database, &config).await?;
+    let result = crate::services::remote::node_enrollment::enroll(
+        &db,
+        crate::services::remote::node_enrollment::NodeEnrollmentInput {
+            master_url: args.master_url.clone(),
+            token: token.expose_secret().to_owned(),
+        },
+    )
+    .await
+    .map_err(|error| {
+        if error.message().contains(token.expose_secret()) {
+            AsterError::validation_error("node enrollment failed (credential redacted)")
+        } else {
+            error
+        }
+    })?;
+    let binding = result.binding;
+    let binding_id = binding.id;
+
+    Ok(NodeEnrollReport {
+        action: result.action,
+        binding_id,
+        binding_name: binding.name.clone(),
+        master_url: binding.master_url.clone(),
+        access_key: binding.access_key.clone(),
+        config_path,
+        server_host: config.server.host.clone(),
+        server_port: config.server.port,
+        readiness_check_path: "/health/ready".to_string(),
+        connectivity_hint: build_connectivity_hint(&config.server.host, config.server.port),
+    })
 }
 
 pub fn render_node_success(format: OutputFormat, report: &NodeEnrollReport) -> String {
@@ -62,44 +133,12 @@ pub fn render_node_error(format: OutputFormat, err: &AsterError) -> String {
     }
 }
 
-async fn execute_enroll(args: &NodeEnrollArgs) -> Result<NodeEnrollReport> {
-    let config_path = ensure_follower_start_mode()?;
-    let config = crate::config::get_config();
-    let db = match args.database_url.as_deref() {
-        Some(database_url) => prepare_database(database_url).await?,
-        None => prepare_database_config(&config.database).await?,
-    };
-    let result = crate::services::remote::node_enrollment::enroll(
-        &db,
-        crate::services::remote::node_enrollment::NodeEnrollmentInput {
-            master_url: args.master_url.clone(),
-            token: args.token.clone(),
-        },
-    )
-    .await?;
-    let binding = result.binding;
-    let binding_id = binding.id;
-
-    Ok(NodeEnrollReport {
-        action: result.action,
-        binding_id,
-        binding_name: binding.name.clone(),
-        master_url: binding.master_url.clone(),
-        access_key: binding.access_key.clone(),
-        config_path,
-        server_host: config.server.host.clone(),
-        server_port: config.server.port,
-        readiness_check_path: "/health/ready".to_string(),
-        connectivity_hint: build_connectivity_hint(&config.server.host, config.server.port),
-    })
-}
-
-fn ensure_follower_start_mode() -> Result<String> {
+fn ensure_follower_start_mode(location: &crate::config::ConfigLocation) -> Result<String> {
     let default = crate::services::remote::node_enrollment::follower_seed_config();
-    let config_path = crate::config::ensure_default_config_for_current_dir(&default)?;
+    let config_path = location.ensure_default(&default)?;
     let config_path = config_path.display().to_string();
 
-    crate::config::init_config()?;
+    crate::config::init_config_at(location)?;
     let config = crate::config::get_config();
 
     if matches!(

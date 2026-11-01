@@ -87,11 +87,12 @@ fn map_static_config_error(error: config::ConfigError) -> AsterError {
             "unknown static configuration field `{field}` (values redacted)"
         ));
     }
-    let message = error.to_string();
-    if message.contains("observability") {
+    if error.to_string().contains("observability") {
         AsterError::config_error("invalid observability configuration (values redacted)")
     } else {
-        AsterError::config_error(message)
+        AsterError::config_error(
+            "invalid static configuration; check field types and required values (values redacted)",
+        )
     }
 }
 
@@ -99,32 +100,22 @@ pub fn load() -> Result<LoadedConfig> {
     let base_dir = std::env::current_dir()
         .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
     let env_database_url = std::env::var("ASTER__DATABASE__URL").ok();
-    load_from_dir(&base_dir, env_database_url.as_deref(), true)
+    load_from_path(
+        &base_dir,
+        &base_dir.join(DEFAULT_CONFIG_PATH),
+        env_database_url.as_deref(),
+        true,
+    )
 }
 
-pub fn load_read_only() -> Result<Config> {
-    let base_dir = std::env::current_dir()
-        .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
-    load_read_only_from_dir(&base_dir, true)
-}
-
-pub fn ensure_default_config_for_current_dir(default: &Config) -> Result<PathBuf> {
-    let base_dir = std::env::current_dir()
-        .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
-    let config_path = base_dir.join(DEFAULT_CONFIG_PATH);
-    ensure_default_config_exists(&config_path, default)?;
-    Ok(config_path)
-}
-
-fn load_from_dir(
+fn load_from_path(
     base_dir: &Path,
+    config_path: &Path,
     env_database_url: Option<&str>,
     include_env: bool,
 ) -> Result<LoadedConfig> {
-    let config_path = base_dir.join(DEFAULT_CONFIG_PATH);
-
-    let default_created = ensure_default_config_exists(&config_path, &Config::default())?;
-    let stable_defaults_config = ensure_stable_default_config_keys(&config_path, None)?;
+    let default_created = ensure_default_config_exists(config_path, &Config::default())?;
+    let stable_defaults_config = ensure_stable_default_config_keys(config_path, None)?;
     let stable_defaults_added = stable_defaults_config.is_some();
 
     let mut builder = RawConfig::builder();
@@ -132,7 +123,7 @@ fn load_from_dir(
         Some(config_content) => {
             builder.add_source(File::from_str(&config_content, FileFormat::Toml))
         }
-        None => builder.add_source(File::from(config_path.as_path()).required(false)),
+        None => builder.add_source(File::from(config_path).required(false)),
     };
 
     if include_env {
@@ -153,24 +144,26 @@ fn load_from_dir(
         .try_deserialize::<Config>()
         .map_err(map_static_config_error)?;
 
-    resolve_loaded_paths(base_dir, &config_path, &mut cfg)?;
+    resolve_loaded_paths(base_dir, config_path, &mut cfg)?;
     cfg.auth.validate()?;
     cfg.observability.validate()?;
 
     Ok(LoadedConfig {
         config: cfg,
         report: ConfigLoadReport {
-            config_path,
+            config_path: config_path.to_path_buf(),
             default_created,
             stable_defaults_added,
         },
     })
 }
 
-fn load_read_only_from_dir(base_dir: &Path, include_env: bool) -> Result<Config> {
-    let config_path = base_dir.join(DEFAULT_CONFIG_PATH);
-    let mut builder =
-        RawConfig::builder().add_source(File::from(config_path.as_path()).required(false));
+fn load_read_only_from_path(
+    base_dir: &Path,
+    config_path: &Path,
+    include_env: bool,
+) -> Result<Config> {
+    let mut builder = RawConfig::builder().add_source(File::from(config_path).required(false));
     if include_env {
         builder = builder.add_source(
             Environment::with_prefix("ASTER")
@@ -184,7 +177,7 @@ fn load_read_only_from_dir(base_dir: &Path, include_env: bool) -> Result<Config>
         .map_err(map_static_config_error)?
         .try_deserialize::<Config>()
         .map_err(map_static_config_error)?;
-    resolve_loaded_paths(base_dir, &config_path, &mut config)?;
+    resolve_loaded_paths(base_dir, config_path, &mut config)?;
     config.auth.validate()?;
     config.observability.validate()?;
     Ok(config)
@@ -301,6 +294,7 @@ fn resolve_loaded_paths(base_dir: &Path, config_path: &Path, cfg: &mut Config) -
     cfg.server.temp_dir = resolve_config_relative_path(base_dir, config_dir, &cfg.server.temp_dir)?;
     cfg.server.upload_temp_dir =
         resolve_config_relative_path(base_dir, config_dir, &cfg.server.upload_temp_dir)?;
+    cfg.logging.file = resolve_config_relative_path(base_dir, config_dir, &cfg.logging.file)?;
     cfg.server.follower.remote_storage_target_local_root = resolve_config_relative_path(
         base_dir,
         config_dir,
@@ -310,9 +304,103 @@ fn resolve_loaded_paths(base_dir: &Path, config_path: &Path, cfg: &mut Config) -
     Ok(())
 }
 
+/// An explicit location resolves every runtime path independently of the caller's cwd.
+#[derive(Debug, Clone)]
+pub struct ConfigLocation {
+    path: PathBuf,
+    explicit: bool,
+}
+
+impl ConfigLocation {
+    pub fn resolve(config_file: Option<&Path>, data_dir: Option<&Path>) -> Result<Self> {
+        let cwd = std::env::current_dir()
+            .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
+        let (path, explicit) = match (config_file, data_dir) {
+            (Some(_), Some(_)) => {
+                return Err(AsterError::validation_error(
+                    "use either --config-file or --data-dir",
+                ));
+            }
+            (Some(path), None) => (path.to_path_buf(), true),
+            (None, Some(dir)) => (dir.join("config.toml"), true),
+            (None, None) => (PathBuf::from(DEFAULT_CONFIG_PATH), false),
+        };
+        Ok(Self {
+            path: if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            },
+            explicit,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn base_dir(&self) -> &Path {
+        let parent = self.path.parent().unwrap_or(Path::new("/"));
+        if parent.file_name().is_some_and(|name| name == "data") {
+            parent.parent().unwrap_or(parent)
+        } else {
+            parent
+        }
+    }
+
+    fn absolutize(&self, config: &mut Config) {
+        for path in [
+            &mut config.server.temp_dir,
+            &mut config.server.upload_temp_dir,
+            &mut config.server.follower.remote_storage_target_local_root,
+            &mut config.logging.file,
+        ] {
+            if !path.is_empty() && Path::new(path).is_relative() {
+                *path = self.base_dir().join(&*path).to_string_lossy().into_owned();
+            }
+        }
+        if let aster_forge_db::DatabaseUrl::Url(url) = &mut config.database.url
+            && let Some(rest) = url.strip_prefix("sqlite://")
+        {
+            let (path, query) = rest.split_once('?').map_or((rest, ""), |(p, q)| (p, q));
+            if !path.is_empty() && path != ":memory:" && Path::new(path).is_relative() {
+                *url = format!(
+                    "sqlite://{}{}{}",
+                    self.base_dir().join(path).display(),
+                    if query.is_empty() { "" } else { "?" },
+                    query
+                );
+            }
+        }
+    }
+
+    pub fn load_read_only(&self, require_existing: bool) -> Result<Config> {
+        if (self.explicit || require_existing) && !self.path.is_file() {
+            return Err(AsterError::config_error(format!(
+                "configuration file '{}' does not exist; specify --config-file/--data-dir or --database-url",
+                self.path.display()
+            )));
+        }
+        let mut config = load_read_only_from_path(self.base_dir(), &self.path, true)?;
+        self.absolutize(&mut config);
+        Ok(config)
+    }
+
+    pub fn ensure_default(&self, default: &Config) -> Result<PathBuf> {
+        ensure_default_config_exists(&self.path, default)?;
+        Ok(self.path.clone())
+    }
+
+    pub fn initialize(&self) -> Result<LoadedConfig> {
+        let mut loaded = load_from_path(self.base_dir(), &self.path, None, true)?;
+        self.absolutize(&mut loaded.config);
+        Ok(loaded)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ensure_default_config_exists, load_from_dir, load_read_only_from_dir};
+    use super::{ensure_default_config_exists, load_from_path, load_read_only_from_path};
     use crate::config::paths::{
         DEFAULT_CONFIG_PATH, DEFAULT_SQLITE_DATABASE_PATH, DEFAULT_SQLITE_DATABASE_URL,
         DEFAULT_TEMP_DIR, DEFAULT_UPLOAD_TEMP_DIR,
@@ -379,7 +467,7 @@ mod tests {
     fn load_creates_default_config_under_data_dir() {
         let dir = make_temp_dir("create-default");
 
-        let loaded = load_from_dir(&dir, None, false).unwrap();
+        let loaded = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false).unwrap();
         let messages = loaded.report.messages();
         let cfg = loaded.config;
         let generated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
@@ -438,7 +526,7 @@ mod tests {
     fn read_only_load_uses_defaults_without_creating_config() {
         let dir = make_temp_dir("read-only-default");
 
-        let config = load_read_only_from_dir(&dir, false).unwrap();
+        let config = load_read_only_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), false).unwrap();
 
         assert_eq!(config.deployment.profile, DeploymentProfile::Single);
         assert!(!dir.join(DEFAULT_CONFIG_PATH).exists());
@@ -466,8 +554,9 @@ mod tests {
             write(&path, original.as_bytes());
 
             for result in [
-                load_from_dir(&dir, None, false).map(|loaded| loaded.config),
-                load_read_only_from_dir(&dir, false),
+                load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+                    .map(|loaded| loaded.config),
+                load_read_only_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), false),
             ] {
                 if secret.len() < 32 {
                     let error = result.expect_err("short JWT secret must fail").to_string();
@@ -504,8 +593,9 @@ mod tests {
         write(&path, original.as_bytes());
         let secret = std::env::var("ASTER__AUTH__JWT_SECRET").unwrap();
         for result in [
-            load_from_dir(&dir, None, true).map(|loaded| loaded.config),
-            load_read_only_from_dir(&dir, true),
+            load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, true)
+                .map(|loaded| loaded.config),
+            load_read_only_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), true),
         ] {
             let error = result
                 .expect_err("short environment secret must fail")
@@ -538,7 +628,7 @@ mod tests {
         let original = toml::to_string_pretty(&config).unwrap();
         write(&path, original.as_bytes());
         assert_eq!(
-            load_from_dir(&dir, None, true)
+            load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, true)
                 .unwrap()
                 .config
                 .auth
@@ -546,7 +636,10 @@ mod tests {
             SECRET
         );
         assert_eq!(
-            load_read_only_from_dir(&dir, true).unwrap().auth.jwt_secret,
+            load_read_only_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), true)
+                .unwrap()
+                .auth
+                .jwt_secret,
             SECRET
         );
         assert_eq!(std::fs::read_to_string(path).unwrap(), original);
@@ -576,7 +669,9 @@ jwt_secret = "{legacy_jwt_secret}"
             .as_bytes(),
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
         let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
         assert_eq!(cfg.auth.jwt_secret, legacy_jwt_secret);
@@ -618,7 +713,9 @@ url = "sqlite://asterdrive.db?mode=rwc"
 "#,
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
         let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
         assert!(!cfg.auth.jwt_secret.is_empty());
@@ -659,7 +756,9 @@ mfa_secret_key = "file-mfa-secret"
 "#,
         );
 
-        let cfg = load_from_dir(&dir, None, true).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, true)
+            .unwrap()
+            .config;
         let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
         assert_eq!(cfg.auth.direct_link_secret, "env-direct-link-secret");
@@ -693,7 +792,9 @@ url = "sqlite://custom.db?mode=rwc"
 "#,
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
 
         assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert!(dir.join("config.toml").exists());
@@ -707,7 +808,9 @@ url = "sqlite://custom.db?mode=rwc"
         let dir = make_temp_dir("legacy-db");
         write(&dir.join("asterdrive.db"), b"legacy");
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
 
         assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert!(dir.join("asterdrive.db").exists());
@@ -733,7 +836,9 @@ remote_storage_target_local_root = "data/remote-storage-targets"
 "#,
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
 
         assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert_eq!(cfg.server.temp_dir, DEFAULT_TEMP_DIR);
@@ -770,7 +875,9 @@ topic = "aster_drive.config_reload"
             .as_bytes(),
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
         assert_eq!(
             cfg.database.url,
             aster_forge_db::DatabaseUrl::credentials(
@@ -825,7 +932,9 @@ topic = "aster_drive.config_reload"
 "#,
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
         assert_eq!(
             cfg.database.url.as_url(),
             Some("postgres://encoded-user:encoded-password@database.internal:5432/asterdrive")
@@ -883,7 +992,9 @@ topic = "aster_drive.config_reload"
         }
 
         let dir = make_temp_dir("structured-infrastructure-env");
-        let cfg = load_from_dir(&dir, None, true).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, true)
+            .unwrap()
+            .config;
         assert_eq!(
             cfg.database.url,
             aster_forge_db::DatabaseUrl::credentials(
@@ -925,7 +1036,9 @@ managed_ingress_local_root = "data/remote-storage-targets"
 "#,
         );
 
-        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let cfg = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false)
+            .unwrap()
+            .config;
 
         assert_eq!(
             cfg.server.follower.remote_storage_target_local_root,
@@ -940,9 +1053,14 @@ managed_ingress_local_root = "data/remote-storage-targets"
         let dir = make_temp_dir("env-db-url-relative");
         write(&dir.join("asterdrive.db"), b"legacy");
 
-        let cfg = load_from_dir(&dir, Some("sqlite://custom.db?mode=rwc"), false)
-            .unwrap()
-            .config;
+        let cfg = load_from_path(
+            &dir,
+            &dir.join(DEFAULT_CONFIG_PATH),
+            Some("sqlite://custom.db?mode=rwc"),
+            false,
+        )
+        .unwrap()
+        .config;
 
         assert_eq!(
             cfg.database.url.as_url(),
@@ -959,9 +1077,14 @@ managed_ingress_local_root = "data/remote-storage-targets"
     fn load_keeps_data_prefixed_database_override_without_double_data() {
         let dir = make_temp_dir("env-db-url-legacy-root-relative");
 
-        let cfg = load_from_dir(&dir, Some("sqlite://data/custom.db?mode=rwc"), false)
-            .unwrap()
-            .config;
+        let cfg = load_from_path(
+            &dir,
+            &dir.join(DEFAULT_CONFIG_PATH),
+            Some("sqlite://data/custom.db?mode=rwc"),
+            false,
+        )
+        .unwrap()
+        .config;
 
         assert_eq!(
             cfg.database.url.as_url(),
@@ -976,9 +1099,14 @@ managed_ingress_local_root = "data/remote-storage-targets"
         let dir = make_temp_dir("env-db-url-relative-default");
         write(&dir.join("asterdrive.db"), b"legacy");
 
-        let cfg = load_from_dir(&dir, Some("sqlite://asterdrive.db?mode=rwc"), false)
-            .unwrap()
-            .config;
+        let cfg = load_from_path(
+            &dir,
+            &dir.join(DEFAULT_CONFIG_PATH),
+            Some("sqlite://asterdrive.db?mode=rwc"),
+            false,
+        )
+        .unwrap()
+        .config;
 
         assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
 
@@ -990,9 +1118,14 @@ managed_ingress_local_root = "data/remote-storage-targets"
         let dir = make_temp_dir("env-db-url-data-prefixed-default");
         write(&dir.join("asterdrive.db"), b"legacy");
 
-        let cfg = load_from_dir(&dir, Some("sqlite://data/asterdrive.db?mode=rwc"), false)
-            .unwrap()
-            .config;
+        let cfg = load_from_path(
+            &dir,
+            &dir.join(DEFAULT_CONFIG_PATH),
+            Some("sqlite://data/asterdrive.db?mode=rwc"),
+            false,
+        )
+        .unwrap()
+        .config;
 
         assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
 
@@ -1009,7 +1142,7 @@ temp_dir = "../../outside/.tmp"
 "#,
         );
 
-        let err = load_from_dir(&dir, None, false).unwrap_err();
+        let err = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false).unwrap_err();
         assert!(err.to_string().contains("outside data base_dir"));
 
         let _ = std::fs::remove_dir_all(dir);
@@ -1025,7 +1158,7 @@ url = "sqlite://../../outside/asterdrive.db?mode=rwc"
 "#,
         );
 
-        let err = load_from_dir(&dir, None, false).unwrap_err();
+        let err = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false).unwrap_err();
         assert!(err.to_string().contains("outside data base_dir"));
 
         let _ = std::fs::remove_dir_all(dir);
@@ -1045,8 +1178,8 @@ burst_size = 5
 "#,
         );
 
-        let err = load_from_dir(&dir, None, false).unwrap_err();
-        assert!(err.to_string().contains("invalid value: integer `0`"));
+        let err = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false).unwrap_err();
+        assert!(err.to_string().contains("invalid static configuration"));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1065,8 +1198,8 @@ burst_size = 0
 "#,
         );
 
-        let err = load_from_dir(&dir, None, false).unwrap_err();
-        assert!(err.to_string().contains("invalid value: integer `0`"));
+        let err = load_from_path(&dir, &dir.join(DEFAULT_CONFIG_PATH), None, false).unwrap_err();
+        assert!(err.to_string().contains("invalid static configuration"));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1082,7 +1215,13 @@ burst_size = 0
             "[observability.prometheus]\nenabled = true\n[observability.prometheus.basic_auth]\nenabled = true\nusername = 'scraper'\npassword_hash = '{hash}'\n"
         );
         write(&dir.path().join(DEFAULT_CONFIG_PATH), content.as_bytes());
-        let first = load_from_dir(dir.path(), None, false).unwrap();
+        let first = load_from_path(
+            dir.path(),
+            &dir.path().join(DEFAULT_CONFIG_PATH),
+            None,
+            false,
+        )
+        .unwrap();
         assert!(first.report.stable_defaults_added);
         assert_eq!(
             first
@@ -1095,7 +1234,13 @@ burst_size = 0
         );
         let persisted = std::fs::read_to_string(dir.path().join(DEFAULT_CONFIG_PATH)).unwrap();
         assert!(persisted.contains(&hash));
-        let second = load_from_dir(dir.path(), None, false).unwrap();
+        let second = load_from_path(
+            dir.path(),
+            &dir.path().join(DEFAULT_CONFIG_PATH),
+            None,
+            false,
+        )
+        .unwrap();
         assert!(!second.report.stable_defaults_added);
         assert_eq!(
             second.config.observability.prometheus.basic_auth.username,
@@ -1129,13 +1274,19 @@ burst_size = 0
                 "loader observability test",
             );
             write(&dir.path().join(DEFAULT_CONFIG_PATH), content.as_bytes());
-            let error = load_from_dir(dir.path(), None, false)
-                .unwrap_err()
-                .to_string();
+            let error = load_from_path(
+                dir.path(),
+                &dir.path().join(DEFAULT_CONFIG_PATH),
+                None,
+                false,
+            )
+            .unwrap_err()
+            .to_string();
             assert!(!error.contains("credential-marker"), "{error}");
-            let error = load_read_only_from_dir(dir.path(), false)
-                .unwrap_err()
-                .to_string();
+            let error =
+                load_read_only_from_path(dir.path(), &dir.path().join(DEFAULT_CONFIG_PATH), false)
+                    .unwrap_err()
+                    .to_string();
             assert!(!error.contains("credential-marker"), "{error}");
         }
     }
@@ -1158,10 +1309,15 @@ burst_size = 0
             );
             write(&dir.path().join(DEFAULT_CONFIG_PATH), content.as_bytes());
             for error in [
-                load_from_dir(dir.path(), None, false)
-                    .unwrap_err()
-                    .to_string(),
-                load_read_only_from_dir(dir.path(), false)
+                load_from_path(
+                    dir.path(),
+                    &dir.path().join(DEFAULT_CONFIG_PATH),
+                    None,
+                    false,
+                )
+                .unwrap_err()
+                .to_string(),
+                load_read_only_from_path(dir.path(), &dir.path().join(DEFAULT_CONFIG_PATH), false)
                     .unwrap_err()
                     .to_string(),
             ] {
@@ -1178,10 +1334,15 @@ burst_size = 0
             b"[observability]\nenvironment = \"credential-marker\n",
         );
         for error in [
-            load_from_dir(dir.path(), None, false)
-                .unwrap_err()
-                .to_string(),
-            load_read_only_from_dir(dir.path(), false)
+            load_from_path(
+                dir.path(),
+                &dir.path().join(DEFAULT_CONFIG_PATH),
+                None,
+                false,
+            )
+            .unwrap_err()
+            .to_string(),
+            load_read_only_from_path(dir.path(), &dir.path().join(DEFAULT_CONFIG_PATH), false)
                 .unwrap_err()
                 .to_string(),
         ] {

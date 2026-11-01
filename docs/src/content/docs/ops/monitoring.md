@@ -248,7 +248,7 @@ scrape_configs:
 
 ## 可选 OTLP metrics
 
-现有 `-metrics` 镜像提供 Prometheus pull。需要 OTLP 时从源码构建，或使用 `docker build --build-arg CARGO_FEATURES=server,cli,metrics,otlp-metrics -t asterdrive:observability .`；静态 exporter 配置仍默认关闭。
+现有 `-metrics` 镜像提供 Prometheus pull。需要 OTLP 时从源码构建，或使用 `docker build --build-arg CARGO_FEATURES=server,operations-cli,metrics,otlp-metrics -t asterdrive:observability .`；静态 exporter 配置仍默认关闭。
 
 ```bash
 cargo build --release --features metrics,otlp-metrics
@@ -280,7 +280,7 @@ OTLP resource 包含 service/version/environment/role，以及每次启动生成
 | `otlp-metrics` | otlp_metrics=true | 不存在 |
 | 两个 feature | 分别开启 | 只有 prometheus=true 才存在 |
 
-启用未编译的能力启动失败；编译了但未配置启用时为 Noop，不启动采样/推送。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
+未编译的 exporter 即使配置启用也会跳过，不校验其专属设置、不启动采样/推送，也不阻断服务启动。只有已编译且显式启用的 exporter 才参与运行；全部 exporter 不生效时为 Noop。新增 blob 待清理起始时间作为持久状态始终随引用计数维护，保证以后开启观测时年龄正确，不受 metrics feature 影响；没有因此增加业务 DB 往返。
 
 
 本地冒烟验证可将 metrics endpoint 指向 `http://127.0.0.1:4318/v1/metrics`，并用以下配置启动 OpenTelemetry Collector。只接收 metrics 并打印诊断，不启用 traces，也不提供持久化；本次文档更新未实际运行 Collector。

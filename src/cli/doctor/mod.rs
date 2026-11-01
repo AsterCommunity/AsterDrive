@@ -4,6 +4,7 @@
 //! 真正的全局数据核对逻辑则下沉在 `ops::integrity`。
 
 mod execute;
+pub use execute::execute_doctor_command;
 mod storage_scan;
 
 use crate::errors::Result;
@@ -12,14 +13,14 @@ use clap::{Args, ValueEnum};
 use serde::Serialize;
 
 use super::shared::{
-    CliTerminalPalette, OutputFormat, ResolvedOutputFormat, connect_database, human_key,
+    CliTerminalPalette, OutputFormat, ResolvedOutputFormat, connect_existing_database, human_key,
     render_success_envelope,
 };
 
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {
     #[arg(long, env = "ASTER_CLI_DATABASE_URL")]
-    pub database_url: String,
+    pub database_url: Option<String>,
     #[arg(long, env = "ASTER_CLI_DOCTOR_STRICT", default_value_t = false)]
     pub strict: bool,
     #[arg(long, env = "ASTER_CLI_DOCTOR_DEEP", default_value_t = false)]
@@ -184,15 +185,6 @@ fn effective_deep_scopes(args: &DoctorArgs) -> Vec<DoctorDeepScope> {
         }
     }
     deduped
-}
-
-fn doctor_scope_enabled(scopes: &[DoctorDeepScope], target: DoctorDeepScope) -> bool {
-    scopes.contains(&target)
-}
-
-/// Executes the `doctor` command and returns a structured report for rendering.
-pub async fn execute_doctor_command(args: &DoctorArgs) -> DoctorReport {
-    execute::execute_doctor_command_impl(args).await
 }
 
 fn doctor_check(
@@ -538,14 +530,6 @@ async fn doctor_blob_ref_count_check(
         details,
         suggestion: Some("Run doctor --deep --fix to write back file_blobs.ref_count.".to_string()),
     })
-}
-
-async fn doctor_storage_scan_checks(
-    db: &sea_orm::DatabaseConnection,
-    runtime_config: &crate::config::RuntimeConfig,
-    policy_id: Option<i64>,
-) -> Result<Vec<DoctorCheck>> {
-    storage_scan::doctor_storage_scan_checks(db, runtime_config, policy_id).await
 }
 
 async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<DoctorCheck> {

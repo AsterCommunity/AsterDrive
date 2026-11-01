@@ -30,7 +30,7 @@ pub(super) async fn copy_tables_with_resume(
     checkpoint: &mut MigrationCheckpoint,
     progress: &ProgressReporter,
 ) -> Result<()> {
-    let batch_size = copy_batch_size()?;
+    let batch_size = parse_positive_i64_env(COPY_BATCH_SIZE_ENV, DEFAULT_COPY_BATCH_SIZE)?;
     let fail_after_batches = fail_after_batches()?;
     let source_backend = source.get_database_backend();
     let start_table_index = i64_to_usize(
@@ -275,10 +275,6 @@ where
         ))
     })?;
     Ok(())
-}
-
-fn copy_batch_size() -> Result<i64> {
-    parse_positive_i64_env(COPY_BATCH_SIZE_ENV, DEFAULT_COPY_BATCH_SIZE)
 }
 
 fn fail_after_batches() -> Result<Option<i64>> {

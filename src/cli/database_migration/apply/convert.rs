@@ -10,7 +10,7 @@ use sea_orm::{QueryResult, TryGetError, Value};
 
 use crate::errors::{AsterError, Result};
 
-use crate::cli::database_migration::helpers::{parse_bool, parse_timestamp};
+use crate::cli::database_migration::helpers::parse_bool;
 use crate::cli::database_migration::{BindingKind, CellValue, TablePlan};
 
 /// Decodes a source row and converts each cell into the target backend value shape.
@@ -255,10 +255,12 @@ fn cell_into_target_value(
         BindingKind::TimestampWithTimeZone => match cell {
             CellValue::Null => Option::<DateTime<FixedOffset>>::None.into(),
             CellValue::Timestamp(value) => Some(value).into(),
-            CellValue::String(value) => Some(parse_timestamp(&value).ok_or_else(|| {
-                conversion_error("string value is not a valid RFC3339 timestamp")
-            })?)
-            .into(),
+            CellValue::String(value) => {
+                Some(DateTime::parse_from_rfc3339(&value).map_err(|_| {
+                    conversion_error("string value is not a valid RFC3339 timestamp")
+                })?)
+                .into()
+            }
             _ => {
                 return Err(conversion_error(
                     "unsupported source type for timestamp target",

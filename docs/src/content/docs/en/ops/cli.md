@@ -23,6 +23,8 @@ Running `./aster_drive` directly starts the service. Running it with a subcomman
 
 `./aster_drive [serve [all|api|worker]]` defaults to `all`. Follower remains config-selected. See [separate roles](/en/deploy/roles/) for ownership, cancellation, limits and migration.
 
+Server startup (`serve all/api/worker` or no subcommand), `--config-file` / `--data-dir`, and `version` / `version --json` remain available without the `operations-cli` Cargo feature. That feature controls the operational subcommands below. Build a service-only binary with `cargo build --no-default-features --features server`, or pass `--build-arg CARGO_FEATURES=server` to Docker.
+
 ## Command Quick Reference
 
 | What you want to do | Command | When to use it |
@@ -38,6 +40,10 @@ Running `./aster_drive` directly starts the service. Running it with a subcomman
 :::caution[Back up before letting the CLI write data]
 `doctor --fix`, `config set`, `config import`, and `database-migrate` may all change the database. Back up production first. Avoid experimental writes without a backup, because that may turn into a restore incident later.
 :::
+
+When running outside the instance directory, use `--config-file /srv/asterdrive/data/config.toml` or `--data-dir /srv/asterdrive/data`. Database target precedence is explicit `--database-url`, `ASTER_CLI_DATABASE_URL`, then `[database].url` in that config file. `doctor` and `config` only access an existing instance; they do not create a default config file or SQLite database when the target is missing. `database-migrate` always requires explicit source and target URLs.
+
+Prometheus and OTLP exporters absent from the binary, including their exporter-specific settings, are skipped without blocking offline `config` operations or server startup. `doctor` checks the effective instance configuration. Compiled and enabled exporters still require valid settings and credentials.
 
 ## Prepare the Database URL First
 
@@ -59,11 +65,13 @@ That avoids confusion between SQLite paths, mounted volumes, and actual file loc
 
 ## Use Environment Variables Instead of Common Arguments
 
-In operations scripts, if you do not want to repeat long arguments on every command, use the CLI-specific `ASTER_CLI_*` environment variables. They only affect the command-line tools and do not change service startup configuration.
+Operations scripts can use `ASTER_CLI_*` to supply defaults for the corresponding arguments. Database targets and output formats affect their operations commands; the instance-location options also apply to `serve` and startup without a subcommand.
 
 | Environment variable | Corresponding argument | Applicable commands |
 | --- | --- | --- |
 | `ASTER_CLI_DATABASE_URL` | `--database-url` | `doctor`, `config`, `node enroll` |
+| `ASTER_CLI_CONFIG_FILE` | `--config-file` | server startup and CLI commands |
+| `ASTER_CLI_DATA_DIR` | `--data-dir` | server startup and CLI commands |
 | `ASTER_CLI_OUTPUT_FORMAT` | `--output-format` | `doctor`, `config`, `node`, `database-migrate` |
 | `ASTER_CLI_MASTER_URL` | `node enroll --master-url` | `node enroll` |
 | `ASTER_CLI_ENROLLMENT_TOKEN` | `node enroll --token` | `node enroll` |
@@ -88,7 +96,7 @@ ASTER_CLI_COPY_BATCH_SIZE=100
 ```
 
 :::tip[Service configuration and CLI parameters use separate ENV sets]
-`ASTER__DATABASE__URL` overrides the `config.toml` read by the service. `ASTER_CLI_DATABASE_URL` is only used as an argument for the operations CLI.
+`ASTER__DATABASE__URL` overrides the database address read from `config.toml`; `doctor` / `config` reuse that result when no explicit target is supplied. `ASTER_CLI_DATABASE_URL` directly supplies the operations database target, taking precedence over the instance config without changing the server startup target.
 
 If you start the service and run commands from the same shell, keep these two classes of variables clearly separated. Troubleshooting becomes much easier.
 :::
@@ -238,21 +246,23 @@ Validate first, then write to the database:
   --value '["https://drive.example.com","https://panel.example.com"]'
 ```
 
-For bulk import, the input file can be either of these JSON shapes:
+Sensitive settings prompt without terminal echo by default. Automation can use stdin or a file with mode `0600`:
 
-```json
-[
-  { "key": "public_site_url", "value": ["https://drive.example.com", "https://panel.example.com"] },
-  { "key": "auth_cookie_secure", "value": "true" }
-]
+```bash
+printf '%s' 'smtp-secret' | ./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-stdin
+./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-file /run/secrets/smtp-password
 ```
+
+Explicit `--value` and `ASTER_CLI_CONFIG_VALUE` remain available, but expose the value in command arguments, shell history, or process diagnostics.
+
+`config export` emits the single versioned JSON backup format accepted directly by `import` and `validate --input-file`. Sensitive values are omitted by default and listed under `omitted_sensitive_keys`. A complete restore requires `--include-sensitive`; its output contains plaintext credentials and must be protected as a secret file. Import files require mode `0600`.
 
 ```json
 {
-  "configs": [
-    { "key": "public_site_url", "value": ["https://drive.example.com", "https://panel.example.com"] },
-    { "key": "auth_cookie_secure", "value": "true" }
-  ]
+  "format": "asterdrive.runtime-config",
+  "version": 1,
+  "configs": [{"key":"public_site_url","value":["https://drive.example.com"],"source":"system","visibility":"private","is_sensitive":false}],
+  "omitted_sensitive_keys": ["mail_smtp_password"]
 }
 ```
 
@@ -274,8 +284,11 @@ Export existing config like this:
   export
 ```
 
-The export result is better suited for review, backup, or script processing.  
-If you plan to import it again, first normalize it into the "key/value array" shape above or the `{"configs": [...]}` shape, then pass it to `import`.
+Import validates every entry before writing the complete file in one transaction. Failure leaves no partial changes. Settings absent from the backup keep their target values. Only the current versioned backup format is accepted; display output and older key/value arrays are not restorable inputs.
+
+System entries must exist in the current registry; their `source`, `visibility`, and `is_sensitive` metadata are read-only. Custom entries must explicitly use `custom`. Duplicate keys, unknown system keys, redacted placeholders, and display-only fields are rejected. Sensitive entries must remain `private`, and imports cannot remove existing sensitivity. Reload notifications are sent only after commit; if delivery fails, the error states that settings were saved and asks you to check `config_sync` or restart the affected instances.
+
+Set a restrictive umask such as `umask 077` before redirecting an export that includes secrets.
 
 If you only want to confirm whether a value is valid, prefer `validate`. Do not use `set` directly.
 
@@ -286,15 +299,17 @@ This command is only for follower nodes. After the primary admin panel generates
 ```bash
 ./aster_drive node enroll \
   --master-url https://drive.example.com \
-  --token enr_xxxxx
+  --token-prompt
 ```
+
+Interactive token input hides terminal echo. Automation can use `--token-stdin`, `--token-file`, or `ASTER_CLI_ENROLLMENT_TOKEN`. Explicit `--token` exposes it in process arguments.
 
 If you do not pass the database URL explicitly, the command reads `[database].url` from the current `data/config.toml`. You can also specify it directly:
 
 ```bash
 ./aster_drive node enroll \
   --master-url https://drive.example.com \
-  --token enr_xxxxx \
+  --token-file /run/secrets/enrollment-token \
   --database-url "sqlite:///var/lib/asterdrive/data/asterdrive.db?mode=rwc"
 ```
 

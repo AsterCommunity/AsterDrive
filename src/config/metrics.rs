@@ -63,18 +63,11 @@ impl fmt::Debug for OtlpMetricsConfig {
     }
 }
 impl ObservabilityConfig {
+    /// Only compiled exporters participate in runtime validation and initialization.
     pub fn validate(&self) -> Result<()> {
-        if self.prometheus.enabled && !cfg!(feature = "metrics") {
-            return Err(AsterError::config_error(
-                "observability.prometheus requires the metrics Cargo feature",
-            ));
-        }
-        if self.otlp_metrics.enabled && !cfg!(feature = "otlp-metrics") {
-            return Err(AsterError::config_error(
-                "observability.otlp_metrics requires the otlp-metrics Cargo feature",
-            ));
-        }
-        if (self.prometheus.enabled || self.otlp_metrics.enabled)
+        let prometheus_enabled = self.prometheus.enabled && cfg!(feature = "metrics");
+        let otlp_enabled = self.otlp_metrics.enabled && cfg!(feature = "otlp-metrics");
+        if (prometheus_enabled || otlp_enabled)
             && (self.environment.trim().is_empty()
                 || self.environment.len() > 128
                 || self.environment.chars().any(char::is_control))
@@ -83,8 +76,13 @@ impl ObservabilityConfig {
                 "invalid observability deployment identity",
             ));
         }
-        self.prometheus.basic_auth.validate()?;
-        if self.prometheus.basic_auth.enabled && !self.prometheus.enabled {
+        if cfg!(feature = "metrics") {
+            self.prometheus.basic_auth.validate()?;
+        }
+        if cfg!(feature = "metrics")
+            && self.prometheus.basic_auth.enabled
+            && !self.prometheus.enabled
+        {
             return Err(AsterError::config_error(
                 "observability.prometheus.basic_auth requires the Prometheus endpoint",
             ));
@@ -106,7 +104,9 @@ impl ObservabilityConfig {
         instance_id: &str,
     ) -> Result<aster_forge_metrics::MetricsProvider> {
         self.validate()?;
-        if !self.prometheus.enabled && !self.otlp_metrics.enabled {
+        if !(self.prometheus.enabled && cfg!(feature = "metrics")
+            || self.otlp_metrics.enabled && cfg!(feature = "otlp-metrics"))
+        {
             return aster_forge_metrics::MetricsProvider::builder()
                 .build()
                 .map_err(metrics_error);
@@ -114,7 +114,7 @@ impl ObservabilityConfig {
         let builder = aster_forge_metrics::MetricsProvider::builder()
             .with_resource(aster_forge_metrics::MetricsResource {
                 service_name: "asterdrive".into(),
-                service_version: crate::build_info::VERSION.into(),
+                service_version: env!("CARGO_PKG_VERSION").into(),
                 environment: self.environment.clone(),
                 node_mode: node_mode.as_str().into(),
                 role: role.as_str().into(),
@@ -185,11 +185,6 @@ impl MetricsBasicAuthConfig {
         if !self.enabled {
             return Ok(());
         }
-        if !cfg!(feature = "metrics") {
-            return Err(AsterError::config_error(
-                "observability.prometheus.basic_auth requires the metrics Cargo feature",
-            ));
-        }
         if self.username.trim().is_empty()
             || self.username.contains(':')
             || self.username.chars().any(char::is_control)
@@ -258,7 +253,7 @@ mod tests {
                 .unwrap();
             for attribute in [
                 "service_name=\"asterdrive\"".to_owned(),
-                format!("service_version=\"{}\"", crate::build_info::VERSION),
+                format!("service_version=\"{}\"", env!("CARGO_PKG_VERSION")),
                 format!("aster_role=\"{}\"", role.as_str()),
                 format!("aster_node_mode=\"{}\"", mode.as_str()),
                 "deployment_environment_name=\"test\"".into(),
@@ -381,7 +376,7 @@ mod tests {
     }
 
     #[test]
-    fn feature_defaults_and_explicit_unsupported_capabilities_fail_closed() {
+    fn only_compiled_and_enabled_exporters_are_activated() {
         let mut config = ObservabilityConfig::default();
         assert!(!config.prometheus.enabled);
         assert!(config.validate().is_ok());
@@ -396,12 +391,74 @@ mod tests {
                 .enabled()
         );
         config.prometheus.enabled = true;
-        assert_eq!(config.validate().is_ok(), cfg!(feature = "metrics"));
+        config.validate().unwrap();
         config.prometheus.enabled = false;
         config.otlp_metrics.enabled = true;
-        assert_eq!(config.validate().is_ok(), cfg!(feature = "otlp-metrics"));
+        config.validate().unwrap();
         config.otlp_metrics.enabled = false;
         config.prometheus.basic_auth = valid_auth();
+        assert_eq!(config.validate().is_err(), cfg!(feature = "metrics"));
+    }
+
+    #[test]
+    fn unavailable_exporters_ignore_their_settings_and_create_noop_provider() {
+        for prometheus in [true, false] {
+            if (prometheus && cfg!(feature = "metrics"))
+                || (!prometheus && cfg!(feature = "otlp-metrics"))
+            {
+                continue;
+            }
+            let mut config = ObservabilityConfig::default();
+            config.environment.clear();
+            if prometheus {
+                config.prometheus.enabled = true;
+                config.prometheus.basic_auth.enabled = true;
+                config.prometheus.basic_auth.username = "invalid:username".into();
+                config.prometheus.basic_auth.password_hash = "invalid-secret-marker".into();
+            } else {
+                config.otlp_metrics.enabled = true;
+                config.otlp_metrics.endpoint = "invalid://secret-marker".into();
+                config.otlp_metrics.interval_seconds = 0;
+                config.otlp_metrics.timeout_seconds = 0;
+                config
+                    .otlp_metrics
+                    .headers
+                    .insert("invalid header".into(), "secret-marker".into());
+            }
+            config.validate().unwrap();
+            let provider = config
+                .create_provider(NodeRuntimeMode::Primary, ServeRole::All, "ignored-exporter")
+                .unwrap();
+            assert!(
+                !provider.enabled(),
+                "an unavailable exporter must not create an active provider"
+            );
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn compiled_exporters_validate_credentials_and_environment() {
+        let mut config = ObservabilityConfig::default();
+        config.prometheus.enabled = true;
+        config.prometheus.basic_auth = valid_auth();
+        config.otlp_metrics.enabled = true;
+        config.validate().unwrap();
+
+        for username in ["", "bad:username", "bad\nusername"] {
+            config.prometheus.basic_auth.username = username.into();
+            assert!(config.validate().is_err());
+        }
+        config.prometheus.basic_auth = valid_auth();
+        config.prometheus.basic_auth.password_hash = "invalid-secret-marker".into();
+        let error = config.validate().unwrap_err();
+        assert!(!error.message().contains("invalid-secret-marker"));
+
+        config.prometheus.basic_auth = valid_auth();
+        config.prometheus.enabled = false;
+        assert!(config.validate().is_err());
+        config.prometheus.enabled = true;
+        config.environment.clear();
         assert!(config.validate().is_err());
     }
 

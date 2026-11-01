@@ -1,4 +1,6 @@
-//! 集成测试：`cli`。
+//! 集成测试：运维 CLI。
+
+#![cfg(feature = "operations-cli")]
 
 use crate::common;
 
@@ -65,6 +67,10 @@ async fn setup_database_url() -> String {
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
+    aster_drive::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
+        .await
+        .unwrap();
+    db.close().await.unwrap();
     url
 }
 
@@ -1037,15 +1043,19 @@ fn test_root_binary_help_lists_config_subcommand() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("help stdout should be utf-8");
-    assert!(stdout.contains("AsterDrive server and operations CLI"));
+    assert_eq!(
+        stdout.lines().next(),
+        Some(concat!("AsterDrive ", env!("CARGO_PKG_VERSION")))
+    );
+    assert!(stdout.contains(env!("CARGO_PKG_DESCRIPTION")));
     assert!(stdout.contains("serve"));
-    assert!(stdout.contains("Start the AsterDrive server"));
+    assert!(stdout.contains("Run the server with all, API, or worker responsibilities"));
     assert!(stdout.contains("config"));
-    assert!(stdout.contains("Manage runtime configuration stored in system_config"));
+    assert!(stdout.contains("View and manage runtime settings"));
     assert!(stdout.contains("doctor"));
-    assert!(stdout.contains("Run offline health checks"));
+    assert!(stdout.contains("Check instance health and configuration"));
     assert!(stdout.contains("database-migrate"));
-    assert!(stdout.contains("Run an offline database backend migration"));
+    assert!(stdout.contains("Migrate data between database backends"));
 }
 
 #[test]
@@ -1070,7 +1080,7 @@ async fn test_root_binary_serve_help_is_available() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("serve help stdout should be utf-8");
-    assert!(stdout.contains("Start the AsterDrive server"));
+    assert!(stdout.contains("Run the server with all, API, or worker responsibilities"));
 }
 
 #[tokio::test]
@@ -1080,7 +1090,7 @@ async fn test_root_binary_database_migrate_help_is_available() {
 
     let stdout =
         String::from_utf8(output.stdout).expect("database-migrate help stdout should be utf-8");
-    assert!(stdout.contains("offline database backend migration"));
+    assert!(stdout.contains("Migrate data between database backends"));
     assert!(stdout.contains("--source-database-url"));
     assert!(stdout.contains("--target-database-url"));
     assert!(stdout.contains("--dry-run"));
@@ -1093,7 +1103,7 @@ async fn test_root_binary_doctor_help_is_available() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("doctor help stdout should be utf-8");
-    assert!(stdout.contains("offline health checks"));
+    assert!(stdout.contains("Check instance health and configuration"));
     assert!(stdout.contains("--database-url"));
     assert!(stdout.contains("--output-format"));
     assert!(stdout.contains("--strict"));
@@ -1247,6 +1257,350 @@ async fn test_root_binary_config_list_human_summarizes_multiline_and_masks_sensi
     assert!(stdout.contains("frontend_preview_apps_json"));
     assert!(stdout.contains("<json value:"));
     assert!(!stdout.contains("frontend_preview_apps_json = {"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn config_backup_round_trips_values_and_redacts_secrets_by_default() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let source = setup_database_url().await;
+    let target_without_secrets = setup_database_url().await;
+    let target_with_secrets = setup_database_url().await;
+    for (key, value) in [
+        ("custom.backup_roundtrip", "line one\nline two"),
+        ("mail_smtp_password", "backup-secret-marker"),
+    ] {
+        let output = run_aster_drive(&[
+            "config",
+            "--database-url",
+            &source,
+            "set",
+            "--key",
+            key,
+            "--value",
+            value,
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if key == "mail_smtp_password" {
+            assert!(!String::from_utf8_lossy(&output.stdout).contains(value));
+            assert!(!String::from_utf8_lossy(&output.stderr).contains(value));
+        }
+    }
+
+    let sanitized = run_aster_drive(&["config", "--database-url", &source, "export"]);
+    assert!(sanitized.status.success());
+    let backup: Value = serde_json::from_slice(&sanitized.stdout).unwrap();
+    assert_eq!(backup["format"], "asterdrive.runtime-config");
+    assert_eq!(backup["version"], 1);
+    assert!(
+        backup["omitted_sensitive_keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|key| key == "mail_smtp_password")
+    );
+    assert!(!String::from_utf8_lossy(&sanitized.stdout).contains("backup-secret-marker"));
+
+    let dir = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-backup-{}", uuid::Uuid::new_v4())),
+        "config backup fixture",
+    );
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let sanitized_path = dir.path().join("sanitized.json");
+    std::fs::write(&sanitized_path, &sanitized.stdout).unwrap();
+    std::fs::set_permissions(&sanitized_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let imported = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &target_without_secrets,
+        "import",
+        "--input-file",
+        sanitized_path.to_str().unwrap(),
+    ]);
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&imported.stdout).contains("backup-secret-marker"));
+    let value = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &target_without_secrets,
+        "get",
+        "--key",
+        "custom.backup_roundtrip",
+    ]);
+    let value: Value = serde_json::from_slice(&value.stdout).unwrap();
+    assert_eq!(value["data"]["value"], "line one\nline two");
+
+    let complete = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &source,
+        "export",
+        "--include-sensitive",
+    ]);
+    assert!(String::from_utf8_lossy(&complete.stdout).contains("backup-secret-marker"));
+    let complete_path = dir.path().join("complete.json");
+    std::fs::write(&complete_path, &complete.stdout).unwrap();
+    std::fs::set_permissions(&complete_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let imported = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &target_with_secrets,
+        "import",
+        "--input-file",
+        complete_path.to_str().unwrap(),
+    ]);
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&imported.stdout).contains("backup-secret-marker"));
+    let restored = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &target_with_secrets,
+        "export",
+        "--include-sensitive",
+    ]);
+    let before: Value = serde_json::from_slice(&complete.stdout).unwrap();
+    let after: Value = serde_json::from_slice(&restored.stdout).unwrap();
+    let before = before["configs"].as_array().unwrap();
+    let after = after["configs"].as_array().unwrap();
+    assert_eq!(before.len(), after.len());
+    for (original, restored) in before.iter().zip(after) {
+        assert_eq!(original["key"], restored["key"]);
+        if original["key"] == "media_processing_registry_json" {
+            // Processor extension order is a set; import canonicalizes that
+            // order. Every other registry property must survive unchanged.
+            let mut first: Value =
+                serde_json::from_str(original["value"].as_str().unwrap()).unwrap();
+            let mut second: Value =
+                serde_json::from_str(restored["value"].as_str().unwrap()).unwrap();
+            for registry in [&mut first, &mut second] {
+                for processor in registry["processors"].as_array_mut().unwrap() {
+                    if let Some(extensions) = processor
+                        .get_mut("extensions")
+                        .and_then(Value::as_array_mut)
+                    {
+                        extensions.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                    }
+                }
+            }
+            assert!(
+                first == second,
+                "processor configuration changed during round trip"
+            );
+        } else {
+            assert!(
+                original == restored,
+                "configuration changed during round trip: {}",
+                original["key"]
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn config_import_rejects_invalid_batch_without_partial_writes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let database_url = setup_database_url().await;
+    let dir = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-invalid-backup-{}", uuid::Uuid::new_v4())),
+        "invalid config backup fixture",
+    );
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let path = dir.path().join("invalid.json");
+    std::fs::write(&path, r#"{"format":"asterdrive.runtime-config","version":1,"configs":[{"key":"custom.must_not_write","value":"first","source":"custom","visibility":"private","is_sensitive":false},{"key":"auth_cookie_secure","value":"yes","source":"system","visibility":"private","is_sensitive":false}],"omitted_sensitive_keys":[]}"#).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "import",
+        "--input-file",
+        path.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    let get = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "get",
+        "--key",
+        "custom.must_not_write",
+    ]);
+    assert!(!get.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("first"));
+
+    let legacy_path = dir.path().join("legacy.json");
+    std::fs::write(
+        &legacy_path,
+        r#"[{"key":"custom.legacy","value":"ignored"}]"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&legacy_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let legacy = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "import",
+        "--input-file",
+        legacy_path.to_str().unwrap(),
+    ]);
+    assert!(!legacy.status.success());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn config_secret_file_input_requires_private_permissions_and_never_echoes_value() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let database_url = setup_database_url().await;
+    let dir = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-secret-input-{}", uuid::Uuid::new_v4())),
+        "secret config input fixture",
+    );
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let secret = "secret-file-marker";
+    let private_path = dir.path().join("private");
+    std::fs::write(&private_path, secret).unwrap();
+    std::fs::set_permissions(&private_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "set",
+        "--key",
+        "mail_smtp_password",
+        "--value-file",
+        private_path.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+
+    let public_path = dir.path().join("public");
+    std::fs::write(&public_path, secret).unwrap();
+    std::fs::set_permissions(&public_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let output = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "set",
+        "--key",
+        "mail_smtp_password",
+        "--value-file",
+        public_path.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+}
+
+#[tokio::test]
+async fn cli_database_target_precedence_is_argument_then_cli_env_then_instance_config() {
+    let configured_database = setup_database_url().await;
+    let environment_database = setup_database_url().await;
+    let argument_database = setup_database_url().await;
+    for (database, value) in [
+        (&configured_database, "config-file"),
+        (&environment_database, "cli-env"),
+        (&argument_database, "argument"),
+    ] {
+        let output = run_aster_drive(&[
+            "config",
+            "--database-url",
+            database,
+            "set",
+            "--key",
+            "custom.target_precedence",
+            "--value",
+            value,
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let data_dir =
+        std::env::temp_dir().join(format!("aster-cli-config-target-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::write(
+        data_dir.join("config.toml"),
+        format!("[database]\nurl = \"{configured_database}\"\n"),
+    )
+    .unwrap();
+    let data_arg = data_dir.to_str().unwrap();
+
+    let get = |database: Option<&str>, env: &[(&str, &str)]| {
+        let mut args = vec!["--data-dir", data_arg, "config"];
+        if let Some(database) = database {
+            args.extend(["--database-url", database]);
+        }
+        args.extend(["get", "--key", "custom.target_precedence"]);
+        run_aster_drive_with_env(&args, env)
+    };
+    let from_config = get(None, &[]);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&from_config.stdout).unwrap()["data"]["value"],
+        "config-file"
+    );
+    let from_environment = get(None, &[("ASTER_CLI_DATABASE_URL", &environment_database)]);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&from_environment.stdout).unwrap()["data"]["value"],
+        "cli-env"
+    );
+    let from_argument = get(
+        Some(&argument_database),
+        &[("ASTER_CLI_DATABASE_URL", &environment_database)],
+    );
+    assert_eq!(
+        serde_json::from_slice::<Value>(&from_argument.stdout).unwrap()["data"]["value"],
+        "argument"
+    );
+
+    std::fs::remove_dir_all(data_dir).unwrap();
+}
+
+#[test]
+fn cli_instance_location_works_from_another_directory_and_missing_instance_is_side_effect_free() {
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-instance-{}", uuid::Uuid::new_v4())),
+        "CLI instance location fixture",
+    );
+    std::fs::create_dir_all(root.path()).unwrap();
+    let cwd = root.path().join("elsewhere");
+    let data = root.path().join("instance-data");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
+    let output = run_aster_drive_with_env_in_dir(&["config", "list"], &[], &cwd);
+    assert!(!output.status.success());
+    assert!(!cwd.join("data").exists());
+
+    let missing = run_aster_drive_with_env_in_dir(
+        &["--data-dir", data.to_str().unwrap(), "config", "list"],
+        &[],
+        &cwd,
+    );
+    assert!(!missing.status.success());
+    assert!(!data.join("config.toml").exists());
+    assert!(!data.join("asterdrive.db").exists());
 }
 
 #[tokio::test]
@@ -2132,7 +2486,7 @@ async fn test_root_binary_config_delete_rejects_system_config_key() {
 }
 
 #[tokio::test]
-async fn test_root_binary_config_json_error_stays_clean_when_default_config_is_created() {
+async fn test_root_binary_config_json_error_does_not_create_default_config() {
     let database_url = setup_database_url().await;
     let current_dir = std::env::temp_dir().join(format!(
         "asterdrive-cli-config-clean-json-{}",
@@ -2161,7 +2515,8 @@ async fn test_root_binary_config_json_error_stays_clean_when_default_config_is_c
         serde_json::from_slice(&output.stderr).expect("stderr should be one JSON document");
     assert_eq!(err_json["ok"], false);
     assert_eq!(err_json["error"]["code"], "E013");
-    assert!(current_dir.join("data/config.toml").exists());
+    assert!(!current_dir.join("data/config.toml").exists());
+    assert!(!current_dir.join("data/asterdrive.db").exists());
 
     std::fs::remove_dir_all(current_dir).unwrap();
 }
@@ -2698,7 +3053,6 @@ async fn test_root_binary_database_migrate_human_output_supports_forced_color() 
     assert!(stderr.contains("\u{1b}["));
 }
 
-#[cfg(feature = "cli")]
 #[test]
 fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_it() {
     use std::io::Write;
@@ -2755,4 +3109,520 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         invalid_config
     );
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cli_hidden_terminal_input_restores_echo_and_keeps_credentials_out_of_output() {
+    let database_url = setup_database_url().await;
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-terminal-{}", uuid::Uuid::new_v4())),
+        "CLI controlling terminal fixture",
+    );
+    std::fs::create_dir_all(root.path().join("data")).unwrap();
+    std::fs::write(
+        root.path().join("data/config.toml"),
+        "[server]\nstart_mode = \"primary\"\n",
+    )
+    .unwrap();
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            include_str!("cli_hidden_input.py"),
+            aster_drive_bin(),
+            &database_url,
+        ])
+        .arg(root.path())
+        .output()
+        .expect("Python 3 PTY test support must be available on Unix");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+async fn cli_secret_stdin_modes_are_bounded_mutually_exclusive_and_redacted() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let database_url = setup_database_url().await;
+    let run = |input: &[u8]| {
+        let mut child = Command::new(aster_drive_bin())
+            .args([
+                "config",
+                "--database-url",
+                &database_url,
+                "set",
+                "--key",
+                "mail_smtp_password",
+                "--value-stdin",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let written = child.stdin.take().unwrap().write_all(input);
+        if let Err(error) = written {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        }
+        child.wait_with_output().unwrap()
+    };
+    let output = run(b"stdin-secret-marker\r\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("stdin-secret-marker"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("stdin-secret-marker"));
+    let complete = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "export",
+        "--include-sensitive",
+    ]);
+    let backup: Value = serde_json::from_slice(&complete.stdout).unwrap();
+    let stored = backup["configs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["key"] == "mail_smtp_password")
+        .unwrap();
+    assert_eq!(stored["value"], "stdin-secret-marker");
+    for bad_input in [vec![0xff], vec![b'x'; 1024 * 1024 + 1]] {
+        let output = run(&bad_input);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("stdin-secret-marker"));
+    }
+    for args in [
+        vec![
+            "config",
+            "--database-url",
+            &database_url,
+            "set",
+            "--key",
+            "mail_smtp_password",
+            "--value",
+            "conflict-secret-marker",
+            "--value-stdin",
+        ],
+        vec![
+            "node",
+            "enroll",
+            "--master-url",
+            "https://example.invalid",
+            "--token",
+            "conflict-secret-marker",
+            "--token-stdin",
+        ],
+    ] {
+        let output = run_aster_drive(&args);
+        assert!(!output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("conflict-secret-marker"));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("conflict-secret-marker"));
+    }
+    for (args, variable) in [
+        (vec!["config", "set", "--help"], "ASTER_CLI_CONFIG_VALUE"),
+        (
+            vec!["node", "enroll", "--help"],
+            "ASTER_CLI_ENROLLMENT_TOKEN",
+        ),
+    ] {
+        let output = run_aster_drive_with_env(&args, &[(variable, "environment-secret-marker")]);
+        assert!(output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("environment-secret-marker"));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("environment-secret-marker"));
+    }
+}
+
+#[tokio::test]
+async fn cli_config_location_resolves_relative_database_and_service_environment_from_other_cwd() {
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-paths-{}", uuid::Uuid::new_v4())),
+        "CLI relative paths fixture",
+    );
+    let data = root.path().join("custom-data");
+    let cwd = root.path().join("elsewhere");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&cwd).unwrap();
+    let seeded = setup_database_url().await;
+    let seeded_path = seeded
+        .strip_prefix("sqlite://")
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap();
+    std::fs::copy(seeded_path, data.join("instance.db")).unwrap();
+    let config_path = data.join("config.toml");
+    let config_content = "[database]\nurl = \"sqlite://instance.db?mode=rwc\"\n";
+    std::fs::write(&config_path, config_content).unwrap();
+    for args in [
+        vec![
+            "--config-file",
+            config_path.to_str().unwrap(),
+            "config",
+            "get",
+            "--key",
+            "auth_cookie_secure",
+        ],
+        vec![
+            "config",
+            "--data-dir",
+            data.to_str().unwrap(),
+            "get",
+            "--key",
+            "auth_cookie_secure",
+        ],
+    ] {
+        let output = run_aster_drive_with_env_in_dir(&args, &[], &cwd);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!cwd.join("data").exists());
+        assert_eq!(
+            std::fs::read_to_string(&config_path).unwrap(),
+            config_content
+        );
+    }
+    let env = run_aster_drive_with_env_in_dir(
+        &["config", "get", "--key", "auth_cookie_secure"],
+        &[
+            ("ASTER_CLI_CONFIG_FILE", config_path.to_str().unwrap()),
+            ("ASTER__DATABASE__URL", &seeded),
+        ],
+        &cwd,
+    );
+    assert!(
+        env.status.success(),
+        "{}",
+        String::from_utf8_lossy(&env.stderr)
+    );
+    let doctor = run_aster_drive_with_env_in_dir(
+        &["--data-dir", data.to_str().unwrap(), "doctor"],
+        &[],
+        &cwd,
+    );
+    let report: Value = serde_json::from_slice(&doctor.stdout).unwrap();
+    assert!(
+        report["data"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| check["name"] == "database_connection" && check["status"] == "ok")
+    );
+    let missing_database = data.join("missing.db");
+    std::fs::write(
+        &config_path,
+        "[database]\nurl = \"sqlite://missing.db?mode=rwc\"\n",
+    )
+    .unwrap();
+    let output = run_aster_drive_with_env_in_dir(
+        &["--data-dir", data.to_str().unwrap(), "config", "list"],
+        &[],
+        &cwd,
+    );
+    assert!(!output.status.success());
+    assert!(!missing_database.exists());
+}
+
+#[test]
+fn cli_help_banner_includes_version_at_every_command_depth_without_startup() {
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-help-banner-{}", uuid::Uuid::new_v4())),
+        "CLI help fixture",
+    );
+    std::fs::create_dir_all(root.path()).unwrap();
+    for args in [
+        vec!["-h"],
+        vec!["--help"],
+        vec!["serve", "--help"],
+        vec!["doctor", "--help"],
+        vec!["config", "--help"],
+        vec!["config", "export", "--help"],
+        vec!["node", "enroll", "--help"],
+        vec!["database-migrate", "--help"],
+    ] {
+        let output = run_aster_drive_with_env_in_dir(&args, &[], root.path());
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let help = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            help.lines().next(),
+            Some(concat!("AsterDrive ", env!("CARGO_PKG_VERSION")))
+        );
+        assert!(!help.contains("system_config"));
+        assert!(!help.contains("[env:"));
+        assert!(!root.path().join("data").exists());
+    }
+    let output = run_aster_drive_with_env_in_dir(&["--version"], &[], root.path());
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[tokio::test]
+async fn offline_config_and_doctor_ignore_uncompiled_exporters() {
+    let database_url = setup_database_url().await;
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!(
+            "aster-cli-exporter-boundary-{}",
+            uuid::Uuid::new_v4()
+        )),
+        "offline exporter validation boundary",
+    );
+    std::fs::create_dir_all(root.path()).unwrap();
+    let path = root.path().join("config.toml");
+    for section in ["prometheus", "otlp_metrics"] {
+        let content = format!(
+            "[database]\nurl = \"{database_url}\"\n[observability.{section}]\nenabled = true\n"
+        );
+        std::fs::write(&path, &content).unwrap();
+        for action in [
+            vec!["list"],
+            vec!["get", "--key", "auth_cookie_secure"],
+            vec!["export"],
+            vec!["validate", "--key", "custom.preview", "--value", "preview"],
+            vec!["set", "--key", "custom.offline", "--value", "updated"],
+        ] {
+            let mut args = vec!["config", "--config-file", path.to_str().unwrap()];
+            args.extend(action);
+            let output = run_aster_drive_with_env_in_dir(&args, &[], root.path());
+            assert!(
+                output.status.success(),
+                "offline {section} config: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.stderr.is_empty());
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+        assert!(!root.path().join("data").exists());
+        let output = run_aster_drive_with_env_in_dir(
+            &["doctor", "--config-file", path.to_str().unwrap()],
+            &[],
+            root.path(),
+        );
+        let report: Value = serde_json::from_slice(&output.stdout)
+            .expect("doctor must produce its diagnostic report");
+        assert!(
+            report["data"]["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|check| check["name"] == "static_config" && check["status"] == "ok")
+        );
+        assert!(
+            report["data"]["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|check| check["name"] == "database_connection" && check["status"] == "ok")
+        );
+    }
+}
+
+#[cfg(all(unix, any(not(feature = "metrics"), not(feature = "otlp-metrics"))))]
+#[tokio::test]
+async fn server_starts_and_keeps_metrics_route_absent_for_uncompiled_exporters() {
+    use aster_forge_test::process::{TestProcess, available_loopback_port};
+    use std::time::Duration;
+    for mode in ["primary", "follower"] {
+        let port = available_loopback_port();
+        let mut command = Command::new(aster_drive_bin());
+        for (key, _) in std::env::vars_os() {
+            if key.to_string_lossy().starts_with("ASTER_") {
+                command.env_remove(key);
+            }
+        }
+        command
+            .env("ASTER__SERVER__START_MODE", mode)
+            .env("ASTER__SERVER__HOST", "127.0.0.1")
+            .env("ASTER__SERVER__PORT", port.to_string())
+            .env("ASTER__SERVER__WORKERS", "1")
+            .env("ASTER__DATABASE__URL", "sqlite://asterdrive.db?mode=rwc")
+            .env("ASTER__DATABASE__POOL_SIZE", "2")
+            .env("ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES", "true");
+        if !cfg!(feature = "metrics") {
+            command
+                .env("ASTER__OBSERVABILITY__PROMETHEUS__ENABLED", "true")
+                .env(
+                    "ASTER__OBSERVABILITY__PROMETHEUS__BASIC_AUTH__ENABLED",
+                    "true",
+                )
+                .env(
+                    "ASTER__OBSERVABILITY__PROMETHEUS__BASIC_AUTH__USERNAME",
+                    "invalid:username",
+                )
+                .env(
+                    "ASTER__OBSERVABILITY__PROMETHEUS__BASIC_AUTH__PASSWORD_HASH",
+                    "invalid-secret-marker",
+                );
+        }
+        if !cfg!(feature = "otlp-metrics") {
+            command
+                .env("ASTER__OBSERVABILITY__OTLP_METRICS__ENABLED", "true")
+                .env(
+                    "ASTER__OBSERVABILITY__OTLP_METRICS__ENDPOINT",
+                    "invalid://invalid-secret-marker",
+                )
+                .env("ASTER__OBSERVABILITY__OTLP_METRICS__INTERVAL_SECONDS", "0");
+        }
+        let mut process = TestProcess::spawn(&format!("ignored-exporter-{mode}"), &mut command);
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                process.assert_running();
+                if client
+                    .get(format!("http://127.0.0.1:{port}/health"))
+                    .send()
+                    .await
+                    .is_ok_and(|response| response.status().is_success())
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|error| panic!("server did not start: {error}\n{}", process.diagnostics()));
+        let response = client
+            .get(format!("http://127.0.0.1:{port}/health/metrics"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        assert!(
+            process.terminate_gracefully(Duration::from_secs(20)),
+            "{}",
+            process.diagnostics()
+        );
+        assert!(!process.diagnostics().contains("invalid-secret-marker"));
+    }
+}
+
+#[test]
+fn version_output_is_structured_and_does_not_load_instance_configuration() {
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-version-{}", uuid::Uuid::new_v4())),
+        "CLI version fixture",
+    );
+    std::fs::create_dir_all(root.path().join("data")).unwrap();
+    let path = root.path().join("data/config.toml");
+    std::fs::write(&path, "invalid TOML credential-marker").unwrap();
+    let json_output = run_aster_drive_with_env_in_dir(&["version", "--json"], &[], root.path());
+    assert!(
+        json_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&json_output.stderr)
+    );
+    assert!(json_output.stderr.is_empty());
+    let identity: Value = serde_json::from_slice(&json_output.stdout).unwrap();
+    assert_eq!(identity["product"], "AsterDrive");
+    assert_eq!(identity["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(identity["revision"], env!("ASTER_BUILD_REVISION"));
+    assert_eq!(identity["target"], env!("ASTER_BUILD_TARGET"));
+    assert_eq!(identity["profile"], env!("ASTER_BUILD_PROFILE"));
+    assert_eq!(identity["build_time"], env!("ASTER_BUILD_TIME"));
+    assert!(identity["dirty"].is_boolean() || identity["dirty"].is_null());
+    for (feature, enabled) in [
+        ("metrics", cfg!(feature = "metrics")),
+        ("otlp-metrics", cfg!(feature = "otlp-metrics")),
+        ("operations-cli", cfg!(feature = "operations-cli")),
+        ("server", cfg!(feature = "server")),
+        ("openapi", cfg!(feature = "openapi")),
+    ] {
+        assert_eq!(
+            identity["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == feature),
+            enabled
+        );
+    }
+    let human = run_aster_drive_with_env_in_dir(&["version"], &[], root.path());
+    assert!(human.status.success());
+    let human = String::from_utf8(human.stdout).unwrap();
+    for label in ["Revision:", "Target:", "Profile:", "Features:", "Built:"] {
+        assert!(human.contains(label));
+    }
+    for args in [vec!["-V"], vec!["--version"]] {
+        let output = run_aster_drive_with_env_in_dir(&args, &[], root.path());
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            concat!("AsterDrive ", env!("CARGO_PKG_VERSION"), "\n")
+        );
+        assert!(output.stderr.is_empty());
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "invalid TOML credential-marker"
+    );
+    assert_eq!(
+        std::fs::read_dir(root.path().join("data")).unwrap().count(),
+        1
+    );
+}
+
+#[test]
+fn root_help_is_compact_hides_environment_values_and_orders_common_commands_first() {
+    for args in [vec!["-h"], vec!["--help"]] {
+        let output = run_aster_drive_with_env(
+            &args,
+            &[
+                ("ASTER_CLI_CONFIG_FILE", "/secret-path-marker"),
+                ("ASTER_CLI_CONFIG_VALUE", "credential-marker"),
+            ],
+        );
+        assert!(output.status.success());
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.starts_with(concat!(
+            "AsterDrive ",
+            env!("CARGO_PKG_VERSION"),
+            "\n",
+            env!("CARGO_PKG_DESCRIPTION"),
+            "\n"
+        )));
+        assert!(
+            !text.contains("[env:")
+                && !text.contains("secret-path-marker")
+                && !text.contains("credential-marker")
+        );
+        assert!(!text.contains("\n\n\n"));
+        assert!(
+            text.lines().count() <= 32,
+            "root help is not compact: {text}"
+        );
+        let commands = [
+            "  serve ",
+            "  config ",
+            "  doctor ",
+            "  node ",
+            "  database-migrate ",
+            "  hash-password ",
+            "  version ",
+        ];
+        let positions: Vec<usize> = commands
+            .iter()
+            .map(|command| text.find(command).unwrap())
+            .collect();
+        assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(text.contains("--config-file <PATH>") && text.contains("--data-dir <PATH>"));
+        assert!(
+            text.contains("Examples:")
+                && text.contains("Running without a command starts all server roles.")
+        );
+    }
 }

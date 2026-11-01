@@ -150,8 +150,11 @@ pub async fn initialize_database_state(
     .await?;
     if matches!(mode, NodeRuntimeMode::Follower) {
         handle_optional_follower_bootstrap(
-            crate::services::remote::node_enrollment::bootstrap_from_env_if_configured(database)
-                .await,
+            crate::services::remote::node_enrollment::bootstrap_from_env_if_configured(
+                database,
+                &|name| std::env::var(name).ok(),
+            )
+            .await,
         );
     }
     Ok(connector_registry)

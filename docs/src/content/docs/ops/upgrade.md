@@ -27,7 +27,7 @@ title: "升级与版本迁移"
 
 升级后请安排用户和 API 客户端重新登录：本地会话 JWT 使用新的严格 token 格式，旧 token 不兼容。多 Primary 部署应在同一个维护窗口统一升级，避免新旧实例混用 token 格式。自定义 `auth.jwt_secret` 至少需要 32 字节。
 
-如果构建启用了 `metrics` feature，而部署需要 `/health/metrics`，请确认 `config.toml` 中 `[observability.prometheus]` 的 `enabled = true`；Prometheus 与 OTLP exporter 默认关闭。启用配置中实际未编译进二进制的 exporter 会导致启动失败。
+如果构建启用了 `metrics` feature，而部署需要 `/health/metrics`，请确认 `config.toml` 中 `[observability.prometheus]` 的 `enabled = true`；Prometheus 与 OTLP exporter 默认关闭。配置中启用但实际未编译进二进制的 exporter 会被跳过，其专属设置不参与运行校验，不会因此启动失败。
 
 升级后按本文的验证清单检查服务，并重点确认登录、Prometheus 抓取和应用日志中的 migration 完成状态。
 
