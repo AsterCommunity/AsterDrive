@@ -139,7 +139,7 @@ strip = true
 [features]
 default = ["server", "operations-cli"]
 server = []
-operations-cli = ["server", "dep:rpassword", "dep:crossterm", "dep:crossterm_winapi"]
+operations-cli = ["server", "dep:inquire"]
 metrics = [
     "server",
     "aster_drive_metrics/prometheus",
@@ -222,8 +222,6 @@ azure_storage_blob = { version = "1.1.0", default-features = false, features = [
 chrono = { workspace = true }
 chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
-rpassword = { version = "7", optional = true }
-crossterm = { version = "0.29", default-features = false, features = ["windows"], optional = true }
 config = { version = "0.15", default-features = false, features = ["toml"] }
 criterion = { version = "0.8", optional = true }
 csv = "1.4"
@@ -282,9 +280,7 @@ webauthn-rs-proto = "0.6.2"
 
 zip = { version = "9", default-features = false, features = ["deflate"] }
 lofty = "0.25.5"
-
-[target.'cfg(windows)'.dependencies]
-crossterm_winapi = { version = "0.9", optional = true }
+inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy"], optional = true }
 
 [dev-dependencies]
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }

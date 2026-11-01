@@ -1167,6 +1167,228 @@ async fn test_root_binary_config_set_and_get_round_trip() {
 }
 
 #[tokio::test]
+async fn config_positional_arguments_override_environment_and_keep_legacy_flags() {
+    let database_url = setup_database_url().await;
+    let environment = [
+        ("ASTER_CLI_CONFIG_KEY", "branding_description"),
+        ("ASTER_CLI_CONFIG_VALUE", "environment fallback"),
+        ("ASTER_CLI_INPUT_FILE", "/missing-environment-backup.json"),
+    ];
+    for (arguments, expected) in [
+        (
+            vec!["set", "branding_title", "Positional title"],
+            "Positional title",
+        ),
+        (
+            vec!["set", "--key", "branding_title", "--value", "Flag title"],
+            "Flag title",
+        ),
+        (vec!["set", "branding_title"], "environment fallback"),
+        (vec!["set", "branding_title", ""], ""),
+        (vec!["set", "branding_title", "--clear"], ""),
+    ] {
+        let args: Vec<_> = ["config", "--database-url", &database_url]
+            .into_iter()
+            .chain(arguments)
+            .collect();
+        let output = run_aster_drive_with_env(&args, &environment);
+        assert!(output.status.success(), "{output:?}");
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(result["data"]["key"], "branding_title");
+        assert_eq!(result["data"]["value"], expected);
+    }
+    let output = run_aster_drive_with_env(
+        &["config", "--database-url", &database_url, "set"],
+        &environment,
+    );
+    assert!(output.status.success(), "{output:?}");
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["data"]["key"], "branding_description");
+    assert_eq!(result["data"]["value"], "environment fallback");
+    for action in ["get", "validate"] {
+        let mut args = vec![
+            "config",
+            "--database-url",
+            &database_url,
+            action,
+            "branding_title",
+        ];
+        if action == "validate" {
+            args.push("Preview title");
+        }
+        let output = run_aster_drive_with_env(&args, &environment);
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty());
+    }
+    let backup = run_aster_drive(&["config", "--database-url", &database_url, "export"]);
+    let directory = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-backup-input-{}", uuid::Uuid::new_v4())),
+        "CLI explicit backup source fixture",
+    );
+    std::fs::create_dir_all(directory.path()).unwrap();
+    let file = directory.path().join("backup.json");
+    std::fs::write(&file, backup.stdout).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let output = run_aster_drive_with_env(
+        &[
+            "config",
+            "--database-url",
+            &database_url,
+            "validate",
+            "--input-file",
+            file.to_str().unwrap(),
+        ],
+        &environment,
+    );
+    assert!(output.status.success(), "{output:?}");
+    for args in [
+        vec!["set", "custom.positional", "value"],
+        vec!["delete", "custom.positional"],
+    ] {
+        let args: Vec<_> = ["config", "--database-url", &database_url]
+            .into_iter()
+            .chain(args)
+            .collect();
+        assert!(run_aster_drive(&args).status.success());
+    }
+}
+
+#[tokio::test]
+async fn config_missing_terminal_input_and_invalid_clear_never_write() {
+    let database_url = setup_database_url().await;
+    let before = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "export",
+        "--include-sensitive",
+    ]);
+    for action in [
+        vec!["set"],
+        vec!["set", "branding_title"],
+        vec!["set", "mail_smtp_password"],
+        vec!["set", "branding_title", "--value-prompt"],
+        vec!["set", "auth_cookie_secure", "--clear"],
+        vec!["validate", "branding_title"],
+    ] {
+        let args: Vec<_> = ["config", "--database-url", &database_url]
+            .into_iter()
+            .chain(action)
+            .collect();
+        let output = run_aster_drive(&args);
+        assert!(!output.status.success(), "{output:?}");
+        assert!(output.stdout.is_empty());
+    }
+    let after = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "export",
+        "--include-sensitive",
+    ]);
+    assert_eq!(before.stdout, after.stdout);
+}
+
+#[test]
+fn node_inputs_override_environment_and_fail_before_bootstrap_when_incomplete() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-node-inputs-{}", uuid::Uuid::new_v4())),
+        "CLI enrollment input fixture",
+    );
+    std::fs::create_dir_all(root.path()).unwrap();
+    for args in [
+        vec!["node", "enroll"],
+        vec!["node", "enroll", "https://example.invalid"],
+    ] {
+        let output = Command::new(aster_drive_bin())
+            .args(args)
+            .current_dir(root.path())
+            .env_remove("ASTER_CLI_MASTER_URL")
+            .env_remove("ASTER_CLI_ENROLLMENT_TOKEN")
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!root.path().join("data").exists());
+    }
+    std::fs::create_dir(root.path().join("data")).unwrap();
+    let config = "[server]\nstart_mode = \"primary\"\n";
+    std::fs::write(root.path().join("data/config.toml"), config).unwrap();
+    let mut child = Command::new(aster_drive_bin())
+        .args(["node", "enroll", "https://example.invalid", "--token-stdin"])
+        .env("ASTER_CLI_MASTER_URL", "invalid environment URL")
+        .env(
+            "ASTER_CLI_ENROLLMENT_TOKEN",
+            "environment-credential-marker",
+        )
+        .current_dir(root.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"stdin-credential-marker\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("start_mode"), "{stderr}");
+    assert!(!stderr.contains("credential-marker"));
+    assert!(output.stdout.is_empty());
+    // Accepted credentials reach the existing startup path, which may fill
+    // missing signing keys before rejecting primary mode. It must not enroll.
+    assert!(
+        std::fs::read_to_string(root.path().join("data/config.toml"))
+            .unwrap()
+            .starts_with(config)
+    );
+    assert_eq!(
+        std::fs::read_dir(root.path().join("data")).unwrap().count(),
+        1
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cli_terminal_input_visibility_retry_keep_cancel_selection_and_hashing() {
+    let database_url = setup_database_url().await;
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-interactive-{}", uuid::Uuid::new_v4())),
+        "CLI configuration interaction fixture",
+    );
+    std::fs::create_dir_all(root.path().join("data")).unwrap();
+    std::fs::write(
+        root.path().join("data/config.toml"),
+        "[server]\nstart_mode = \"primary\"\n",
+    )
+    .unwrap();
+    let output = Command::new("python3")
+        .args([
+            "-c",
+            include_str!("cli_interaction.py"),
+            aster_drive_bin(),
+            &database_url,
+        ])
+        .arg(root.path())
+        .output()
+        .expect("Python 3 PTY test support must be available on Unix");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
 async fn test_root_binary_config_get_human_output_is_readable() {
     let database_url = setup_database_url().await;
 
@@ -3117,120 +3339,6 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         invalid_config
     );
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
-}
-
-/// Real PTYs prove hidden editing, mode restoration, and safe detached failures.
-#[cfg(unix)]
-#[test]
-fn hash_password_hidden_terminal_input_is_strict_and_keeps_stdout_clean() {
-    use std::io::Write;
-    use std::process::Stdio;
-    let root = aster_forge_utils::raii::TempDirGuard::new(
-        std::env::temp_dir().join(format!("aster-hash-terminal-{}", uuid::Uuid::new_v4())),
-        "hash controlling terminal fixture",
-    );
-    std::fs::create_dir_all(root.path().join("data")).unwrap();
-    let invalid_config = "not valid TOML";
-    std::fs::write(root.path().join("data/config.toml"), invalid_config).unwrap();
-    let cases = [
-        (
-            "pty-hidden-credential-marker\r".to_owned(),
-            Some("pty-hidden-credential-marker".to_owned()),
-        ),
-        ("  猫😀  \r".to_owned(), Some("  猫😀  ".to_owned())),
-        ("猫😀\x7f\x08abc\r".to_owned(), Some("abc".to_owned())),
-        (format!("{}\r", "x".repeat(4096)), Some("x".repeat(4096))),
-        ("\r".to_owned(), None),
-        ("pty-hidden-credential-marker\t\r".to_owned(), None),
-        ("pty-hidden-credential-marker\0\r".to_owned(), None),
-        (
-            format!("{}pty-hidden-credential-marker\r", "x".repeat(4097)),
-            None,
-        ),
-        ("\x03".to_owned(), None),
-        ("\x04".to_owned(), None),
-        ("\x1a".to_owned(), None),
-    ];
-    let inputs: Vec<_> = cases
-        .iter()
-        .map(
-            |(input, expected)| serde_json::json!({"input": input, "succeeds": expected.is_some()}),
-        )
-        .collect();
-    let mut command = Command::new("python3");
-    for (key, _) in std::env::vars()
-        .filter(|(key, _)| key.starts_with("ASTER__") || key.starts_with("ASTER_CLI_"))
-    {
-        command.env_remove(key);
-    }
-    let mut child = command
-        .args(["-c", include_str!("cli_hash_input.py"), aster_drive_bin()])
-        .arg(root.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("Python 3 PTY test support must be available on Unix");
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(&serde_json::to_vec(&inputs).unwrap())
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "PTY harness failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let hashes: Vec<Option<String>> =
-        serde_json::from_slice(&output.stdout).expect("PTY harness must return hash-only results");
-    assert_eq!(hashes.len(), cases.len());
-    for ((_, expected), hash) in cases.iter().zip(hashes) {
-        match (expected, hash) {
-            (Some(expected), Some(hash)) => {
-                assert!(aster_forge_crypto::verify_password(expected, hash.trim()).unwrap());
-            }
-            (None, None) => {}
-            _ => panic!("PTY result did not match the expected success state"),
-        }
-    }
-    assert_eq!(
-        std::fs::read_to_string(root.path().join("data/config.toml")).unwrap(),
-        invalid_config
-    );
-    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn cli_hidden_terminal_input_restores_echo_and_keeps_credentials_out_of_output() {
-    let database_url = setup_database_url().await;
-    let root = aster_forge_utils::raii::TempDirGuard::new(
-        std::env::temp_dir().join(format!("aster-cli-terminal-{}", uuid::Uuid::new_v4())),
-        "CLI controlling terminal fixture",
-    );
-    std::fs::create_dir_all(root.path().join("data")).unwrap();
-    std::fs::write(
-        root.path().join("data/config.toml"),
-        "[server]\nstart_mode = \"primary\"\n",
-    )
-    .unwrap();
-    let output = Command::new("python3")
-        .args([
-            "-c",
-            include_str!("cli_hidden_input.py"),
-            aster_drive_bin(),
-            &database_url,
-        ])
-        .arg(root.path())
-        .output()
-        .expect("Python 3 PTY test support must be available on Unix");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
 }
 
 #[tokio::test]
