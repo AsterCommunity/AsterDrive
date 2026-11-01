@@ -217,7 +217,13 @@ username = "prometheus"
 password_hash = '$argon2id$v=19$...' # 替换为完整 verifier
 ```
 
-用 CLI 从 stdin 生成 verifier，不经数据库、日志初始化或命令行密码参数：
+用 CLI 生成 verifier，不经数据库、日志初始化或命令行密码参数。直接在终端运行时会提示输入，密码不回显，按 Enter 完成；stdout 只包含一行 hash：
+
+```bash
+./aster_drive hash-password
+```
+
+脚本仍可通过 stdin 管道输入。允许一个尾部 LF、CRLF 或 CR，密码前后的空格会保留；不要把密码放进命令参数：
 
 ```bash
 # Bash；输入不会回显或进入命令历史

@@ -217,7 +217,13 @@ username = "prometheus"
 password_hash = '$argon2id$v=19$...' # replace with a complete verifier
 ```
 
-Generate the verifier without putting a password in process arguments or initializing the database:
+Generate the verifier without putting a password in process arguments or initializing the database. In a terminal, the command prompts for hidden input; press Enter to finish. stdout contains only one hash line:
+
+```bash
+./aster_drive hash-password
+```
+
+Scripts can still provide stdin through a pipe. One trailing LF, CRLF, or CR is accepted, and leading and trailing spaces are preserved. Never put the password in command arguments:
 
 ```bash
 # Bash: input is not echoed or stored in shell history

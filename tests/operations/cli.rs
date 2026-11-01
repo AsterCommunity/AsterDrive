@@ -3079,12 +3079,17 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         child.stdin.take().unwrap().write_all(input).unwrap();
         child.wait_with_output().unwrap()
     };
-    for password in ["scrape:secret".to_owned(), "x".repeat(4096)] {
-        let output = run(format!("{password}\r\n").as_bytes());
+    for (password, ending) in [
+        ("scrape:secret".to_owned(), "\r\n"),
+        ("x".repeat(4096), "\r\n"),
+        ("  scrape:secret  ".to_owned(), ""),
+        ("scrape:secret".to_owned(), "\n"),
+        ("scrape:secret".to_owned(), "\r"),
+    ] {
+        let output = run(format!("{password}{ending}").as_bytes());
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+            "hash command should succeed without exposing its input"
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert_eq!(stdout.lines().count(), 1);
@@ -3096,6 +3101,8 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         Vec::new(),
         b"\n".to_vec(),
         b"credential-marker\nsecond-line".to_vec(),
+        b"credential-marker\t".to_vec(),
+        b"credential-marker\0".to_vec(),
         vec![b'x'; 4097],
         vec![0xff],
     ] {
@@ -3109,6 +3116,87 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         invalid_config
     );
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn hash_password_hidden_terminal_input_is_strict_and_keeps_stdout_clean() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-hash-terminal-{}", uuid::Uuid::new_v4())),
+        "hash controlling terminal fixture",
+    );
+    std::fs::create_dir_all(root.path().join("data")).unwrap();
+    let invalid_config = "not valid TOML";
+    std::fs::write(root.path().join("data/config.toml"), invalid_config).unwrap();
+    let cases = [
+        (
+            "pty-hidden-credential-marker\r".to_owned(),
+            Some("pty-hidden-credential-marker".to_owned()),
+        ),
+        ("  猫😀  \r".to_owned(), Some("  猫😀  ".to_owned())),
+        ("猫😀\x7f\x08abc\r".to_owned(), Some("abc".to_owned())),
+        (format!("{}\r", "x".repeat(4096)), Some("x".repeat(4096))),
+        ("\r".to_owned(), None),
+        ("pty-hidden-credential-marker\t\r".to_owned(), None),
+        ("pty-hidden-credential-marker\0\r".to_owned(), None),
+        (
+            format!("{}pty-hidden-credential-marker\r", "x".repeat(4097)),
+            None,
+        ),
+        ("\x03".to_owned(), None),
+        ("\x04".to_owned(), None),
+    ];
+    let inputs: Vec<_> = cases
+        .iter()
+        .map(
+            |(input, expected)| serde_json::json!({"input": input, "succeeds": expected.is_some()}),
+        )
+        .collect();
+    let mut command = Command::new("python3");
+    for (key, _) in std::env::vars()
+        .filter(|(key, _)| key.starts_with("ASTER__") || key.starts_with("ASTER_CLI_"))
+    {
+        command.env_remove(key);
+    }
+    let mut child = command
+        .args(["-c", include_str!("cli_hash_input.py"), aster_drive_bin()])
+        .arg(root.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Python 3 PTY test support must be available on Unix");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&serde_json::to_vec(&inputs).unwrap())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "PTY harness failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let hashes: Vec<Option<String>> =
+        serde_json::from_slice(&output.stdout).expect("PTY harness must return hash-only results");
+    assert_eq!(hashes.len(), cases.len());
+    for ((_, expected), hash) in cases.iter().zip(hashes) {
+        match (expected, hash) {
+            (Some(expected), Some(hash)) => {
+                assert!(aster_forge_crypto::verify_password(expected, hash.trim()).unwrap());
+            }
+            (None, None) => {}
+            _ => panic!("PTY result did not match the expected success state"),
+        }
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("data/config.toml")).unwrap(),
+        invalid_config
+    );
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
 }
 
 #[cfg(unix)]
