@@ -26,22 +26,22 @@ jobs:
       matrix:
         include:
           - variant: default
-            features: server,cli
+            features: server,operations-cli
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
           - variant: default
-            features: server,cli
+            features: server,operations-cli
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm
           - variant: metrics
-            features: server,cli,metrics
+            features: server,operations-cli,metrics
             platform: linux/amd64
             arch: amd64
             runner: ubuntu-latest
           - variant: metrics
-            features: server,cli,metrics
+            features: server,operations-cli,metrics
             platform: linux/arm64
             arch: arm64
             runner: ubuntu-24.04-arm

@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
 
-use crate::cli::db_shared::{quote_ident, quote_literal, quote_sqlite_literal, scalar_i64};
+use crate::cli::db_shared::{quote_ident, quote_literal, scalar_i64};
 use crate::errors::{AsterError, MapAsterErr, Result};
 
 use super::{COPY_TABLE_ORDER, ConstraintCheck, CountMismatch, TablePlan, VerificationReport};
@@ -258,7 +258,7 @@ where
             seen.insert((plan.name.clone(), format!("{}_primary_key", plan.name)));
         }
 
-        let sql = format!("PRAGMA index_list({})", quote_sqlite_literal(&plan.name));
+        let sql = format!("PRAGMA index_list({})", quote_literal(&plan.name));
         let rows = db
             .query_all_raw(Statement::from_string(DbBackend::Sqlite, sql))
             .await
@@ -287,7 +287,7 @@ where
             let origin: String = row
                 .try_get("", "origin")
                 .map_aster_err(AsterError::database_operation)?;
-            let info_sql = format!("PRAGMA index_info({})", quote_sqlite_literal(&name));
+            let info_sql = format!("PRAGMA index_info({})", quote_literal(&name));
             let info_rows = db
                 .query_all_raw(Statement::from_string(DbBackend::Sqlite, info_sql))
                 .await
@@ -514,10 +514,7 @@ where
 {
     let mut foreign_keys = Vec::new();
     for plan in plans {
-        let sql = format!(
-            "PRAGMA foreign_key_list({})",
-            quote_sqlite_literal(&plan.name)
-        );
+        let sql = format!("PRAGMA foreign_key_list({})", quote_literal(&plan.name));
         let rows = db
             .query_all_raw(Statement::from_string(DbBackend::Sqlite, sql))
             .await

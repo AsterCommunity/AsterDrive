@@ -205,8 +205,8 @@ pub async fn memory() -> HttpResponse {
 
 pub fn system_info_response() -> SystemInfoResponse {
     SystemInfoResponse {
-        version: crate::build_info::VERSION.to_string(),
-        build_time: crate::build_info::BUILD_TIME.to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        build_time: env!("ASTER_BUILD_TIME").to_string(),
     }
 }
 
@@ -265,7 +265,7 @@ mod tests {
             {
                 let mut explicit = config;
                 explicit.prometheus.enabled = true;
-                assert!(explicit.validate().is_err());
+                explicit.validate().unwrap();
                 let app = test::init_service(App::new().service(routes(&explicit))).await;
                 assert_eq!(
                     test::call_service(

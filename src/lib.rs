@@ -12,8 +12,6 @@
 )]
 
 pub mod api;
-pub mod build_info;
-#[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;
 pub mod db;

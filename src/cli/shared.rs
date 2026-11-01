@@ -6,11 +6,9 @@
 use std::io::{self, IsTerminal};
 
 use crate::db;
-use crate::db::repository::config_repo;
 use crate::errors::{AsterError, Result};
 use aster_forge_config::ConfigSource;
 use clap::ValueEnum;
-use clap::builder::styling::{AnsiColor, Effects, Styles};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -205,45 +203,35 @@ pub(super) fn human_key(label: &str, palette: &CliTerminalPalette) -> String {
     palette.label(&format!("{label:<14}", label = format!("{label}:")))
 }
 
-/// Builds the clap styling palette shared by all CLI subcommands.
-pub fn cli_styles() -> Styles {
-    Styles::styled()
-        .header(AnsiColor::Green.on_default() | Effects::BOLD)
-        .usage(AnsiColor::Green.on_default() | Effects::BOLD)
-        .literal(AnsiColor::Cyan.on_default() | Effects::BOLD)
-        .placeholder(AnsiColor::Yellow.on_default())
-}
-
-pub(super) async fn connect_database(database_url: &str) -> Result<sea_orm::DatabaseConnection> {
-    let db = db::connect_with_metrics(
-        &crate::config::DatabaseConfig {
-            url: database_url.into(),
-            pool_size: 1,
-            retry_count: 0,
-        },
-        aster_drive_metrics::NoopMetrics::arc(),
-    )
-    .await?;
-    config_repo::ensure_defaults_with_env(&db, &|name| std::env::var(name).ok()).await?;
-    Ok(db)
-}
-
-pub(super) async fn prepare_database(database_url: &str) -> Result<sea_orm::DatabaseConnection> {
-    prepare_database_config(&crate::config::DatabaseConfig {
-        url: database_url.into(),
-        pool_size: 1,
-        retry_count: 0,
-    })
-    .await
+pub(super) async fn connect_existing_database(
+    database: &crate::config::DatabaseConfig,
+) -> Result<sea_orm::DatabaseConnection> {
+    let mut database = database.clone();
+    if let aster_forge_db::DatabaseUrl::Url(url) = &mut database.url
+        && let Some(rest) = url.strip_prefix("sqlite://")
+    {
+        let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+        if !path.is_empty() && path != ":memory:" {
+            if !std::path::Path::new(path).is_file() {
+                return Err(crate::errors::AsterError::config_error(
+                    "SQLite database does not exist; check the instance location or --database-url",
+                ));
+            }
+            let mut params: Vec<&str> = query
+                .split('&')
+                .filter(|p| !p.is_empty() && !p.starts_with("mode="))
+                .collect();
+            params.push("mode=rw");
+            *url = format!("sqlite://{path}?{}", params.join("&"));
+        }
+    }
+    db::connect_with_metrics(&database, aster_drive_metrics::NoopMetrics::arc()).await
 }
 
 pub(super) async fn prepare_database_config(
     database: &crate::config::DatabaseConfig,
+    config: &crate::config::Config,
 ) -> Result<sea_orm::DatabaseConnection> {
-    if crate::config::try_get_config().is_none() {
-        crate::config::init_config()?;
-    }
-    let cfg = crate::config::get_config();
     let database = crate::config::DatabaseConfig {
         url: database.url.clone(),
         pool_size: 1,
@@ -252,8 +240,8 @@ pub(super) async fn prepare_database_config(
     let db = db::connect_with_metrics(&database, aster_drive_metrics::NoopMetrics::arc()).await?;
     crate::runtime::startup::initialize_database_state(
         &db,
-        cfg.as_ref(),
-        crate::config::node_mode::start_mode(cfg.as_ref()),
+        config,
+        crate::config::node_mode::start_mode(config),
     )
     .await?;
     Ok(db)

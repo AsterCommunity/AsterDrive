@@ -7,9 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 
-use crate::cli::db_shared::{
-    backend_name, join_strings, quote_ident, quote_literal, quote_sqlite_literal, scalar_i64,
-};
+use crate::cli::db_shared::{backend_name, quote_ident, quote_literal, scalar_i64};
 use crate::db;
 use crate::errors::{AsterError, MapAsterErr, Result};
 
@@ -145,7 +143,7 @@ where
     C: ConnectionTrait,
 {
     let sql = match backend {
-        DbBackend::Sqlite => format!("PRAGMA table_info({})", quote_sqlite_literal(table_name)),
+        DbBackend::Sqlite => format!("PRAGMA table_info({})", quote_literal(table_name)),
         DbBackend::Postgres => format!(
             "SELECT column_name, udt_name \
              FROM information_schema.columns \
@@ -326,7 +324,7 @@ fn validate_source_tables(backend: DbBackend, existing_tables: &[String]) -> Res
     if !unexpected.is_empty() {
         return Err(AsterError::validation_error(format!(
             "source database contains unsupported tables that would not be migrated: {}",
-            join_strings(&unexpected)
+            unexpected.join(", ")
         )));
     }
 
@@ -439,7 +437,7 @@ async fn load_sqlite_columns<C>(db: &C, table_name: &str) -> Result<Vec<ColumnSc
 where
     C: ConnectionTrait,
 {
-    let sql = format!("PRAGMA table_info({})", quote_sqlite_literal(table_name));
+    let sql = format!("PRAGMA table_info({})", quote_literal(table_name));
     let rows = db
         .query_all_raw(Statement::from_string(DbBackend::Sqlite, sql))
         .await

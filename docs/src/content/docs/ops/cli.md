@@ -23,6 +23,8 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 
 `./aster_drive [serve [all|api|worker]]`。无参数或 `serve` 默认 `all`。Follower 由 config 决定，不能用命令行角色代替。职责、取消、并发及迁移见[API 与 worker 分离](/deploy/roles/)。
 
+`serve all/api/worker`、无子命令启动和 `--config-file` / `--data-dir` 在禁用 `operations-cli` Cargo feature 时仍然可用；`operations-cli` 只控制下文的运维子命令。仅构建服务可用 `cargo build --no-default-features --features server`，Docker 对应 `--build-arg CARGO_FEATURES=server`。
+
 ## 命令速查
 
 | 你要做什么 | 用哪个命令 | 什么时候用 |
@@ -38,6 +40,10 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 :::caution[先备份再让 CLI 写数据]
 `doctor --fix`、`config set`、`config import`、`database-migrate` 都可能改变数据库。正式环境先备份，避免在未备份的情况下执行试操作，导致后续需要恢复事故。
 :::
+
+运行目录不是实例目录时，统一指定 `--config-file /srv/asterdrive/data/config.toml` 或 `--data-dir /srv/asterdrive/data`。数据库目标优先级为显式 `--database-url`、`ASTER_CLI_DATABASE_URL`、该配置文件中的 `[database].url`。`doctor` 和 `config` 只访问现有实例；缺少数据库目标时不会创建默认配置文件或 SQLite 数据库。`database-migrate` 的源和目标地址始终分别显式指定。
+
+当前二进制未编译的 Prometheus／OTLP 导出器及其专属设置会被跳过，不阻断离线 `config` 操作或服务启动。`doctor` 检查实际生效的实例配置；已编译并启用的导出器仍须通过配置与凭据校验。
 
 ## 先准备数据库地址
 
@@ -59,11 +65,13 @@ docker exec -it asterdrive sh
 
 ## 用环境变量代替常用参数
 
-运维脚本里如果不想每条命令都写很长的参数，可以用 CLI 专用的 `ASTER_CLI_*` 环境变量。它们只影响命令行工具，不会改服务启动配置。
+运维脚本可用 `ASTER_CLI_*` 为对应参数提供默认值。数据库目标和输出格式只影响相应运维命令；配置位置选项同样适用于 `serve` 和无子命令启动。
 
 | 环境变量 | 对应参数 | 适用命令 |
 | --- | --- | --- |
 | `ASTER_CLI_DATABASE_URL` | `--database-url` | `doctor`、`config`、`node enroll` |
+| `ASTER_CLI_CONFIG_FILE` | `--config-file` | 服务启动、CLI 命令 |
+| `ASTER_CLI_DATA_DIR` | `--data-dir` | 服务启动、CLI 命令 |
 | `ASTER_CLI_OUTPUT_FORMAT` | `--output-format` | `doctor`、`config`、`node`、`database-migrate` |
 | `ASTER_CLI_MASTER_URL` | `node enroll --master-url` | `node enroll` |
 | `ASTER_CLI_ENROLLMENT_TOKEN` | `node enroll --token` | `node enroll` |
@@ -88,7 +96,7 @@ ASTER_CLI_COPY_BATCH_SIZE=100
 ```
 
 :::tip[服务配置和 CLI 参数是两套 ENV]
-`ASTER__DATABASE__URL` 会覆盖服务读取的 `config.toml`；`ASTER_CLI_DATABASE_URL` 只给运维 CLI 当参数。
+`ASTER__DATABASE__URL` 覆盖从 `config.toml` 读取的数据库地址；`doctor` / `config` 在没有显式目标时也复用该结果。`ASTER_CLI_DATABASE_URL` 则直接提供运维命令的数据库目标，优先于实例配置，但不改变服务启动目标。
 
 如果你是在同一个 shell 里同时启动服务和跑命令，建议把两类变量分开放清楚，排查时会轻松很多。
 :::
@@ -238,21 +246,23 @@ ASTER_CLI_COPY_BATCH_SIZE=100
   --value '["https://drive.example.com","https://panel.example.com"]'
 ```
 
-批量导入时，输入文件可以是下面两种 JSON 之一：
+敏感配置值默认在终端隐藏回显地提示输入。自动化可使用 stdin 或权限为 `0600` 的文件：
 
-```json
-[
-  { "key": "public_site_url", "value": ["https://drive.example.com", "https://panel.example.com"] },
-  { "key": "auth_cookie_secure", "value": "true" }
-]
+```bash
+printf '%s' 'smtp-secret' | ./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-stdin
+./aster_drive config --database-url "$DB_URL" set --key mail_smtp_password --value-file /run/secrets/smtp-password
 ```
+
+显式 `--value` 和 `ASTER_CLI_CONFIG_VALUE` 仍可使用，但值会暴露在命令参数、shell history 或进程诊断中。
+
+`config export` 输出唯一的版本化 JSON 备份格式，可直接交给 `import` 或 `validate --input-file`。默认省略敏感值，并在 `omitted_sensitive_keys` 列出。完整恢复需显式使用 `--include-sensitive`，输出含明文凭据，必须按秘密文件保管；导入文件要求权限为 `0600`。
 
 ```json
 {
-  "configs": [
-    { "key": "public_site_url", "value": ["https://drive.example.com", "https://panel.example.com"] },
-    { "key": "auth_cookie_secure", "value": "true" }
-  ]
+  "format": "asterdrive.runtime-config",
+  "version": 1,
+  "configs": [{"key":"public_site_url","value":["https://drive.example.com"],"source":"system","visibility":"private","is_sensitive":false}],
+  "omitted_sensitive_keys": ["mail_smtp_password"]
 }
 ```
 
@@ -274,8 +284,11 @@ ASTER_CLI_COPY_BATCH_SIZE=100
   export
 ```
 
-导出结果更适合审阅、备份或交给脚本处理。  
-如果你打算重新导入，先把它整理成上面那种“键值数组”或 `{"configs": [...]}` 结构，再交给 `import`。
+导入会先校验整份文件，再在一个事务内写入；失败时不会留下部分结果。未出现在备份中的配置保持目标实例原值。只接受当前版本化备份格式，不会将列表展示结果或旧键值数组当作可恢复备份。
+
+系统项必须存在于当前版本的配置注册表中，其 `source`、`visibility` 和 `is_sensitive` 元信息不可更改；自定义项必须显式标记为 `custom`。重复 key、未知系统 key、脱敏占位符和只读展示字段都会被拒绝。敏感项只能为 `private`，不能通过导入取消已有敏感标记。数据库提交后才发送刷新通知；若通知失败，错误会明确指出配置已保存，需检查 `config_sync` 或重启相关实例。
+
+如需保存包含敏感值的导出，在重定向 stdout 前先设置严格 umask，例如 `umask 077`。
 
 如果你只是想确认某个值是否合法，优先用 `validate`，不要直接使用 `set`。
 
@@ -286,15 +299,17 @@ ASTER_CLI_COPY_BATCH_SIZE=100
 ```bash
 ./aster_drive node enroll \
   --master-url https://drive.example.com \
-  --token enr_xxxxx
+  --token-prompt
 ```
+
+交互式 token 输入隐藏回显；自动化可使用 `--token-stdin`、`--token-file` 或 `ASTER_CLI_ENROLLMENT_TOKEN`。显式 `--token` 会暴露在进程参数中。
 
 如果你没有显式传数据库地址，命令会读取当前 `data/config.toml` 里的 `[database].url`。也可以直接指定：
 
 ```bash
 ./aster_drive node enroll \
   --master-url https://drive.example.com \
-  --token enr_xxxxx \
+  --token-file /run/secrets/enrollment-token \
   --database-url "sqlite:///var/lib/asterdrive/data/asterdrive.db?mode=rwc"
 ```
 

@@ -2,8 +2,7 @@
 
 use crate::config::node_mode::NodeRuntimeMode;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum ServeRole {
     #[default]
     All,

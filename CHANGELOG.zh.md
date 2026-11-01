@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **CLI 实例选择与凭据输入** — 服务启动和运维命令统一支持 `--config-file` / `--data-dir`。Config 与 doctor 默认使用解析后的实例数据库，显式 CLI 参数与 CLI 环境变量可覆盖目标。未编译的 Prometheus / OTLP 导出器及其专属设置不会阻断离线操作或服务启动，doctor 检查实际生效的配置。敏感配置值和 enrollment token 支持隐藏终端、stdin 与私有文件输入。
+
+### Changed
+
+- **运行时配置备份（破坏性变更）** — `config export` 输出可直接导入的版本化备份，默认省略敏感值；完整备份须显式添加 `--include-sensitive`。Import 与文件校验只接受新格式，拒绝展示元数据、未知系统 key、重复 key 和脱敏占位值。批次校验后在同一事务内提交，再通知运行实例刷新。读取、校验与 doctor 不再初始化默认配置或意外数据库。
+- **服务与运维命令（构建 feature 改名）** — 默认 Cargo feature `cli` 改名为 `operations-cli`，显式 Cargo 与 Docker feature 列表须同步更新。服务启动、`serve all/api/worker`、实例选择与帮助不依赖该 feature。`version` / `version --json` 无需加载实例配置即可展示 revision、工作树状态、构建目标、profile、features 与时间。所有命令帮助以产品名及版本开头，并区分配置展示、备份、校验和恢复操作。
+
 ## [v0.7.0] - 2026-11-01
 
 ### Release Highlights

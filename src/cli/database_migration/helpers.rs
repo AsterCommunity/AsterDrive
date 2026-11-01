@@ -4,7 +4,6 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, FixedOffset};
 use sea_orm::{ConnectionTrait, DbBackend};
 
 use crate::cli::db_shared::{quote_ident, scalar_i64};
@@ -35,8 +34,4 @@ pub(super) fn parse_bool(value: &str) -> Option<bool> {
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
     }
-}
-
-pub(super) fn parse_timestamp(value: &str) -> Option<DateTime<FixedOffset>> {
-    DateTime::parse_from_rfc3339(value).ok()
 }

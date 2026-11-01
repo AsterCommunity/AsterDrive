@@ -27,7 +27,7 @@ pub mod wopi;
 pub mod worker;
 
 pub use deployment::{DeploymentConfig, DeploymentProfile};
-pub use loader::ConfigLoadReport;
+pub use loader::{ConfigLoadReport, ConfigLocation};
 pub use runtime_config::RuntimeConfig;
 pub use schema::{
     AuthConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig, RateLimitTier,
@@ -41,20 +41,16 @@ static CONFIG: OnceLock<Arc<Config>> = OnceLock::new();
 
 pub const OUTBOUND_HTTP_USER_AGENT: &str = concat!("AsterDrive/", env!("CARGO_PKG_VERSION"));
 
-pub fn ensure_default_config_for_current_dir(
-    default: &Config,
-) -> crate::errors::Result<std::path::PathBuf> {
-    loader::ensure_default_config_for_current_dir(default)
-}
-
 pub fn init_config() -> crate::errors::Result<ConfigLoadReport> {
     let loaded = loader::load()?;
     CONFIG.get_or_init(|| Arc::new(loaded.config));
     Ok(loaded.report)
 }
 
-pub fn load_config_read_only() -> crate::errors::Result<Config> {
-    loader::load_read_only()
+pub fn init_config_at(location: &ConfigLocation) -> crate::errors::Result<ConfigLoadReport> {
+    let loaded = location.initialize()?;
+    CONFIG.get_or_init(|| Arc::new(loaded.config));
+    Ok(loaded.report)
 }
 
 #[expect(

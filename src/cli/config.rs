@@ -4,8 +4,14 @@
 //! 底层持久化与配置规则仍复用 `config_repo` 和 `system_config` 相关逻辑。
 
 use aster_forge_db::transaction;
+use secrecy::{ExposeSecret, SecretString};
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+mod transfer;
+use super::context::CliContext;
+use super::input::{SecretArg, read_secret};
+use transfer::{ConfigBackup, ImportItem, read_import_items};
 
 use crate::config::definitions::CONFIG_REGISTRY;
 use crate::config::system_config as shared_system_config;
@@ -18,28 +24,28 @@ use aster_forge_db::system_config;
 use aster_forge_validation::filename::char_count;
 use chrono::Utc;
 use clap::{Args, Subcommand};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::shared::{
-    CliTerminalPalette, OutputFormat, ResolvedOutputFormat, connect_database, human_key,
+    CliTerminalPalette, OutputFormat, ResolvedOutputFormat, connect_existing_database, human_key,
     render_error_json, render_success_envelope,
 };
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum ConfigCommand {
-    /// List runtime config entries
+    /// List saved runtime settings
     List,
-    /// Get a runtime config entry
+    /// Show one runtime setting (sensitive values are hidden)
     Get(KeyArgs),
-    /// Set a runtime config entry
+    /// Update one runtime setting
     Set(KeyValueArgs),
-    /// Delete a custom runtime config entry
+    /// Remove a custom runtime setting
     Delete(KeyArgs),
-    /// Validate runtime config input without writing it
+    /// Check a value or backup without saving changes
     Validate(ValidateArgs),
-    /// Export runtime config entries
-    Export,
-    /// Import runtime config entries
+    /// Write an importable JSON backup (secrets omitted by default)
+    Export(ExportArgs),
+    /// Restore settings from a versioned JSON backup
     Import(FileArgs),
 }
 
@@ -49,12 +55,52 @@ pub struct KeyArgs {
     pub key: String,
 }
 
+#[derive(Debug, Clone, Default, Args)]
+#[group(id = "config_value_input", multiple = false)]
+pub struct ValueInput {
+    /// Explicit value (secrets may be exposed in shell history and process listings)
+    #[arg(long, env = "ASTER_CLI_CONFIG_VALUE", hide_env_values = true)]
+    pub value: Option<SecretArg>,
+    /// Read a value from stdin; remove one trailing line ending
+    #[arg(long)]
+    pub value_stdin: bool,
+    /// Read a value from a private UTF-8 file; remove one trailing line ending
+    #[arg(long)]
+    pub value_file: Option<std::path::PathBuf>,
+    /// Read a value from the terminal without echo
+    #[arg(long)]
+    pub value_prompt: bool,
+}
+
+impl ValueInput {
+    pub fn supplied(&self) -> bool {
+        self.value.is_some() || self.value_stdin || self.value_file.is_some() || self.value_prompt
+    }
+
+    pub fn read(&self, sensitive: bool) -> Result<SecretString> {
+        read_secret(
+            self.value.as_ref(),
+            self.value_stdin,
+            self.value_file.as_deref(),
+            self.value_prompt || (!self.supplied() && sensitive),
+            "Configuration value: ",
+        )
+    }
+}
+
 #[derive(Debug, Clone, Args)]
 pub struct KeyValueArgs {
     #[arg(long, env = "ASTER_CLI_CONFIG_KEY")]
     pub key: String,
-    #[arg(long, env = "ASTER_CLI_CONFIG_VALUE")]
-    pub value: String,
+    #[command(flatten)]
+    pub input: ValueInput,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ExportArgs {
+    /// Include plaintext secrets in the backup; protect the resulting file
+    #[arg(long)]
+    pub include_sensitive: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -67,8 +113,8 @@ pub struct FileArgs {
 pub struct ValidateArgs {
     #[arg(long, env = "ASTER_CLI_CONFIG_KEY")]
     pub key: Option<String>,
-    #[arg(long, env = "ASTER_CLI_CONFIG_VALUE")]
-    pub value: Option<String>,
+    #[command(flatten)]
+    pub input: ValueInput,
     #[arg(long, env = "ASTER_CLI_INPUT_FILE")]
     pub input_file: Option<PathBuf>,
 }
@@ -99,6 +145,7 @@ enum ConfigCommandKind {
 #[derive(Debug)]
 enum ConfigCommandPayload {
     List(ConfigListOutput),
+    Backup(ConfigBackup),
     Config(SystemConfig),
     Delete(DeleteOutput),
 }
@@ -135,56 +182,47 @@ impl ConfigCommandReport {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-struct ImportItem {
-    key: String,
-    value: ConfigValue,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct NormalizedImportItem {
     key: String,
     value: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ImportFilePayload {
-    configs: Vec<ImportItem>,
+    visibility: aster_forge_config::ConfigVisibility,
+    is_sensitive: bool,
 }
 
 /// Executes a runtime configuration subcommand against the target database.
 pub async fn execute_config_command(
-    database_url: &str,
+    context: &CliContext,
     command: &ConfigCommand,
 ) -> Result<ConfigCommandReport> {
     let config_sync = match command {
         ConfigCommand::Set(_) | ConfigCommand::Delete(_) | ConfigCommand::Import(_) => {
-            Some(build_cli_config_sync_runtime()?)
+            Some(build_cli_config_sync_runtime(&context.config)?)
         }
         _ => None,
     };
-    execute_config_command_with_runtime(database_url, command, config_sync.as_ref()).await
+    execute_config_command_with_runtime(&context.database, command, config_sync.as_ref()).await
 }
 
 async fn execute_config_command_with_runtime(
-    database_url: &str,
+    database: &crate::config::DatabaseConfig,
     command: &ConfigCommand,
     config_sync: Option<&aster_forge_config::ConfigSyncRuntime>,
 ) -> Result<ConfigCommandReport> {
-    let db = connect_database(database_url).await?;
+    let db = connect_existing_database(database).await?;
 
     match command {
-        ConfigCommand::List | ConfigCommand::Export => {
-            let configs = load_config_views(&db).await?;
-            Ok(ConfigCommandReport::list(
-                match command {
-                    ConfigCommand::List => ConfigCommandKind::List,
-                    ConfigCommand::Export => ConfigCommandKind::Export,
-                    _ => ConfigCommandKind::List,
-                },
-                configs,
-            ))
-        }
+        ConfigCommand::List => Ok(ConfigCommandReport::list(
+            ConfigCommandKind::List,
+            load_config_views(&db).await?,
+        )),
+        ConfigCommand::Export(args) => Ok(ConfigCommandReport {
+            kind: ConfigCommandKind::Export,
+            payload: ConfigCommandPayload::Backup(ConfigBackup::from_models(
+                config_repo::find_all(&db).await?,
+                args.include_sensitive,
+            )?),
+        }),
         ConfigCommand::Get(args) => {
             let config = config_repo::find_by_key(&db, &args.key)
                 .await?
@@ -196,23 +234,16 @@ async fn execute_config_command_with_runtime(
         }
         ConfigCommand::Set(args) => {
             let config_sync = required_cli_config_sync(config_sync)?;
-            let normalized = normalize_entries(
-                build_value_lookup(&config_repo::find_all(&db).await?),
-                &[ImportItem {
-                    key: args.key.clone(),
-                    value: parse_cli_config_value(&args.key, &args.value)?,
-                }],
-            )?;
+            let current = config_repo::find_all(&db).await?;
+            let entry = resolve_value_entry(&args.key, &args.input, &current)?;
+            let txn = transaction::begin(&db).await?;
+            let current = config_repo::find_all(&txn).await?;
+            let normalized = normalize_entries(&current, &[entry])?;
             let normalized_item = normalized.into_iter().next().ok_or_else(|| {
                 AsterError::internal_error("single config entry normalization returned no item")
             })?;
-            let saved = config_repo::upsert_with_actor(
-                &db,
-                &normalized_item.key,
-                &normalized_item.value,
-                None,
-            )
-            .await?;
+            let saved = save_item(&txn, &normalized_item).await?;
+            transaction::commit(txn).await?;
             publish_cli_config_reload(config_sync, [saved.key.clone()]).await?;
             Ok(ConfigCommandReport::config(
                 ConfigCommandKind::Set,
@@ -226,12 +257,20 @@ async fn execute_config_command_with_runtime(
             Ok(ConfigCommandReport::delete(args.key.clone()))
         }
         ConfigCommand::Validate(args) => {
-            let entries = resolve_validate_entries(args)?;
-            let current_lookup = build_value_lookup(&config_repo::find_all(&db).await?);
-            let normalized = normalize_entries(current_lookup, &entries)?;
+            let current = config_repo::find_all(&db).await?;
+            let entries = resolve_validate_entries(args, &current)?;
+            let normalized = normalize_entries(&current, &entries)?;
             let previews: Vec<SystemConfig> = normalized
                 .into_iter()
-                .map(|item| preview_system_config(&item.key, &item.value))
+                .map(|item| {
+                    let mut view = preview_system_config(&item.key, &item.value);
+                    view.visibility = item.visibility;
+                    if item.is_sensitive {
+                        view.value = ConfigValue::redacted();
+                        view.is_sensitive = true;
+                    }
+                    view
+                })
                 .collect();
             Ok(ConfigCommandReport::list(
                 ConfigCommandKind::Validate,
@@ -242,12 +281,11 @@ async fn execute_config_command_with_runtime(
             let config_sync = required_cli_config_sync(config_sync)?;
             let entries = read_import_items(&args.input_file)?;
             let txn = transaction::begin(&db).await?;
-            let current_lookup = build_value_lookup(&config_repo::find_all(&txn).await?);
-            let normalized = normalize_entries(current_lookup, &entries)?;
+            let current = config_repo::find_all(&txn).await?;
+            let normalized = normalize_entries(&current, &entries)?;
             let mut saved = Vec::with_capacity(normalized.len());
             for item in normalized {
-                let model =
-                    config_repo::upsert_with_actor(&txn, &item.key, &item.value, None).await?;
+                let model = save_item(&txn, &item).await?;
                 saved.push(system_config_to_view(model));
             }
             transaction::commit(txn).await?;
@@ -264,11 +302,46 @@ fn required_cli_config_sync(
     runtime.ok_or_else(|| AsterError::internal_error("config sync runtime is missing"))
 }
 
-fn build_cli_config_sync_runtime() -> Result<aster_forge_config::ConfigSyncRuntime> {
-    if crate::config::try_get_config().is_none() {
-        crate::config::init_config()?;
+async fn save_item(
+    txn: &sea_orm::DatabaseTransaction,
+    item: &NormalizedImportItem,
+) -> Result<system_config::Model> {
+    use sea_orm::{ActiveModelTrait, Set};
+    if let Some(existing) = config_repo::find_by_key(txn, &item.key).await?
+        && existing.is_sensitive
+        && !item.is_sensitive
+    {
+        return Err(AsterError::validation_error(
+            "cannot remove sensitivity from an existing configuration",
+        ));
     }
-    let config = crate::config::get_config();
+    let model =
+        config_repo::upsert_with_options(txn, &item.key, &item.value, Some(item.visibility), None)
+            .await
+            .map_err(|error| {
+                if item.is_sensitive {
+                    AsterError::database_operation(
+                        "failed to write sensitive configuration (values redacted)",
+                    )
+                } else {
+                    error
+                }
+            })?;
+    if model.source == ConfigSource::Custom && model.is_sensitive != item.is_sensitive {
+        let mut active: system_config::ActiveModel = model.into();
+        active.is_sensitive = Set(item.is_sensitive);
+        return active.update(txn).await.map_err(|_| {
+            AsterError::database_operation(
+                "failed to persist configuration sensitivity (values redacted)",
+            )
+        });
+    }
+    Ok(model)
+}
+
+fn build_cli_config_sync_runtime(
+    config: &crate::config::Config,
+) -> Result<aster_forge_config::ConfigSyncRuntime> {
     aster_forge_config::build_config_sync_runtime(
         &config.config_sync,
         crate::services::ops::config::runtime::CONFIG_RELOAD_NAMESPACE,
@@ -287,11 +360,16 @@ async fn publish_cli_config_reload(
     runtime
         .publish_reload(keys, aster_forge_config::ConfigNotificationSource::Cli)
         .await
-        .map_err(crate::services::ops::config::runtime::map_config_core_error)
+        .map_err(|_| AsterError::config_error(
+            "configuration was saved, but reload notification failed; check config_sync or restart the affected instances"))
 }
 
 /// Renders a successful config command result in the requested output format.
 pub fn render_success(format: OutputFormat, data: &ConfigCommandReport) -> String {
+    if let ConfigCommandPayload::Backup(backup) = &data.payload {
+        return serde_json::to_string_pretty(backup)
+            .unwrap_or_else(|_| "{\"error\":\"cannot serialize configuration backup\"}".into());
+    }
     match format.resolve() {
         ResolvedOutputFormat::Json => render_config_json(data, false),
         ResolvedOutputFormat::PrettyJson => render_config_json(data, true),
@@ -310,6 +388,9 @@ pub fn render_error(format: OutputFormat, err: &AsterError) -> String {
 
 fn render_config_json(report: &ConfigCommandReport, pretty: bool) -> String {
     match &report.payload {
+        ConfigCommandPayload::Backup(payload) => {
+            serde_json::to_string_pretty(payload).unwrap_or_default()
+        }
         ConfigCommandPayload::List(payload) => render_success_envelope(payload, pretty),
         ConfigCommandPayload::Config(payload) => render_success_envelope(payload, pretty),
         ConfigCommandPayload::Delete(payload) => render_success_envelope(payload, pretty),
@@ -319,6 +400,9 @@ fn render_config_json(report: &ConfigCommandReport, pretty: bool) -> String {
 fn render_config_human(report: &ConfigCommandReport) -> String {
     let palette = CliTerminalPalette::stdout();
     match &report.payload {
+        ConfigCommandPayload::Backup(payload) => {
+            serde_json::to_string_pretty(payload).unwrap_or_default()
+        }
         ConfigCommandPayload::List(payload) => {
             render_config_list_human(report.kind, payload, &palette)
         }
@@ -390,22 +474,14 @@ fn summarize_multiline_value(value: &str) -> String {
     let trimmed = value.trim();
     let line_count = value.lines().count();
     let chars = char_count(value);
-    let label = if looks_like_json(trimmed) {
+    let label = if trimmed.starts_with('{') || trimmed.starts_with('[') {
         "json value"
-    } else if looks_like_html(trimmed) {
+    } else if trimmed.starts_with('<') {
         "html template"
     } else {
         "multiline value"
     };
     format!("<{label}: {line_count} lines, {chars} chars>")
-}
-
-fn looks_like_json(value: &str) -> bool {
-    value.starts_with('{') || value.starts_with('[')
-}
-
-fn looks_like_html(value: &str) -> bool {
-    value.starts_with('<')
 }
 
 fn render_config_entry_human(
@@ -544,17 +620,14 @@ fn system_config_to_view(model: system_config::Model) -> SystemConfig {
     shared_system_config::apply_definition(model).into()
 }
 
-fn build_value_lookup(models: &[system_config::Model]) -> HashMap<String, String> {
-    models
-        .iter()
-        .map(|model| (model.key.clone(), model.value.clone()))
-        .collect()
-}
-
 fn normalize_entries(
-    mut current_lookup: HashMap<String, String>,
+    current: &[system_config::Model],
     entries: &[ImportItem],
 ) -> Result<Vec<NormalizedImportItem>> {
+    let mut current_lookup: HashMap<String, String> = current
+        .iter()
+        .map(|model| (model.key.clone(), model.value.clone()))
+        .collect();
     let mut seen_keys = BTreeSet::new();
     let mut storage_entries = Vec::with_capacity(entries.len());
 
@@ -565,15 +638,29 @@ fn normalize_entries(
                 entry.key
             )));
         }
+        transfer::validate_item(entry)?;
+        if let Some(existing) = current.iter().find(|model| model.key == entry.key)
+            && ((existing.is_sensitive && !entry.is_sensitive) || existing.source != entry.source)
+        {
+            return Err(AsterError::validation_error(
+                "input cannot change existing configuration ownership or remove sensitivity",
+            ));
+        }
         let value_type = CONFIG_REGISTRY
             .get(&entry.key)
             .map(|def| def.value_type)
             .unwrap_or(ConfigValueType::String);
-        let value = entry.value.to_storage_for_type(value_type)?;
+        let value = entry.value.to_storage_for_type(value_type).map_err(|_| {
+            AsterError::validation_error(
+                "configuration value has an invalid type (values redacted)",
+            )
+        })?;
         current_lookup.insert(entry.key.clone(), value.clone());
         storage_entries.push(NormalizedImportItem {
             key: entry.key.clone(),
             value,
+            visibility: entry.visibility,
+            is_sensitive: entry.is_sensitive,
         });
     }
 
@@ -583,7 +670,11 @@ fn normalize_entries(
             let value = if CONFIG_REGISTRY.contains_key(&entry.key) {
                 CONFIG_REGISTRY
                     .normalize_value(&current_lookup, &entry.key, &entry.value)
-                    .map_err(AsterError::from)?
+                    .map_err(|_| {
+                        AsterError::validation_error(
+                            "configuration validation failed (values redacted)",
+                        )
+                    })?
             } else {
                 entry.value.clone()
             };
@@ -591,23 +682,48 @@ fn normalize_entries(
             Ok(NormalizedImportItem {
                 key: entry.key.clone(),
                 value,
+                visibility: entry.visibility,
+                is_sensitive: entry.is_sensitive,
             })
         })
         .collect()
 }
 
-fn resolve_validate_entries(args: &ValidateArgs) -> Result<Vec<ImportItem>> {
-    match (&args.input_file, &args.key, &args.value) {
-        (Some(path), None, None) => read_import_items(path),
-        (None, Some(key), Some(value)) => Ok(vec![ImportItem {
-            key: key.clone(),
-            value: parse_cli_config_value(key, value)?,
-        }]),
-        (Some(_), Some(_), _) | (Some(_), _, Some(_)) => Err(AsterError::validation_error(
-            "validate accepts either ASTER_CLI_INPUT_FILE or ASTER_CLI_CONFIG_KEY + ASTER_CLI_CONFIG_VALUE",
-        )),
+fn resolve_value_entry(
+    key: &str,
+    input: &ValueInput,
+    current: &[system_config::Model],
+) -> Result<ImportItem> {
+    let definition = CONFIG_REGISTRY.get(key);
+    let existing = current.iter().find(|model| model.key == key);
+    let sensitive = definition.is_some_and(|def| def.is_sensitive)
+        || existing.is_some_and(|model| model.is_sensitive);
+    let value = input.read(sensitive)?;
+    Ok(ImportItem {
+        key: key.into(),
+        value: parse_cli_config_value(key, value.expose_secret())?,
+        source: if definition.is_some() {
+            ConfigSource::System
+        } else {
+            ConfigSource::Custom
+        },
+        visibility: definition
+            .map(|def| def.visibility)
+            .or_else(|| existing.map(|model| model.visibility))
+            .unwrap_or_default(),
+        is_sensitive: sensitive,
+    })
+}
+
+fn resolve_validate_entries(
+    args: &ValidateArgs,
+    current: &[system_config::Model],
+) -> Result<Vec<ImportItem>> {
+    match (&args.input_file, &args.key, args.input.supplied()) {
+        (Some(path), None, false) => read_import_items(path),
+        (None, Some(key), _) => Ok(vec![resolve_value_entry(key, &args.input, current)?]),
         _ => Err(AsterError::validation_error(
-            "validate requires ASTER_CLI_INPUT_FILE or ASTER_CLI_CONFIG_KEY + ASTER_CLI_CONFIG_VALUE",
+            "validate requires either --input-file or --key with a value input source",
         )),
     }
 }
@@ -621,10 +737,10 @@ fn parse_cli_config_value(key: &str, value: &str) -> Result<ConfigValue> {
         return Ok(ConfigValue::String(value.to_string()));
     }
 
-    let values = serde_json::from_str::<Vec<String>>(value).map_err(|error| {
-        AsterError::validation_error(format!(
-            "config key '{key}' expects a JSON array of strings: {error}"
-        ))
+    let values = serde_json::from_str::<Vec<String>>(value).map_err(|_| {
+        AsterError::validation_error(
+            "configuration expects a JSON array of strings (values redacted)",
+        )
     })?;
     Ok(ConfigValue::StringArray(values))
 }
@@ -635,27 +751,6 @@ fn format_config_value(value: &ConfigValue) -> String {
         ConfigValue::StringArray(values) => serde_json::to_string(values)
             .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
     }
-}
-
-fn read_import_items(path: &Path) -> Result<Vec<ImportItem>> {
-    let content = std::fs::read_to_string(path).map_err(|error| {
-        AsterError::config_error(format!(
-            "failed to read input file '{}': {error}",
-            path.display()
-        ))
-    })?;
-
-    if let Ok(items) = serde_json::from_str::<Vec<ImportItem>>(&content) {
-        return Ok(items);
-    }
-
-    let payload = serde_json::from_str::<ImportFilePayload>(&content).map_err(|error| {
-        AsterError::validation_error(format!(
-            "input file '{}' must be a JSON array or {{\"configs\": [...]}} payload: {error}",
-            path.display()
-        ))
-    })?;
-    Ok(payload.configs)
 }
 
 fn preview_system_config(key: &str, value: &str) -> SystemConfig {
@@ -766,10 +861,17 @@ mod tests {
         let (runtime, mut subscription) = test_runtime().await;
 
         execute_config_command_with_runtime(
-            &database_url,
+            &crate::config::DatabaseConfig {
+                url: database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
             &ConfigCommand::Set(KeyValueArgs {
                 key: "custom.cli_set".to_string(),
-                value: "enabled".to_string(),
+                input: super::ValueInput {
+                    value: Some("enabled".parse().unwrap()),
+                    ..Default::default()
+                },
             }),
             Some(&runtime),
         )
@@ -787,10 +889,17 @@ mod tests {
         let (database_url, database_path) = test_database("delete").await;
         let (runtime, mut subscription) = test_runtime().await;
         execute_config_command_with_runtime(
-            &database_url,
+            &crate::config::DatabaseConfig {
+                url: database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
             &ConfigCommand::Set(KeyValueArgs {
                 key: "custom.cli_delete".to_string(),
-                value: "enabled".to_string(),
+                input: super::ValueInput {
+                    value: Some("enabled".parse().unwrap()),
+                    ..Default::default()
+                },
             }),
             Some(&runtime),
         )
@@ -799,7 +908,11 @@ mod tests {
         let _ = next_reload(&mut subscription).await;
 
         execute_config_command_with_runtime(
-            &database_url,
+            &crate::config::DatabaseConfig {
+                url: database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
             &ConfigCommand::Delete(KeyArgs {
                 key: "custom.cli_delete".to_string(),
             }),
@@ -823,13 +936,23 @@ mod tests {
         ));
         std::fs::write(
             &input_file,
-            r#"[{"key":"custom.cli_b","value":"b"},{"key":"custom.cli_a","value":"a"}]"#,
+            r#"{"format":"asterdrive.runtime-config","version":1,"configs":[{"key":"custom.cli_b","value":"b","source":"custom","visibility":"private","is_sensitive":false},{"key":"custom.cli_a","value":"a","source":"custom","visibility":"private","is_sensitive":false}],"omitted_sensitive_keys":[]}"#,
         )
         .expect("config CLI import fixture should write");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&input_file, std::fs::Permissions::from_mode(0o600))
+                .expect("config CLI import fixture should be private");
+        }
         let (runtime, mut subscription) = test_runtime().await;
 
         execute_config_command_with_runtime(
-            &database_url,
+            &crate::config::DatabaseConfig {
+                url: database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
             &ConfigCommand::Import(FileArgs {
                 input_file: input_file.clone(),
             }),
@@ -843,5 +966,124 @@ mod tests {
         assert_eq!(message.source, ConfigNotificationSource::Cli);
         std::fs::remove_file(input_file).expect("config CLI import fixture should clean up");
         std::fs::remove_file(database_path).expect("config CLI test database should clean up");
+    }
+
+    #[tokio::test]
+    async fn database_failure_rolls_back_prior_import_writes_and_publishes_no_reload() {
+        use sea_orm::{ConnectionTrait, DbBackend, Statement};
+        let (database_url, database_path) = test_database("rollback").await;
+        let database = crate::config::DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        };
+        let db = super::connect_existing_database(&database).await.unwrap();
+        db.execute_raw(Statement::from_string(DbBackend::Sqlite,
+            "CREATE TRIGGER reject_cli_import BEFORE INSERT ON system_config WHEN NEW.key = 'custom.reject' BEGIN SELECT RAISE(ABORT, 'database rejects second item'); END"))
+            .await.unwrap();
+        let file = aster_forge_utils::raii::TempFileGuard::new(
+            std::env::temp_dir().join(format!("aster-cli-rollback-{}.json", uuid::Uuid::new_v4())),
+            "CLI rollback fixture",
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(file.path())
+                .unwrap();
+        }
+        std::fs::write(file.path(), r#"{"format":"asterdrive.runtime-config","version":1,"configs":[{"key":"custom.first","value":"written then rolled back","source":"custom","visibility":"private","is_sensitive":false},{"key":"custom.reject","value":"credential-marker","source":"custom","visibility":"private","is_sensitive":true}],"omitted_sensitive_keys":[]}"#).unwrap();
+        let (runtime, mut subscription) = test_runtime().await;
+        let result = execute_config_command_with_runtime(
+            &database,
+            &ConfigCommand::Import(FileArgs {
+                input_file: file.path().into(),
+            }),
+            Some(&runtime),
+        )
+        .await;
+        let error = result.unwrap_err();
+        assert!(!format!("{error:?}").contains("credential-marker"));
+        assert!(
+            crate::db::repository::config_repo::find_by_key(&db, "custom.first")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), subscription.recv())
+                .await
+                .is_err()
+        );
+        db.close().await.unwrap();
+        std::fs::remove_file(database_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_commands_and_validate_do_not_insert_defaults_or_mutate_rows() {
+        let (database_url, database_path) = test_database("no-read-side-effects").await;
+        let database = crate::config::DatabaseConfig {
+            url: database_url.into(),
+            pool_size: 1,
+            retry_count: 0,
+        };
+        let db = super::connect_existing_database(&database).await.unwrap();
+        assert!(
+            crate::db::repository::config_repo::find_all(&db)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        for command in [
+            ConfigCommand::List,
+            ConfigCommand::Export(super::ExportArgs {
+                include_sensitive: true,
+            }),
+            ConfigCommand::Validate(super::ValidateArgs {
+                key: Some("custom.preview".into()),
+                input_file: None,
+                input: super::ValueInput {
+                    value: Some("preview".parse().unwrap()),
+                    ..Default::default()
+                },
+            }),
+        ] {
+            execute_config_command_with_runtime(&database, &command, None)
+                .await
+                .unwrap();
+            assert!(
+                crate::db::repository::config_repo::find_all(&db)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        let context = crate::cli::CliContext {
+            config: crate::config::Config::default(),
+            database: database.clone(),
+        };
+        crate::cli::execute_doctor_command(
+            &crate::cli::DoctorArgs {
+                database_url: None,
+                strict: false,
+                deep: false,
+                fix: false,
+                scopes: Vec::new(),
+                policy_id: None,
+            },
+            &context,
+        )
+        .await;
+        assert!(
+            crate::db::repository::config_repo::find_all(&db)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        db.close().await.unwrap();
+        std::fs::remove_file(database_path).unwrap();
     }
 }

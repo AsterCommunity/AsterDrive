@@ -246,7 +246,7 @@ Verification uses an independent blocking budget of two jobs, with immediate uni
 
 ## Optional OTLP metrics
 
-Existing `-metrics` images provide Prometheus pull. For OTLP, build from source or use `docker build --build-arg CARGO_FEATURES=server,cli,metrics,otlp-metrics -t asterdrive:observability .`; static exporter settings still default to disabled.
+Existing `-metrics` images provide Prometheus pull. For OTLP, build from source or use `docker build --build-arg CARGO_FEATURES=server,operations-cli,metrics,otlp-metrics -t asterdrive:observability .`; static exporter settings still default to disabled.
 
 ```bash
 cargo build --release --features metrics,otlp-metrics
@@ -278,7 +278,7 @@ OTLP resource identity includes service/version/environment/role and the automat
 | `otlp-metrics` | otlp_metrics=true | Absent |
 | Both features | independent enablement | Present only with prometheus=true |
 
-Enabling an uncompiled capability fails startup. Compiled but disabled exporters use Noop and start no sampling/push workers. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
+An exporter absent from the build is skipped even when enabled in configuration: its specific settings are ignored, it starts no sampling/push workers, and it does not block startup. Only compiled and explicitly enabled exporters run; when none are active, the provider is Noop. Persistent blob cleanup timestamps are maintained with reference-count writes in every build, so enabling metrics later retains useful ages; this adds no business DB round trips.
 
 
 For a local smoke test, point the metrics endpoint at `http://127.0.0.1:4318/v1/metrics` and run an OpenTelemetry Collector with the following configuration. This accepts metrics only and prints diagnostics; it does not enable traces or persistent storage. No Collector instance was run for this documentation update.

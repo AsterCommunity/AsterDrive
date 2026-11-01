@@ -7,12 +7,12 @@ use sea_orm::{DatabaseConnection, DbBackend};
 
 use crate::cli::db_shared::{backend_name, pending_migrations, redact_database_url};
 
+use super::storage_scan::doctor_storage_scan_checks;
 use super::{
     DoctorArgs, DoctorCheck, DoctorDeepScope, DoctorReport, DoctorStatus,
     doctor_blob_ref_count_check, doctor_check, doctor_folder_tree_check, doctor_mail_check,
-    doctor_preview_apps_check, doctor_public_site_url_check, doctor_scope_enabled,
-    doctor_sqlite_search_check, doctor_storage_policy_check, doctor_storage_scan_checks,
-    doctor_storage_usage_check, effective_deep_scopes,
+    doctor_preview_apps_check, doctor_public_site_url_check, doctor_sqlite_search_check,
+    doctor_storage_policy_check, doctor_storage_usage_check, effective_deep_scopes,
 };
 
 struct DoctorMigrationInspection {
@@ -20,8 +20,16 @@ struct DoctorMigrationInspection {
 }
 
 /// Executes the full doctor flow and assembles the final report payload.
-pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorReport {
-    let redacted_database_url = redact_database_url(&args.database_url);
+pub async fn execute_doctor_command(
+    args: &DoctorArgs,
+    context: &crate::cli::CliContext,
+) -> DoctorReport {
+    let redacted_database_url = context
+        .database
+        .url
+        .as_url()
+        .map(redact_database_url)
+        .unwrap_or_else(|| "<structured database target>".into());
     // `--fix`、`--scope`、`--policy-id` 都意味着用户已经在请求深度审计；
     // 不要求再额外显式带 `--deep`，避免 CLI 使用上出现重复开关。
     let deep = args.deep || args.fix || !args.scopes.is_empty() || args.policy_id.is_some();
@@ -33,10 +41,10 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
     let mut backend = None;
     let mut checks = Vec::new();
 
-    let static_config = load_static_config_check(args, &mut checks);
+    let static_config = load_static_config_check(context, &mut checks);
 
     let Some((db, db_backend)) =
-        connect_doctor_database(args, &redacted_database_url, &mut backend, &mut checks).await
+        connect_doctor_database(context, &redacted_database_url, &mut backend, &mut checks).await
     else {
         return DoctorReport::new(args, redacted_database_url, backend, deep, scopes, checks);
     };
@@ -86,28 +94,12 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
 }
 
 fn load_static_config_check(
-    args: &DoctorArgs,
+    context: &crate::cli::context::CliContext,
     checks: &mut Vec<DoctorCheck>,
 ) -> Option<std::sync::Arc<crate::config::Config>> {
-    let config = match crate::config::try_get_config() {
-        Some(config) => config,
-        None => match crate::config::load_config_read_only() {
-            Ok(config) => std::sync::Arc::new(config),
-            Err(error) => {
-                checks.push(doctor_check(
-                    "static_config",
-                    "Static configuration",
-                    DoctorStatus::Fail,
-                    "failed to load static configuration",
-                    vec![error.message().to_string()],
-                    Some("Fix config.toml and rerun doctor.".to_string()),
-                ));
-                return None;
-            }
-        },
-    };
+    let config = std::sync::Arc::new(context.config.clone());
     let issues =
-        crate::config::deployment::static_issues(config.as_ref(), Some(args.database_url.as_str()));
+        crate::config::deployment::static_issues(config.as_ref(), context.database.url.as_url());
     if issues.is_empty() {
         checks.push(doctor_check(
             "static_config",
@@ -190,12 +182,12 @@ async fn doctor_deployment_topology_check(
 }
 
 async fn connect_doctor_database(
-    args: &DoctorArgs,
+    context: &crate::cli::context::CliContext,
     redacted_database_url: &str,
     backend: &mut Option<String>,
     checks: &mut Vec<DoctorCheck>,
 ) -> Option<(DatabaseConnection, DbBackend)> {
-    match super::connect_database(&args.database_url).await {
+    match super::connect_existing_database(&context.database).await {
         Ok(db) => {
             let db_backend = db.get_database_backend();
             let db_backend_name = backend_name(db_backend).to_string();
@@ -420,7 +412,7 @@ async fn push_deep_checks(
         return;
     }
 
-    if doctor_scope_enabled(scopes, DoctorDeepScope::StorageUsage) {
+    if scopes.contains(&DoctorDeepScope::StorageUsage) {
         checks.push(match doctor_storage_usage_check(db, args.fix).await {
             Ok(check) => check,
             Err(err) => doctor_check(
@@ -437,7 +429,7 @@ async fn push_deep_checks(
         });
     }
 
-    if doctor_scope_enabled(scopes, DoctorDeepScope::BlobRefCounts) && policy_filter_valid {
+    if scopes.contains(&DoctorDeepScope::BlobRefCounts) && policy_filter_valid {
         checks.push(match doctor_blob_ref_count_check(db, args.fix, effective_policy_id).await {
             Ok(check) => check,
             Err(err) => doctor_check(
@@ -454,7 +446,7 @@ async fn push_deep_checks(
         });
     }
 
-    if doctor_scope_enabled(scopes, DoctorDeepScope::StorageObjects)
+    if scopes.contains(&DoctorDeepScope::StorageObjects)
         && policy_filter_valid
         && let Some(runtime_config) = runtime_config
     {
@@ -500,7 +492,7 @@ async fn push_deep_checks(
         }
     }
 
-    if doctor_scope_enabled(scopes, DoctorDeepScope::FolderTree) {
+    if scopes.contains(&DoctorDeepScope::FolderTree) {
         checks.push(match doctor_folder_tree_check(db).await {
             Ok(check) => check,
             Err(err) => doctor_check(
@@ -517,7 +509,7 @@ async fn push_deep_checks(
         });
     }
 
-    if doctor_scope_enabled(scopes, DoctorDeepScope::RevisionLedger) {
+    if scopes.contains(&DoctorDeepScope::RevisionLedger) {
         checks.push(match crate::services::ops::integrity::audit_revision_ledger_with_limit(db, 256).await {
             Ok(issues) if issues.total == 0 => doctor_check(
                 "revision_ledger_integrity",

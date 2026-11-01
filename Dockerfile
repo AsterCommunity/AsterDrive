@@ -17,7 +17,7 @@ FROM rust:1-alpine AS builder
 RUN apk add --no-cache build-base pkgconfig sqlite-dev curl
 
 WORKDIR /build
-ARG CARGO_FEATURES="server,cli"
+ARG CARGO_FEATURES="server,operations-cli"
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
@@ -28,7 +28,7 @@ COPY tests/multi_primary/ tests/multi_primary/
 RUN mkdir src && \
     echo 'fn main() {}' > src/main.rs && \
     echo '' > src/lib.rs && \
-    cargo build --release --locked --features "${CARGO_FEATURES}" && \
+    cargo build --release --locked --no-default-features --features "${CARGO_FEATURES}" && \
     rm -rf src
 
 COPY src/ src/
@@ -37,7 +37,7 @@ COPY --from=frontend /build/frontend-panel/dist/ frontend-panel/dist/
 
 ARG ASTER_BUILD_REVISION="unknown"
 
-RUN cargo build --release --locked --features "${CARGO_FEATURES}"
+RUN cargo build --release --locked --no-default-features --features "${CARGO_FEATURES}"
 
 # Stage 3: Shared Alpine runtime
 FROM alpine:3.24 AS runtime-base

@@ -11,8 +11,6 @@
     )
 )]
 
-#[cfg(feature = "cli")]
-use clap::{Parser, Subcommand};
 use std::io;
 
 #[cfg(feature = "jemalloc")]
@@ -79,63 +77,6 @@ pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(
 #[global_allocator]
 static GLOBAL: aster_forge_alloc::TrackingAlloc = aster_forge_alloc::TrackingAlloc;
 
-#[cfg(feature = "cli")]
-#[derive(Debug, Parser)]
-#[command(
-    name = "aster_drive",
-    version,
-    about = "AsterDrive server and operations CLI",
-    long_about = "AsterDrive server and operations CLI.\n\nRun without a subcommand to start the server, or use 'serve' explicitly. Use 'config' for offline runtime configuration operations.",
-    styles = aster_drive::cli::cli_styles()
-)]
-struct RootCli {
-    #[command(subcommand)]
-    command: Option<RootCommand>,
-}
-
-#[cfg(feature = "cli")]
-#[derive(Debug, Clone, Subcommand)]
-enum RootCommand {
-    /// Generate an Argon2id PHC verifier from a password read from stdin
-    HashPassword,
-    /// Start the AsterDrive server
-    Serve {
-        /// Process responsibilities; Follower node mode is still selected by config
-        #[arg(value_enum, default_value = "all")]
-        role: aster_drive::runtime::role::ServeRole,
-    },
-    /// Run offline health checks for database, config, and storage readiness
-    Doctor {
-        #[arg(long, env = "ASTER_CLI_OUTPUT_FORMAT", default_value = "auto")]
-        output_format: aster_drive::cli::OutputFormat,
-        #[command(flatten)]
-        args: aster_drive::cli::DoctorArgs,
-    },
-    /// Manage runtime configuration stored in system_config
-    Config {
-        #[arg(long, env = "ASTER_CLI_DATABASE_URL")]
-        database_url: String,
-        #[arg(long, env = "ASTER_CLI_OUTPUT_FORMAT", default_value = "auto")]
-        output_format: aster_drive::cli::OutputFormat,
-        #[command(subcommand)]
-        action: aster_drive::cli::ConfigCommand,
-    },
-    /// Run an offline database backend migration for a maintenance window
-    DatabaseMigrate {
-        #[arg(long, env = "ASTER_CLI_OUTPUT_FORMAT", default_value = "auto")]
-        output_format: aster_drive::cli::DatabaseMigrateOutputFormat,
-        #[command(flatten)]
-        args: aster_drive::cli::DatabaseMigrateArgs,
-    },
-    /// Manage remote node enrollment from a shell
-    Node {
-        #[arg(long, env = "ASTER_CLI_OUTPUT_FORMAT", default_value = "auto")]
-        output_format: aster_drive::cli::OutputFormat,
-        #[command(subcommand)]
-        action: aster_drive::cli::NodeCommand,
-    },
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // 0. 安装自定义 panic hook（最先执行）
@@ -149,121 +90,21 @@ async fn main() -> std::io::Result<()> {
 
     aster_forge_auth::initialize_jwt_crypto_provider().map_err(io_other)?;
 
-    #[cfg_attr(
-        not(feature = "cli"),
-        expect(
-            unused_mut,
-            reason = "CLI-enabled builds assign the requested role before bootstrap"
-        )
-    )]
-    let mut serve_role = aster_drive::runtime::role::ServeRole::All;
-
-    #[cfg(feature = "cli")]
-    {
-        let cli = RootCli::parse();
-        match cli.command {
-            Some(RootCommand::HashPassword) => {
-                use std::io::Read;
-                let mut password = String::new();
-                // Include CRLF and one overflow byte so a long input cannot be
-                // silently accepted after truncation at a line ending.
-                std::io::stdin().take(4099).read_to_string(&mut password)?;
-                let password = password.strip_suffix('\n').unwrap_or(&password);
-                let password = password.strip_suffix('\r').unwrap_or(password);
-                if password.is_empty()
-                    || password.len() > 4096
-                    || password.chars().any(char::is_control)
-                {
-                    return Err(io::Error::other(
-                        "password must contain 1..4096 bytes without control characters",
-                    ));
-                }
-                let hash = aster_forge_auth::PasswordHashRuntime::default()
-                    .hash_password(password)
-                    .await
-                    .map_err(io_other)?;
-                println!("{hash}");
-                return Ok(());
-            }
-            Some(RootCommand::Doctor {
-                output_format,
-                args,
-            }) => {
-                let report = aster_drive::cli::execute_doctor_command(&args).await;
-                println!(
-                    "{}",
-                    aster_drive::cli::render_doctor_success(output_format, &report)
-                );
-                if report.should_exit_nonzero() {
-                    std::process::exit(1);
-                }
-                return Ok(());
-            }
-            Some(RootCommand::Config {
-                database_url,
-                output_format,
-                action,
-            }) => match aster_drive::cli::execute_config_command(&database_url, &action).await {
-                Ok(data) => {
-                    println!("{}", aster_drive::cli::render_success(output_format, &data));
-                    return Ok(());
-                }
-                Err(error) => {
-                    eprintln!("{}", aster_drive::cli::render_error(output_format, &error));
-                    std::process::exit(1);
-                }
-            },
-            Some(RootCommand::DatabaseMigrate {
-                output_format,
-                args,
-            }) => match aster_drive::cli::execute_database_migration(&args).await {
-                Ok(data) => {
-                    println!(
-                        "{}",
-                        aster_drive::cli::render_database_migration_success(output_format, &data,)
-                    );
-                    return Ok(());
-                }
-                Err(error) => {
-                    eprintln!(
-                        "{}",
-                        aster_drive::cli::render_database_migration_error(output_format, &error,)
-                    );
-                    std::process::exit(1);
-                }
-            },
-            Some(RootCommand::Node {
-                output_format,
-                action,
-            }) => match aster_drive::cli::execute_node_command(&action).await {
-                Ok(data) => {
-                    println!(
-                        "{}",
-                        aster_drive::cli::render_node_success(output_format, &data)
-                    );
-                    return Ok(());
-                }
-                Err(error) => {
-                    eprintln!(
-                        "{}",
-                        aster_drive::cli::render_node_error(output_format, &error)
-                    );
-                    std::process::exit(1);
-                }
-            },
-            Some(RootCommand::Serve { role }) => {
-                serve_role = role;
-            }
-            None => {}
-        }
-    }
-
+    let (serve_role, config_location) = match aster_drive::cli::command::execute().await? {
+        aster_drive::cli::command::CommandOutcome::Serve { role, location } => (role, location),
+        aster_drive::cli::command::CommandOutcome::Exit(0) => return Ok(()),
+        aster_drive::cli::command::CommandOutcome::Exit(code) => std::process::exit(code),
+    };
     let bootstrap_config_path =
-        aster_drive::services::remote::node_enrollment::prepare_follower_bootstrap_config()
-            .map_err(io_other)?;
+        aster_drive::services::remote::node_enrollment::prepare_follower_bootstrap_config(
+            &config_location,
+            &|name| std::env::var(name).ok(),
+        )
+        .map_err(io_other)?;
 
     // 1. 加载配置（会自动创建 data/config.toml）
-    let config_load_report = aster_drive::config::init_config().map_err(io_other)?;
+    let config_load_report =
+        aster_drive::config::init_config_at(&config_location).map_err(io_other)?;
     for message in config_load_report.messages() {
         if !message.starts_with("[INFO] Configuration loaded from:") {
             eprintln!("{message}");
@@ -292,12 +133,12 @@ async fn main() -> std::io::Result<()> {
     }
     tracing::info!(path = %config_load_report.config_path().display(), "configuration loaded");
     tracing::info!(
-        version = aster_drive::build_info::VERSION,
-        revision = aster_drive::build_info::REVISION,
-        build_time = aster_drive::build_info::BUILD_TIME,
-        profile = aster_drive::build_info::PROFILE,
-        target = aster_drive::build_info::TARGET,
-        variant = aster_drive::build_info::VARIANT,
+        version = env!("CARGO_PKG_VERSION"),
+        revision = env!("ASTER_BUILD_REVISION"),
+        build_time = env!("ASTER_BUILD_TIME"),
+        profile = env!("ASTER_BUILD_PROFILE"),
+        target = env!("ASTER_BUILD_TARGET"),
+        features = env!("ASTER_BUILD_FEATURES"),
         mode = runtime_mode.as_str(),
         role = if runtime_mode == aster_drive::config::node_mode::NodeRuntimeMode::Follower {
             "follower"
@@ -305,7 +146,7 @@ async fn main() -> std::io::Result<()> {
             serve_role.as_str()
         },
         "starting {}",
-        aster_drive::build_info::PRODUCT_NAME
+        "AsterDrive"
     );
 
     // 只清理短命 runtime 临时目录：
@@ -331,40 +172,4 @@ async fn main() -> std::io::Result<()> {
 
 fn io_other(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
-}
-
-#[cfg(all(test, feature = "cli"))]
-mod role_cli_tests {
-    use super::*;
-    use aster_drive::runtime::role::ServeRole;
-
-    #[test]
-    fn default_and_explicit_role_commands() {
-        for (args, expected) in [
-            (vec!["aster_drive"], ServeRole::All),
-            (vec!["aster_drive", "serve"], ServeRole::All),
-            (vec!["aster_drive", "serve", "all"], ServeRole::All),
-            (vec!["aster_drive", "serve", "api"], ServeRole::Api),
-            (vec!["aster_drive", "serve", "worker"], ServeRole::Worker),
-        ] {
-            let role = match RootCli::try_parse_from(args).unwrap().command {
-                None => ServeRole::All,
-                Some(RootCommand::Serve { role }) => role,
-                other => panic!("unexpected command: {other:?}"),
-            };
-            assert_eq!(role, expected);
-        }
-    }
-
-    #[test]
-    fn invalid_or_conflicting_roles_are_rejected() {
-        for args in [
-            vec!["aster_drive", "serve", "follower"],
-            vec!["aster_drive", "serve", "API"],
-            vec!["aster_drive", "serve", "api", "worker"],
-            vec!["aster_drive", "serve", "--role", "worker"],
-        ] {
-            assert!(RootCli::try_parse_from(args).is_err());
-        }
-    }
 }
