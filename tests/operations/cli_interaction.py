@@ -191,6 +191,11 @@ result, output = interact(["set", "branding_title", "--value-prompt"],
                           [(normal_prompt, b"Explicit visible prompt\r", False)])
 assert b"Explicit visible prompt" in output
 
+# Text editing follows inquire: a Tab key is not inserted into the value.
+result, _ = interact(["set", "branding_title"],
+                     [(normal_prompt, b"tab-key-\tvisible-value\r", False)])
+assert result["data"]["value"] == "tab-key-visible-value"
+
 result, _ = interact(["set", "mail_smtp_password"],
                      [(secret_prompt, new_secret, False),
                       (b"*" * len(new_secret), b"\r", False)], hidden=True,
@@ -347,6 +352,18 @@ for password, entered in [
                              (b"*" * min(len(password), 8), b"\r", False)],
                          root="hash-password", forbidden=(entered,))
     hashes.append((password, result.decode().strip()))
+# Password editing follows the same library contract. Validate and verify the
+# resulting text, while bracketed paste preserves literal controls for rejection.
+tab_value = b"tab-key-sensitive-marker"
+result, _ = interact([], [(b"Password (masked)", b"tab-key-\tsensitive-marker\r", False)],
+                     root="hash-password", forbidden=(tab_value,))
+hashes.append((tab_value.decode(), result.decode().strip()))
+for control in (b"\t", b"\x00"):
+    pasted = b"pasted-credential-marker" + control + b"tail"
+    interact([], [(b"Password (masked)", b"\x1b[200~" + pasted + b"\x1b[201~\r", False),
+                  (b"must contain 1..4096", b"\x03", False)],
+             root="hash-password", succeeds=False, canceled=True,
+             forbidden=(b"pasted-credential-marker",))
 result, _ = interact([], [(b"Password (masked)", b"\r", False),
                          (b"must contain 1..4096", new_secret + b"\r", False)],
                      root="hash-password", forbidden=(new_secret,))

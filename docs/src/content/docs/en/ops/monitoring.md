@@ -223,7 +223,9 @@ Generate the verifier without putting a password in process arguments or initial
 ./aster_drive hash-password
 ```
 
-Passwords must contain 1–4096 UTF-8 bytes without control characters; terminal editing keys are handled by the input library. Scripts can still provide stdin through a pipe. One trailing LF, CRLF, or CR is accepted, and leading and trailing spaces are preserved. Empty, oversized or other control-containing pipe input fails without emitting a hash. Never put the password in command arguments:
+Passwords must contain 1–4096 UTF-8 bytes without control characters. Interactive validation checks the text after editing by `inquire`: pressing Tab does not append a password character, so typing `ab`, Tab, then `cd` is equivalent to typing `abcd`. Control characters actually present in the resulting text, such as through paste, still fail validation. The prompt does not preserve raw key bytes.
+
+Scripts can still provide stdin through a pipe, which bypasses the interactive editor. One trailing LF, CRLF, or CR is accepted, and leading and trailing spaces are preserved. Empty, oversized or other control-containing pipe input, including literal Tab and NUL, fails without emitting a hash. Never put the password in command arguments:
 
 ```bash
 # Bash: input is not echoed or stored in shell history
