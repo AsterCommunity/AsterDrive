@@ -24,6 +24,11 @@ pub async fn execute_doctor_command(
     args: &DoctorArgs,
     context: &crate::cli::CliContext,
 ) -> DoctorReport {
+    let mut effective_args = args.clone();
+    if args.dry_run {
+        effective_args.deep |= args.fix;
+        effective_args.fix = false;
+    }
     let redacted_database_url = context
         .database
         .url
@@ -43,8 +48,14 @@ pub async fn execute_doctor_command(
 
     let static_config = load_static_config_check(context, &mut checks);
 
-    let Some((db, db_backend)) =
-        connect_doctor_database(context, &redacted_database_url, &mut backend, &mut checks).await
+    let Some((db, db_backend)) = connect_doctor_database(
+        context,
+        &redacted_database_url,
+        &mut backend,
+        &mut checks,
+        !effective_args.fix,
+    )
+    .await
     else {
         return DoctorReport::new(args, redacted_database_url, backend, deep, scopes, checks);
     };
@@ -77,11 +88,11 @@ pub async fn execute_doctor_command(
     }
 
     let (effective_policy_id, policy_filter_valid) =
-        resolve_policy_filter(&db, args, deep, &mut checks).await;
+        resolve_policy_filter(&db, &effective_args, deep, &mut checks).await;
 
     push_deep_checks(
         &db,
-        args,
+        &effective_args,
         &scopes,
         effective_policy_id,
         policy_filter_valid,
@@ -186,8 +197,9 @@ async fn connect_doctor_database(
     redacted_database_url: &str,
     backend: &mut Option<String>,
     checks: &mut Vec<DoctorCheck>,
+    read_only: bool,
 ) -> Option<(DatabaseConnection, DbBackend)> {
-    match super::connect_existing_database(&context.database).await {
+    match super::connect_existing_database(&context.database, read_only).await {
         Ok(db) => {
             let db_backend = db.get_database_backend();
             let db_backend_name = backend_name(db_backend).to_string();

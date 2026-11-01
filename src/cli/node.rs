@@ -43,6 +43,9 @@ pub struct NodeEnrollArgs {
     pub token_prompt: bool,
     #[arg(long, env = "ASTER_CLI_DATABASE_URL")]
     pub database_url: Option<String>,
+    /// Confirm follower enrollment without an interactive prompt.
+    #[arg(long, env = "ASTER_CLI_YES", default_value_t = false)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,6 +142,10 @@ pub async fn execute_node_enroll(
         )
         .into());
     }
+    super::shared::confirm_write(
+        &format!("Enroll this follower with primary {master_url}?"),
+        args.yes,
+    )?;
     let config_path = ensure_follower_start_mode(location)?;
     let config = crate::config::get_config();
     let database = args.database_url.as_deref().map_or_else(

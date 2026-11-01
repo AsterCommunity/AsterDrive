@@ -129,6 +129,7 @@ fn role_help_and_invalid_arguments_have_no_bootstrap_side_effects() {
 fn run_aster_drive_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
     Command::new(aster_drive_bin())
         .args(args)
+        .env("ASTER_CLI_YES", "true")
         .envs(envs.iter().copied())
         .output()
         .expect("aster_drive binary should run")
@@ -141,10 +142,92 @@ fn run_aster_drive_with_env_in_dir(
 ) -> std::process::Output {
     Command::new(aster_drive_bin())
         .args(args)
+        .env("ASTER_CLI_YES", "true")
         .envs(envs.iter().copied())
         .current_dir(current_dir)
         .output()
         .expect("aster_drive binary should run")
+}
+
+#[test]
+fn completion_install_generates_shell_scripts_without_instance_bootstrap() {
+    let root = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-completions-{}", uuid::Uuid::new_v4())),
+        "CLI shell completion fixture",
+    );
+    std::fs::create_dir_all(root.path()).unwrap();
+    for (shell, relative_path, expected) in [
+        (
+            "bash",
+            ".local/share/bash-completion/completions/aster_drive",
+            "complete -F",
+        ),
+        (
+            "zsh",
+            ".local/share/zsh/site-functions/_aster_drive",
+            "_arguments",
+        ),
+        (
+            "fish",
+            ".config/fish/completions/aster_drive.fish",
+            "complete -c aster_drive",
+        ),
+    ] {
+        let output = Command::new(aster_drive_bin())
+            .args(["completions", "install", shell])
+            .env("HOME", root.path())
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("XDG_CONFIG_HOME")
+            .current_dir(root.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let path = root.path().join(relative_path);
+        let script = std::fs::read_to_string(path).unwrap();
+        assert!(script.contains(expected), "{shell}: {script}");
+        assert!(script.contains("database-migrate"));
+        assert!(script.contains("completions"));
+        if shell == "fish" {
+            assert!(script.contains("-a 'all api worker'"));
+            assert!(script.contains("-a 'bash zsh fish'"));
+        }
+        assert!(!root.path().join("data").exists());
+        if shell != "fish" {
+            let syntax = Command::new(shell)
+                .arg("-n")
+                .arg(root.path().join(relative_path))
+                .output()
+                .unwrap();
+            assert!(
+                syntax.status.success(),
+                "{}",
+                String::from_utf8_lossy(&syntax.stderr)
+            );
+        }
+    }
+    let inferred = Command::new(aster_drive_bin())
+        .args(["completions", "install"])
+        .env("HOME", root.path())
+        .env("SHELL", "/usr/bin/fish")
+        .env_remove("XDG_DATA_HOME")
+        .env_remove("XDG_CONFIG_HOME")
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(
+        inferred.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inferred.stderr)
+    );
+    assert!(
+        root.path()
+            .join(".config/fish/completions/aster_drive.fish")
+            .exists()
+    );
 }
 
 fn redact_database_url(database_url: &str) -> String {
@@ -1167,6 +1250,187 @@ async fn test_root_binary_config_set_and_get_round_trip() {
 }
 
 #[tokio::test]
+async fn config_dry_run_shows_change_without_writing_or_publishing_reload() {
+    let database_url = setup_database_url().await;
+    let preview = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "set",
+        "custom.dry_run",
+        "planned",
+        "--dry-run",
+    ]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["data"]["changes"][0]["action"], "would_add");
+    assert_eq!(preview["data"]["changes"][0]["key"], "custom.dry_run");
+
+    let missing = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "get",
+        "custom.dry_run",
+    ]);
+    assert!(!missing.status.success());
+
+    let write = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "set",
+        "custom.dry_run",
+        "planned",
+    ]);
+    assert!(
+        write.status.success(),
+        "{}",
+        String::from_utf8_lossy(&write.stderr)
+    );
+    let preview_delete = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "delete",
+        "custom.dry_run",
+        "--dry-run",
+    ]);
+    assert!(preview_delete.status.success());
+    let preview_delete: Value = serde_json::from_slice(&preview_delete.stdout).unwrap();
+    assert_eq!(
+        preview_delete["data"]["changes"][0]["action"],
+        "would_delete"
+    );
+    let still_present = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "get",
+        "custom.dry_run",
+    ]);
+    assert!(still_present.status.success());
+}
+
+#[tokio::test]
+async fn config_write_requires_explicit_confirmation_without_a_terminal() {
+    let database_url = setup_database_url().await;
+    let output = Command::new(aster_drive_bin())
+        .args([
+            "config",
+            "--database-url",
+            &database_url,
+            "set",
+            "custom.confirmation",
+            "value",
+        ])
+        .env_remove("ASTER_CLI_YES")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --yes"));
+    let missing = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "get",
+        "custom.confirmation",
+    ]);
+    assert!(!missing.status.success());
+}
+
+#[tokio::test]
+async fn config_import_dry_run_previews_batch_without_importing_it() {
+    let database_url = setup_database_url().await;
+    let directory = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-cli-import-preview-{}", uuid::Uuid::new_v4())),
+        "CLI import preview fixture",
+    );
+    std::fs::create_dir_all(directory.path()).unwrap();
+    let input = directory.path().join("config.json");
+    std::fs::write(
+        &input,
+        r#"{"format":"asterdrive.runtime-config","version":1,"configs":[{"key":"custom.import_preview","value":"planned","source":"custom","visibility":"private","is_sensitive":false}],"omitted_sensitive_keys":[]}"#,
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&input, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let preview = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "import",
+        "--input-file",
+        input.to_str().unwrap(),
+        "--dry-run",
+    ]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["data"]["changes"][0]["action"], "would_add");
+    assert_eq!(
+        preview["data"]["changes"][0]["key"],
+        "custom.import_preview"
+    );
+    let missing = run_aster_drive(&[
+        "config",
+        "--database-url",
+        &database_url,
+        "get",
+        "custom.import_preview",
+    ]);
+    assert!(!missing.status.success());
+}
+
+#[tokio::test]
+async fn database_migration_dry_run_does_not_create_or_change_target() {
+    let source = setup_database_url().await;
+    let directory = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!(
+            "aster-cli-migration-preview-{}",
+            uuid::Uuid::new_v4()
+        )),
+        "CLI migration dry-run fixture",
+    );
+    std::fs::create_dir_all(directory.path()).unwrap();
+    let path = directory.path().join("target.db");
+    let target = format!("sqlite://{}?mode=rwc", path.display());
+    let run = || {
+        run_aster_drive(&[
+            "database-migrate",
+            "--source-database-url",
+            &source,
+            "--target-database-url",
+            &target,
+            "--dry-run",
+        ])
+    };
+    let missing = run();
+    assert!(!missing.status.success());
+    assert!(!path.exists());
+    std::fs::write(&path, []).unwrap();
+    let preview = run();
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let json: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(json["data"]["mode"], "dry_run");
+    assert!(std::fs::read(&path).unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn config_positional_arguments_override_environment_and_keep_legacy_flags() {
     let database_url = setup_database_url().await;
     let environment = [
@@ -1320,7 +1584,13 @@ fn node_inputs_override_environment_and_fail_before_bootstrap_when_incomplete() 
     let config = "[server]\nstart_mode = \"primary\"\n";
     std::fs::write(root.path().join("data/config.toml"), config).unwrap();
     let mut child = Command::new(aster_drive_bin())
-        .args(["node", "enroll", "https://example.invalid", "--token-stdin"])
+        .args([
+            "node",
+            "enroll",
+            "https://example.invalid",
+            "--token-stdin",
+            "--yes",
+        ])
         .env("ASTER_CLI_MASTER_URL", "invalid environment URL")
         .env(
             "ASTER_CLI_ENROLLMENT_TOKEN",
@@ -2531,6 +2801,7 @@ async fn test_root_binary_doctor_deep_fix_repairs_counters() {
         .await
         .unwrap()
         .expect("test user should exist");
+    let user_id = user.id;
     let file = file_repo::find_by_id(&db, file_id).await.unwrap();
     let blob = file_repo::find_blob_by_id(&db, file.blob_id).await.unwrap();
 
@@ -2542,6 +2813,25 @@ async fn test_root_binary_doctor_deep_fix_repairs_counters() {
     blob_active.ref_count = Set(0);
     blob_active.updated_at = Set(Utc::now());
     blob_active.update(&db).await.unwrap();
+
+    let preview = run_aster_drive(&[
+        "doctor",
+        "--database-url",
+        &database_url,
+        "--fix",
+        "--dry-run",
+    ]);
+    assert!(
+        preview.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["data"]["dry_run"], true);
+    let unchanged_user = user_repo::find_by_id(&db, user_id).await.unwrap();
+    let unchanged_blob = file_repo::find_blob_by_id(&db, file.blob_id).await.unwrap();
+    assert_eq!(unchanged_user.storage_used, 0);
+    assert_eq!(unchanged_blob.ref_count, 0);
 
     let output = run_aster_drive(&["doctor", "--database-url", &database_url, "--deep", "--fix"]);
     assert!(
@@ -3365,6 +3655,7 @@ async fn cli_secret_stdin_modes_are_bounded_mutually_exclusive_and_redacted() {
                 "--key",
                 "mail_smtp_password",
                 "--value-stdin",
+                "--yes",
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

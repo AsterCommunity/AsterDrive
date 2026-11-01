@@ -115,6 +115,9 @@ pub struct DatabaseMigrateArgs {
     pub dry_run: bool,
     #[arg(long, env = "ASTER_CLI_VERIFY_ONLY", default_value_t = false)]
     pub verify_only: bool,
+    /// Confirm target schema and data writes without an interactive prompt.
+    #[arg(long, env = "ASTER_CLI_YES", default_value_t = false)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -372,8 +375,28 @@ pub async fn execute_database_migration(
 
     let started_at = Instant::now();
     let progress = ProgressReporter::new();
-    let source_db = connect_database(&args.source_database_url).await?;
-    let target_db = connect_database(&args.target_database_url).await?;
+    let source_db = crate::cli::shared::connect_existing_database(
+        &crate::config::DatabaseConfig {
+            url: args.source_database_url.clone().into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        true,
+    )
+    .await?;
+    let target_db = if args.dry_run || args.verify_only {
+        crate::cli::shared::connect_existing_database(
+            &crate::config::DatabaseConfig {
+                url: args.target_database_url.clone().into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            true,
+        )
+        .await?
+    } else {
+        connect_database(&args.target_database_url).await?
+    };
     let source_backend = source_db.get_database_backend();
     let target_backend = target_db.get_database_backend();
     validate_backends(source_backend, target_backend)?;

@@ -18,7 +18,7 @@ binary, database_url, working_dir = sys.argv[1:]
 environment = {key: value for key, value in os.environ.items()
                if key not in ("ASTER_CLI_CONFIG_KEY", "ASTER_CLI_CONFIG_VALUE",
                               "ASTER_CLI_MASTER_URL", "ASTER_CLI_ENROLLMENT_TOKEN", "CLICOLOR_FORCE")}
-environment.update({"NO_COLOR": "1", "TERM": "xterm-256color"})
+environment.update({"NO_COLOR": "1", "TERM": "xterm-256color", "ASTER_CLI_YES": "true"})
 ansi = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -75,9 +75,15 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
     offset = 0
     status = None
     cursor_reports = 0
+    cursor_tail = b""
+    started = time.monotonic()
     try:
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
+        # Large masked inputs redraw on every keystroke, particularly slowly
+        # under llvm-cov and concurrent CI tests. Bound inactivity separately
+        # from the total run so active terminal I/O can keep making progress.
+        idle_deadline = started + 20
+        hard_deadline = started + 120
+        while time.monotonic() < min(idle_deadline, hard_deadline):
             readable, writable, _ = select.select(
                 [terminal, stdout_read], [terminal] if pending else [], [], 0.02)
             for descriptor in readable:
@@ -90,10 +96,17 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
                         raise
                     chunk = b""
                 (output if descriptor == terminal else stdout).extend(chunk)
-            requests = output.count(b"\x1b[6n")
-            if requests > cursor_reports:
-                pending += b"\x1b[1;1R" * (requests - cursor_reports)
-                cursor_reports = requests
+                if chunk:
+                    idle_deadline = time.monotonic() + 20
+                if descriptor == terminal:
+                    # Scan new bytes only, retaining enough overlap for a
+                    # cursor query split across reads. Rescanning the entire
+                    # growing transcript makes the PTY driver itself quadratic.
+                    scan = cursor_tail + chunk
+                    requests = scan.count(b"\x1b[6n")
+                    pending += b"\x1b[1;1R" * requests
+                    cursor_reports += requests
+                    cursor_tail = scan[-3:]
             if step < len(steps) and not pending:
                 prompt, response, expected_echo = steps[step]
                 position = ansi.sub(b"", output).find(prompt, offset)
@@ -110,11 +123,18 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
                 except BlockingIOError:
                     written = 0
                 pending = pending[written:]
+                if written:
+                    idle_deadline = time.monotonic() + 20
             child, status = os.waitpid(pid, os.WNOHANG)
             if child:
                 exited = True
                 break
-        assert exited, f"interactive CLI timed out after {step}/{len(steps)} inputs"
+        assert exited, (
+            f"interactive CLI timed out: command={root}, inputs={step}/{len(steps)}, "
+            f"pending_bytes={len(pending)}, terminal_bytes={len(output)}, "
+            f"stdout_bytes={len(stdout)}, cursor_queries={cursor_reports}, "
+            f"elapsed={time.monotonic() - started:.1f}s"
+        )
         # Drain data queued just before process exit.
         while select.select([terminal, stdout_read], [], [], 0)[0]:
             read_any = False
@@ -179,6 +199,18 @@ with os.fdopen(os.open(private_backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o6
                             "source": "custom", "visibility": "private", "is_sensitive": True}],
                "omitted_sensitive_keys": []}, stream)
 cli("import", "--input-file", private_backup)
+
+# Interactive writes require explicit confirmation after the proposed value
+# has been validated; declining leaves the stored value untouched.
+before_confirmation = cli("get", "branding_title")
+interact(["set", "branding_title", "Unconfirmed title"],
+         [(b"Apply this configuration update?", b"n\r", False)],
+         succeeds=False, canceled=True, extra_env={"ASTER_CLI_YES": None})
+assert cli("get", "branding_title") == before_confirmation
+interact(["set", "branding_title", "Confirmed title"],
+         [(b"Apply this configuration update?", b"y\r", False)],
+         extra_env={"ASTER_CLI_YES": None})
+assert saved("branding_title")["value"] == "Confirmed title"
 
 result, output = interact(["set", "branding_title"],
                           [(normal_prompt, b"Visible title marker", False),

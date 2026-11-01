@@ -76,6 +76,7 @@ async fn test_completed_remote_node_enrollment_rejects_new_token() {
     let command = enrollment::create_enrollment_command(&state, node.id)
         .await
         .expect("initial enrollment command should be created");
+    assert!(command.command.ends_with(" --yes"));
     assert_eq!(
         remote_node::get(&state, node.id)
             .await

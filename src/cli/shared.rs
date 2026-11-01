@@ -209,15 +209,43 @@ pub(super) fn human_key(label: &str, palette: &CliTerminalPalette) -> String {
     palette.label(&format!("{label:<14}", label = format!("{label}:")))
 }
 
+/// Confirms an operational write, requiring an explicit opt-in in automation.
+pub(super) fn confirm_write(message: &str, yes: bool) -> super::CliResult<()> {
+    if yes {
+        return Ok(());
+    }
+    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+        return Err(crate::errors::AsterError::validation_error(
+            "this write requires an interactive terminal; pass --yes to confirm in automation",
+        )
+        .into());
+    }
+    let confirmed = inquire::Confirm::new(message)
+        .with_default(false)
+        .prompt()
+        .map_err(super::input::terminal_error)?;
+    if confirmed {
+        Ok(())
+    } else {
+        Err(super::CliError::Canceled)
+    }
+}
+
 pub(super) async fn connect_existing_database(
     database: &crate::config::DatabaseConfig,
+    read_only: bool,
 ) -> Result<sea_orm::DatabaseConnection> {
     let mut database = database.clone();
     if let aster_forge_db::DatabaseUrl::Url(url) = &mut database.url
-        && let Some(rest) = url.strip_prefix("sqlite://")
+        && let Some(rest) = url
+            .strip_prefix("sqlite://")
+            .or_else(|| url.strip_prefix("sqlite:"))
     {
         let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
-        if !path.is_empty() && path != ":memory:" {
+        if !path.is_empty()
+            && path != ":memory:"
+            && !query.split('&').any(|part| part == "mode=memory")
+        {
             if !std::path::Path::new(path).is_file() {
                 return Err(crate::errors::AsterError::config_error(
                     "SQLite database does not exist; check the instance location or --database-url",
@@ -227,9 +255,27 @@ pub(super) async fn connect_existing_database(
                 .split('&')
                 .filter(|p| !p.is_empty() && !p.starts_with("mode="))
                 .collect();
-            params.push("mode=rw");
+            params.push(if read_only { "mode=ro" } else { "mode=rw" });
             *url = format!("sqlite://{path}?{}", params.join("&"));
         }
+    }
+    if read_only
+        && let Some(url) = database
+            .url
+            .as_url()
+            .filter(|url| url.starts_with("sqlite:"))
+    {
+        // The normal Forge writer connection enables WAL, which writes even
+        // when the caller only runs SELECTs. Offline previews must preserve
+        // the existing file and its journal mode, including an empty target.
+        let mut options = sea_orm::ConnectOptions::new(url);
+        options
+            .max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
+        return sea_orm::SqlxSqliteConnector::connect(options)
+            .await
+            .map_err(Into::into);
     }
     db::connect_with_metrics(&database, aster_drive_metrics::NoopMetrics::arc()).await
 }

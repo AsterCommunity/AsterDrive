@@ -64,7 +64,7 @@ mod shared;
 
 #[cfg(feature = "operations-cli")]
 pub use config::{
-    ConfigCommand, ConfigCommandReport, DeleteOutput, FileArgs, KeyArgs, KeyValueArgs,
+    ConfigCommand, ConfigCommandReport, DeleteArgs, DeleteOutput, FileArgs, KeyArgs, KeyValueArgs,
     ValidateArgs, ValueInput, execute_config_command, render_error, render_success,
 };
 #[cfg(feature = "operations-cli")]

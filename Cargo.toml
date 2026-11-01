@@ -281,6 +281,7 @@ webauthn-rs-proto = "0.6.2"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 lofty = "0.25.5"
 inquire = { version = "0.9.4", default-features = false, features = ["crossterm", "fuzzy"], optional = true }
+clap_complete = "4.6.11"
 
 [dev-dependencies]
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
