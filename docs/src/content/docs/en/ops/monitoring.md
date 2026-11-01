@@ -217,7 +217,15 @@ username = "prometheus"
 password_hash = '$argon2id$v=19$...' # replace with a complete verifier
 ```
 
-Generate the verifier without putting a password in process arguments or initializing the database:
+Generate the verifier without putting a password in process arguments or initializing the database. Terminal input uses the shared `inquire` prompt, showing asterisks without a reveal toggle. Press Enter to finish; empty or oversized input can be edited and retried. Interactive input requires terminal stdin and stderr; prompts go to stderr and stdout can be redirected and contains only one hash line. Ctrl+C, Ctrl+D or Esc cancels with exit status `130`:
+
+```bash
+./aster_drive hash-password
+```
+
+Passwords must contain 1–4096 UTF-8 bytes without control characters. Interactive validation checks the text after editing by `inquire`: pressing Tab does not append a password character, so typing `ab`, Tab, then `cd` is equivalent to typing `abcd`. Control characters actually present in the resulting text, such as through paste, still fail validation. The prompt does not preserve raw key bytes.
+
+Scripts can still provide stdin through a pipe, which bypasses the interactive editor. One trailing LF, CRLF, or CR is accepted, and leading and trailing spaces are preserved. Empty, oversized or other control-containing pipe input, including literal Tab and NUL, fails without emitting a hash. Never put the password in command arguments:
 
 ```bash
 # Bash: input is not echoed or stored in shell history

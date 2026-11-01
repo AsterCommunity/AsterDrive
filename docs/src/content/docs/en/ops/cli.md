@@ -257,6 +257,8 @@ Single-setting commands accept positional arguments; existing `--key` / `--value
 
 In an interactive terminal, `config set branding_title` displays the setting's type, description and current value before prompting. `config set` opens a searchable list of keys and descriptions; use arrows and Enter to select. Ordinary input is displayed; sensitive input shows asterisks while typing, with previous and result values remaining redacted, including custom settings marked sensitive in the database. No shortcut reveals sensitive input. `--value-prompt` explicitly requests the same interaction and does not hide ordinary input. Booleans accept `true` / `false`, or `1` / `2` interactively. Other types use the displayed input hints; invalid values can be edited and retried. Terminal prompts use `inquire`, included in the existing `operations-cli` feature. Configuration keys, types, current values and hints use the existing terminal palette and respect color options such as `NO_COLOR`.
 
+Interactive input follows the `inquire` editor. Validation receives the text returned by the library, rather than raw key bytes. In text and password prompts, pressing Tab does not append a character: typing `ab`, Tab, then `cd` produces `abcd`. Backspace and other editing keys are also handled by the library. This does not grant fields permission to store control characters; the resulting text must still pass the field's validation. For literal input or multiline settings, use an explicit value, `--value-stdin` or `--value-file` and follow the setting's format requirements.
+
 Enter keeps an existing value without writing or publishing a reload notification. In `config validate KEY`, this validates the saved value and previews that setting; an invalid saved value still fails validation. If no saved value exists, the prompt asks again. Ctrl+C, Ctrl+D or Esc cancels and restores terminal state, prints `Canceled.` on its own line, and exits with status `130` instead of a validation error. Clearing requires `--clear` or an explicit empty string and still passes the setting's validation:
 
 ```bash
@@ -264,7 +266,7 @@ Enter keeps an existing value without writing or publishing a reload notificatio
 ./aster_drive config set branding_title ''
 ```
 
-Without an interactive terminal, missing keys or values fail immediately. Prompts go to stderr and stdout contains results only; use `config --output-format json set branding_title` for JSON. Explicit CLI arguments take precedence over `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`. Duplicate keys or multiple value sources are rejected. Piped input still requires `--value-stdin`; use stdin or files for multiline values.
+Interactive input requires terminal stdin and stderr; stdout can be redirected. Without a usable interactive terminal, missing keys or values fail immediately. Prompts go to stderr and stdout contains results only; use `config --output-format json set branding_title` for JSON. Explicit CLI arguments take precedence over `ASTER_CLI_CONFIG_KEY` / `ASTER_CLI_CONFIG_VALUE`. Duplicate keys or multiple value sources are rejected. Piped input still requires `--value-stdin`; use stdin or files for multiline values.
 
 Automation can use stdin or a file with mode `0600`:
 

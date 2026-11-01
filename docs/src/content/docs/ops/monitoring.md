@@ -217,7 +217,15 @@ username = "prometheus"
 password_hash = '$argon2id$v=19$...' # 替换为完整 verifier
 ```
 
-用 CLI 从 stdin 生成 verifier，不经数据库、日志初始化或命令行密码参数：
+用 CLI 生成 verifier，不经数据库、日志初始化或命令行密码参数。直接在终端运行时使用统一的 `inquire` 输入交互，随键入显示 `*`，不提供明文切换；按 Enter 完成，空值或超长输入可编辑重试。交互需要 stdin 和 stderr 都连接终端；提示写入 stderr，stdout 可重定向且只包含一行 hash；`Ctrl+C`、`Ctrl+D` 或 `Esc` 取消并以 `130` 退出：
+
+```bash
+./aster_drive hash-password
+```
+
+密码须为 1–4096 个 UTF-8 字节，不能包含控制字符。交互时校验的是 `inquire` 编辑后的文本：单独按 `Tab` 不会加入密码，依次输入 `ab`、`Tab`、`cd` 等同于输入 `abcd`。如果粘贴等操作让最终文本实际包含控制字符，仍会校验失败；这里不提供原始按键字节保真输入。
+
+脚本仍可通过 stdin 管道输入，管道不经过交互编辑器。允许一个尾部 LF、CRLF 或 CR，前后的空格会保留；空输入、超限或其他控制字符（包括实际的 Tab / NUL）会报错，不输出 hash。不要把密码放进命令参数：
 
 ```bash
 # Bash；输入不会回显或进入命令历史

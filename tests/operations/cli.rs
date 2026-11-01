@@ -1386,6 +1386,15 @@ async fn cli_terminal_input_visibility_retry_keep_cancel_selection_and_hashing()
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let hashes: Vec<(String, String)> = serde_json::from_slice(&output.stdout)
+        .expect("PTY harness must return verifier cases as JSON");
+    assert!(!hashes.is_empty(), "PTY harness returned no verifier cases");
+    for (password, hash) in hashes {
+        assert!(
+            aster_forge_crypto::verify_password(&password, &hash).unwrap(),
+            "interactive verifier did not preserve the entered credential"
+        );
+    }
 }
 
 #[tokio::test]
@@ -3275,6 +3284,7 @@ async fn test_root_binary_database_migrate_human_output_supports_forced_color() 
     assert!(stderr.contains("\u{1b}["));
 }
 
+/// Pipe input must remain offline, bounded, and compatible with line endings.
 #[test]
 fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_it() {
     use std::io::Write;
@@ -3301,12 +3311,17 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         child.stdin.take().unwrap().write_all(input).unwrap();
         child.wait_with_output().unwrap()
     };
-    for password in ["scrape:secret".to_owned(), "x".repeat(4096)] {
-        let output = run(format!("{password}\r\n").as_bytes());
+    for (password, ending) in [
+        ("scrape:secret".to_owned(), "\r\n"),
+        ("x".repeat(4096), "\r\n"),
+        ("  scrape:secret  ".to_owned(), ""),
+        ("scrape:secret".to_owned(), "\n"),
+        ("scrape:secret".to_owned(), "\r"),
+    ] {
+        let output = run(format!("{password}{ending}").as_bytes());
         assert!(
             output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+            "hash command should succeed without exposing its input"
         );
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert_eq!(stdout.lines().count(), 1);
@@ -3318,6 +3333,8 @@ fn hash_password_reads_stdin_offline_and_rejects_invalid_input_without_echoing_i
         Vec::new(),
         b"\n".to_vec(),
         b"credential-marker\nsecond-line".to_vec(),
+        b"credential-marker\t".to_vec(),
+        b"credential-marker\0".to_vec(),
         vec![b'x'; 4097],
         vec![0xff],
     ] {
