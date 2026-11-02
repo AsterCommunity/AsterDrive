@@ -531,20 +531,23 @@ impl StorageConnector for TencentCosConnector {
         input: ExecuteSavedStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
         let descriptor = self.descriptor();
-        if input.action_id.as_str() != CONFIGURE_CORS_ACTION_ID {
-            return Err(unsupported_connector_action_error(
+        match input.action_id.as_str() {
+            CONFIGURE_CORS_ACTION_ID => {
+                let _: ConfigureTencentCosCorsActionInput =
+                    decode_normalized_connector_action_input(
+                        &configure_cors_action_descriptor(),
+                        &input.values,
+                    )?;
+                let driver = Self::runtime_driver(context.driver_registry(), policy)?;
+                let result =
+                    configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
+                StorageConnectorActionResult::with_output(input.action_id, result)
+            }
+            _ => Err(unsupported_connector_action_error(
                 &descriptor,
                 &input.action_id,
-            ));
+            )),
         }
-        let _: ConfigureTencentCosCorsActionInput = decode_normalized_connector_action_input(
-            &configure_cors_action_descriptor(),
-            &input.values,
-        )?;
-        let driver = Self::runtime_driver(context.driver_registry(), policy)?;
-        let result =
-            configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
-        StorageConnectorActionResult::with_output(input.action_id, result)
     }
 
     async fn execute_draft_action(
@@ -553,30 +556,35 @@ impl StorageConnector for TencentCosConnector {
         input: ExecuteDraftStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
         let descriptor = self.descriptor();
-        if input.action_id.as_str() != CONFIGURE_CORS_ACTION_ID {
-            return Err(unsupported_connector_action_error(
+        match input.action_id.as_str() {
+            CONFIGURE_CORS_ACTION_ID => {
+                let _: ConfigureTencentCosCorsActionInput =
+                    decode_normalized_connector_action_input(
+                        &configure_cors_action_descriptor(),
+                        &input.values,
+                    )?;
+                let connection = input.connection;
+                self.validate_credential_input(&connection.storage.credential)?;
+                let connector_config =
+                    self.validate_connector_config(&connection.storage.connector_config)?;
+                let config = super::common::decode_normalized_connector_config(&connector_config)?;
+                let credentials = super::common::decode_static_credential(
+                    &connection.storage.credential,
+                    Self::ID,
+                )?;
+                let driver = TencentCosDriver::new(
+                    Self::driver_config(config),
+                    Self::driver_credentials(credentials),
+                )?;
+                let result =
+                    configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
+                StorageConnectorActionResult::with_output(input.action_id, result)
+            }
+            _ => Err(unsupported_connector_action_error(
                 &descriptor,
                 &input.action_id,
-            ));
+            )),
         }
-        let _: ConfigureTencentCosCorsActionInput = decode_normalized_connector_action_input(
-            &configure_cors_action_descriptor(),
-            &input.values,
-        )?;
-        let connection = input.connection;
-        self.validate_credential_input(&connection.storage.credential)?;
-        let connector_config =
-            self.validate_connector_config(&connection.storage.connector_config)?;
-        let config = super::common::decode_normalized_connector_config(&connector_config)?;
-        let credentials =
-            super::common::decode_static_credential(&connection.storage.credential, Self::ID)?;
-        let driver = TencentCosDriver::new(
-            Self::driver_config(config),
-            Self::driver_credentials(credentials),
-        )?;
-        let result =
-            configure_tencent_cos_cors_for_policy(context.runtime_config(), driver).await?;
-        StorageConnectorActionResult::with_output(input.action_id, result)
     }
 
     fn upload_transport(
@@ -591,6 +599,9 @@ impl StorageConnector for TencentCosConnector {
 
     fn direct_download_enabled(&self, policy: &storage_policy::Model) -> Result<bool> {
         let config = Self::decode_config(policy)?;
-        Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
+        match config.object_storage_download_strategy {
+            ObjectStorageDownloadStrategy::Presigned => Ok(true),
+            ObjectStorageDownloadStrategy::RelayStream => Ok(false),
+        }
     }
 }

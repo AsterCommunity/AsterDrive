@@ -245,7 +245,15 @@ Type D 不签普通业务 query，因此不会把 COS Q-Sign 或 `response-cache
 
 普通「测试连接」只验证存储 Endpoint，不读取或修改 CDN 控制面配置，也不能证明 CDN 已开启鉴权。部署验收必须先对无敏感内容的测试对象验证：有效签名成功；无签名、错误密钥、修改路径/时间/签名和过期链接均被拒绝，且在**缓存未命中和命中后分别验证**；同时验证 HEAD/Range、HTTPS、CORS 和响应头。通过真实 CDN 前，本地签名/表单测试不能当作云端验收。
 
-签名链接是短期 bearer 凭证，在有效期内可转发使用；更改分享权限不能即时撤销已签发链接。Type D 不绑定 Host 或请求方法；不同安全边界使用独立密钥，不共享不可信 CDN 域名的密钥。按云端主/备密钥轮换，并验证缓存命中时旧链接的失效结果。
+:::caution[CDN 链接是 bearer 凭证]
+
+持有签名链接的人可在有效期内转发使用；更改分享权限不能即时撤销已签发链接。Type D 不绑定 Host 或请求方法。
+
+- 不同安全边界使用独立密钥，不共享不可信 CDN 域名的密钥。
+- 按云端主/备密钥轮换，并验证缓存命中时旧链接的失效结果。
+- COS 桶必须保持私有读，CDN 必须对全部对象路径开启鉴权。
+
+:::
 
 官方依据：[源站配置](https://cloud.tencent.com/document/product/228/41334)、[鉴权配置说明](https://cloud.tencent.com/document/product/228/41622)、[Type D](https://cloud.tencent.com/document/product/228/41625)、[缓存键](https://cloud.tencent.com/document/product/228/47671)、[官方 SDK 的 AuthAlgorithm 和 Type D 定义](https://github.com/tencentcloud/tencentcloud-sdk-go/blob/28c6cd0071e848ec8220af0f9041b3d669583177/tencentcloud/cdn/v20180606/models.go)。Type D 页面示例使用 MD5，SHA-256 选项以官方 SDK 的 `AuthAlgorithm=sha256` 及当前控制台为依据；不按 MD5 计算。
 

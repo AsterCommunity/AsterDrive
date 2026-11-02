@@ -245,7 +245,15 @@ Type D does not authenticate business queries. CDN URLs therefore contain neithe
 
 The normal connection test probes the storage endpoint only; it does not read or alter CDN configuration. Using a non-sensitive test object, verify valid access plus rejection of unsigned, wrong-key, path/time/signature-tampered and expired requests, both **before and after cache population**. Also verify HEAD/Range, HTTPS, CORS and response headers. Local signing/form tests are not real-CDN acceptance.
 
-Signed URLs are transferable bearer credentials until expiry. Changing a share permission does not immediately revoke issued links. Type D binds neither Host nor HTTP method; use distinct keys across security boundaries. Rotate cloud primary/backup keys and verify invalidation on cache hits.
+:::caution[CDN URLs are bearer credentials]
+
+Anyone holding a signed URL can forward and use it until expiry. Changing a share permission does not immediately revoke issued links. Type D binds neither Host nor HTTP method.
+
+- Use distinct keys across security boundaries; do not share keys with untrusted CDN domains.
+- Rotate cloud primary/backup keys and verify invalidation on cache hits.
+- Keep the COS bucket private and enable CDN authentication for every object path.
+
+:::
 
 Official references: [origin configuration](https://cloud.tencent.com/document/product/228/41334), [authentication](https://cloud.tencent.com/document/product/228/41622), [Type D](https://cloud.tencent.com/document/product/228/41625), [cache keys](https://cloud.tencent.com/document/product/228/47671), and [official SDK AuthAlgorithm/Type D definitions](https://github.com/tencentcloud/tencentcloud-sdk-go/blob/28c6cd0071e848ec8220af0f9041b3d669583177/tencentcloud/cdn/v20180606/models.go). The Type D page illustrates MD5; SHA-256 support comes from `AuthAlgorithm=sha256` in the SDK and the current console. This mode computes SHA-256.
 

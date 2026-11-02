@@ -61,18 +61,14 @@ impl NativeMediaMetadataStorageDriver for TencentCosDriver {
         let status = response.status();
         if !status.is_success() {
             return Err(storage_driver_error(
-                if status == reqwest::StatusCode::NOT_FOUND {
-                    StorageErrorKind::NotFound
-                } else if status == reqwest::StatusCode::FORBIDDEN
-                    || status == reqwest::StatusCode::UNAUTHORIZED
-                {
-                    StorageErrorKind::Auth
-                } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                    StorageErrorKind::RateLimited
-                } else if status.is_server_error() {
-                    StorageErrorKind::Transient
-                } else {
-                    StorageErrorKind::Unsupported
+                match status {
+                    reqwest::StatusCode::NOT_FOUND => StorageErrorKind::NotFound,
+                    reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::UNAUTHORIZED => {
+                        StorageErrorKind::Auth
+                    }
+                    reqwest::StatusCode::TOO_MANY_REQUESTS => StorageErrorKind::RateLimited,
+                    status if status.is_server_error() => StorageErrorKind::Transient,
+                    _ => StorageErrorKind::Unsupported,
                 },
                 format!("COS native media metadata request failed with HTTP {status}"),
             ));
