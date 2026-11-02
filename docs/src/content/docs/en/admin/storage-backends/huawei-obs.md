@@ -18,12 +18,12 @@ Huawei Cloud OBS is a good fit when you:
 - need OBS multipart, Range reads, presigned URLs, or custom-domain access; or
 - want the admin console to show OBS explicitly, with endpoint, region, and addressing mode visible for review.
 
-## Choose an addressing mode
+## Custom domains (CNAME)
 
-| Mode | Endpoint example | `obs_region` | Request URL | Use it when |
+| `obs_use_cname` | Endpoint example | `obs_region` | Request URL | Use it when |
 | --- | --- | --- | --- | --- |
-| `virtual_hosted` | `https://obs.cn-north-4.myhuaweicloud.com` | Required, for example `cn-north-4` | `https://BUCKET.obs.REGION.myhuaweicloud.com/OBJECT` | Using an official regional endpoint; recommended default |
-| `custom_domain` | `https://files.example.com` | May be empty | `https://files.example.com/OBJECT` | A custom hostname is bound to the OBS bucket |
+| `false` | `https://obs.cn-north-4.myhuaweicloud.com` | Required, for example `cn-north-4` | `https://BUCKET.obs.REGION.myhuaweicloud.com/OBJECT` | Using an official regional endpoint; recommended default |
+| `true` | `https://files.example.com` | May be empty | `https://files.example.com/OBJECT` | A custom hostname is bound to the OBS bucket |
 
 You may enter either the official regional root endpoint or a bucket-prefixed form such as:
 
@@ -34,6 +34,10 @@ https://archive-bucket.obs.cn-north-4.myhuaweicloud.com/
 AsterDrive normalizes that value to the regional root and generates virtual-hosted requests using the bucket. Generic S3 endpoints, path-prefixed endpoints, and endpoints containing a query or fragment are rejected before saving.
 
 Custom-domain mode sends requests directly to the OBS-bound hostname. AsterDrive does not prepend the bucket to that hostname, and its canonical signed resource follows the OBS SDK's CNAME behavior. Do not mark an official OBS endpoint as a custom domain.
+
+The **Use a custom domain (CNAME)** switch maps to connector field `obs_use_cname` and defaults to `false`. It follows the official Go SDK's [`WithCustomDomainName(bool)`](https://github.com/huaweicloud/huaweicloud-sdk-go-obs/blob/master/obs/conf.go) and Python SDK's `is_cname` option. The upgrade migration converts legacy `obs_addressing_mode=virtual_hosted` / `custom_domain` to `false` / `true` in policies, remote targets, and deleted-policy cleanup snapshots. Upgrade all nodes together; API clients must use the boolean field. Run the corresponding down migration before reverting to an older binary. Finish active OBS storage-migration tasks before upgrading and regenerate unexecuted migration preflight plans afterward.
+
+OBS supports CDN origins, but CNAME mode does not implement CDN download authentication. Separate delivery configuration and private-origin access are tracked in [#686](https://github.com/AsterCommunity/AsterDrive/issues/686).
 
 ## 1. Prepare the OBS bucket and credentials
 
@@ -123,12 +127,12 @@ If an existing generic `s3` policy already uses an official OBS endpoint and an 
 
 Typical values:
 
-| Field | `virtual_hosted` example | `custom_domain` example |
+| Field | Official endpoint example | Custom domain example |
 | --- | --- | --- |
 | Endpoint | `https://obs.cn-north-4.myhuaweicloud.com` | `https://files.example.com` |
 | Bucket | `archive-bucket` | `archive-bucket` |
 | OBS region | `cn-north-4` | May be empty |
-| OBS addressing mode | `virtual_hosted` | `custom_domain` |
+| Use a custom domain (CNAME) | `false` | `true` |
 | Base path | `prod/` | `prod/` |
 | Access Key ID | Huawei Cloud AK | Huawei Cloud AK |
 | Secret Access Key | Huawei Cloud SK | Huawei Cloud SK |
@@ -175,10 +179,10 @@ The ordinary `s3` connector uses AWS SigV4 and does not represent a native OBS p
 
 Check that:
 
-- `virtual_hosted` uses `obs.<region>.myhuaweicloud.com` or an official regional suffix;
+- `false` uses `obs.<region>.myhuaweicloud.com` or an official regional suffix;
 - `obs_region` matches the region in the hostname;
 - the endpoint has no path prefix, query, fragment, username, or password; and
-- `custom_domain` contains the bound hostname, not `bucket.obs.<region>...`.
+- `true` contains the bound hostname, not `bucket.obs.<region>...`.
 
 ### Server test passes but browser presigned requests fail
 

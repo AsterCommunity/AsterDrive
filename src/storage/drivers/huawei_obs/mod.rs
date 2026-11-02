@@ -13,7 +13,6 @@ mod tests;
 
 use std::{sync::Arc, time::Duration};
 
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
@@ -23,20 +22,13 @@ use aster_drive_storage::Result;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum HuaweiObsAddressingMode {
-    VirtualHosted,
-    CustomDomain,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HuaweiObsDriverConfig {
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
     pub region: String,
-    pub addressing_mode: HuaweiObsAddressingMode,
+    pub use_cname: bool,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
@@ -64,7 +56,7 @@ impl HuaweiObsDriver {
         endpoint: &str,
         bucket: &str,
         region: &str,
-        addressing_mode: HuaweiObsAddressingMode,
+        use_cname: bool,
     ) -> Result<NormalizedHuaweiObsEndpoint> {
         let normalized = normalize_s3_endpoint_and_bucket(endpoint, bucket)
             .map_err(Self::rewrap_s3_config_error)?;
@@ -98,41 +90,36 @@ impl HuaweiObsDriver {
             .to_string();
         let region = normalize_region(region)?;
 
-        match addressing_mode {
-            HuaweiObsAddressingMode::VirtualHosted => {
-                if region.is_empty() {
-                    return Err(storage_driver_error(
-                        StorageErrorKind::Misconfigured,
-                        "obs_region is required for virtual-hosted Huawei OBS endpoints",
-                    ));
-                }
-                let root_host = host
-                    .strip_prefix(&format!("{}.", normalized.bucket))
-                    .unwrap_or(&host)
-                    .to_string();
-                if !is_official_obs_endpoint(&root_host, &region) {
-                    return Err(storage_driver_error(
-                        StorageErrorKind::Misconfigured,
-                        format!(
-                            "Huawei OBS virtual-hosted endpoint must match obs.{region}.myhuaweicloud.com (or the documented .eu endpoint)"
-                        ),
-                    ));
-                }
-                endpoint.set_host(Some(&root_host)).map_err(|_| {
-                    storage_driver_error(
-                        StorageErrorKind::Misconfigured,
-                        "failed to normalize Huawei OBS endpoint host",
-                    )
-                })?;
+        if !use_cname {
+            if region.is_empty() {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "obs_region is required for virtual-hosted Huawei OBS endpoints",
+                ));
             }
-            HuaweiObsAddressingMode::CustomDomain => {
-                if is_any_official_obs_endpoint(&host) {
-                    return Err(storage_driver_error(
-                        StorageErrorKind::Misconfigured,
-                        "custom-domain addressing requires the mapped custom hostname, not a bucket OBS endpoint",
-                    ));
-                }
+            let root_host = host
+                .strip_prefix(&format!("{}.", normalized.bucket))
+                .unwrap_or(&host)
+                .to_string();
+            if !is_official_obs_endpoint(&root_host, &region) {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!(
+                        "Huawei OBS virtual-hosted endpoint must match obs.{region}.myhuaweicloud.com (or the documented .eu endpoint)"
+                    ),
+                ));
             }
+            endpoint.set_host(Some(&root_host)).map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "failed to normalize Huawei OBS endpoint host",
+                )
+            })?;
+        } else if is_any_official_obs_endpoint(&host) {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "custom-domain addressing requires the mapped custom hostname, not a bucket OBS endpoint",
+            ));
         }
 
         endpoint.set_path("");
@@ -151,7 +138,7 @@ impl HuaweiObsDriver {
             &config.endpoint,
             &config.bucket,
             &config.region,
-            config.addressing_mode,
+            config.use_cname,
         )?;
         S3Driver::validate_config(
             &S3DriverConfig {
@@ -179,10 +166,10 @@ impl HuaweiObsDriver {
             &config.endpoint,
             &config.bucket,
             &config.region,
-            config.addressing_mode,
+            config.use_cname,
         )?;
         let bucket = normalized.bucket.clone();
-        let addressing_mode = config.addressing_mode;
+        let use_cname = config.use_cname;
         let storage = S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
             Arc::new(S3Driver::new(
                 S3DriverConfig {
@@ -200,7 +187,7 @@ impl HuaweiObsDriver {
                     secret_key: credentials.secret_key,
                 },
                 S3DriverOptions::virtual_hosted_style(),
-                move |builder| signing::configure_obs_auth(builder, bucket, addressing_mode),
+                move |builder| signing::configure_obs_auth(builder, bucket, use_cname),
             )?),
             MultipartStorageCapabilities {
                 // Huawei OBS UploadPart official contract (2026-09-10):

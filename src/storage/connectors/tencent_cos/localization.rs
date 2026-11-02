@@ -8,8 +8,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "cos_use_cname",
-        "Use a custom source domain (CNAME)",
-        "使用自定义源站域名（CNAME）",
+        "Use a custom domain (CNAME)",
+        "使用自定义域名（CNAME）",
     ),
     aster_drive_storage::storage_connector_message!(
         "cos_use_cname_desc",

@@ -26,7 +26,6 @@ use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
 use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
-use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
 struct LocalizationContractConnector {
     descriptor: StorageConnectorDescriptor,
@@ -263,7 +262,7 @@ fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1
         endpoint: "https://obs.cn-north-4.myhuaweicloud.com".to_string(),
         bucket: "archive-bucket".to_string(),
         obs_region: "cn-north-4".to_string(),
-        obs_addressing_mode: HuaweiObsAddressingMode::VirtualHosted,
+        obs_use_cname: false,
         base_path: "tenant-a".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
@@ -1598,7 +1597,7 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
         "endpoint",
         "bucket",
         "obs_region",
-        "obs_addressing_mode",
+        "obs_use_cname",
         "base_path",
         "object_storage_upload_strategy",
         "object_storage_download_strategy",
@@ -1624,7 +1623,7 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
 
     let mut custom = obs_config(ObjectStorageUploadStrategy::RelayStream);
     custom.endpoint = "https://files.example.test".to_string();
-    custom.obs_addressing_mode = HuaweiObsAddressingMode::CustomDomain;
+    custom.obs_use_cname = true;
     custom.obs_region.clear();
     connector
         .validate_connector_config(&super::test_support::connection_config(

@@ -18,12 +18,12 @@ title: "华为云 OBS 存储策略教程"
 - 需要 OBS 原生 multipart、Range、预签名或自定义域名访问
 - 希望后台明确显示“华为云 OBS”，让 endpoint、region 和访问模式可审查
 
-## 先确认访问模式
+## 自定义域名（CNAME）
 
-| 模式 | Endpoint 示例 | `obs_region` | 请求地址 | 适用情况 |
+| `obs_use_cname` | Endpoint 示例 | `obs_region` | 请求地址 | 适用情况 |
 | --- | --- | --- | --- | --- |
-| `virtual_hosted` | `https://obs.cn-north-4.myhuaweicloud.com` | 必填，例如 `cn-north-4` | `https://BUCKET.obs.REGION.myhuaweicloud.com/OBJECT` | 官方区域 endpoint，推荐默认使用 |
-| `custom_domain` | `https://files.example.com` | 可以留空 | `https://files.example.com/OBJECT` | bucket 已绑定自定义域名 |
+| `false`（默认关闭） | `https://obs.cn-north-4.myhuaweicloud.com` | 必填，例如 `cn-north-4` | `https://BUCKET.obs.REGION.myhuaweicloud.com/OBJECT` | 官方区域 endpoint，推荐默认使用 |
+| `true`（开启） | `https://files.example.com` | 可以留空 | `https://files.example.com/OBJECT` | bucket 已绑定自定义域名 |
 
 区域 endpoint 可以填写官方根地址，也可以填写带 bucket 前缀的地址，例如：
 
@@ -33,7 +33,11 @@ https://archive-bucket.obs.cn-north-4.myhuaweicloud.com/
 
 AsterDrive 会把它规范化保存为区域根 endpoint，并由 driver 按 bucket 生成 virtual-hosted 请求。普通 S3 endpoint、带路径前缀的 endpoint、带 query 或 fragment 的 endpoint 会在保存前被拒绝。
 
-custom domain 模式直接使用绑定到 OBS 的域名。AsterDrive 不会把 bucket 再拼到 custom hostname 前面；签名规范资源也遵循 OBS 官方 SDK 的 CNAME 行为。不要把官方 OBS endpoint 误选为 custom domain。
+开启 **使用自定义域名（CNAME）** 后，直接使用绑定到 OBS 的域名。AsterDrive 不会把 bucket 再拼到 custom hostname 前面；签名规范资源也遵循 OBS 官方 SDK 的 CNAME 行为。官方 OBS endpoint 应保持 CNAME 开关关闭。这个开关对应官方 Go SDK 的 [`WithCustomDomainName(bool)`](https://github.com/huaweicloud/huaweicloud-sdk-go-obs/blob/master/obs/conf.go)，Python SDK 则称为 `is_cname`。
+
+升级后，旧 `obs_addressing_mode=virtual_hosted` / `custom_domain` 会分别迁移为 `obs_use_cname=false` / `true`，已有对象路径和签名语义不变；策略、远端目标和已删除策略的清理快照都会转换。所有节点一起升级，旧 API 客户端应改用布尔字段；回退旧版本前需执行对应 down migration。升级前先完成正在执行的 OBS 策略迁移任务，升级后重新生成尚未执行的迁移预检计划。
+
+OBS 支持 CDN 回源，但 CNAME 开关不提供 CDN 下载鉴权。独立 CDN 下载交付与私有桶回源由 [#686](https://github.com/AsterCommunity/AsterDrive/issues/686) 跟踪。
 
 ## 1. 准备 OBS bucket 和凭证
 
@@ -123,12 +127,12 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 
 常见字段：
 
-| 字段 | `virtual_hosted` 示例 | `custom_domain` 示例 |
+| 字段 | 官方域名示例 | 自定义域名示例 |
 | --- | --- | --- |
 | Endpoint | `https://obs.cn-north-4.myhuaweicloud.com` | `https://files.example.com` |
 | Bucket | `archive-bucket` | `archive-bucket` |
 | OBS region | `cn-north-4` | 可以为空 |
-| OBS addressing mode | `virtual_hosted` | `custom_domain` |
+| 使用自定义域名（CNAME） | `false`（默认关闭） | `true`（开启） |
 | Base path | `prod/` | `prod/` |
 | Access Key ID | 华为云 AK | 华为云 AK |
 | Secret Access Key | 华为云 SK | 华为云 SK |
@@ -175,10 +179,10 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 
 检查以下内容：
 
-- `virtual_hosted` 使用 `obs.<region>.myhuaweicloud.com` 或官方文档列出的区域后缀
+- CNAME 关闭时使用 `obs.<region>.myhuaweicloud.com` 或官方文档列出的区域后缀
 - `obs_region` 与 host 中的 region 一致
 - endpoint 没有路径前缀、query、fragment、用户名或密码
-- `custom_domain` 填的是已绑定域名，不是 `bucket.obs.<region>...` 官方 endpoint
+- CNAME 开启时填的是已绑定域名，不是 `bucket.obs.<region>...` 官方 endpoint
 
 ### 服务端测试通过，浏览器预签名失败
 

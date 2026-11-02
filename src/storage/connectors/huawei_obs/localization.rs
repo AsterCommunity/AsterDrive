@@ -8,8 +8,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "huawei_obs_endpoint_hint",
-        "For virtual-hosted addressing, use the regional OBS endpoint such as https://obs.cn-north-4.myhuaweicloud.com. For a bound custom domain, enter that domain and select custom-domain addressing.",
-        "虚拟托管模式请填写区域 OBS endpoint，例如 https://obs.cn-north-4.myhuaweicloud.com；使用已绑定的自定义域名时，请填写该域名并选择自定义域名访问模式。",
+        "For virtual-hosted addressing, use the regional OBS endpoint such as https://obs.cn-north-4.myhuaweicloud.com. For a bound custom domain, enter that domain and enable CNAME mode.",
+        "虚拟托管模式请填写区域 OBS endpoint，例如 https://obs.cn-north-4.myhuaweicloud.com；使用已绑定的自定义域名时，请填写该域名并开启 CNAME 模式。",
     ),
     aster_drive_storage::storage_connector_message!(
         "obs_access_key_id",
@@ -17,29 +17,14 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "华为云 Access Key ID",
     ),
     aster_drive_storage::storage_connector_message!(
-        "obs_addressing_mode",
-        "OBS addressing mode",
-        "OBS 访问模式",
+        "obs_use_cname",
+        "Use a custom domain (CNAME)",
+        "使用自定义域名（CNAME）",
     ),
     aster_drive_storage::storage_connector_message!(
-        "obs_addressing_mode_custom_domain",
-        "Custom domain",
-        "自定义域名",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "obs_addressing_mode_custom_domain_desc",
-        "Send requests directly to an OBS-bound custom hostname. The custom hostname is used in the canonical signed resource, and the bucket is not added to the request hostname or path.",
-        "请求直接发送到已绑定 OBS 的自定义域名；签名规范资源使用该自定义主机名，bucket 不会再拼入请求主机名或路径。",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "obs_addressing_mode_virtual_hosted",
-        "Virtual-hosted OBS endpoint",
-        "OBS 虚拟托管 endpoint",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "obs_addressing_mode_virtual_hosted_desc",
-        "Use bucket.obs.<region>.myhuaweicloud.com requests generated from the regional OBS endpoint.",
-        "根据区域 OBS endpoint 生成 bucket.obs.<region>.myhuaweicloud.com 形式的请求。",
+        "obs_use_cname_desc",
+        "Use Endpoint as an OBS-bound custom domain without adding the bucket to the request host or path. Applies to reads, writes, multipart, and presigned URLs. Configure the domain in OBS first; this does not enable CDN authentication.",
+        "将 Endpoint 作为已绑定 OBS 的自定义域名，不向请求主机名或路径追加 bucket。适用于读写、分片和预签名 URL。请先在 OBS 配置域名；此开关不会启用 CDN 鉴权。",
     ),
     aster_drive_storage::storage_connector_message!("obs_region", "OBS region", "OBS 区域",),
     aster_drive_storage::storage_connector_message!(

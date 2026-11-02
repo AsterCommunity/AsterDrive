@@ -618,6 +618,21 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
             })
     }));
     let huawei_obs = descriptor("asterdrive.storage.huawei_obs");
+    let cname = huawei_obs["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|field| field["name"] == "obs_use_cname")
+        .expect("OBS CNAME field");
+    assert_eq!(cname["kind"], "boolean");
+    assert_eq!(cname["default_value"], false);
+    assert!(
+        huawei_obs["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|field| field["name"] != "obs_addressing_mode")
+    );
     let obs_promotion = huawei_obs["promotions"]
         .as_array()
         .expect("Huawei OBS promotions")
@@ -6090,4 +6105,67 @@ async fn test_tencent_cos_cname_policy_round_trips_and_builds_runtime_driver() {
         .driver_registry()
         .get_driver(&policy)
         .expect("old config without CNAME still builds");
+}
+
+#[actix_web::test]
+async fn test_huawei_obs_cname_policy_round_trips_and_builds_runtime_driver() {
+    use aster_drive::db::repository::policy_repo;
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    for (enabled, endpoint) in [
+        (true, "https://files.example.test"),
+        (false, "https://obs.cn-north-4.myhuaweicloud.com"),
+    ] {
+        let connection = serde_json::json!({
+            "connector_config": {"format_version":1, "connector_id":"asterdrive.storage.huawei_obs", "schema_version":1,
+                "values":{"endpoint":endpoint,"bucket":"archive-bucket","base_path":"tenant/files","obs_region":"cn-north-4","obs_use_cname":enabled}},
+            "behavior":{}, "credential":{"mode":"static","values":{"obs_access_key_id":"test-ak","obs_secret_access_key":"test-sk"}}
+        });
+        let request = test::TestRequest::post().uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "OBS CNAME", "connection": connection, "max_file_size": 0, "is_default": false }))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        let status = response.status();
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(status, 201, "{body}");
+        let id = body["data"]["id"].as_i64().unwrap();
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["obs_use_cname"],
+            enabled
+        );
+        assert!(
+            body["data"]["connector_config"]["values"]
+                .get("obs_addressing_mode")
+                .is_none()
+        );
+        let policy = policy_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        let driver = state.driver_registry().get_driver(&policy).unwrap();
+        let download = driver
+            .extensions()
+            .direct_download
+            .unwrap()
+            .resolve_download_url(
+                "report.txt",
+                std::time::Duration::from_secs(60),
+                Default::default(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let url = url::Url::parse(&download.url).unwrap();
+        assert_eq!(
+            url.host_str(),
+            Some(if enabled {
+                "files.example.test"
+            } else {
+                "archive-bucket.obs.cn-north-4.myhuaweicloud.com"
+            })
+        );
+        assert_eq!(url.path(), "/tenant/files/report.txt");
+    }
 }
