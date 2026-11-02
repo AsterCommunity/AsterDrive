@@ -53,6 +53,33 @@ title: "阿里云 OSS 存储策略教程"
 配置了服务端 endpoint 时，后端 I/O 使用服务端 endpoint，浏览器 presigned URL 仍使用公网 endpoint。先分别确认服务端和浏览器的 DNS、HTTPS 与网络可达性。
 :::
 
+## 2.1 可选：CDN 下载分发
+
+如果希望下载走阿里云 CDN 加速，可以配置可选的 **CDN 下载域名**。启用后，面向用户的下载链接会使用 CDN 域名并按 CDN 鉴权规则签名；上传、删除、列举、multipart 和清理等后端操作仍使用 OSS API endpoint。
+
+| 字段 | 作用 |
+| --- | --- |
+| CDN 下载域名 | 可选。面向用户的下载链接使用的 CDN 加速域名，例如 `https://cdn.example.com`。必须是干净的 scheme + host，不能带凭证、query、fragment 或路径 |
+| CDN 鉴权方式 | `type_a`、`type_b`、`type_c` 或 `none`。对应阿里云 CDN 的 URL 鉴权方式 |
+| CDN 鉴权密钥 | 鉴权方式对应的主 KEY，加密存储，不出现在日志和审计中 |
+
+CDN 配置只影响下载交付：
+
+- CNAME 自定义域名用于 OSS 对象 API 寻址，不能替代 CDN 下载鉴权；两者是不同的东西
+- 后端 I/O 永远不会路由到 CDN 域名
+- 下载链接带 TTL，到期即失效；撤销需要在阿里云 CDN 控制台旋转鉴权 KEY
+
+准备步骤：
+
+1. 在阿里云 CDN 控制台添加加速域名，源站指向当前 OSS bucket
+2. 开启 URL 鉴权（A / B / C 方式之一），记录鉴权主 KEY
+3. 确认 CDN 回源到 OSS 的授权正确，避免 CDN 缓存绕过访问控制
+4. 在 AsterDrive 策略中填写 CDN 下载域名、鉴权方式和鉴权密钥
+
+:::caution[CDN 鉴权方式必须与控制台一致]
+AsterDrive 生成的签名 URL 按所选鉴权方式计算。鉴权方式或鉴权 KEY 与 CDN 控制台不一致时，CDN 会返回 403。修改任一侧后都要重新端到端验收。
+:::
+
 ## 3. 创建 AsterDrive 存储策略
 
 在 `管理 -> 存储策略` 新建 **阿里云 OSS**，填写：
@@ -63,10 +90,11 @@ title: "阿里云 OSS 存储策略教程"
 - bucket
 - 可选基础路径
 - 是否使用 CNAME
+- 可选 CDN 下载域名、CDN 鉴权方式和鉴权密钥
 - AccessKey ID / AccessKey Secret
 - 上传方式和下载方式
 
-先使用 `relay_stream` 完成连接测试和端到端验收。确认服务端读写、Range、删除、复制和 multipart 稳定后，再切 `presigned`。
+先使用 `relay_stream` 完成连接测试和端到端验收。确认服务端读写、Range、删除、复制和 multipart 稳定后，再切 `presigned`。配置 CDN 下载域名时，单独验收 CDN 下载链路。
 
 ## 4. 为 presigned 配置 CORS
 
@@ -105,3 +133,7 @@ title: "阿里云 OSS 存储策略教程"
 ### CNAME URL 里又出现了 bucket
 
 确认启用了 **使用 CNAME 自定义域名**，且公网 endpoint 填的是绑定到 bucket 的自定义域名，而不是 `aliyuncs.com` provider endpoint。
+
+### CDN 下载返回 403
+
+确认 CDN 鉴权方式与阿里云 CDN 控制台一致，鉴权密钥没有多余空白，并且下载链接尚未过期。CDN 侧会按鉴权方式用对象路径重算签名，方式或 KEY 不一致都会导致 403。

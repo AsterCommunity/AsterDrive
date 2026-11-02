@@ -77,4 +77,29 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "Set the OSS public endpoint, optional server-side endpoint, region, bucket, and credentials.",
         "填写 OSS 公网 endpoint、可选服务端 endpoint、地域、bucket 和访问凭证。",
     ),
+    aster_drive_storage::storage_connector_message!(
+        "oss_cdn_domain",
+        "CDN download domain",
+        "CDN 下载域名",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "oss_cdn_domain_desc",
+        "Optional. When configured, download links will use this CDN domain instead of the direct OSS endpoint. Backend operations (upload, delete, list) continue to use the OSS API endpoint.",
+        "可选。配置后，下载链接将使用此 CDN 域名，而非直接 OSS endpoint。后端操作（上传、删除、列表）继续使用 OSS API endpoint。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "oss_cdn_auth_type",
+        "CDN authentication type",
+        "CDN 鉴权方式",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "oss_cdn_auth_type_desc",
+        "Alibaba Cloud CDN authentication method: type_a, type_b, type_c, or none. See https://help.aliyun.com/document_detail/85113.html",
+        "阿里云 CDN 鉴权方式：type_a、type_b、type_c 或 none（无鉴权）。参考 https://help.aliyun.com/document_detail/85113.html",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "oss_cdn_auth_key",
+        "CDN authentication key",
+        "CDN 鉴权密钥",
+    ),
 ];

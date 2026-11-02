@@ -142,6 +142,32 @@ aster_drive_storage::storage_connector_schema! {
         pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
             "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
+        pub oss_cdn_domain: String => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "oss_cdn_domain", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+                label_key: "oss_cdn_domain", placeholder: Some("https://cdn.example.com"),
+                help_key: Some("oss_cdn_domain_desc"), required_message_key: None,
+                invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+                allowed_endpoint_protocols: vec!["http:", "https:"],
+                allow_endpoint_without_protocol: false, trim_on_blur: false,
+            });
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field
+        },
+        pub oss_cdn_auth_type: String => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "oss_cdn_auth_type", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+                label_key: "oss_cdn_auth_type", placeholder: Some("type_a"),
+                help_key: Some("oss_cdn_auth_type_desc"), required_message_key: None,
+                invalid_protocol_message_key: None, allowed_endpoint_protocols: Vec::new(),
+                allow_endpoint_without_protocol: false, trim_on_blur: true,
+            });
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("none".to_string()));
+            field
+        },
         }
         credentials static AlibabaOssStaticCredentialsV1 {
             pub aliyun_oss_access_key_id: String => storage_connector_field(
@@ -151,6 +177,10 @@ aster_drive_storage::storage_connector_schema! {
             pub aliyun_oss_access_key_secret: String => storage_connector_field(
                 "aliyun_oss_access_key_secret", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
+            ),
+            pub oss_cdn_auth_key: Option<String> => storage_connector_field(
+                "oss_cdn_auth_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Secret, false, true,
             ),
         }
     }
@@ -174,6 +204,8 @@ impl AlibabaOssConnector {
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
+            cdn_domain: Some(config.oss_cdn_domain).filter(|s| !s.trim().is_empty()),
+            cdn_auth_type: Some(config.oss_cdn_auth_type).filter(|s| !s.trim().is_empty()),
         }
     }
 
@@ -183,6 +215,9 @@ impl AlibabaOssConnector {
         AlibabaOssStaticCredentials {
             access_key: credentials.aliyun_oss_access_key_id,
             secret_key: credentials.aliyun_oss_access_key_secret,
+            cdn_auth_key: credentials
+                .oss_cdn_auth_key
+                .filter(|s| !s.trim().is_empty()),
         }
     }
 
@@ -211,7 +246,7 @@ impl AlibabaOssConnector {
                 storage_native_processing: false,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![450, 474],
+                related_issues: vec![450, 474, 685],
             });
         descriptor.promotions.push(promote_from_s3_descriptor());
         descriptor

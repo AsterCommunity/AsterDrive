@@ -225,6 +225,8 @@ fn oss_config(upload: ObjectStorageUploadStrategy) -> AlibabaOssConnectorConfigV
         oss_use_cname: false,
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+        oss_cdn_domain: String::new(),
+        oss_cdn_auth_type: "none".to_string(),
     }
 }
 
@@ -1479,7 +1481,7 @@ fn s3_connector_preserves_sigv4_region_validation_contract() {
 fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
     let connector = connector(AlibabaOssConnector::ID);
     let descriptor = connector.descriptor();
-    assert_eq!(descriptor.related_issues, vec![450, 474]);
+    assert_eq!(descriptor.related_issues, vec![450, 474, 685]);
     assert!(descriptor.promotions.iter().any(|promotion| {
         promotion.promotion_id.as_str() == "promote_from_s3"
             && promotion.source_connector_id.as_str() == S3Connector::ID
@@ -1506,8 +1508,11 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
         "oss_use_cname",
         "object_storage_upload_strategy",
         "object_storage_download_strategy",
+        "oss_cdn_domain",
+        "oss_cdn_auth_type",
         "aliyun_oss_access_key_id",
         "aliyun_oss_access_key_secret",
+        "oss_cdn_auth_key",
     ] {
         assert!(
             descriptor
@@ -1522,6 +1527,14 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
             .fields
             .iter()
             .find(|field| field.name == "aliyun_oss_access_key_secret")
+            .is_some_and(|field| field.secret)
+    );
+    // CDN 鉴权密钥必须标记为 secret，避免出现在日志/审计中。
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "oss_cdn_auth_key")
             .is_some_and(|field| field.secret)
     );
 

@@ -53,6 +53,33 @@ In normal mode, endpoints must use an `aliyuncs.com` OSS hostname. In CNAME mode
 When a server-side endpoint is configured, backend I/O uses it while browser presigned URLs continue to use the public endpoint. Validate DNS, HTTPS, and reachability for the backend and browser paths separately.
 :::
 
+## 2.1 Optional: CDN Download Delivery
+
+To accelerate downloads through Alibaba Cloud CDN, configure the optional **CDN download domain**. When set, user-facing download links use the CDN domain and are signed according to the CDN authentication rules. Backend operations (upload, delete, list, multipart, cleanup) continue to use the OSS API endpoint.
+
+| Field | Purpose |
+| --- | --- |
+| CDN download domain | Optional. The CDN acceleration domain used for user-facing download links, for example `https://cdn.example.com`. Must be a clean scheme + host with no credentials, query, fragment, or path |
+| CDN authentication type | `type_a`, `type_b`, `type_c`, or `none`. Maps to Alibaba Cloud CDN URL authentication methods |
+| CDN authentication key | The primary KEY for the selected authentication method. Stored encrypted and never written to logs or audit |
+
+CDN configuration only affects download delivery:
+
+- A CNAME custom domain addresses the OSS object API and cannot replace CDN download authentication; they are distinct features
+- Backend I/O never routes to the CDN domain
+- Download links carry a TTL and expire; revocation requires rotating the authentication KEY in the Alibaba Cloud CDN console
+
+Preparation:
+
+1. Add an acceleration domain in the Alibaba Cloud CDN console with the current OSS bucket as origin
+2. Enable URL authentication (type A / B / C) and record the primary authentication KEY
+3. Verify CDN origin authorization to OSS so CDN caching does not bypass access control
+4. Fill the CDN download domain, authentication type, and authentication key in the AsterDrive policy
+
+:::caution[CDN authentication type must match the console]
+AsterDrive signs URLs according to the selected authentication type. If the type or KEY differs from the CDN console, CDN returns 403. Re-run end-to-end validation after changing either side.
+:::
+
 ## 3. Create the AsterDrive Storage Policy
 
 Under `Admin -> Storage Policies`, create **Alibaba Cloud OSS** and fill in:
@@ -63,10 +90,11 @@ Under `Admin -> Storage Policies`, create **Alibaba Cloud OSS** and fill in:
 - Bucket
 - Optional base path
 - CNAME mode
+- Optional CDN download domain, CDN authentication type, and authentication key
 - AccessKey ID / AccessKey Secret
 - Upload and download modes
 
-Start with `relay_stream` for connection testing and end-to-end validation. After server-side reads, writes, Range requests, deletes, copies, and multipart operations are stable, switch to `presigned` if needed.
+Start with `relay_stream` for connection testing and end-to-end validation. After server-side reads, writes, Range requests, deletes, copies, and multipart operations are stable, switch to `presigned` if needed. When a CDN download domain is configured, validate the CDN download path separately.
 
 ## 4. Configure CORS for Presigned Transfers
 
@@ -105,3 +133,7 @@ The server-side endpoint only proves backend reachability. Check the public endp
 ### The Bucket Appears Again in a CNAME URL
 
 Enable **Use CNAME custom domain** and make sure the public endpoint is the custom domain bound to the bucket, not an `aliyuncs.com` provider endpoint.
+
+### CDN Download Returns 403
+
+Confirm the CDN authentication type matches the Alibaba Cloud CDN console, the authentication key has no extra whitespace, and the download link has not expired. The CDN recomputes the signature from the object path per authentication type, so a mismatched type or KEY causes a 403.

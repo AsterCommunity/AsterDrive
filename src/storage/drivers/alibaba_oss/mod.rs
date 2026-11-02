@@ -4,6 +4,7 @@
 //! 鉴权阶段改写为 OSS V4。后端 I/O 可以走内网 endpoint，而所有浏览器可见的
 //! presigned URL 始终由 public endpoint client 生成。
 
+mod cdn_signing;
 mod signing;
 #[cfg(test)]
 mod tests;
@@ -31,6 +32,17 @@ use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 pub struct AlibabaOssDriver {
     storage: S3CompatibleDriver,
     public_driver: Arc<S3Driver>,
+    cdn_config: Option<CdnConfig>,
+}
+
+#[derive(Debug, Clone)]
+struct CdnConfig {
+    domain: String,
+    auth_type: cdn_signing::CdnAuthType,
+    auth_key: Option<String>,
+    /// base_path 前缀，用于 CDN URL 的对象键拼接。
+    /// CDN 交付不经过 OSS API client，必须在 driver 层自行完成 key 拼接。
+    base_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,12 +56,15 @@ pub struct AlibabaOssDriverConfig {
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
+    pub cdn_domain: Option<String>,
+    pub cdn_auth_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlibabaOssStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
+    pub cdn_auth_key: Option<String>,
 }
 
 impl AlibabaOssDriver {
@@ -82,6 +97,15 @@ impl AlibabaOssDriver {
                 false,
                 "OSS server-side endpoint",
             )?;
+        }
+
+        // CDN 下载域名只影响用户侧下载交付，这里做干净 host 校验。
+        if let Some(cdn_domain) = config
+            .cdn_domain
+            .as_ref()
+            .filter(|domain| !domain.trim().is_empty())
+        {
+            cdn_signing::validate_cdn_domain(cdn_domain)?;
         }
         Ok(())
     }
@@ -129,9 +153,24 @@ impl AlibabaOssDriver {
             )?)
         };
 
+        // 解析 CDN 配置
+        let cdn_config = config
+            .cdn_domain
+            .as_ref()
+            .filter(|domain| !domain.trim().is_empty())
+            .map(|domain| CdnConfig {
+                domain: domain.clone(),
+                auth_type: cdn_signing::CdnAuthType::from_str(
+                    config.cdn_auth_type.as_deref().unwrap_or(""),
+                ),
+                auth_key: credentials.cdn_auth_key.clone(),
+                base_path: config.base_path.clone(),
+            });
+
         Ok(Self {
             storage: S3CompatibleDriver::from_s3_driver(backend_driver),
             public_driver,
+            cdn_config,
         })
     }
 
@@ -411,6 +450,28 @@ impl DirectDownloadStorageDriver for AlibabaOssDriver {
         expires: Duration,
         options: DirectDownloadOptions,
     ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
+        // 如果配置了 CDN，使用 CDN 签名
+        if let Some(cdn_config) = &self.cdn_config {
+            // CDN 交付不经过 OSS API client，这里用与 S3Driver::full_key 相同的
+            // base_path 拼接逻辑（join_key_prefix），确保对象键前缀一致。
+            let object_key =
+                aster_drive_storage::object_key::join_key_prefix(&cdn_config.base_path, path);
+            let auth_key = cdn_config.auth_key.as_deref().unwrap_or("");
+
+            let url = cdn_signing::generate_cdn_signed_url(
+                &cdn_config.domain,
+                &object_key,
+                cdn_config.auth_type,
+                auth_key,
+                expires,
+            )?;
+
+            return Ok(Some(
+                aster_drive_storage::DirectDownloadRequest::temporary_url(url, expires),
+            ));
+        }
+
+        // fallback: 使用原有 OSS V4 签名
         // OSS rejects response-content-type on signed GET requests with
         // 0017-00000902. The object's stored Content-Type remains authoritative.
         // https://help.aliyun.com/zh/oss/support/0017-00000902
