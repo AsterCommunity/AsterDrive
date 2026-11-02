@@ -248,6 +248,7 @@ fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfig
 
 fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV1 {
     TencentCosConnectorConfigV1 {
+        cos_use_cname: false,
         download_base_url: None,
         endpoint: "https://cos.ap-beijing.myqcloud.com".to_string(),
         bucket: "archive-1250000000".to_string(),

@@ -182,6 +182,18 @@ aster_drive_storage::storage_connector_schema! {
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        pub cos_use_cname: bool => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "cos_use_cname", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Boolean, required: false, secret: false,
+                label_key: "cos_use_cname", placeholder: None, help_key: Some("cos_use_cname_desc"),
+                required_message_key: None, invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(), allow_endpoint_without_protocol: false,
+                trim_on_blur: false,
+            });
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field
+        },
         pub download_base_url: Option<String> => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
             name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
             kind: StorageConnectorFieldKind::Text, required: false, secret: false,
@@ -223,6 +235,7 @@ impl TencentCosConnector {
             endpoint: config.endpoint,
             bucket: config.bucket,
             base_path: config.base_path,
+            use_cname: config.cos_use_cname,
             download_base_url: config.download_base_url,
             connect_timeout: std::time::Duration::from_secs(5),
             read_timeout: std::time::Duration::from_secs(30),
@@ -359,16 +372,8 @@ impl StorageConnector for TencentCosConnector {
             .as_deref()
             .map(super::common::normalize_download_base_url)
             .transpose()?;
-        let endpoint = url::Url::parse(&config.endpoint)
-            .map_err(|error| AsterError::validation_error(error.to_string()))?;
-        if !endpoint
-            .host_str()
-            .is_some_and(|host| host.ends_with(".myqcloud.com"))
-        {
-            return Err(AsterError::validation_error(
-                "COS endpoint must use a Tencent COS myqcloud.com host",
-            ));
-        }
+        TencentCosDriver::validate_connection_config(&Self::driver_config(config.clone()))
+            .map_err(|error| AsterError::validation_error(error.message()))?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,

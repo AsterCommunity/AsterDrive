@@ -69,11 +69,14 @@ const COS_HEADER_RENAMES: &[(&str, &str)] = &[
 
 pub(super) fn configure_cos_auth(
     builder: aws_sdk_s3::config::Builder,
+    cname_bucket: Option<String>,
 ) -> aws_sdk_s3::config::Builder {
     builder
         .request_checksum_calculation(aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired)
         .response_checksum_validation(aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired)
-        .push_auth_scheme(CosAuthScheme::default())
+        .push_auth_scheme(CosAuthScheme {
+            signer: CosSigner { cname_bucket },
+        })
 }
 
 #[derive(Debug, Default)]
@@ -99,7 +102,9 @@ impl AuthScheme for CosAuthScheme {
 }
 
 #[derive(Debug, Default)]
-struct CosSigner;
+struct CosSigner {
+    cname_bucket: Option<String>,
+}
 
 impl Sign for CosSigner {
     fn sign_http_request(
@@ -113,7 +118,7 @@ impl Sign for CosSigner {
         let credentials = identity
             .data::<Credentials>()
             .ok_or("COS signer requires AWS credential identity")?;
-        normalize_aws_request_for_cos(request)?;
+        normalize_aws_request_for_cos(request, self.cname_bucket.as_deref())?;
 
         let operation_config = config_bag.load::<SigV4OperationSigningConfig>();
         let signature_type = operation_config
@@ -309,7 +314,7 @@ impl TencentCosDriver {
         let host = url.host_str().ok_or_else(|| {
             storage_driver_error(StorageErrorKind::Misconfigured, "COS endpoint missing host")
         })?;
-        if !host.starts_with(&format!("{}.", self.bucket)) {
+        if !self.use_cname && !host.starts_with(&format!("{}.", self.bucket)) {
             let virtual_host = format!("{}.{}", self.bucket, host);
             url.set_host(Some(&virtual_host)).map_aster_err_ctx(
                 "build COS virtual-hosted URL",
@@ -317,13 +322,16 @@ impl TencentCosDriver {
             )?;
         }
 
-        let endpoint_path = url.path().trim_matches('/');
-        let object_path = if endpoint_path.is_empty() {
-            key.clone()
-        } else {
-            format!("{endpoint_path}/{key}")
-        };
-        url.set_path(&format!("/{object_path}"));
+        {
+            let mut segments = url.path_segments_mut().map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "COS endpoint cannot be used as a path base",
+                )
+            })?;
+            segments.pop_if_empty();
+            segments.extend(key.split('/'));
+        }
         url.set_query(None);
         url.set_fragment(None);
         Ok((url, key))
@@ -365,7 +373,7 @@ impl TencentCosDriver {
         let host = url.host_str().ok_or_else(|| {
             storage_driver_error(StorageErrorKind::Misconfigured, "COS endpoint missing host")
         })?;
-        if !host.starts_with(&format!("{}.", self.bucket)) {
+        if !self.use_cname && !host.starts_with(&format!("{}.", self.bucket)) {
             let virtual_host = format!("{}.{}", self.bucket, host);
             url.set_host(Some(&virtual_host))
                 .map_aster_err_ctx("build COS bucket URL", AsterError::storage_driver_error)?;
@@ -428,11 +436,34 @@ impl TencentCosDriver {
     }
 }
 
-fn normalize_aws_request_for_cos(request: &mut HttpRequest) -> std::result::Result<(), BoxError> {
+fn normalize_aws_request_for_cos(
+    request: &mut HttpRequest,
+    cname_bucket: Option<&str>,
+) -> std::result::Result<(), BoxError> {
     crate::storage::drivers::s3_vendor::normalize_aws_s3_vendor_request(
         request,
         COS_HEADER_RENAMES,
-        |_| Ok(()),
+        |url| {
+            // AWS path-style serialization supplies /bucket/key. A COS custom
+            // Domain is already bucket-bound: remove only that wire prefix,
+            // preserving the encoded object key before signing the final URL.
+            // Official SDK: sdk/base.js getUrl / getSignHost.
+            if let Some(bucket) = cname_bucket {
+                let prefix = format!("/{bucket}/");
+                let path = if url.path() == format!("/{bucket}") {
+                    "/".to_string()
+                } else {
+                    format!(
+                        "/{}",
+                        url.path()
+                            .strip_prefix(&prefix)
+                            .ok_or("COS CNAME request path is missing the bucket prefix")?
+                    )
+                };
+                url.set_path(&path);
+            }
+            Ok(())
+        },
     )
 }
 
@@ -504,7 +535,7 @@ fn host_header_value(url: &Url, missing_host_message: &'static str) -> Result<St
     })
 }
 
-pub(super) fn cos_virtual_hosted_s3_endpoint(endpoint: &str, bucket: &str) -> Result<String> {
+pub(super) fn cos_s3_endpoint(endpoint: &str, bucket: &str, use_cname: bool) -> Result<String> {
     let mut url = Url::parse(endpoint)
         .map_aster_err_ctx("parse COS endpoint", AsterError::storage_driver_error)?;
     let host = url
@@ -514,7 +545,7 @@ pub(super) fn cos_virtual_hosted_s3_endpoint(endpoint: &str, bucket: &str) -> Re
         })?
         .to_string();
 
-    if let Some(root_host) = host.strip_prefix(&format!("{bucket}.")) {
+    if !use_cname && let Some(root_host) = host.strip_prefix(&format!("{bucket}.")) {
         url.set_host(Some(root_host)).map_aster_err_ctx(
             "build COS S3 API endpoint",
             AsterError::storage_driver_error,
@@ -638,6 +669,20 @@ mod tests {
         response: Option<http::Response<SdkBody>>,
         session_token: Option<&str>,
     ) -> (aws_sdk_s3::Client, CaptureRequestReceiver) {
+        cos_sdk_client_for_endpoint(
+            response,
+            session_token,
+            "https://cos.ap-guangzhou.myqcloud.com",
+            None,
+        )
+    }
+
+    fn cos_sdk_client_for_endpoint(
+        response: Option<http::Response<SdkBody>>,
+        session_token: Option<&str>,
+        endpoint: &str,
+        cname_bucket: Option<&str>,
+    ) -> (aws_sdk_s3::Client, CaptureRequestReceiver) {
         let (http_client, receiver) = capture_request(response);
         let builder = aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
@@ -650,9 +695,9 @@ mod tests {
                 "cos-auth-test",
             ))
             .region(Region::new("ap-guangzhou"))
-            .endpoint_url("https://cos.ap-guangzhou.myqcloud.com")
-            .force_path_style(false);
-        let config = configure_cos_auth(builder).build();
+            .endpoint_url(endpoint)
+            .force_path_style(cname_bucket.is_some());
+        let config = configure_cos_auth(builder, cname_bucket.map(str::to_string)).build();
         (aws_sdk_s3::Client::from_conf(config), receiver)
     }
 
@@ -674,6 +719,7 @@ mod tests {
         TencentCosDriver::new(
             TencentCosDriverConfig {
                 download_base_url: None,
+                use_cname: false,
                 endpoint: endpoint.to_string(),
                 bucket: "media-1250000000".to_string(),
                 base_path: String::new(),
@@ -713,6 +759,179 @@ mod tests {
             authorization,
             "q-sign-algorithm=sha1&q-ak=QmFzZTY0IGlzIGEgZ2VuZXJp&q-sign-time=1480932292;1481012292&q-key-time=1480932292;1481012292&q-header-list=host;x-cos-content-sha1;x-cos-stroage-class&q-url-param-list=&q-signature=ce4ac0ecbcdb30538b3fee0a97cc6389694ce53a"
         );
+    }
+
+    #[tokio::test]
+    async fn cname_normal_requests_sign_final_host_and_keep_encoded_keys() {
+        let bucket = "bucket-1250000000";
+        let key = "目录/a b+%2F#?.txt";
+        for method in ["GET", "HEAD", "PUT", "DELETE"] {
+            let (client, receiver) = cos_sdk_client_for_endpoint(
+                Some(empty_success_response()),
+                None,
+                "https://files.example.test:9443",
+                Some(bucket),
+            );
+            match method {
+                "GET" => {
+                    client
+                        .get_object()
+                        .bucket(bucket)
+                        .key(key)
+                        .send()
+                        .await
+                        .unwrap();
+                }
+                "HEAD" => {
+                    client
+                        .head_object()
+                        .bucket(bucket)
+                        .key(key)
+                        .send()
+                        .await
+                        .unwrap();
+                }
+                "PUT" => {
+                    client
+                        .put_object()
+                        .bucket(bucket)
+                        .key(key)
+                        .body(ByteStream::from_static(b"data"))
+                        .send()
+                        .await
+                        .unwrap();
+                }
+                "DELETE" => {
+                    client
+                        .delete_object()
+                        .bucket(bucket)
+                        .key(key)
+                        .send()
+                        .await
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let request = receiver.expect_request();
+            let url = Url::parse(request.uri()).unwrap();
+            assert_eq!(request.method(), method);
+            assert_eq!(url.host_str(), Some("files.example.test"));
+            assert_eq!(url.port(), Some(9443));
+            assert_eq!(
+                percent_encoding::percent_decode_str(url.path())
+                    .decode_utf8()
+                    .unwrap(),
+                format!("/{key}")
+            );
+            let authorization = request.headers().get("authorization").unwrap();
+            let signed_headers = super::collect_signed_headers(&request, "files.example.test:9443");
+            assert!(
+                signed_headers
+                    .iter()
+                    .any(|(name, value)| name == "host" && value == "files.example.test:9443")
+            );
+            assert!(!request.uri().contains("x-id="));
+            let header_refs = signed_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str()))
+                .collect::<Vec<_>>();
+            let expected = cos_authorization(
+                method,
+                &format!("/{key}"),
+                &[],
+                &header_refs,
+                "AKIDEXAMPLE",
+                "SECRETEXAMPLE",
+                authorization_key_time(authorization),
+            )
+            .unwrap();
+            assert_eq!(authorization, expected);
+        }
+    }
+
+    #[test]
+    fn cname_signature_matches_official_sdk_with_encoded_key_and_ci_query() {
+        // tencentyun/cos-nodejs-sdk-v5 @ 53b1180f2ac4c1d64888a5b3116422675f9d831e,
+        // sdk/util.js getAuth: Pathname and final Host, with fixed KeyTime.
+        let authorization = cos_authorization(
+            "GET",
+            "/目录/a b+%2F#?.txt",
+            &[("imageMogr2/thumbnail/320x240>/format/webp", "")],
+            &[("host", "files.example.test:9443")],
+            "AKIDEXAMPLE",
+            "SECRETEXAMPLE",
+            "1700000000;1700000600",
+        )
+        .unwrap();
+        assert_eq!(
+            authorization,
+            "q-sign-algorithm=sha1&q-ak=AKIDEXAMPLE&q-sign-time=1700000000;1700000600&q-key-time=1700000000;1700000600&q-header-list=host&q-url-param-list=imagemogr2%2fthumbnail%2f320x240%3e%2fformat%2fwebp&q-signature=83a16f5f941941cc4bbe3b081c1b77963151f3b4"
+        );
+    }
+
+    #[tokio::test]
+    async fn cname_bucket_root_and_copy_requests_keep_cos_api_semantics() {
+        let bucket = "bucket-1250000000";
+        let (client, receiver) = cos_sdk_client_for_endpoint(
+            Some(empty_success_response()),
+            None,
+            "https://files.example.test",
+            Some(bucket),
+        );
+        client.head_bucket().bucket(bucket).send().await.unwrap();
+        assert_eq!(
+            receiver.expect_request().uri(),
+            "https://files.example.test/"
+        );
+
+        let response = http::Response::builder()
+            .status(200)
+            .body(SdkBody::from(
+                "<CopyObjectResult><ETag>\"etag\"</ETag></CopyObjectResult>",
+            ))
+            .unwrap();
+        let (client, receiver) = cos_sdk_client_for_endpoint(
+            Some(response),
+            None,
+            "https://files.example.test",
+            Some(bucket),
+        );
+        client
+            .copy_object()
+            .bucket(bucket)
+            .key("destination.txt")
+            .copy_source(format!("{bucket}/source.txt"))
+            .send()
+            .await
+            .unwrap();
+        let request = receiver.expect_request();
+        assert_eq!(request.uri(), "https://files.example.test/destination.txt");
+        assert_eq!(
+            request.headers().get("x-cos-copy-source"),
+            Some("bucket-1250000000/source.txt")
+        );
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .unwrap()
+                .contains("q-header-list=host;x-cos-copy-source")
+        );
+    }
+
+    #[test]
+    fn cname_request_normalization_rejects_missing_bucket_and_handles_bare_root() {
+        let mut request = aws_smithy_runtime_api::client::orchestrator::HttpRequest::get(
+            "https://files.example.test/wrong/key",
+        )
+        .unwrap();
+        assert!(super::normalize_aws_request_for_cos(&mut request, Some("bucket")).is_err());
+        let mut request = aws_smithy_runtime_api::client::orchestrator::HttpRequest::get(
+            "https://files.example.test/bucket",
+        )
+        .unwrap();
+        super::normalize_aws_request_for_cos(&mut request, Some("bucket")).unwrap();
+        assert_eq!(request.uri(), "https://files.example.test/");
     }
 
     #[tokio::test]
@@ -1045,114 +1264,167 @@ mod tests {
 
     #[tokio::test]
     async fn aws_sdk_multipart_operations_use_cos_signatures() {
-        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
-        let _ = client
-            .create_multipart_upload()
-            .bucket("bucket-1250000000")
-            .key("video.bin")
-            .send()
-            .await;
-        let request = receiver.expect_request();
-        assert_eq!(request.method(), "POST");
-        assert!(request.uri().contains("uploads="));
-        assert!(
-            request
-                .headers()
-                .get("authorization")
-                .expect("COS Authorization header")
-                .contains("q-url-param-list=uploads")
-        );
+        for (endpoint, cname_bucket, expected_host) in [
+            (
+                "https://cos.ap-guangzhou.myqcloud.com",
+                None,
+                "bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
+            ),
+            (
+                "https://files.example.test",
+                Some("bucket-1250000000"),
+                "files.example.test",
+            ),
+        ] {
+            let (client, receiver) = cos_sdk_client_for_endpoint(
+                Some(empty_success_response()),
+                None,
+                endpoint,
+                cname_bucket,
+            );
+            let _ = client
+                .create_multipart_upload()
+                .bucket("bucket-1250000000")
+                .key("video.bin")
+                .send()
+                .await;
+            let request = receiver.expect_request();
+            let url = Url::parse(request.uri()).unwrap();
+            assert_eq!(url.host_str(), Some(expected_host));
+            assert_eq!(url.path(), "/video.bin");
+            assert_eq!(request.method(), "POST");
+            assert!(request.uri().contains("uploads="));
+            assert!(
+                request
+                    .headers()
+                    .get("authorization")
+                    .expect("COS Authorization header")
+                    .contains("q-url-param-list=uploads")
+            );
 
-        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
-        let _ = client
-            .upload_part()
-            .bucket("bucket-1250000000")
-            .key("video.bin")
-            .upload_id("upload-id")
-            .part_number(7)
-            .body(ByteStream::from_static(b"part-data"))
-            .send()
-            .await;
-        let request = receiver.expect_request();
-        assert_eq!(request.method(), "PUT");
-        assert!(
-            request
-                .headers()
-                .get("authorization")
-                .expect("COS Authorization header")
-                .contains("q-url-param-list=partnumber;uploadid")
-        );
-        assert!(
-            request
-                .headers()
-                .iter()
-                .all(|(name, _)| !name.starts_with("x-amz-checksum-")
-                    && name != "x-amz-sdk-checksum-algorithm")
-        );
+            let (client, receiver) = cos_sdk_client_for_endpoint(
+                Some(empty_success_response()),
+                None,
+                endpoint,
+                cname_bucket,
+            );
+            let _ = client
+                .upload_part()
+                .bucket("bucket-1250000000")
+                .key("video.bin")
+                .upload_id("upload-id")
+                .part_number(7)
+                .body(ByteStream::from_static(b"part-data"))
+                .send()
+                .await;
+            let request = receiver.expect_request();
+            let url = Url::parse(request.uri()).unwrap();
+            assert_eq!(url.host_str(), Some(expected_host));
+            assert_eq!(url.path(), "/video.bin");
+            assert_eq!(request.method(), "PUT");
+            assert!(
+                request
+                    .headers()
+                    .get("authorization")
+                    .expect("COS Authorization header")
+                    .contains("q-url-param-list=partnumber;uploadid")
+            );
+            assert!(
+                request
+                    .headers()
+                    .iter()
+                    .all(|(name, _)| !name.starts_with("x-amz-checksum-")
+                        && name != "x-amz-sdk-checksum-algorithm")
+            );
 
-        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
-        let _ = client
-            .list_parts()
-            .bucket("bucket-1250000000")
-            .key("video.bin")
-            .upload_id("upload-id")
-            .send()
-            .await;
-        let request = receiver.expect_request();
-        assert_eq!(request.method(), "GET");
-        assert!(
-            request
-                .headers()
-                .get("authorization")
-                .expect("COS Authorization header")
-                .contains("q-url-param-list=uploadid")
-        );
+            let (client, receiver) = cos_sdk_client_for_endpoint(
+                Some(empty_success_response()),
+                None,
+                endpoint,
+                cname_bucket,
+            );
+            let _ = client
+                .list_parts()
+                .bucket("bucket-1250000000")
+                .key("video.bin")
+                .upload_id("upload-id")
+                .send()
+                .await;
+            let request = receiver.expect_request();
+            let url = Url::parse(request.uri()).unwrap();
+            assert_eq!(url.host_str(), Some(expected_host));
+            assert_eq!(url.path(), "/video.bin");
+            assert_eq!(request.method(), "GET");
+            assert!(
+                request
+                    .headers()
+                    .get("authorization")
+                    .expect("COS Authorization header")
+                    .contains("q-url-param-list=uploadid")
+            );
 
-        let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
-            .parts(
-                aws_sdk_s3::types::CompletedPart::builder()
-                    .part_number(7)
-                    .e_tag("etag-7")
-                    .build(),
-            )
-            .build();
-        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
-        let _ = client
-            .complete_multipart_upload()
-            .bucket("bucket-1250000000")
-            .key("video.bin")
-            .upload_id("upload-id")
-            .multipart_upload(completed_upload)
-            .send()
-            .await;
-        let request = receiver.expect_request();
-        assert_eq!(request.method(), "POST");
-        assert!(
-            request
-                .headers()
-                .get("authorization")
-                .expect("COS Authorization header")
-                .contains("q-url-param-list=uploadid")
-        );
-        assert!(request.headers().get("content-length").is_some());
+            let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+                .parts(
+                    aws_sdk_s3::types::CompletedPart::builder()
+                        .part_number(7)
+                        .e_tag("etag-7")
+                        .build(),
+                )
+                .build();
+            let (client, receiver) = cos_sdk_client_for_endpoint(
+                Some(empty_success_response()),
+                None,
+                endpoint,
+                cname_bucket,
+            );
+            let _ = client
+                .complete_multipart_upload()
+                .bucket("bucket-1250000000")
+                .key("video.bin")
+                .upload_id("upload-id")
+                .multipart_upload(completed_upload)
+                .send()
+                .await;
+            let request = receiver.expect_request();
+            let url = Url::parse(request.uri()).unwrap();
+            assert_eq!(url.host_str(), Some(expected_host));
+            assert_eq!(url.path(), "/video.bin");
+            assert_eq!(request.method(), "POST");
+            assert!(
+                request
+                    .headers()
+                    .get("authorization")
+                    .expect("COS Authorization header")
+                    .contains("q-url-param-list=uploadid")
+            );
+            assert!(request.headers().get("content-length").is_some());
 
-        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
-        let _ = client
-            .abort_multipart_upload()
-            .bucket("bucket-1250000000")
-            .key("video.bin")
-            .upload_id("upload-id")
-            .send()
-            .await;
-        let request = receiver.expect_request();
-        assert_eq!(request.method(), "DELETE");
-        assert!(
-            request
-                .headers()
-                .get("authorization")
-                .expect("COS Authorization header")
-                .contains("q-url-param-list=uploadid")
-        );
+            let (client, receiver) = cos_sdk_client_for_endpoint(
+                Some(empty_success_response()),
+                None,
+                endpoint,
+                cname_bucket,
+            );
+            let _ = client
+                .abort_multipart_upload()
+                .bucket("bucket-1250000000")
+                .key("video.bin")
+                .upload_id("upload-id")
+                .send()
+                .await;
+            let request = receiver.expect_request();
+            let url = Url::parse(request.uri()).unwrap();
+            assert_eq!(url.host_str(), Some(expected_host));
+            assert_eq!(url.path(), "/video.bin");
+            assert_eq!(request.method(), "DELETE");
+            assert!(
+                request
+                    .headers()
+                    .get("authorization")
+                    .expect("COS Authorization header")
+                    .contains("q-url-param-list=uploadid")
+            );
+        }
     }
 
     #[test]

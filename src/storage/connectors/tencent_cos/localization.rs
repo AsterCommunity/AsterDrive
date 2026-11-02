@@ -3,8 +3,18 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
         "cos_endpoint_hint",
-        "For Tencent COS, use the bucket domain such as https://<bucket-appid>.cos.<region>.myqcloud.com; enter the bucket separately, for example <bucket-appid>.",
-        "腾讯云 COS 请填写 bucket 域名，例如 https://<bucket-appid>.cos.<region>.myqcloud.com；bucket 请单独填写，例如 <bucket-appid>。",
+        "Use the COS service or bucket domain, or enable CNAME mode for a bucket-bound custom source domain. Enter the bucket separately, for example <bucket-appid>.",
+        "填写 COS 服务域名或 bucket 域名；使用绑定 bucket 的自定义源站域名时开启 CNAME 模式。bucket 请单独填写，例如 <bucket-appid>。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_use_cname",
+        "Use a custom source domain (CNAME)",
+        "使用自定义源站域名（CNAME）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_use_cname_desc",
+        "Use Endpoint as the bucket-bound request domain without adding the bucket to the host or path. Applies to reads, writes, multipart, presigned URLs, COS CI, and CORS. Configure the source domain and HTTPS certificate in COS first; CDN-only domains belong in Download base URL.",
+        "将 Endpoint 直接作为已绑定 bucket 的请求域名，不向 host 或路径追加 bucket。适用于读写、分片、预签名、COS 数据万象和 CORS。请先在 COS 配置源站域名与 HTTPS 证书；仅用于 CDN 下载的域名请填入下载基础 URL。",
     ),
     aster_drive_storage::storage_connector_message!(
         "driver_type_tencent_cos",

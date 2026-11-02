@@ -197,6 +197,82 @@ test.describe
 			).toBeVisible();
 		});
 
+		test("configures Tencent COS CNAME endpoints through create and edit", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+			// Exercise the real policy API while stubbing external-provider availability.
+			await page.route("**/api/v1/admin/policies/test", async (route) => {
+				await route.fulfill({
+					status: 200,
+					json: { code: "success", msg: "success", data: {} },
+				});
+			});
+
+			await gotoAdminPage(page, "/admin/policies", "Storage Policies");
+			await page.getByRole("button", { name: "New Policy" }).click();
+			await page
+				.getByRole("button", { name: "Tencent COS", exact: true })
+				.click();
+			await page.getByRole("button", { name: "Next", exact: true }).click();
+			const useCname = page.getByRole("switch", {
+				name: "Use a custom source domain (CNAME)",
+			});
+			await expect(useCname).not.toBeChecked();
+			const policyName = uniqueName("pw-cos-cname");
+			await page.locator("#name").fill(policyName);
+			await page.locator("#endpoint").fill("https://files.example.test");
+			await page.locator("#bucket").fill("media-1250000000");
+			await page.locator("#base_path").fill("e2e/cos");
+			await page
+				.getByLabel("Tencent COS SecretId")
+				.fill("playwright-access-key");
+			await page
+				.getByLabel("Tencent COS SecretKey")
+				.fill("playwright-cos-secret");
+			await useCname.click();
+			await page.getByRole("button", { name: "Review", exact: true }).click();
+			const [created] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "POST" &&
+						response.url().endsWith("/api/v1/admin/policies"),
+				),
+				page.getByRole("button", { name: "Create", exact: true }).click(),
+			]);
+			expect(created.status()).toBe(201);
+			expect(
+				created.request().postDataJSON().connection.connector_config.values,
+			).toMatchObject({
+				endpoint: "https://files.example.test",
+				cos_use_cname: true,
+			});
+			await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);
+			await expect(useCname).toBeChecked();
+			await page
+				.locator("#endpoint")
+				.fill("https://media-1250000000.cos.ap-guangzhou.myqcloud.com");
+			await useCname.click();
+			const [updated] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "PATCH" &&
+						response.url().includes("/api/v1/admin/policies/"),
+				),
+				page.getByRole("button", { name: "Save Changes" }).first().click(),
+			]);
+			expect(updated.ok()).toBe(true);
+			expect(
+				updated.request().postDataJSON().connector_config.values.cos_use_cname,
+			).toBe(false);
+			await page.reload();
+			await expect(useCname).not.toBeChecked();
+			await expect(page.locator("#endpoint")).toHaveValue(
+				"https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			);
+		});
+
 		test("renders and validates Alibaba Cloud OSS from its connector descriptor", async ({
 			page,
 			request,

@@ -938,6 +938,16 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
                     })
             })
     );
+    let cname = tencent_cos["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|field| field["name"] == "cos_use_cname")
+        .expect("COS CNAME field");
+    assert_eq!(cname["kind"], "boolean");
+    assert_eq!(cname["default_value"], false);
+    assert_eq!(cname["scope"], "connector_config");
+    assert_eq!(cname["help_key"], "cos_use_cname_desc");
     let cos_endpoint = tencent_cos["fields"]
         .as_array()
         .expect("cos fields")
@@ -6011,4 +6021,73 @@ async fn test_policy_update_treats_blank_s3_secret_as_keep_existing() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_tencent_cos_cname_policy_round_trips_and_builds_runtime_driver() {
+    use aster_drive::db::repository::policy_repo;
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let mut connection = connection_json(common::tencent_cos_connection(
+        "https://files.example.test",
+        "media-1250000000",
+        "tenant/files",
+        "AKIDEXAMPLE",
+        "SECRETEXAMPLE",
+    ));
+    for cname in [false, true] {
+        connection["connector_config"]["values"]["cos_use_cname"] = serde_json::json!(cname);
+        let request = test::TestRequest::post().uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "COS CNAME", "connection": connection, "max_file_size": 0, "is_default": false }))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        let status = response.status();
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(status, if cname { 201 } else { 400 }, "{body}");
+        if !cname {
+            continue;
+        }
+        let id = body["data"]["id"].as_i64().unwrap();
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/v1/admin/policies/{id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), 200);
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["cos_use_cname"],
+            true
+        );
+        let policy = policy_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        let driver = state.driver_registry().get_driver(&policy).unwrap();
+        let download = driver
+            .extensions()
+            .direct_download
+            .unwrap()
+            .resolve_download_url(
+                "report.txt",
+                std::time::Duration::from_secs(60),
+                Default::default(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let url = url::Url::parse(&download.url).unwrap();
+        assert_eq!(url.host_str(), Some("files.example.test"));
+        assert_eq!(url.path(), "/tenant/files/report.txt");
+    }
+    let id = create_tencent_cos_policy_via_admin(&app, &token, "Legacy official COS").await;
+    let policy = policy_repo::find_by_id(state.writer_db(), id)
+        .await
+        .unwrap();
+    state
+        .driver_registry()
+        .get_driver(&policy)
+        .expect("old config without CNAME still builds");
 }
