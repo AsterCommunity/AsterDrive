@@ -5,7 +5,7 @@ use aster_drive_storage::traits::multipart::MultipartStorageDriver;
 use aster_drive_storage::{StorageDriver, StorageErrorKind};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::{QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials};
+use super::{QiniuDownloadAuthMode, QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials};
 
 fn config() -> QiniuDriverConfig {
     QiniuDriverConfig {
@@ -13,6 +13,8 @@ fn config() -> QiniuDriverConfig {
         bucket: "archive".to_string(),
         base_path: "tenant-a".to_string(),
         region: "cn-east-1".to_string(),
+        download_base_url: None,
+        download_auth: QiniuDownloadAuthMode::Private,
         path_style: true,
         connect_timeout: Duration::from_secs(5),
         read_timeout: Duration::from_secs(30),
@@ -24,6 +26,7 @@ fn credentials() -> QiniuStaticCredentials {
     QiniuStaticCredentials {
         access_key: "access-key".to_string(),
         secret_key: "secret-key".to_string(),
+        download_cdn_timestamp_key: None,
     }
 }
 
@@ -33,6 +36,8 @@ fn short_timeout_config(endpoint: String) -> QiniuDriverConfig {
         bucket: "archive".to_string(),
         base_path: "qiniu-error-contract".to_string(),
         region: "cn-east-1".to_string(),
+        download_base_url: None,
+        download_auth: QiniuDownloadAuthMode::Private,
         path_style: true,
         connect_timeout: Duration::from_millis(100),
         read_timeout: Duration::from_millis(100),

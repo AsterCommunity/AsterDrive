@@ -86,4 +86,54 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "Qiniu SecretKey",
         "七牛云 SecretKey",
     ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_base_url",
+        "Download delivery URL",
+        "下载交付地址",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_base_url_desc",
+        "Optional HTTPS source or CDN domain bound to this Kodo space, with an optional path prefix. AsterDrive uses it only for browser downloads; reads, uploads, multipart operations, cleanup, and connection tests keep using the Kodo S3 endpoint. Configure DNS/CNAME and an HTTPS certificate first. Qiniu source domains do not include the S3 space name in the path.",
+        "绑定到该 Kodo 空间的可选 HTTPS 源站或 CDN 域名，可带路径前缀。AsterDrive 仅将其用于浏览器下载；读写、分片上传、清理和连接测试仍使用 Kodo S3 endpoint。请先配置 DNS/CNAME 与 HTTPS 证书。七牛源站域名的路径中不包含 S3 空间名。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_private",
+        "Kodo private download token",
+        "Kodo 私有下载凭证",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_private_desc",
+        "Append Qiniu's native e/token parameters, signed with this policy's SecretKey. Use for a private Kodo source domain or a CDN domain that preserves the download token.",
+        "追加七牛原生 e/token 参数，并使用该策略的 SecretKey 签名。适用于私有 Kodo 源站域名，或会保留下载凭证的 CDN 域名。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_timestamp",
+        "Qiniu CDN timestamp anti-leech",
+        "七牛 CDN 时间戳防盗链",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_timestamp_desc",
+        "Append the CDN sign/t parameters calculated with a separately configured timestamp key. Use only for a Qiniu CDN acceleration domain whose timestamp anti-leech key matches the saved credential.",
+        "使用单独配置的时间戳密钥生成 CDN sign/t 参数。仅适用于已配置匹配时间戳防盗链密钥的七牛 CDN 加速域名。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_public",
+        "Public objects (explicit)",
+        "公开对象（显式）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_public_desc",
+        "Append no download credentials. Configure this only when the bound domain exposes public objects; AsterDrive does not silently make private objects public.",
+        "不追加下载凭证。仅当绑定域名公开对象时配置；AsterDrive 不会把私有对象静默公开。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_cdn_timestamp_key",
+        "CDN timestamp anti-leech key",
+        "CDN 时间戳防盗链密钥",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_cdn_timestamp_key_desc",
+        "Required only when download authentication is Qiniu CDN timestamp anti-leech. Stored with the policy's encrypted static credentials and never returned in plaintext.",
+        "仅当下载鉴权为七牛 CDN 时间戳防盗链时需要。随策略的加密静态凭据保存，不会明文返回。",
+    ),
 ];

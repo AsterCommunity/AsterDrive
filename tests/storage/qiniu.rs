@@ -1,7 +1,7 @@
 //! Qiniu Kodo wrapper integration tests using the shared S3-compatible contract.
 
 use aster_drive::storage::drivers::qiniu::{
-    QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials,
+    QiniuDownloadAuthMode, QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials,
 };
 use std::time::Duration;
 
@@ -73,6 +73,8 @@ impl RealKodoConfig {
                 bucket: self.bucket.clone(),
                 base_path,
                 region: self.region.clone(),
+                download_base_url: None,
+                download_auth: QiniuDownloadAuthMode::Private,
                 path_style: false,
                 connect_timeout: Duration::from_secs(5),
                 read_timeout: Duration::from_secs(30),
@@ -81,6 +83,7 @@ impl RealKodoConfig {
             QiniuStaticCredentials {
                 access_key: self.access_key.clone(),
                 secret_key: self.secret_key.clone(),
+                download_cdn_timestamp_key: None,
             },
         )
         .expect("real Qiniu Kodo driver should build")
@@ -105,6 +108,8 @@ fn qiniu_driver(endpoint: &str, bucket: &str) -> QiniuDriver {
             bucket: bucket.to_string(),
             base_path: "qiniu-contract".to_string(),
             region: "cn-east-1".to_string(),
+            download_base_url: None,
+            download_auth: QiniuDownloadAuthMode::Private,
             path_style: true,
             connect_timeout: std::time::Duration::from_secs(5),
             read_timeout: std::time::Duration::from_secs(30),
@@ -113,6 +118,7 @@ fn qiniu_driver(endpoint: &str, bucket: &str) -> QiniuDriver {
         QiniuStaticCredentials {
             access_key: "rustfsadmin".to_string(),
             secret_key: "rustfsadmin123".to_string(),
+            download_cdn_timestamp_key: None,
         },
     )
     .expect("Qiniu S3-compatible driver should build")

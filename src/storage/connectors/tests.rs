@@ -2336,6 +2336,8 @@ fn qiniu_config(upload: ObjectStorageUploadStrategy) -> QiniuConnectorConfigV1 {
         endpoint: "https://s3.cn-east-1.qiniucs.com".to_string(),
         bucket: "archive-s3-global".to_string(),
         base_path: "tenant-a".to_string(),
+        download_base_url: None,
+        qiniu_download_auth_mode: "private".to_string(),
         s3_region: "cn-east-1".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
@@ -2348,7 +2350,7 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
     assert_eq!(descriptor.connector_id.as_str(), QiniuConnector::ID);
     assert!(descriptor.ui.icon.is_none());
     assert_eq!(descriptor.config_schema_version, 1);
-    assert_eq!(descriptor.related_issues, vec![519, 474]);
+    assert_eq!(descriptor.related_issues, vec![519, 474, 687, 691]);
     assert!(descriptor.promotions.iter().any(|promotion| {
         promotion.promotion_id.as_str() == "promote_from_s3"
             && promotion.source_connector_id.as_str() == S3Connector::ID
@@ -2358,6 +2360,7 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
                 .any(|requirement| requirement.negate)
     }));
     assert!(descriptor.capabilities.presigned_download);
+    assert!(descriptor.capabilities.custom_download_base_url);
     assert!(descriptor.upload_workflows.presigned_upload);
     assert!(descriptor.upload_workflows.object_multipart_upload);
     assert!(
@@ -2409,6 +2412,48 @@ fn qiniu_descriptor_declares_s3_compatible_capabilities() {
         .expect("Qiniu S3 space-name field");
     assert_eq!(bucket.label_key, "qiniu_s3_bucket");
     assert_eq!(bucket.help_key.as_deref(), Some("qiniu_s3_bucket_desc"));
+    let download_base_url = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_base_url")
+        .expect("Qiniu download delivery URL field");
+    assert_eq!(
+        download_base_url.scope,
+        StorageConnectorFieldScope::ConnectorConfig
+    );
+    assert!(!download_base_url.required);
+    assert!(!download_base_url.secret);
+    let download_auth = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "qiniu_download_auth_mode")
+        .expect("Qiniu download authentication field");
+    assert_eq!(download_auth.kind, StorageConnectorFieldKind::Select);
+    assert_eq!(
+        download_auth
+            .select
+            .as_ref()
+            .expect("download auth options")
+            .options
+            .iter()
+            .map(|option| match &option.value {
+                aster_drive_storage::connector_descriptor::StorageConnectorSelectOptionValue::String(value) => value.as_str(),
+                other => panic!("expected string option, got {other:?}"),
+            })
+            .collect::<Vec<_>>(),
+        vec!["private", "timestamp", "public"]
+    );
+    let timestamp_key = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "qiniu_download_cdn_timestamp_key")
+        .expect("Qiniu timestamp credential field");
+    assert_eq!(
+        timestamp_key.scope,
+        StorageConnectorFieldScope::StaticCredential
+    );
+    assert!(timestamp_key.secret);
+    assert!(!timestamp_key.required);
 
     let draft_connection_test = descriptor.actions.iter().any(|action| {
         action.kind == StorageConnectorActionKind::ConnectionTest
@@ -2442,6 +2487,114 @@ fn qiniu_connector_normalizes_initial_s3_configuration_schema() {
     .expect("normalized values should decode");
     assert_eq!(config.endpoint, "https://s3.cn-east-1.qiniucs.com");
     assert_eq!(config.bucket, "archive-s3-global");
+    assert_eq!(config.download_base_url, None);
+    assert_eq!(config.qiniu_download_auth_mode, "private");
+}
+
+#[test]
+fn qiniu_old_configs_default_to_private_mode_without_a_delivery_url() {
+    let qiniu = connector(QiniuConnector::ID);
+    let values = serde_json::json!({
+        "endpoint": "https://s3.cn-east-1.qiniucs.com",
+        "bucket": "archive-s3-global",
+        "base_path": "tenant-a",
+        "s3_region": "cn-east-1",
+        "object_storage_upload_strategy": "relay_stream",
+        "object_storage_download_strategy": "relay_stream"
+    });
+    let normalized = qiniu
+        .validate_connector_config(&ConnectorConfigEnvelope::new(
+            ConnectorId::declared(QiniuConnector::ID),
+            1,
+            serde_json::from_value(values).expect("legacy Qiniu field map"),
+        ))
+        .expect("legacy Qiniu config should remain valid");
+    let config: QiniuConnectorConfigV1 = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+    )
+    .expect("normalized values should decode");
+    assert_eq!(config.download_base_url, None);
+    assert_eq!(config.qiniu_download_auth_mode, "private");
+    assert_eq!(
+        config.object_storage_download_strategy,
+        ObjectStorageDownloadStrategy::RelayStream
+    );
+}
+
+#[test]
+fn qiniu_delivery_configuration_requires_safe_urls_and_explicit_modes() {
+    let qiniu = connector(QiniuConnector::ID);
+    let validate = |config: QiniuConnectorConfigV1| {
+        qiniu.validate_connector_config(&super::test_support::connection_config(
+            QiniuConnector::ID,
+            1,
+            config,
+        ))
+    };
+
+    for unsafe_url in [
+        "http://files.example.com",
+        "https://user@files.example.com",
+        "https://files.example.com:8443",
+        "https://files.example.com/assets?token=x",
+        "https://files.example.com/assets#fragment",
+        "https://127.0.0.1/assets",
+        "https://localhost/assets",
+        "https://files.example.com/%2e%2e/private",
+    ] {
+        let mut config = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
+        config.download_base_url = Some(unsafe_url.to_string());
+        let error = validate(config).expect_err("unsafe delivery URL should fail");
+        assert!(
+            error.message().contains("download_base_url"),
+            "unexpected validation error for {unsafe_url}: {error}"
+        );
+    }
+
+    let mut missing_url = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
+    missing_url.qiniu_download_auth_mode = "public".to_string();
+    let error = validate(missing_url).expect_err("public mode requires a delivery URL");
+    assert!(error.message().contains("requires download_base_url"));
+
+    let mut missing_url = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
+    missing_url.qiniu_download_auth_mode = "timestamp".to_string();
+    let error = validate(missing_url).expect_err("timestamp mode requires a delivery URL");
+    assert!(error.message().contains("requires download_base_url"));
+
+    let mut unknown_mode = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
+    unknown_mode.qiniu_download_auth_mode = "guess".to_string();
+    let error = validate(unknown_mode).expect_err("unknown authentication mode should fail");
+    assert!(error.message().contains("private, timestamp, or public"));
+
+    let mut timestamp = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
+    timestamp.download_base_url = Some("https://cdn.example.com".to_string());
+    timestamp.qiniu_download_auth_mode = "timestamp".to_string();
+    validate(timestamp).expect("timestamp mode validates before saved credentials are merged");
+}
+
+#[test]
+fn qiniu_delivery_configuration_normalizes_url_and_auth_mode() {
+    let qiniu = connector(QiniuConnector::ID);
+    let mut config = qiniu_config(ObjectStorageUploadStrategy::Presigned);
+    config.download_base_url = Some("  https://Files.Example.com/assets/  ".to_string());
+    config.qiniu_download_auth_mode = "  timestamp ".to_string();
+    config.object_storage_download_strategy = ObjectStorageDownloadStrategy::Presigned;
+    let normalized = qiniu
+        .validate_connector_config(&super::test_support::connection_config(
+            QiniuConnector::ID,
+            1,
+            config,
+        ))
+        .expect("valid Qiniu delivery config should normalize");
+    let config: QiniuConnectorConfigV1 = serde_json::from_value(
+        serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+    )
+    .expect("normalized values should decode");
+    assert_eq!(
+        config.download_base_url.as_deref(),
+        Some("https://files.example.com/assets")
+    );
+    assert_eq!(config.qiniu_download_auth_mode, "timestamp");
 }
 
 #[test]
@@ -2625,6 +2778,68 @@ async fn qiniu_connector_builds_draft_driver_and_enforces_runtime_credential_bou
         qiniu_config(ObjectStorageUploadStrategy::RelayStream),
     );
     assert!(!qiniu.direct_download_enabled(&relay_policy).unwrap());
+
+    let mut delivery_config = qiniu_config(ObjectStorageUploadStrategy::Presigned);
+    delivery_config.download_base_url = Some("https://files.example.com/assets".to_string());
+    delivery_config.object_storage_download_strategy = ObjectStorageDownloadStrategy::Presigned;
+    let delivery_policy = policy(QiniuConnector::ID, delivery_config);
+    let delivery_driver = qiniu
+        .build_driver_from_connection(
+            &context,
+            &aster_drive_storage::ConnectorConfigEnvelope::new(
+                aster_drive_storage::ConnectorId::declared(QiniuConnector::ID),
+                1,
+                serde_json::from_value(
+                    serde_json::from_str::<aster_drive_storage::StoragePolicyConfigEnvelope>(
+                        delivery_policy.storage_config.as_ref(),
+                    )
+                    .unwrap()
+                    .connector
+                    .values,
+                )
+                .unwrap(),
+            ),
+            &credential,
+        )
+        .await
+        .expect("Qiniu delivery driver should build");
+    assert!(qiniu.direct_download_enabled(&delivery_policy).unwrap());
+
+    let delivery_url = delivery_driver
+        .extensions()
+        .direct_download
+        .expect("Qiniu direct download extension")
+        .resolve_download_url(
+            "reports/2026.txt",
+            std::time::Duration::from_secs(60),
+            aster_drive_storage::DirectDownloadOptions {
+                download_name: Some("2026.txt".to_string()),
+                response_cache_control: Some("private, max-age=0".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("Qiniu delivery URL")
+        .expect("Qiniu delivery URL should be available");
+    let delivery_url = url::Url::parse(&delivery_url.url).expect("delivery URL should parse");
+    assert_eq!(delivery_url.host_str(), Some("files.example.com"));
+    assert_eq!(delivery_url.path(), "/assets/tenant-a/reports/2026.txt");
+    assert!(delivery_url.query_pairs().any(|(key, _)| key == "token"));
+
+    let upload_url = delivery_driver
+        .extensions()
+        .presigned_upload
+        .expect("Qiniu presigned upload extension")
+        .presigned_put_request("reports/2026.txt", std::time::Duration::from_secs(60))
+        .await
+        .expect("Qiniu presigned upload")
+        .expect("Qiniu presigned upload should be available");
+    let upload_url = url::Url::parse(&upload_url.url).expect("upload URL should parse");
+    assert_eq!(
+        upload_url.host_str(),
+        Some("archive-s3-global.s3.cn-east-1.qiniucs.com")
+    );
+    assert!(!upload_url.as_str().contains("files.example.com"));
 }
 
 #[tokio::test]

@@ -3,7 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::errors::{AsterError, Result};
-use crate::storage::drivers::qiniu::{QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials};
+use crate::storage::drivers::qiniu::{
+    QiniuDownloadAuthMode, QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials,
+};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::connector_descriptor::{
@@ -30,6 +32,38 @@ mod localization;
 pub struct QiniuConnector;
 
 const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
+pub(crate) const QINIU_DOWNLOAD_AUTH_PRIVATE: &str = "private";
+pub(crate) const QINIU_DOWNLOAD_AUTH_TIMESTAMP: &str = "timestamp";
+pub(crate) const QINIU_DOWNLOAD_AUTH_PUBLIC: &str = "public";
+
+fn qiniu_download_auth_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = aster_drive_storage::connector_descriptor::storage_connector_select_field(
+        "qiniu_download_auth_mode",
+        StorageConnectorFieldScope::ConnectorConfig,
+        true,
+        vec![
+            aster_drive_storage::connector_descriptor::StorageConnectorSelectOptionInput {
+                value: QINIU_DOWNLOAD_AUTH_PRIVATE,
+                label_key: "qiniu_download_auth_private",
+                description_key: Some("qiniu_download_auth_private_desc"),
+            },
+            aster_drive_storage::connector_descriptor::StorageConnectorSelectOptionInput {
+                value: QINIU_DOWNLOAD_AUTH_TIMESTAMP,
+                label_key: "qiniu_download_auth_timestamp",
+                description_key: Some("qiniu_download_auth_timestamp_desc"),
+            },
+            aster_drive_storage::connector_descriptor::StorageConnectorSelectOptionInput {
+                value: QINIU_DOWNLOAD_AUTH_PUBLIC,
+                label_key: "qiniu_download_auth_public",
+                description_key: Some("qiniu_download_auth_public_desc"),
+            },
+        ],
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        QINIU_DOWNLOAD_AUTH_PRIVATE.to_string(),
+    ));
+    field
+}
 
 fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
     super::s3::s3_compatible_promotion_descriptor(super::s3::S3CompatiblePromotionDescriptorInput {
@@ -100,6 +134,18 @@ aster_drive_storage::storage_connector_schema! {
                 field.default_mode = StorageConnectorFieldDefaultMode::MissingOrEmptyText;
                 field
             },
+            pub download_base_url: Option<String> => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+                label_key: "qiniu_download_base_url",
+                placeholder: Some("https://files.example.com/assets"),
+                help_key: Some("qiniu_download_base_url_desc"), required_message_key: None,
+                invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+                allowed_endpoint_protocols: vec!["https:"], allow_endpoint_without_protocol: false,
+                trim_on_blur: true,
+            }),
+            #[serde(default = "default_qiniu_download_auth_mode")]
+            pub qiniu_download_auth_mode: String => qiniu_download_auth_field(),
             pub s3_region: String => {
                 let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                     name: "s3_region", scope: StorageConnectorFieldScope::ConnectorConfig,
@@ -128,6 +174,19 @@ aster_drive_storage::storage_connector_schema! {
                 "qiniu_secret_key", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
             ),
+            #[serde(default)]
+            pub qiniu_download_cdn_timestamp_key: Option<String> => {
+                let mut field = storage_connector_field(
+                    "qiniu_download_cdn_timestamp_key",
+                    StorageConnectorFieldScope::StaticCredential,
+                    StorageConnectorFieldKind::Secret,
+                    false,
+                    true,
+                );
+                field.label_key = "qiniu_download_cdn_timestamp_key".to_string();
+                field.help_key = Some("qiniu_download_cdn_timestamp_key_desc".to_string());
+                field
+            },
         }
     }
 }
@@ -140,11 +199,15 @@ impl QiniuConnector {
     }
 
     fn driver_config(config: QiniuConnectorConfigV1) -> QiniuDriverConfig {
+        let download_auth = QiniuDownloadAuthMode::parse(&config.qiniu_download_auth_mode)
+            .unwrap_or(QiniuDownloadAuthMode::Private);
         QiniuDriverConfig {
             endpoint: config.endpoint,
             bucket: config.bucket,
             base_path: config.base_path,
             region: config.s3_region,
+            download_base_url: config.download_base_url,
+            download_auth,
             // First-class provider connectors own addressing. `false` lets the
             // AWS endpoint resolver select virtual-hosted style when the S3
             // space name is DNS-compatible and fall back when required.
@@ -159,6 +222,7 @@ impl QiniuConnector {
         QiniuStaticCredentials {
             access_key: credentials.qiniu_access_key,
             secret_key: credentials.qiniu_secret_key,
+            download_cdn_timestamp_key: credentials.qiniu_download_cdn_timestamp_key,
         }
     }
 
@@ -187,9 +251,10 @@ impl QiniuConnector {
                 storage_native_processing: false,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![519, 474],
+                related_issues: vec![519, 474, 687, 691],
             });
         descriptor.promotions.push(promote_from_s3_descriptor());
+        descriptor.capabilities.custom_download_base_url = true;
         descriptor
     }
 
@@ -247,11 +312,33 @@ impl StorageConnector for QiniuConnector {
         .map_err(|error| error.into_aster_error())?;
         config.endpoint = connection.endpoint;
         config.bucket = connection.bucket;
+        config.download_base_url = config
+            .download_base_url
+            .as_deref()
+            .map(super::common::normalize_download_base_url)
+            .transpose()?;
+        let download_auth = QiniuDownloadAuthMode::parse(&config.qiniu_download_auth_mode)
+            .map_err(|error| AsterError::validation_error(error.message()))?;
+        config.qiniu_download_auth_mode = download_auth.as_str().to_string();
+        match (config.download_base_url.is_some(), download_auth) {
+            (false, QiniuDownloadAuthMode::Public) => {
+                return Err(AsterError::validation_error(
+                    "qiniu_download_auth_mode=public requires download_base_url; use relay_stream for public object access without a delivery domain",
+                ));
+            }
+            (false, QiniuDownloadAuthMode::Timestamp) => {
+                return Err(AsterError::validation_error(
+                    "qiniu_download_auth_mode=timestamp requires download_base_url for a Qiniu CDN acceleration domain",
+                ));
+            }
+            _ => {}
+        }
         QiniuDriver::validate_config(
             &Self::driver_config(config.clone()),
             &QiniuStaticCredentials {
                 access_key: "placeholder".to_string(),
                 secret_key: "placeholder".to_string(),
+                download_cdn_timestamp_key: Some("placeholder".to_string()),
             },
         )
         .map_err(|error| AsterError::validation_error(error.message().to_string()))?;
@@ -276,7 +363,17 @@ impl StorageConnector for QiniuConnector {
             &credential.qiniu_secret_key,
             "qiniu_secret_key",
             Self::ID,
-        )
+        )?;
+        if let Some(key) = credential.qiniu_download_cdn_timestamp_key.as_deref()
+            && !key.trim().is_empty()
+        {
+            super::common::validate_required_credential_field(
+                key,
+                "qiniu_download_cdn_timestamp_key",
+                Self::ID,
+            )?;
+        }
+        Ok(())
     }
 
     async fn build_driver_from_connection(
@@ -339,6 +436,10 @@ impl StorageConnector for QiniuConnector {
         let config = Self::decode_config(policy)?;
         Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
+}
+
+fn default_qiniu_download_auth_mode() -> String {
+    QINIU_DOWNLOAD_AUTH_PRIVATE.to_string()
 }
 
 fn normalize_qiniu_s3_endpoint(endpoint: &str, bucket: &str, region: &str) -> Result<String> {

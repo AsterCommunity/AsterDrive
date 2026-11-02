@@ -7,6 +7,8 @@
 #[cfg(test)]
 mod tests;
 
+mod download;
+
 use std::{sync::Arc, time::Duration};
 
 use aster_drive_storage::Result;
@@ -25,6 +27,10 @@ use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket, validate
 
 pub struct QiniuDriver {
     storage: S3CompatibleDriver,
+    base_path: String,
+    download_base_url: Option<String>,
+    download_auth: QiniuDownloadAuthMode,
+    download_credentials: QiniuStaticCredentials,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +39,8 @@ pub struct QiniuDriverConfig {
     pub bucket: String,
     pub base_path: String,
     pub region: String,
+    pub download_base_url: Option<String>,
+    pub download_auth: QiniuDownloadAuthMode,
     pub path_style: bool,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
@@ -43,6 +51,36 @@ pub struct QiniuDriverConfig {
 pub struct QiniuStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
+    pub download_cdn_timestamp_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QiniuDownloadAuthMode {
+    Private,
+    Timestamp,
+    Public,
+}
+
+impl QiniuDownloadAuthMode {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value.trim() {
+            "private" => Ok(Self::Private),
+            "timestamp" => Ok(Self::Timestamp),
+            "public" => Ok(Self::Public),
+            _ => Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "qiniu_download_auth_mode must be private, timestamp, or public",
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Private => "private",
+            Self::Timestamp => "timestamp",
+            Self::Public => "public",
+        }
+    }
 }
 
 impl QiniuDriver {
@@ -59,6 +97,37 @@ impl QiniuDriver {
             ));
         }
         validate_sigv4_region(&config.region).map_err(|_| Self::invalid_region_error())?;
+        if let Some(download_base_url) = config.download_base_url.as_deref() {
+            download::validate_download_base_url(download_base_url)?;
+        }
+        match (config.download_base_url.is_some(), config.download_auth) {
+            (false, QiniuDownloadAuthMode::Timestamp) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Qiniu CDN timestamp authentication requires download_base_url",
+                ));
+            }
+            (false, QiniuDownloadAuthMode::Public) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Qiniu public download mode requires download_base_url",
+                ));
+            }
+            (true, QiniuDownloadAuthMode::Timestamp)
+                if credentials
+                    .download_cdn_timestamp_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|key| !key.is_empty())
+                    .is_none() =>
+            {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Qiniu CDN timestamp authentication requires a timestamp key",
+                ));
+            }
+            _ => {}
+        }
         S3Driver::validate_config(
             &Self::s3_config(config),
             &S3StaticCredentials {
@@ -70,6 +139,7 @@ impl QiniuDriver {
 
     pub fn new(config: QiniuDriverConfig, credentials: QiniuStaticCredentials) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
+        let download_credentials = credentials.clone();
         let path_style = config.path_style;
         let s3_driver = S3Driver::new(
             Self::s3_config(&config),
@@ -107,6 +177,10 @@ impl QiniuDriver {
                     upload_mode: MultipartUploadMode::NativeStreaming,
                 },
             ),
+            base_path: config.base_path,
+            download_base_url: config.download_base_url,
+            download_auth: config.download_auth,
+            download_credentials,
         })
     }
 
@@ -153,6 +227,14 @@ impl DirectDownloadStorageDriver for QiniuDriver {
         expires: Duration,
         options: aster_drive_storage::DirectDownloadOptions,
     ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
+        if self.download_base_url.is_some() {
+            let expires =
+                super::s3::presigned::clamp_presign_ttl(expires, "Qiniu resolve_download_url");
+            let url = self.custom_download_url(path, expires, &options)?;
+            return Ok(url.map(|url| {
+                aster_drive_storage::DirectDownloadRequest::temporary_url(url, expires)
+            }));
+        }
         self.storage
             .resolve_download_url(path, expires, options)
             .await
