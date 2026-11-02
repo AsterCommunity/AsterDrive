@@ -26,7 +26,7 @@ If you are new to the repository, read this page first and then [`module-designs
 | Question | Start here | Why |
 | --- | --- | --- |
 | How the service starts and how primary / follower are distinguished | `src/main.rs`, `src/config/node_mode.rs`, `src/runtime/startup/` | This defines the startup mode, runtime state, and node responsibilities |
-| How operational CLI commands run | `src/cli/command.rs`, `src/cli/**` | Subcommands under the `operations-cli` feature are dispatched before HTTP startup |
+| How operational CLI commands run | `src/cli/app.rs`, `src/cli/dispatch.rs`, `src/cli/commands/**` | Subcommands under the `operations-cli` feature are dispatched before HTTP startup |
 | Which routes the primary node registers | `src/api/primary.rs`, `src/api/routes/` | This decides the registration order for `/api/v1`, `/health`, `/d`, `/pv`, WebDAV, and the frontend fallback |
 | What the follower exposes | `src/api/follower.rs`, `src/api/routes/internal_storage.rs` | The follower only serves the internal storage protocol and health checks |
 | How remote-node binding and reverse tunnels work | `src/api/routes/remote_node_control.rs`, `src/services/remote/binding_control.rs`, `src/api/routes/remote_tunnel.rs`, `src/storage/remote_protocol/tunnel/` | The follower pulls binding desired state over an independent control plane and starts data-plane workers only for an effective reverse-tunnel transport |
@@ -205,7 +205,7 @@ The rough order in `src/main.rs` is currently:
 
 1. Install the panic hook
 2. Load `.env`
-3. Parse root commands and instance paths in `src/cli/command.rs`; `serve all/api/worker` is always available, while `operations-cli` gates operational subcommands that execute and exit
+3. Parse root commands in `src/cli/app.rs` and dispatch commands and instance paths in `src/cli/dispatch.rs`; `serve all/api/worker` is always available, while `operations-cli` gates operational subcommands that execute and exit
 4. Initialize static config
 5. Initialize logging
 6. Clean runtime temp directories
@@ -306,15 +306,17 @@ After claiming a task, the dispatcher creates a `TaskExecutionContext` for busin
 
 ## CLI and Offline Operations
 
-The default features in `Cargo.toml` include `operations-cli`, so the default `aster_drive` binary can either start the service or run offline operational subcommands. `src/cli/command.rs` parses these before HTTP startup:
+See [CLI architecture](./cli.md) for entry points, shared capabilities, command ownership, and validation targets.
+
+The default features in `Cargo.toml` include `operations-cli`, so the default `aster_drive` binary can either start the service or run offline operational subcommands. `src/cli/app.rs` defines the static command tree and `src/cli/dispatch.rs` routes commands before HTTP startup:
 
 | Subcommand | Code entry | Current responsibility |
 | --- | --- | --- |
-| `serve all/api/worker` or no subcommand | `src/cli/command.rs` → `src/main.rs` | Available without `operations-cli`; select process responsibilities and start the configured primary / follower service |
-| `doctor` | `src/cli/doctor/mod.rs`, `src/cli/doctor/**` | Database, migration, runtime config, storage policy, and deep consistency audits |
-| `config` | `src/cli/config.rs` | Offline read, set, import, export, and validation for `system_config` |
-| `database-migrate` | `src/cli/database_migration/mod.rs`, `src/cli/database_migration/**` | Cross-database backend migration with dry-run, verify-only, and resume support |
-| `node enroll` | `src/cli/node.rs` | Follower writes local master binding using an enrollment token issued by the primary |
+| `serve all/api/worker` or no subcommand | `src/cli/app.rs` → `src/cli/dispatch.rs` → `src/main.rs` | Available without `operations-cli`; select process responsibilities and start the configured primary / follower service |
+| `doctor` | `src/cli/commands/doctor/` | Database, migration, runtime config, storage policy, and deep consistency audits |
+| `config` | `src/cli/commands/config/` | Offline read, set, import, export, and validation for `system_config` |
+| `database-migrate` | `src/cli/commands/database_migration/` | Cross-database backend migration with dry-run, verify-only, and resume support |
+| `node enroll` | `src/cli/commands/node/` | Follower writes local master binding using an enrollment token issued by the primary |
 
 These CLI commands usually connect directly to the database and do not go through HTTP route handlers. When changing them, start in `src/cli/**` and the corresponding service, not in `src/api/routes/**`.
 

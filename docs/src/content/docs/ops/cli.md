@@ -25,6 +25,10 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 
 `serve all/api/worker`、无子命令启动、`--config-file` / `--data-dir`、`version` / `version --json` 在禁用 `operations-cli` Cargo feature 时仍然可用；`operations-cli` 只控制下文的运维子命令。仅构建服务可用 `cargo build --no-default-features --features server`，Docker 对应 `--build-arg CARGO_FEATURES=server`。
 
+## 脚本中的输出通道
+
+命令结果写入 stdout，错误、交互提示和迁移进度写入 stderr。需要机器可读的运维报告时显式指定 `--output-format json`；重定向 stdout 不会关闭 stderr 上的终端提示，自动化写入仍须使用 `--yes`。服务构建、完整构建使用相同的命令名称、参数和输出契约，可用子命令由当前二进制编译的 feature 决定。
+
 ## 命令速查
 
 | 你要做什么 | 用哪个命令 | 什么时候用 |

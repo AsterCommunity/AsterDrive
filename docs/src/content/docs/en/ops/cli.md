@@ -25,6 +25,10 @@ Running `./aster_drive` directly starts the service. Running it with a subcomman
 
 Server startup (`serve all/api/worker` or no subcommand), `--config-file` / `--data-dir`, and `version` / `version --json` remain available without the `operations-cli` Cargo feature. That feature controls the operational subcommands below. Build a service-only binary with `cargo build --no-default-features --features server`, or pass `--build-arg CARGO_FEATURES=server` to Docker.
 
+## Output channels in scripts
+
+Command results go to stdout; errors, interactive prompts, and migration progress go to stderr. Specify `--output-format json` for machine-readable operational reports. Redirecting stdout does not disable prompts on terminal stderr, and automated writes still require `--yes`. Server-only and full builds retain the same command names, arguments, and output contracts; compiled features determine which subcommands are available.
+
 ## Command Quick Reference
 
 | What you want to do | Command | When to use it |

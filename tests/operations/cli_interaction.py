@@ -380,7 +380,9 @@ for password, entered in [
         ("abc", "猫😀\x7f\x7fabc".encode()),
         ("x" * 4096, b"x" * 4096),
         ("猫" * 1365, ("猫" * 1365).encode())]:
-    result, _ = interact([], [(b"Password (masked)", entered, False),
+    response = (b"\x1b[200~" + entered + b"\x1b[201~"
+                if len(entered) >= 1024 else entered)
+    result, _ = interact([], [(b"Password (masked)", response, False),
                              (b"*" * min(len(password), 8), b"\r", False)],
                          root="hash-password", forbidden=(entered,))
     hashes.append((password, result.decode().strip()))
@@ -401,7 +403,8 @@ result, _ = interact([], [(b"Password (masked)", b"\r", False),
                      root="hash-password", forbidden=(new_secret,))
 hashes.append((new_secret.decode(), result.decode().strip()))
 for entered in [b"x" * 4097, ("猫" * 1366).encode()]:
-    interact([], [(b"Password (masked)", entered + b"\r", False),
+    pasted = b"\x1b[200~" + entered + b"\x1b[201~\r"
+    interact([], [(b"Password (masked)", pasted, False),
                   (b"must contain 1..4096", b"\x03", False)],
              root="hash-password", succeeds=False, canceled=True, forbidden=(entered,))
 interact([], [(b"Password (masked)", new_secret + b"\x12\x03", False)],
