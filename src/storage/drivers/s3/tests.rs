@@ -844,6 +844,7 @@ async fn presigned_url_includes_download_response_overrides() {
             "folder/file name.txt",
             Duration::from_secs(60),
             aster_drive_storage::traits::driver::DirectDownloadOptions {
+                allow_provider_response_headers: false,
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private, max-age=60".to_string()),

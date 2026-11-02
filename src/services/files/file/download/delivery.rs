@@ -21,6 +21,7 @@ pub(crate) async fn resolve_download_delivery(
     file: &file::Model,
     blob: &file_blob::Model,
     disposition: DownloadDisposition,
+    allow_provider_response_headers: bool,
 ) -> Result<Option<DirectDownloadRequest>> {
     if blob.is_virtual_empty()
         || (disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type))
@@ -45,6 +46,7 @@ pub(crate) async fn resolve_download_delivery(
             storage_path,
             DIRECT_DOWNLOAD_TTL,
             DirectDownloadOptions {
+                allow_provider_response_headers,
                 download_name: Some(file.name.clone()),
                 require_download_name_match:
                     crate::storage::connectors::presigned_download_requires_filename_match(

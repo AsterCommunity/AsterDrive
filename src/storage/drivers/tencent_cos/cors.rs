@@ -103,16 +103,15 @@ impl TencentCosDriver {
             .await
             .map_aster_err_ctx("COS GET Bucket cors", AsterError::storage_driver_error)?;
         let status = response.status();
-        if status == StatusCode::NOT_FOUND {
-            return Ok(CosCorsConfiguration {
-                rules: Vec::new(),
-                response_vary: None,
-            });
-        }
-        let body_limit = if status.is_success() {
-            COS_CORS_XML_MAX_BYTES
-        } else {
-            COS_ERROR_XML_MAX_BYTES
+        let body_limit = match status {
+            StatusCode::NOT_FOUND => {
+                return Ok(CosCorsConfiguration {
+                    rules: Vec::new(),
+                    response_vary: None,
+                });
+            }
+            status if status.is_success() => COS_CORS_XML_MAX_BYTES,
+            _ => COS_ERROR_XML_MAX_BYTES,
         };
         let body = read_reqwest_body_limited(
             response,
@@ -126,10 +125,10 @@ impl TencentCosDriver {
             AsterError::storage_driver_error,
         )?;
 
-        if !status.is_success() {
-            return Err(cos_cors_response_error(status, &body, "GET Bucket cors"));
+        match status {
+            status if status.is_success() => parse_cors_configuration(&body),
+            _ => Err(cos_cors_response_error(status, &body, "GET Bucket cors")),
         }
-        parse_cors_configuration(&body)
     }
 
     async fn put_bucket_cors(&self, config: &CosCorsConfiguration) -> Result<Option<String>> {

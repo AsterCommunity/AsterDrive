@@ -3,7 +3,9 @@
 //! 基础对象读写复用 S3 兼容驱动；COS/CI 数据处理使用 COS 原生 query
 //! 签名，因为 CI 处理参数必须参与签名，不能追加在普通 S3 presigned URL 后面。
 
+mod cdn;
 pub(crate) mod cors;
+pub use cdn::{CosDownloadDelivery, default_cdn_auth_validity_seconds, validate_cdn_auth_key};
 mod native_media_metadata;
 mod native_thumbnail;
 mod signing;
@@ -46,6 +48,9 @@ pub struct TencentCosDriver {
     base_path: String,
     use_cname: bool,
     download_base_url: Option<String>,
+    download_delivery: CosDownloadDelivery,
+    cdn_auth_validity_seconds: u32,
+    cdn_auth_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,19 +60,47 @@ pub struct TencentCosDriverConfig {
     pub base_path: String,
     pub use_cname: bool,
     pub download_base_url: Option<String>,
+    pub download_delivery: CosDownloadDelivery,
+    pub cdn_auth_validity_seconds: u32,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TencentCosStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
+    pub cdn_auth_key: Option<String>,
+}
+
+impl std::fmt::Debug for TencentCosStaticCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TencentCosStaticCredentials")
+            .finish_non_exhaustive()
+    }
 }
 
 impl TencentCosDriver {
     pub fn validate_connection_config(config: &TencentCosDriverConfig) -> Result<()> {
+        match config.download_delivery {
+            CosDownloadDelivery::CosOrigin => {}
+            CosDownloadDelivery::TencentCdnTypeDSha256 => {
+                let base = config.download_base_url.as_deref().ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "Tencent CDN download URL is required",
+                    )
+                })?;
+                cdn::validated_base_url(base)?;
+                if !(1..=3600).contains(&config.cdn_auth_validity_seconds) {
+                    return Err(storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "Tencent CDN authentication validity must be between 1 and 3600 seconds",
+                    ));
+                }
+            }
+        }
         let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
         if normalized.endpoint.trim().is_empty() {
@@ -132,6 +165,24 @@ impl TencentCosDriver {
         credentials: &TencentCosStaticCredentials,
     ) -> Result<()> {
         Self::validate_connection_config(config)?;
+        match (
+            config.download_delivery,
+            credentials.cdn_auth_key.as_deref(),
+        ) {
+            (CosDownloadDelivery::CosOrigin, None | Some("")) => {}
+            (
+                CosDownloadDelivery::CosOrigin | CosDownloadDelivery::TencentCdnTypeDSha256,
+                Some(key),
+            ) => {
+                cdn::validate_cdn_auth_key(key)?;
+            }
+            (CosDownloadDelivery::TencentCdnTypeDSha256, None) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Tencent CDN authentication key is required",
+                ));
+            }
+        }
         let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
         S3Driver::validate_config(
@@ -183,10 +234,9 @@ impl TencentCosDriver {
                 access_key: credentials.access_key.clone(),
                 secret_key: credentials.secret_key.clone(),
             },
-            if config.use_cname {
-                S3DriverOptions::path_style()
-            } else {
-                S3DriverOptions::virtual_hosted_style()
+            match config.use_cname {
+                true => S3DriverOptions::path_style(),
+                false => S3DriverOptions::virtual_hosted_style(),
             },
             |builder| {
                 signing::configure_cos_auth(
@@ -219,6 +269,9 @@ impl TencentCosDriver {
             base_path: config.base_path,
             use_cname: config.use_cname,
             download_base_url: config.download_base_url,
+            download_delivery: config.download_delivery,
+            cdn_auth_validity_seconds: config.cdn_auth_validity_seconds,
+            cdn_auth_key: credentials.cdn_auth_key,
         })
     }
 
@@ -260,15 +313,22 @@ impl DirectDownloadStorageDriver for TencentCosDriver {
         expires: Duration,
         options: DirectDownloadOptions,
     ) -> Result<Option<DirectDownloadRequest>> {
-        if self.download_base_url.is_some() {
-            let expires =
-                super::s3::presigned::clamp_presign_ttl(expires, "COS resolve_download_url");
-            let url = self.signed_custom_download_url(path, expires, &options)?;
-            return Ok(Some(DirectDownloadRequest::temporary_url(url, expires)));
+        match (self.download_delivery, self.download_base_url.as_deref()) {
+            (CosDownloadDelivery::TencentCdnTypeDSha256, _) => {
+                self.cdn_download_request(path, expires, &options)
+            }
+            (CosDownloadDelivery::CosOrigin, Some(_)) => {
+                let expires =
+                    super::s3::presigned::clamp_presign_ttl(expires, "COS resolve_download_url");
+                let url = self.signed_custom_download_url(path, expires, &options)?;
+                Ok(Some(DirectDownloadRequest::temporary_url(url, expires)))
+            }
+            (CosDownloadDelivery::CosOrigin, None) => {
+                self.storage
+                    .resolve_download_url(path, expires, options)
+                    .await
+            }
         }
-        self.storage
-            .resolve_download_url(path, expires, options)
-            .await
     }
 }
 

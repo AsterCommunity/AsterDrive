@@ -135,15 +135,20 @@ impl Sign for CosSigner {
         let key_time = format!("{start};{end}");
 
         let mut url = Url::parse(request.uri())?;
-        if signature_type == HttpSignatureType::HttpRequestQueryParams {
-            if let Some(token) = credentials.session_token() {
+        match (signature_type, credentials.session_token()) {
+            (HttpSignatureType::HttpRequestQueryParams, Some(token)) => {
                 url.query_pairs_mut()
                     .append_pair("x-cos-security-token", token);
             }
-        } else if let Some(token) = credentials.session_token() {
-            request
-                .headers_mut()
-                .insert("x-cos-security-token", token.to_string());
+            (HttpSignatureType::HttpRequestHeaders, Some(token)) => {
+                request
+                    .headers_mut()
+                    .insert("x-cos-security-token", token.to_string());
+            }
+            (
+                HttpSignatureType::HttpRequestHeaders | HttpSignatureType::HttpRequestQueryParams,
+                None,
+            ) => {}
         }
 
         let host = host_header_value(&url, "COS SDK request URL missing host")?;
@@ -171,18 +176,21 @@ impl Sign for CosSigner {
             &key_time,
         )?;
 
-        if signature_type == HttpSignatureType::HttpRequestQueryParams {
-            let mut query = url.query_pairs_mut();
-            for component in authorization.split('&') {
-                let (key, value) = component
-                    .split_once('=')
-                    .ok_or("invalid COS authorization component")?;
-                query.append_pair(key, value);
+        match signature_type {
+            HttpSignatureType::HttpRequestQueryParams => {
+                let mut query = url.query_pairs_mut();
+                for component in authorization.split('&') {
+                    let (key, value) = component
+                        .split_once('=')
+                        .ok_or("invalid COS authorization component")?;
+                    query.append_pair(key, value);
+                }
+                drop(query);
+                request.set_uri(url.as_str())?;
             }
-            drop(query);
-            request.set_uri(url.as_str())?;
-        } else {
-            request.headers_mut().insert("authorization", authorization);
+            HttpSignatureType::HttpRequestHeaders => {
+                request.headers_mut().insert("authorization", authorization);
+            }
         }
 
         Ok(())
@@ -450,15 +458,13 @@ fn normalize_aws_request_for_cos(
             // Official SDK: sdk/base.js getUrl / getSignHost.
             if let Some(bucket) = cname_bucket {
                 let prefix = format!("/{bucket}/");
-                let path = if url.path() == format!("/{bucket}") {
-                    "/".to_string()
-                } else {
-                    format!(
+                let path = match url.path() {
+                    path if path == format!("/{bucket}") => "/".to_string(),
+                    path => format!(
                         "/{}",
-                        url.path()
-                            .strip_prefix(&prefix)
+                        path.strip_prefix(&prefix)
                             .ok_or("COS CNAME request path is missing the bucket prefix")?
-                    )
+                    ),
                 };
                 url.set_path(&path);
             }
@@ -718,6 +724,8 @@ mod tests {
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
         TencentCosDriver::new(
             TencentCosDriverConfig {
+                download_delivery: Default::default(),
+                cdn_auth_validity_seconds: 300,
                 download_base_url: None,
                 use_cname: false,
                 endpoint: endpoint.to_string(),
@@ -728,6 +736,7 @@ mod tests {
                 operation_timeout: Duration::from_secs(3_600),
             },
             TencentCosStaticCredentials {
+                cdn_auth_key: None,
                 access_key: "AKIDEXAMPLE".to_string(),
                 secret_key: "SECRETEXAMPLE".to_string(),
             },

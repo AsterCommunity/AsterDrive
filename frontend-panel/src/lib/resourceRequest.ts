@@ -1,4 +1,6 @@
 export interface ResourceRequest {
+	/** MIME supplied by an authorized resource handle, not inferred from its URL. */
+	mimeType?: string;
 	cacheKey?: string;
 	etag?: string | null;
 	credentials?: RequestCredentials;

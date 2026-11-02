@@ -7,8 +7,10 @@ use aster_drive_storage::traits::extensions::{
 };
 use url::Url;
 
-fn sample_config(endpoint: &str, bucket: &str) -> TencentCosDriverConfig {
+pub(super) fn sample_config(endpoint: &str, bucket: &str) -> TencentCosDriverConfig {
     TencentCosDriverConfig {
+        download_delivery: Default::default(),
+        cdn_auth_validity_seconds: 300,
         download_base_url: None,
         use_cname: false,
         endpoint: endpoint.to_string(),
@@ -20,8 +22,9 @@ fn sample_config(endpoint: &str, bucket: &str) -> TencentCosDriverConfig {
     }
 }
 
-fn sample_credentials() -> TencentCosStaticCredentials {
+pub(super) fn sample_credentials() -> TencentCosStaticCredentials {
     TencentCosStaticCredentials {
+        cdn_auth_key: None,
         access_key: "AKIDEXAMPLE".to_string(),
         secret_key: "SECRETEXAMPLE".to_string(),
     }

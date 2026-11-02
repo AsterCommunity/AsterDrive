@@ -117,6 +117,37 @@ describe("useBlobUrl", () => {
 		});
 	});
 
+	it("rebuilds provider blobs with the authorized resource MIME without sending credentials", async () => {
+		mockState.get.mockResolvedValue({
+			status: 200,
+			data: new Blob(["image"], { type: "application/octet-stream" }),
+			headers: {},
+		});
+		const { useBlobUrl, clearBlobUrlCache } = await loadHookModule();
+		const resource = {
+			kind: "ready" as const,
+			identity: { cacheKey: "/files/688/download", etag: '"cdn-file"' },
+			request: {
+				url: "https://cdn.example.test/file?sign=example&t=1700000000",
+				credentials: "omit" as const,
+				conditionalHeaders: "forbidden" as const,
+				redirectPolicy: "may_cross_origin" as const,
+			},
+			delivery: { mode: "blob_url" as const, mimeType: "image/png" },
+		};
+		const hook = renderHook(() => useBlobUrl(resource));
+		await waitFor(() =>
+			expect(hook.result.current.blob?.type).toBe("image/png"),
+		);
+		expect(hook.result.current.blob?.size).toBe(5);
+		expect(mockState.get).toHaveBeenCalledWith(
+			resource.request.url,
+			expect.objectContaining({ withCredentials: false }),
+		);
+		hook.unmount();
+		clearBlobUrlCache();
+	});
+
 	it("loads blob URLs once and reuses the cache for concurrent consumers", async () => {
 		const imageBlob = new Blob(["image"]);
 		mockState.get.mockResolvedValue({

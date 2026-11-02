@@ -113,7 +113,9 @@
 - 创建和更新都会采用请求里的 `chunk_size`
 - `options` 当前承载策略级行为：
   - S3-compatible / Alibaba OSS / Azure Blob / Tencent COS 这类对象存储 connector 使用 `object_storage_upload_strategy` / `object_storage_download_strategy` 表达传输策略，例如 `{"object_storage_upload_strategy":"presigned","object_storage_download_strategy":"presigned"}`；旧 `s3_upload_strategy` / `s3_download_strategy` JSON 字段仍作为兼容 alias 接受
-  - Tencent COS descriptor 声明 `custom_download_base_url`，并通过 connector-owned 可选字段 `download_base_url` 配置仅用于浏览器下载的 HTTPS 交付根地址。最终对象路径与 COS Q-Sign 由 runtime driver 基于该域名生成；普通后端 I/O、上传、清理、CORS 和 bucket 管理仍使用策略配置的 COS endpoint
+  - Tencent COS descriptor 声明 `custom_download_base_url`，复用 `download_base_url` 配置下载交付根地址。`download_delivery` 默认为 `cos_origin`（COS Q-Sign），`tencent_cdn_type_d_sha256` 使用独立加密凭据 `tencent_cdn_auth_key` 和 `cdn_auth_validity_seconds`（1–3600 秒，与云端一致）；缺少密钥时创建、更新和运行时均拒绝 CDN 模式。普通 I/O、上传、清理、CORS 和管理继续使用 Endpoint。
+  - CDN Type D 仅签编码路径和时间戳，不附加 COS 签名或未签名响应参数。授权后的 Blob 预览可走 CDN；要求精确附件名/响应头的请求保留同源中继。资源句柄先校验文件权限，返回不携带站点凭据的 URL 及真实过期点。CDN 全路径鉴权、私有回源授权、缓存命中/未命中负向用例必须另做真实环境验收。
+  - 字段条件默认在本 scope 求值；静态凭据的 `visible_when` / `required_when` 可用 `scope: "connector_config"` 显式依赖非敏感配置。禁止反向依赖秘密或跨 scope 推导默认值。前端必须按 scope 求值，不把配置混入凭据 payload。
   - Alibaba OSS 原生字段：公网 `endpoint`、可选 `oss_server_side_endpoint`、`oss_region`、`oss_use_cname`。后端 I/O 优先使用服务端 endpoint；presigned URL 固定使用公网 endpoint。CNAME 模式只接受自定义域名，普通模式只接受 `aliyuncs.com` OSS endpoint
   - Remote 上传下载策略，例如 `{"remote_upload_strategy":"presigned","remote_download_strategy":"presigned"}`
   - 本地策略的内容去重开关 `content_dedup`

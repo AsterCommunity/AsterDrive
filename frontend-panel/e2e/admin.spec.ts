@@ -197,6 +197,100 @@ test.describe
 			).toBeVisible();
 		});
 
+		test("configures private Tencent CDN SHA-256 delivery and preserves encrypted credentials on edit", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+			await page.route("**/api/v1/admin/policies/test", async (route) => {
+				await route.fulfill({
+					status: 200,
+					json: { code: "success", msg: "success", data: {} },
+				});
+			});
+			await gotoAdminPage(page, "/admin/policies", "Storage Policies");
+			await page.getByRole("button", { name: "New Policy" }).click();
+			await page
+				.getByRole("button", { name: "Tencent COS", exact: true })
+				.click();
+			await page.getByRole("button", { name: "Next", exact: true }).click();
+			await page.locator("#name").fill(uniqueName("private-cdn"));
+			await page
+				.locator("#endpoint")
+				.fill("https://cos.ap-guangzhou.myqcloud.com");
+			await page.locator("#bucket").fill("media-1250000000");
+			await page
+				.getByLabel("Tencent COS SecretId", { exact: true })
+				.fill("playwright-access-key");
+			await page
+				.getByLabel("Tencent COS SecretKey", { exact: true })
+				.fill("playwright-origin-secret");
+			const delivery = page.locator("#download_delivery");
+			await expect(
+				page.getByLabel("Tencent CDN authentication key", { exact: true }),
+			).toHaveCount(0);
+			await delivery.click();
+			await page
+				.getByRole("option", {
+					name: "Tencent CDN accelerated download (Type D + SHA-256)",
+					exact: true,
+				})
+				.click();
+			const cdnKey = page.getByLabel("Tencent CDN authentication key", {
+				exact: true,
+			});
+			await expect(cdnKey).toBeVisible();
+			await page
+				.locator("#download_base_url")
+				.fill("https://cdn.example.test/assets");
+			await page.locator("#object_storage_download_strategy").click();
+			await page
+				.getByRole("option", { name: "Presigned Redirect", exact: true })
+				.click();
+			await expect(page.locator("#cdn_auth_validity_seconds")).toHaveValue(
+				"300",
+			);
+			await page.getByRole("button", { name: "Review", exact: true }).click();
+			await expect(cdnKey).toBeVisible();
+			await cdnKey.fill("PlaywrightCdnSecret012345");
+			await page.getByRole("button", { name: "Review", exact: true }).click();
+			const [created] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "POST" &&
+						response.url().endsWith("/api/v1/admin/policies"),
+				),
+				page.getByRole("button", { name: "Create", exact: true }).click(),
+			]);
+			expect(created.status()).toBe(201);
+			expect(
+				created.request().postDataJSON().connection.connector_config.values,
+			).toMatchObject({
+				download_delivery: "tencent_cdn_type_d_sha256",
+				download_base_url: "https://cdn.example.test/assets",
+				cdn_auth_validity_seconds: 300,
+			});
+			expect(await created.text()).not.toContain("PlaywrightCdnSecret012345");
+			await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);
+			await expect(cdnKey).toHaveValue("");
+			await page.locator("#cdn_auth_validity_seconds").fill("120");
+			const [updated] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "PATCH" &&
+						response.url().includes("/api/v1/admin/policies/"),
+				),
+				page.getByRole("button", { name: "Save Changes" }).first().click(),
+			]);
+			expect(updated.ok()).toBe(true);
+			await page.reload();
+			await expect(page.locator("#cdn_auth_validity_seconds")).toHaveValue(
+				"120",
+			);
+			await expect(cdnKey).toHaveValue("");
+			await expect(delivery).toContainText("Type D + SHA-256");
+		});
+
 		for (const provider of [
 			{
 				label: "Tencent COS",

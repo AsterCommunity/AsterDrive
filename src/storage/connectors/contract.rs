@@ -166,6 +166,16 @@ pub(crate) trait StorageConnector: Send + Sync {
         )))
     }
 
+    /// Validate configuration-dependent credential requirements without network I/O.
+    /// Called with saved edit placeholders resolved before persistence or probing.
+    fn validate_connection_credential(
+        &self,
+        _config: &ConnectorConfigEnvelope,
+        _credential: &StorageConnectorCredentialInput,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn validate_config_binding(
         &self,
         _db: &DatabaseConnection,
@@ -513,6 +523,7 @@ pub(crate) trait StorageConnector: Send + Sync {
         self.validate_credential_input(&credential)?;
         let connector_config =
             self.validate_connector_config(&connection.storage.connector_config)?;
+        self.validate_connection_credential(&connector_config, &credential)?;
         self.validate_config_binding(context.writer_db(), &connector_config)
             .await?;
         let behavior = connection.behavior.normalized();

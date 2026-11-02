@@ -211,9 +211,15 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     let requires_sandbox =
         disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type);
     if !requires_sandbox
-        && let Some(request) =
-            super::delivery::resolve_download_delivery(state, &policy, file, blob, disposition)
-                .await?
+        && let Some(request) = super::delivery::resolve_download_delivery(
+            state,
+            &policy,
+            file,
+            blob,
+            disposition,
+            false,
+        )
+        .await?
     {
         tracing::debug!(
             file_id = file.id,

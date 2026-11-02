@@ -191,6 +191,10 @@ pub enum StorageConnectorFieldDefaultValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorFieldCondition {
+    /// Omitted means the field's own scope. Static credential visibility and
+    /// requiredness may explicitly depend on non-secret connector config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<StorageConnectorFieldScope>,
     pub field: String,
     pub value: StorageConnectorFieldDefaultValue,
 }
@@ -2317,15 +2321,40 @@ impl StorageConnectorDescriptor {
                         .flat_map(|option| option.available_when.iter()),
                 );
             for condition in conditions {
+                let dependency_scope = condition.scope.unwrap_or(field.scope);
+                if dependency_scope != field.scope
+                    && !(field.scope == StorageConnectorFieldScope::StaticCredential
+                        && dependency_scope == StorageConnectorFieldScope::ConnectorConfig
+                        && !field
+                            .default_rules
+                            .iter()
+                            .any(|rule| rule.conditions.contains(condition))
+                        && !field
+                            .select
+                            .iter()
+                            .flat_map(|select| &select.options)
+                            .any(|option| option.available_when.contains(condition)))
+                {
+                    return Err(StorageConnectorDescriptorError(format!(
+                        "field '{}' declares an unsupported cross-scope condition",
+                        field.name
+                    )));
+                }
                 let Some(dependency) = self.fields.iter().find(|candidate| {
-                    candidate.scope == field.scope && candidate.name == condition.field
+                    candidate.scope == dependency_scope && candidate.name == condition.field
                 }) else {
                     return Err(StorageConnectorDescriptorError(format!(
                         "field '{}' condition references undeclared field '{}' in scope {:?}",
                         field.name, condition.field, field.scope
                     )));
                 };
-                if dependency.name == field.name {
+                if dependency.secret || dependency.kind == StorageConnectorFieldKind::Secret {
+                    return Err(StorageConnectorDescriptorError(format!(
+                        "field '{}' condition must not depend on a secret",
+                        field.name
+                    )));
+                }
+                if dependency.scope == field.scope && dependency.name == field.name {
                     return Err(StorageConnectorDescriptorError(format!(
                         "field '{}' condition must not reference itself",
                         field.name
@@ -2529,7 +2558,8 @@ fn has_conditional_field_cycle<'a>(
     let has_cycle = conditions
         .filter_map(|condition| {
             fields.iter().find(|candidate| {
-                candidate.scope == field.scope && candidate.name == condition.field
+                candidate.scope == condition.scope.unwrap_or(field.scope)
+                    && candidate.name == condition.field
             })
         })
         .any(|dependency| has_conditional_field_cycle(fields, dependency, visiting));
@@ -3979,6 +4009,7 @@ mod tests {
         let mut invalid_conditional_default = valid.clone();
         invalid_conditional_default.default_rules = vec![StorageConnectorFieldDefaultRule {
             conditions: vec![StorageConnectorFieldCondition {
+                scope: None,
                 field: "other".to_string(),
                 value: StorageConnectorFieldDefaultValue::String("value".to_string()),
             }],
@@ -4090,6 +4121,7 @@ mod tests {
             false,
         );
         conditioned.visible_when = vec![StorageConnectorFieldCondition {
+            scope: None,
             field: "missing".to_string(),
             value: StorageConnectorFieldDefaultValue::String("value".to_string()),
         }];
@@ -4112,6 +4144,7 @@ mod tests {
             );
             field.default_rules = vec![StorageConnectorFieldDefaultRule {
                 conditions: vec![StorageConnectorFieldCondition {
+                    scope: None,
                     field: dependency.to_string(),
                     value: StorageConnectorFieldDefaultValue::String("value".to_string()),
                 }],
@@ -4141,6 +4174,7 @@ mod tests {
                 false,
             );
             field.visible_when = vec![StorageConnectorFieldCondition {
+                scope: None,
                 field: dependency.to_string(),
                 value: StorageConnectorFieldDefaultValue::String("value".to_string()),
             }];
@@ -4183,6 +4217,7 @@ mod tests {
             false,
         );
         dependent.visible_when = vec![StorageConnectorFieldCondition {
+            scope: None,
             field: "mode".to_string(),
             value: StorageConnectorFieldDefaultValue::Integer(1),
         }];
@@ -4464,5 +4499,63 @@ mod tests {
                 Err(StorageConnectorActionInvocationError::InvalidInput(_))
             ));
         }
+    }
+
+    #[test]
+    fn credential_conditions_can_reference_only_explicit_non_secret_config() {
+        let mut descriptor = s3_descriptor();
+        let mode = storage_connector_field(
+            "delivery",
+            StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Boolean,
+            false,
+            false,
+        );
+        let mut key = storage_connector_field(
+            "cdn_key",
+            StorageConnectorFieldScope::StaticCredential,
+            StorageConnectorFieldKind::Secret,
+            false,
+            true,
+        );
+        key.visible_when = vec![StorageConnectorFieldCondition {
+            scope: Some(StorageConnectorFieldScope::ConnectorConfig),
+            field: "delivery".into(),
+            value: StorageConnectorFieldDefaultValue::Boolean(true),
+        }];
+        key.required_when = key.visible_when.clone();
+        descriptor.fields = vec![mode.clone(), key.clone()];
+        descriptor.validate().unwrap();
+        let mut implicit = descriptor.clone();
+        implicit.fields[1].visible_when[0].scope = None;
+        assert!(
+            implicit
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("undeclared field")
+        );
+        let mut secret_dependency = descriptor.clone();
+        secret_dependency.fields[0].secret = true;
+        assert!(
+            secret_dependency
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("secret")
+        );
+        let mut cross_default = descriptor.clone();
+        cross_default.fields[1].default_rules = vec![StorageConnectorFieldDefaultRule {
+            conditions: key.visible_when.clone(),
+            value: StorageConnectorFieldDefaultValue::String("do-not-derive-secrets".into()),
+        }];
+        assert!(cross_default.validate().is_err());
+        let mut reversed = descriptor;
+        reversed.fields[0].visible_when = vec![StorageConnectorFieldCondition {
+            scope: Some(StorageConnectorFieldScope::StaticCredential),
+            field: "cdn_key".into(),
+            value: StorageConnectorFieldDefaultValue::String("secret".into()),
+        }];
+        assert!(reversed.validate().is_err());
     }
 }

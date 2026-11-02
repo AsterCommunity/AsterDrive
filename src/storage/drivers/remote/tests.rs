@@ -397,6 +397,7 @@ async fn presigned_urls_include_base_path_response_options_and_signature() {
             "folder/file name.txt",
             Duration::from_secs(60),
             DirectDownloadOptions {
+                allow_provider_response_headers: false,
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private, max-age=60".to_string()),
