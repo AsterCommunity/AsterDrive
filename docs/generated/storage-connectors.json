@@ -529,7 +529,7 @@
         "capacity": false,
         "list": true,
         "presigned_download": true,
-        "custom_download_base_url": false,
+        "custom_download_base_url": true,
         "storage_native_thumbnail": false,
         "storage_native_media_metadata": false,
         "remote_node_binding": false,

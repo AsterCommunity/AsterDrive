@@ -97,6 +97,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "绑定到该 Kodo 空间的可选 HTTPS 源站或 CDN 域名，可带路径前缀。AsterDrive 仅将其用于浏览器下载；读写、分片上传、清理和连接测试仍使用 Kodo S3 endpoint。请先配置 DNS/CNAME 与 HTTPS 证书。七牛源站域名的路径中不包含 S3 空间名。",
     ),
     aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_mode",
+        "Download authentication",
+        "下载鉴权方式",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "qiniu_download_auth_private",
         "Kodo private download token",
         "Kodo 私有下载凭证",
@@ -123,8 +128,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_download_auth_public_desc",
-        "Append no download credentials. Configure this only when the bound domain exposes public objects; AsterDrive does not silently make private objects public.",
-        "不追加下载凭证。仅当绑定域名公开对象时配置；AsterDrive 不会把私有对象静默公开。",
+        "Append no download credentials or response overrides. Configure this only when the bound domain exposes public objects; AsterDrive does not silently make private objects public.",
+        "不追加下载凭证或响应头覆盖参数。仅当绑定域名公开对象时配置；AsterDrive 不会把私有对象静默公开。",
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_download_cdn_timestamp_key",

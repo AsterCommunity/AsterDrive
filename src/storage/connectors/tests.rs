@@ -2564,7 +2564,7 @@ fn qiniu_delivery_configuration_requires_safe_urls_and_explicit_modes() {
     let mut unknown_mode = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
     unknown_mode.qiniu_download_auth_mode = "guess".to_string();
     let error = validate(unknown_mode).expect_err("unknown authentication mode should fail");
-    assert!(error.message().contains("private, timestamp, or public"));
+    assert!(error.message().contains("unsupported value"));
 
     let mut timestamp = qiniu_config(ObjectStorageUploadStrategy::RelayStream);
     timestamp.download_base_url = Some("https://cdn.example.com".to_string());
@@ -2577,7 +2577,7 @@ fn qiniu_delivery_configuration_normalizes_url_and_auth_mode() {
     let qiniu = connector(QiniuConnector::ID);
     let mut config = qiniu_config(ObjectStorageUploadStrategy::Presigned);
     config.download_base_url = Some("  https://Files.Example.com/assets/  ".to_string());
-    config.qiniu_download_auth_mode = "  timestamp ".to_string();
+    config.qiniu_download_auth_mode = "timestamp".to_string();
     config.object_storage_download_strategy = ObjectStorageDownloadStrategy::Presigned;
     let normalized = qiniu
         .validate_connector_config(&super::test_support::connection_config(

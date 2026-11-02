@@ -108,14 +108,16 @@ pub(super) fn build_download_url(
     let mut url = format!("{base}/{}", encode_qiniu_key(&key));
 
     let mut query = Vec::<(&str, &str)>::new();
-    if let Some(value) = options.response_cache_control.as_deref() {
-        query.push(("response-cache-control", value));
-    }
-    if let Some(value) = options.response_content_type.as_deref() {
-        query.push(("response-content-type", value));
-    }
-    if let Some(value) = options.response_content_disposition.as_deref() {
-        query.push(("response-content-disposition", value));
+    if auth == QiniuDownloadAuthMode::Private {
+        if let Some(value) = options.response_cache_control.as_deref() {
+            query.push(("response-cache-control", value));
+        }
+        if let Some(value) = options.response_content_type.as_deref() {
+            query.push(("response-content-type", value));
+        }
+        if let Some(value) = options.response_content_disposition.as_deref() {
+            query.push(("response-content-disposition", value));
+        }
     }
     append_query(&mut url, &query);
 
@@ -354,6 +356,11 @@ mod tests {
 
     #[test]
     fn public_mode_is_explicit_and_does_not_append_a_token() {
+        let options = aster_drive_storage::DirectDownloadOptions {
+            response_content_type: Some("application/octet-stream".to_string()),
+            response_content_disposition: Some("attachment; filename=\"public.txt\"".to_string()),
+            ..Default::default()
+        };
         let url = build_download_url(
             "https://files.example.com",
             "",
@@ -361,12 +368,41 @@ mod tests {
             QiniuDownloadAuthMode::Public,
             &credentials(),
             Duration::from_secs(300),
-            &Default::default(),
+            &options,
         )
         .unwrap();
         let url = Url::parse(&url).unwrap();
         assert!(!url.query_pairs().any(|(key, _)| key == "token"));
         assert!(!url.query_pairs().any(|(key, _)| key == "e"));
+        assert!(
+            !url.query_pairs()
+                .any(|(key, _)| key.starts_with("response-"))
+        );
+    }
+
+    #[test]
+    fn timestamp_mode_omits_unsupported_response_overrides() {
+        let options = aster_drive_storage::DirectDownloadOptions {
+            response_cache_control: Some("private, max-age=0".to_string()),
+            response_content_type: Some("application/octet-stream".to_string()),
+            response_content_disposition: Some("attachment; filename=\"file.txt\"".to_string()),
+            ..Default::default()
+        };
+        let url = build_download_url(
+            "https://cdn.example.com",
+            "",
+            "file.txt",
+            QiniuDownloadAuthMode::Timestamp,
+            &credentials(),
+            Duration::from_secs(300),
+            &options,
+        )
+        .unwrap();
+        let url = Url::parse(&url).unwrap();
+        assert!(
+            !url.query_pairs()
+                .any(|(key, _)| key.starts_with("response-"))
+        );
     }
 
     #[test]

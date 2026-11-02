@@ -1545,10 +1545,10 @@ async fn setup_with_database_url_and_pool_size(
             .expect("concurrent test writer pool should connect")
     };
     // 每个测试用独立临时目录避免并行竞争
-    let test_dir = format!("/tmp/asterdrive-test-{}", uuid::Uuid::new_v4());
-    let temp_dir = format!("{test_dir}/temp");
-    let upload_temp_dir = format!("{test_dir}/uploads");
-    let avatar_dir = format!("{test_dir}/avatar");
+    let test_dir = std::env::temp_dir().join(format!("asterdrive-test-{}", uuid::Uuid::new_v4()));
+    let temp_dir = test_dir.join("temp").to_string_lossy().into_owned();
+    let upload_temp_dir = test_dir.join("uploads").to_string_lossy().into_owned();
+    let avatar_dir = test_dir.join("avatar").to_string_lossy().into_owned();
     std::fs::create_dir_all(&test_dir).unwrap();
     std::fs::create_dir_all(&temp_dir).unwrap();
     std::fs::create_dir_all(&upload_temp_dir).unwrap();
@@ -1559,7 +1559,10 @@ async fn setup_with_database_url_and_pool_size(
             temp_dir,
             upload_temp_dir,
             follower: aster_drive::config::ServerFollowerConfig {
-                remote_storage_target_local_root: format!("{test_dir}/remote-storage-targets"),
+                remote_storage_target_local_root: test_dir
+                    .join("remote-storage-targets")
+                    .to_string_lossy()
+                    .into_owned(),
             },
             ..Default::default()
         },
@@ -1592,7 +1595,7 @@ async fn setup_with_database_url_and_pool_size(
             ConnectorId::declared("asterdrive.storage.local"),
             1,
             serde_json::json!({
-                "base_path": test_dir.clone(),
+                "base_path": test_dir.to_string_lossy(),
                 "content_dedup": false
             }),
         ),

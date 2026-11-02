@@ -44,7 +44,9 @@ description: "通过 S3 兼容 API 配置七牛云 Kodo 存储策略。"
 
 把示例中的空间名和前缀替换为策略实际值。`base_path` 留空时，列表条件使用 `*`，对象资源使用 `arn:aws:s3:::example-space/*`。不要把 `s3:ListBucket` 放到对象 ARN，也不要把对象操作放到空间 ARN；Action 与 Resource 层级不匹配时，Kodo 会拒绝该策略。
 
-Endpoint 只接受 HTTPS，并支持七牛官方的服务级 `https://s3.<region>.qiniucs.com` 和空间级 `https://<S3-空间名>.s3.<region>.qiniucs.com` 两种格式；`<region>` 必须与表单中的 SigV4 region 相同，空间级 host 中的名称必须与“七牛 S3 空间名”字段一致。两种输入都会规范化为 AWS SDK 使用的服务 endpoint，寻址方式由 connector 自动选择，避免重复拼接空间名。自定义 CNAME、非标准端口及带 path/query/fragment 的 URL 仍作为配置错误；其他 S3-compatible 服务应使用通用 S3 connector。
+后端 S3 endpoint 只接受 HTTPS，并支持七牛官方的服务级 `https://s3.<region>.qiniucs.com` 和空间级 `https://<S3-空间名>.s3.<region>.qiniucs.com` 两种格式。`<region>` 必须与表单中的 SigV4 region 相同，空间级 host 中的名称必须与“七牛 S3 空间名”字段一致。两种输入都会规范化为 AWS SDK 使用的服务 endpoint，寻址方式由 connector 自动选择，避免重复拼接空间名。其他 S3-compatible 服务应使用通用 S3 connector。
+
+下载交付域名独立于后端 S3 endpoint。可选填写 `download_base_url`，使用已绑定到该 Kodo 空间的 HTTPS 源站域名或 CDN 加速域名，可带路径前缀；此域名仅用于 `presigned` 下载，上传、列表、删除、multipart、清理和连接测试仍使用 S3 endpoint。源站域名与 CDN 加速域名是七牛控制台中的不同绑定类型，不要填入 S3 endpoint 或原生上传域名。请先完成 DNS/CNAME 绑定和 HTTPS 证书，确认域名绑定到目标空间，并确保 CDN 缓存不会绕过私有下载鉴权。持有已签发 URL 的人可在其有效期内访问；AsterDrive 权限变更不会撤销已签发 URL 或已缓存内容。
 
 开始时建议上传和下载均选 `relay_stream`。确认服务端读写正常后，再启用 `presigned`；浏览器直连时，Kodo endpoint 必须可从用户网络访问，并允许 AsterDrive 站点 origin 的 `GET`、`HEAD`、`PUT` 和 Range 所需请求/响应头。
 
@@ -59,6 +61,11 @@ Endpoint 只接受 HTTPS，并支持七牛官方的服务级 `https://s3.<region
 | 基础路径 | 可选对象前缀；留空使用 S3 空间根。 |
 | Kodo SigV4 签名区域 | Endpoint 主机名中的 Region ID，例如 `cn-east-1`；两者必须匹配。 |
 | AccessKey / SecretKey | 专用于该策略的静态凭据；SecretKey 不会在读取策略时返回。 |
+| 下载交付地址 | 可选 HTTPS 源站或 CDN 域名，可包含路径前缀；仅 `presigned` 下载使用，对象 URL 不追加 S3 空间名。 |
+| 下载鉴权方式 | `private` 使用七牛 Kodo 原生 `e` / `token` 私有下载凭证；`timestamp` 使用七牛 CDN `sign` / `t` 时间戳防盗链；`public` 不签发凭证，仅用于明确公开的对象。默认 `private`。 |
+| CDN 时间戳密钥 | 仅 `timestamp` 模式需要，须与七牛 CDN 防盗链密钥一致，并以加密静态凭据保存。 |
+
+`private` 模式签名完整下载 URL，并将 `token` 放在最后。`timestamp` 适用于七牛 CDN 加速域名，与 Kodo 私有下载 token 不同。`public` 不添加凭证或响应头覆盖参数。七牛对匿名下载的响应头覆盖有限制，因此缓存控制、内容类型和下载文件名覆盖只在 `private` 模式附加；`timestamp` / `public` 模式请在源站/CDN 或对象元数据中配置响应头。
 
 保存前运行草稿连接测试，保存后再运行已保存策略连接测试。测试会写入并删除一个临时对象，因此凭据必须同时有写入和删除目标前缀的权限。
 
@@ -67,5 +74,7 @@ Endpoint 只接受 HTTPS，并支持七牛官方的服务级 `https://s3.<region
 在策略组中先绑定测试用户或团队，依次验证小文件上传、较大文件 multipart 上传、下载、Range 预览、删除和对象清理。启用 presigned 后，再从真实浏览器验证 PUT、GET/HEAD 和 Range 的 CORS 行为。
 
 连接失败时，按 endpoint 可达性、S3 空间名、region 是否匹配、AccessKey/SecretKey、权限和服务器时间的顺序检查。寻址方式由 connector 自动处理。不要在 AsterDrive 日志、错误反馈或工单中粘贴 SecretKey 或完整签名 URL。
+
+本地测试覆盖 URL 构造和签名格式，不代表已验证真实七牛空间、域名绑定、HTTPS 证书、CDN 缓存命中或私有回源；上线前请使用专用测试空间完成这些验收。
 
 只有更换 S3 空间名、基础路径或实际目标存储位置时，才需要新建目标策略并用存储迁移任务搬迁已有 blob。对同一空间和基础路径，纠正与该空间匹配的 endpoint / region 不会改变对象 key，无需迁移；配置不匹配时直接修正配置。
