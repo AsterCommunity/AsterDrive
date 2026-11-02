@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **CLI terminal output** — Human-readable configuration values, including interactive current-value prompts, escape C0/C1 control characters so stored or imported ANSI/OSC sequences cannot alter terminal output or write confirmations. JSON reports and backup values retain their original contents.
+- **CLI terminal output** — Human-readable configuration values, including interactive current-value prompts, escape C0/C1 control characters so stored or imported ANSI/OSC sequences cannot alter terminal output or write confirmations. Plain-text values distinguish literal backslashes from control escapes; displayed JSON arrays and quoted current values retain valid JSON escapes. JSON reports and backup values retain their original contents.
 
 ### Fixed
 

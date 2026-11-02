@@ -3,14 +3,20 @@ use crate::cli::common::error::{CliError, CliResult};
 use aster_forge_config::ConfigSource;
 use std::io::{self, IsTerminal};
 
-/// Escapes terminal controls while keeping ordinary Unicode and paths readable.
+/// Escapes controls with JSON-compatible sequences, preserving existing JSON quoting.
 pub(in crate::cli) fn escape_terminal_controls(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     for character in value.chars() {
-        if character.is_control() {
-            output.extend(character.escape_debug());
-        } else {
-            output.push(character);
+        match character {
+            '\n' => output.push_str(r"\n"),
+            '\r' => output.push_str(r"\r"),
+            '\t' => output.push_str(r"\t"),
+            '\u{08}' => output.push_str(r"\b"),
+            '\u{0c}' => output.push_str(r"\f"),
+            control if control.is_control() => {
+                output.push_str(&format!("\\u{:04x}", u32::from(control)));
+            }
+            ordinary => output.push(ordinary),
         }
     }
     output
@@ -153,10 +159,14 @@ mod tests {
             assert!(!escaped.chars().any(char::is_control), "{code:x}");
             assert!(escaped.starts_with("before\\"), "{escaped}");
             assert!(escaped.ends_with("after"), "{escaped}");
+            assert_eq!(
+                serde_json::from_str::<String>(&format!("\"{escaped}\"")).unwrap(),
+                format!("before{control}after")
+            );
         }
         assert_eq!(
             escape_terminal_controls("\x1b[2J\u{9b}31m\u{9d}title\u{9c}\r\n\t"),
-            r"\u{1b}[2J\u{9b}31m\u{9d}title\u{9c}\r\n\t"
+            r"\u001b[2J\u009b31m\u009dtitle\u009c\r\n\t"
         );
     }
 }

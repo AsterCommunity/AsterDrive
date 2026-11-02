@@ -67,7 +67,7 @@ The distinction is simple: `validate` checks the input itself; `--dry-run` resol
 
 Interactive config writes display the validated plan before confirmation, keeping sensitive values redacted. `node enroll` has no dry-run because consuming a remote enrollment token cannot be rehearsed offline. `doctor --fix --dry-run` performs the audit and lists counter differences. Migration previews and verification require an existing SQLite target file (use `touch` to prepare an empty target); only actual migrations can create the target database file.
 
-Human-readable config values escape terminal control characters so backup contents cannot alter the display or confirmation prompt. JSON and backups preserve the original values. Preview status reads `planned, not written`; keeping a saved value reports `unchanged`.
+Human-readable config values escape terminal control characters so backup contents cannot alter the display or confirmation prompt. Plain-text values double literal backslashes to distinguish them from control escapes, such as `\t` for a tab. Displayed JSON arrays and quoted current values use valid JSON Unicode escapes, such as `\u009b`, and remain parseable. JSON reports and backups preserve the original values. Preview status reads `planned, not written`; keeping a saved value reports `unchanged`.
 
 ## Shell Completion
 

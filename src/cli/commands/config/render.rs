@@ -141,7 +141,8 @@ pub(super) fn format_config_list_value(
 
 fn format_config_value(value: &ConfigValue) -> String {
     let value = match value {
-        ConfigValue::String(value) => value.clone(),
+        // Human strings have no JSON quotes, so distinguish literal slashes from escapes.
+        ConfigValue::String(value) => value.replace('\\', "\\\\"),
         ConfigValue::StringArray(values) => serde_json::to_string(values)
             .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
     };
@@ -313,6 +314,43 @@ mod tests {
     use crate::cli::commands::config::values::preview_system_config;
 
     #[test]
+    fn human_array_values_remain_valid_cli_json_after_terminal_escaping() {
+        let values = vec!["猫's \\ path\x1b[2J\u{009b}31m\u{009d}title\u{009c}".to_owned()];
+        let value = ConfigValue::StringArray(values.clone());
+        let rendered = format_config_value(&value);
+        assert!(!rendered.chars().any(char::is_control));
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&rendered).unwrap(),
+            values
+        );
+        let key = crate::config::definitions::CONFIG_REGISTRY
+            .definitions()
+            .iter()
+            .find(|definition| definition.value_type.is_string_array())
+            .unwrap()
+            .key;
+        let parsed = super::super::values::parse_cli_config_value(key, &rendered).unwrap();
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap(),
+            serde_json::to_value(value).unwrap()
+        );
+    }
+
+    #[test]
+    fn human_string_values_distinguish_literal_backslashes_from_controls() {
+        for (literal, control) in [
+            (r"C:\temp", "C:\temp"),
+            (r"line\nnext", "line\nnext"),
+            (r"\u009b31m", "\u{009b}31m"),
+            (r"\u{9b}31m", "\u{009b}31m"),
+        ] {
+            let literal = format_config_value(&ConfigValue::String(literal.into()));
+            let control = format_config_value(&ConfigValue::String(control.into()));
+            assert_ne!(literal, control);
+        }
+    }
+
+    #[test]
     fn human_values_escape_terminal_controls_without_changing_json_or_multiline_summaries() {
         let raw = "猫's \\ path\x1b[2J\x1b]0;spoofed\x07\r\t\u{009b}31m";
         let config = preview_system_config("custom.terminal", raw);
@@ -331,15 +369,15 @@ mod tests {
                 !output.chars().any(|c| c.is_control() && c != '\n'),
                 "{output:?}"
             );
-            assert!(output.contains("猫's \\ path"));
-            assert!(output.contains(r"\u{1b}[2J"));
-            assert!(output.contains(r"\u{1b}]0;spoofed\u{7}\r\t\u{9b}31m"));
+            assert!(output.contains("猫's \\\\ path"));
+            assert!(output.contains(r"\u001b[2J"));
+            assert!(output.contains(r"\u001b]0;spoofed\u0007\r\t\u009b31m"));
         }
         // JSON serialization already escapes C0 controls, but can preserve C1 CSI/OSC.
         let array_value = ConfigValue::StringArray(vec![raw.to_owned()]);
         let rendered_array = format_config_value(&array_value);
         assert!(!rendered_array.chars().any(char::is_control));
-        assert!(rendered_array.contains(r"\u{9b}31m"));
+        assert!(rendered_array.contains(r"\u009b31m"));
         let report = ConfigCommandReport::preview_config(config, "would_insert");
         for format in [OutputFormat::Json, OutputFormat::PrettyJson] {
             let output: serde_json::Value =
