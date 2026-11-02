@@ -143,8 +143,16 @@ async fn original_handle(
         }
     };
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    if let Some(direct) =
-        super::download::resolve_download_delivery(state, &policy, file, blob, disposition).await?
+    if let Some(direct) = super::download::resolve_download_delivery(
+        state,
+        &policy,
+        file,
+        blob,
+        disposition,
+        request.purpose == FileResourcePurpose::Preview
+            && request.delivery_mode == FileResourceDeliveryMode::BlobUrl,
+    )
+    .await?
     {
         return Ok(FileResourceHandle {
             identity: FileResourceIdentity {
@@ -375,6 +383,7 @@ mod tests {
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db::repository::file_repo;
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::services::workspace::storage::WorkspaceStorageScope;
     use crate::services::{mail::sender, media::processing, storage_policy::policy};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{file, file_blob, storage_policy, user};
@@ -389,8 +398,8 @@ mod tests {
     use aster_forge_cache::CacheConfig;
 
     use super::{
-        FileResourcePathSet, can_browser_render_image, resolve_file_resource_handle_for_file,
-        with_download_query,
+        FileResourcePathSet, can_browser_render_image, resolve_file_resource_handle,
+        resolve_file_resource_handle_for_file, with_download_query,
     };
 
     #[derive(Clone)]
@@ -535,7 +544,7 @@ mod tests {
         mime_type: &str,
     ) -> (PrimaryAppState, file::Model, file_blob::Model)
     where
-        D: StorageDriver + Clone + 'static,
+        D: StorageDriver + 'static,
     {
         let temp_root = std::env::temp_dir().join(format!(
             "asterdrive-resource-handle-test-{}",
@@ -716,6 +725,116 @@ mod tests {
             .query_pairs()
             .into_owned()
             .collect()
+    }
+
+    #[tokio::test]
+    async fn cos_cdn_blob_preview_preserves_authorization_and_strict_delivery_fallback() {
+        use crate::storage::drivers::tencent_cos::{
+            CosDownloadDelivery, TencentCosDriver, TencentCosDriverConfig,
+            TencentCosStaticCredentials,
+        };
+        use std::time::Duration;
+        let driver = TencentCosDriver::new(
+            TencentCosDriverConfig {
+                endpoint: "https://cos.ap-guangzhou.myqcloud.com".into(),
+                bucket: "bucket-1250000000".into(),
+                base_path: "tenant".into(),
+                use_cname: false,
+                download_base_url: Some("https://cdn.example.test/assets".into()),
+                download_delivery: CosDownloadDelivery::TencentCdnTypeDSha256,
+                cdn_auth_validity_seconds: 300,
+                connect_timeout: Duration::from_secs(5),
+                read_timeout: Duration::from_secs(30),
+                operation_timeout: Duration::from_secs(60),
+            },
+            TencentCosStaticCredentials {
+                access_key: "AKIDEXAMPLE".into(),
+                secret_key: "SECRETEXAMPLE".into(),
+                cdn_auth_key: Some("CdnSecret0123456789".into()),
+            },
+        )
+        .unwrap();
+        let policy = crate::storage::connectors::test_support::policy(
+            "asterdrive.storage.tencent_cos",
+            1,
+            serde_json::json!({ "endpoint":"https://cos.ap-guangzhou.myqcloud.com", "bucket":"bucket-1250000000", "base_path":"tenant", "download_delivery":"tencent_cdn_type_d_sha256", "download_base_url":"https://cdn.example.test/assets", "object_storage_upload_strategy":"relay_stream", "object_storage_download_strategy":"presigned" }),
+            Default::default(),
+        );
+        let (state, file, _) =
+            build_resource_handle_state(driver, Some(policy), "photo.png", "image/png").await;
+        let scope = WorkspaceStorageScope::Personal {
+            user_id: file.owner_user_id.unwrap(),
+        };
+        for (purpose, mode, cdn) in [
+            (
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::BlobUrl,
+                true,
+            ),
+            (
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                false,
+            ),
+            (
+                FileResourcePurpose::Download,
+                FileResourceDeliveryMode::BlobUrl,
+                false,
+            ),
+            (
+                FileResourcePurpose::Download,
+                FileResourceDeliveryMode::DirectUrl,
+                false,
+            ),
+            (
+                FileResourcePurpose::ExternalViewer,
+                FileResourceDeliveryMode::DirectUrl,
+                false,
+            ),
+        ] {
+            let handle = resolve_file_resource_handle(
+                &state,
+                scope,
+                file.id,
+                paths(),
+                &request(purpose, mode, FileResourceRepresentation::Original),
+            )
+            .await
+            .unwrap();
+            assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/png"));
+            if cdn {
+                let url = url::Url::parse(&handle.request.url).unwrap();
+                assert_eq!(url.path(), "/assets/tenant/objects/resource.bin");
+                assert_eq!(url.query_pairs().count(), 2);
+                assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+                assert_eq!(
+                    handle.request.conditional_headers,
+                    FileResourceConditionalHeaders::Forbidden
+                );
+                assert!(handle.lifecycle.is_some());
+            } else {
+                assert!(handle.request.url.starts_with("/files/"));
+                assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+                assert!(handle.lifecycle.is_none());
+            }
+        }
+        assert!(
+            resolve_file_resource_handle(
+                &state,
+                WorkspaceStorageScope::Personal {
+                    user_id: file.owner_user_id.unwrap() + 1000
+                },
+                file.id,
+                paths(),
+                &request(
+                    FileResourcePurpose::Preview,
+                    FileResourceDeliveryMode::BlobUrl,
+                    FileResourceRepresentation::Original
+                )
+            )
+            .await
+            .is_err()
+        );
     }
 
     #[test]

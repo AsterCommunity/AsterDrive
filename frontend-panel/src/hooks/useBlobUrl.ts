@@ -399,10 +399,22 @@ async function fetchBlobUrlFromNetwork({
 			return previousObjectUrl;
 		}
 
-		const blob =
+		const responseBlob =
 			response.data instanceof Blob
 				? response.data
 				: new Blob([response.data as BlobPart]);
+		// The authorized handle owns the representation MIME. Provider URLs may
+		// expose immutable objects as octet-stream and cannot always override it.
+		const mimeType =
+			typeof resource === "string"
+				? undefined
+				: "kind" in resource
+					? resource.delivery.mimeType
+					: resource.mimeType;
+		const blob =
+			mimeType && responseBlob.type !== mimeType
+				? new Blob([responseBlob], { type: mimeType })
+				: responseBlob;
 		if (blobUrlCache.get(cacheKey) !== owner) {
 			return "";
 		}
@@ -620,6 +632,12 @@ export function useBlobUrl(
 	const cacheKey = resource ? resourceCacheKey(resource) : null;
 	const requestPath = resource ? resourceRequestPath(resource) : null;
 	const canonicalEtag = resource ? resourceCanonicalEtag(resource) : null;
+	const mimeType =
+		resource && typeof resource === "object"
+			? "kind" in resource
+				? resource.delivery.mimeType
+				: resource.mimeType
+			: undefined;
 	const shouldIncludeCredentials = resource
 		? resourceCredentials(resource, shouldSendResourceCredentials)
 		: false;
@@ -644,6 +662,7 @@ export function useBlobUrl(
 			return;
 		}
 		const effectiveResource: ResourcePath = {
+			mimeType,
 			cacheKey,
 			etag: canonicalEtag,
 			credentials: shouldIncludeCredentials ? "include" : "omit",
@@ -687,6 +706,7 @@ export function useBlobUrl(
 		canonicalEtag,
 		conditionalHeaders,
 		lane,
+		mimeType,
 		requestPath,
 		retryCount,
 		shouldIncludeCredentials,

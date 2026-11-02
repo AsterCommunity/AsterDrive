@@ -118,6 +118,9 @@ pub(crate) async fn normalize_storage_connection(
     )?;
     input.connector_config =
         normalize_connector_config(registry, db, input.connector_config).await?;
+    registry
+        .require_input_connector(&input.connector_config.connector_id)?
+        .validate_connection_credential(&input.connector_config, &input.credential)?;
     Ok(input)
 }
 
@@ -291,6 +294,7 @@ pub(crate) async fn persist_credential(
         credential
     };
     connector.validate_credential_input(&credential)?;
+    connector.validate_connection_credential(connector_config, &credential)?;
     connector
         .persist_credential(db, encryption_key, policy_id, connector_config, credential)
         .await

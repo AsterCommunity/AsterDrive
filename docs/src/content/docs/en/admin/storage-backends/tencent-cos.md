@@ -222,6 +222,33 @@ Before or after saving, click `Test Connection` once. When editing an existing p
 
 When a connection test fails, the admin console shows a useful reason while hiding the Secret Key and other sensitive values.
 
+### Private downloads through Tencent CDN
+
+Select presigned downloads and **Tencent CDN accelerated download (Type D + SHA-256)**. Endpoint still owns uploads, backend reads, multipart, cleanup and bucket/CORS administration. Source CNAME addressing and CDN delivery are independent settings.
+
+| AsterDrive field | Configuration |
+| --- | --- |
+| `download_base_url` | Required HTTPS CDN URL, optionally with a fixed path prefix; policy base path and object key are appended |
+| `tencent_cdn_auth_key` | Independent of COS SecretKey; 6–32 ASCII letters/digits; encrypted at rest; blank edits preserve the saved key |
+| `cdn_auth_validity_seconds` | 1–3600 seconds, default 300; must equal the CDN Type D validity |
+
+Configure Tencent Cloud before enabling this delivery mode:
+
+1. Use a private COS bucket, authorize the CDN service and enable private-origin authentication. COS origin Host is fixed to the bucket address. Keep the bucket private.
+2. Enable **Type D / SHA-256**, signature parameter `sign`, timestamp parameter `t`, decimal Unix timestamps, matching key and validity. Authenticate **all files and paths**, including extensionless object keys.
+3. Configure CDN HTTPS and browser CORS for your site, including GET/HEAD/Range and relevant exposed response headers. CDN requests omit AsterDrive cookies.
+4. Preserve case-sensitive paths without rewriting. Type D automatically excludes its authentication parameters from the cache key after authentication. Cache-key filtering does not remove origin query parameters: restrict or strip unexpected business queries so unsigned `response-*` parameters cannot change origin responses. Send `Cache-Control: private, no-store` to browsers; configure and verify edge caching separately rather than equating browser and edge lifetimes.
+
+AsterDrive computes `SHA256(key + encoded_path + timestamp)`, including the delivery path prefix, policy base path and object key. Chinese paths are encoded; literal percent signs retain their meaning. Expiration is `timestamp + CDN-configured validity`. Shorter requested lifetimes backdate the timestamp instead of granting the full configured window; timestamps are never future-dated. A longer cloud validity extends actual access, so both settings must match.
+
+Type D does not authenticate business queries. CDN URLs therefore contain neither COS Q-Sign nor response-header override queries. **Browser Blob previews** can use CDN; the authorized resource handle supplies MIME and the frontend reconstructs the Blob. Exact attachment names, strict response headers, direct media/iframe responses and sandboxed representations use existing same-origin relay. There is no public-URL fallback. Existing COS origin/custom-origin Q-Sign configurations retain their behavior.
+
+The normal connection test probes the storage endpoint only; it does not read or alter CDN configuration. Using a non-sensitive test object, verify valid access plus rejection of unsigned, wrong-key, path/time/signature-tampered and expired requests, both **before and after cache population**. Also verify HEAD/Range, HTTPS, CORS and response headers. Local signing/form tests are not real-CDN acceptance.
+
+Signed URLs are transferable bearer credentials until expiry. Changing a share permission does not immediately revoke issued links. Type D binds neither Host nor HTTP method; use distinct keys across security boundaries. Rotate cloud primary/backup keys and verify invalidation on cache hits.
+
+Official references: [origin configuration](https://cloud.tencent.com/document/product/228/41334), [authentication](https://cloud.tencent.com/document/product/228/41622), [Type D](https://cloud.tencent.com/document/product/228/41625), [cache keys](https://cloud.tencent.com/document/product/228/47671), and [official SDK AuthAlgorithm/Type D definitions](https://github.com/tencentcloud/tencentcloud-sdk-go/blob/28c6cd0071e848ec8220af0f9041b3d669583177/tencentcloud/cdn/v20180606/models.go). The Type D page illustrates MD5; SHA-256 support comes from `AuthAlgorithm=sha256` in the SDK and the current console. This mode computes SHA-256.
+
 ## 6. Test the Connection Before Saving
 
 Before or after saving, use the admin-console connection test to confirm:

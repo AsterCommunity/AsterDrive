@@ -8791,6 +8791,7 @@ export interface components {
          */
         StorageConnectorFieldCondition: {
             field: string;
+            scope?: components["schemas"]["StorageConnectorFieldScope"] | null;
             value: components["schemas"]["StorageConnectorFieldDefaultValue"];
         };
         /**

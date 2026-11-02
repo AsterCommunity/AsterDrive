@@ -19,6 +19,11 @@ pub struct BlobMetadata {
 
 #[derive(Debug, Clone, Default)]
 pub struct DirectDownloadOptions {
+    /// The caller can safely consume provider headers without the requested
+    /// overrides (e.g. an authorized Blob consumer that reconstructs MIME).
+    /// Strict response/attachment routes leave this false and use relay when
+    /// a delivery provider cannot authenticate the requested overrides.
+    pub allow_provider_response_headers: bool,
     /// Current user-visible file name. Providers whose temporary URL fixes the
     /// response filename can use this to decide whether direct delivery is safe.
     pub download_name: Option<String>,

@@ -222,6 +222,33 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 
 下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。连接测试只证明所配置的 COS Endpoint 可用；启用前还要实际验证交付域能访问私有对象、Range 下载和响应头覆盖。
 
+### 腾讯 CDN 私有下载鉴权
+
+在下载方式选择「Presigned 直连下载」，将「下载交付方式」设为 **腾讯 CDN 加速下载（Type D + SHA-256）**。上传、后端读取、multipart、清理、CORS 管理仍使用 Endpoint，CDN 只作为下载交付入口；CNAME 开关与 CDN 下载是独立配置。
+
+| AsterDrive 字段 | 配置 |
+| --- | --- |
+| 下载交付地址 `download_base_url` | 必填 HTTPS CDN 地址，可带固定 path prefix；会追加策略基础路径及对象 key |
+| 腾讯 CDN 鉴权密钥 `tencent_cdn_auth_key` | 与 COS SecretKey 独立的 6–32 位英文字母或数字；加密存储，编辑时留空保留旧值 |
+| CDN 鉴权有效期 `cdn_auth_validity_seconds` | 1–3600 秒，默认 300，必须与云端 Type D 有效时长一致 |
+
+在腾讯云配置以下内容后再对用户启用：
+
+1. 使用私有读 COS 桶作为源站，授权 CDN 服务并开启回源鉴权。COS 源的回源 Host 固定为存储桶访问域名；不要把桶改为公有读。
+2. CDN 访问控制开启 **Type D / SHA-256**，签名参数为 `sign`，时间戳参数为 `t`，时间格式为十进制 Unix 秒，密钥和有效时长与 AsterDrive 一致。对**全部文件和路径**鉴权，对象 key 可能没有扩展名；不要只保护 jpg/mp4 等后缀。
+3. 配置 CDN HTTPS、浏览器 CORS（允许实际站点的 GET/HEAD/Range，按需暴露 Content-Length、Content-Range、Accept-Ranges、ETag）。签名 URL 不携带 AsterDrive Cookie。
+4. 保持对象路径大小写敏感且不做路径重写。Type D 自动将鉴权参数排除出缓存键，但仍先验签再使用缓存；缓存键忽略参数不等于回源忽略参数。限制或移除非预期业务 query，避免未签名的 `response-*` 参数影响源站响应。客户端响应应使用 `Cache-Control: private, no-store`；如需边缘缓存，单独配置并验证 CDN 节点缓存策略，不要把浏览器缓存期等同于边缘缓存期。
+
+AsterDrive 使用 `SHA256(key + encoded_path + timestamp)` 生成 Type D 链接，路径包含交付地址前缀、策略基础路径和对象 key。中文先编码，字面百分号保持一次编码语义。真实过期点为 `timestamp + 云端有效时长`；请求更短有效期时回溯时间戳，不生成未来时间戳。云端有效期若大于填写值，会使链接实际存活更久，必须保持一致。
+
+Type D 不签普通业务 query，因此不会把 COS Q-Sign 或 `response-cache-control`、`response-content-type`、`response-content-disposition` 追加到 CDN URL。**浏览器 Blob 预览**可使用 CDN，由已授权的资源句柄提供 MIME，前端重建 Blob。需要附件原文件名、精确响应头、直接媒体/iframe 响应或沙箱的请求使用已有同源中继；不会降级为公开 CDN 链接。已有源站模式及自定义源站 Q-Sign 配置保持原行为。
+
+普通「测试连接」只验证存储 Endpoint，不读取或修改 CDN 控制面配置，也不能证明 CDN 已开启鉴权。部署验收必须先对无敏感内容的测试对象验证：有效签名成功；无签名、错误密钥、修改路径/时间/签名和过期链接均被拒绝，且在**缓存未命中和命中后分别验证**；同时验证 HEAD/Range、HTTPS、CORS 和响应头。通过真实 CDN 前，本地签名/表单测试不能当作云端验收。
+
+签名链接是短期 bearer 凭证，在有效期内可转发使用；更改分享权限不能即时撤销已签发链接。Type D 不绑定 Host 或请求方法；不同安全边界使用独立密钥，不共享不可信 CDN 域名的密钥。按云端主/备密钥轮换，并验证缓存命中时旧链接的失效结果。
+
+官方依据：[源站配置](https://cloud.tencent.com/document/product/228/41334)、[鉴权配置说明](https://cloud.tencent.com/document/product/228/41622)、[Type D](https://cloud.tencent.com/document/product/228/41625)、[缓存键](https://cloud.tencent.com/document/product/228/47671)、[官方 SDK 的 AuthAlgorithm 和 Type D 定义](https://github.com/tencentcloud/tencentcloud-sdk-go/blob/28c6cd0071e848ec8220af0f9041b3d669583177/tencentcloud/cdn/v20180606/models.go)。Type D 页面示例使用 MD5，SHA-256 选项以官方 SDK 的 `AuthAlgorithm=sha256` 及当前控制台为依据；不按 MD5 计算。
+
 ## 6. 保存前先测试连接
 
 保存前或保存后，先用后台的连接测试确认：

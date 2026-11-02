@@ -164,8 +164,12 @@ export function RemoteNodeRemoteStorageTargetSection({
 				field.scope === "connector_config"
 					? form.connector_config_values
 					: form.credential_values;
-			if (!isConnectorFieldVisible(field, values)) return false;
-			if (!isConnectorFieldRequired(field, values)) return false;
+			if (!isConnectorFieldVisible(field, values, form.connector_config_values))
+				return false;
+			if (
+				!isConnectorFieldRequired(field, values, form.connector_config_values)
+			)
+				return false;
 			if (
 				field.scope !== "connector_config" &&
 				activeDraftMode === "edit" &&

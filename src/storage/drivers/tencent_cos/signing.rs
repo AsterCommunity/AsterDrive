@@ -718,6 +718,8 @@ mod tests {
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
         TencentCosDriver::new(
             TencentCosDriverConfig {
+                download_delivery: Default::default(),
+                cdn_auth_validity_seconds: 300,
                 download_base_url: None,
                 use_cname: false,
                 endpoint: endpoint.to_string(),
@@ -728,6 +730,7 @@ mod tests {
                 operation_timeout: Duration::from_secs(3_600),
             },
             TencentCosStaticCredentials {
+                cdn_auth_key: None,
                 access_key: "AKIDEXAMPLE".to_string(),
                 secret_key: "SECRETEXAMPLE".to_string(),
             },

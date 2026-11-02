@@ -359,3 +359,43 @@ describe("connector field rules", () => {
 		expect(withoutDefault).not.toHaveProperty("account_mode");
 	});
 });
+
+describe("scoped credential conditions", () => {
+	it("uses explicit connector config rather than a credential with the same name", () => {
+		const conditions = [
+			{ scope: "connector_config" as const, field: "delivery", value: "cdn" },
+		];
+		const secret = field("cdn_key", {
+			scope: "static_credential",
+			secret: true,
+			kind: "secret",
+			visible_when: conditions,
+			required_when: conditions,
+		});
+		expect(
+			isConnectorFieldVisible(
+				secret,
+				{ delivery: "cdn" },
+				{ delivery: "origin" },
+			),
+		).toBe(false);
+		expect(
+			isConnectorFieldRequired(
+				secret,
+				{ delivery: "cdn" },
+				{ delivery: "origin" },
+			),
+		).toBe(false);
+		expect(
+			isConnectorFieldVisible(
+				secret,
+				{ delivery: "origin" },
+				{ delivery: "cdn" },
+			),
+		).toBe(true);
+		expect(isConnectorFieldRequired(secret, {}, { delivery: "cdn" })).toBe(
+			true,
+		);
+		expect(isConnectorFieldVisible(secret, { delivery: "cdn" })).toBe(false);
+	});
+});
