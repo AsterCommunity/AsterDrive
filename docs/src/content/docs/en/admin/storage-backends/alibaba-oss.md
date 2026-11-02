@@ -34,7 +34,7 @@ An endpoint that merely resembles S3 does not provide native OSS behavior. OSS V
 5. If you plan to use `presigned`, configure OSS CORS for the AsterDrive site
 
 :::caution[Alibaba Cloud international-site accounts]
-The [Alibaba Cloud China documentation](https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints) continues to list `oss-cn-<region>.aliyuncs.com` as the public endpoint for Chinese mainland regions, so the default configuration above applies to China-site accounts. Alibaba Cloud [separately states](https://www.alibabacloud.com/en/notice/oss_update_notice_policy_change_in_calling_data_api_operations_via_the_default_public_domain_name_45a) that international-site users who activate OSS after March 20, 2025 at 00:00:00 (UTC+8) cannot call data API operations for buckets in Chinese mainland regions through default public domain names. International-site users who activated OSS before that time and internal domain names are not affected. If a request returns `PublicEndpointForbidden` (HTTP 400, EC `0048-00000401`), [bind a custom domain to the bucket](https://www.alibabacloud.com/help/en/oss/user-guide/access-buckets-via-custom-domain-names), enable **Use CNAME custom domain**, and use that domain as the public endpoint. Browser presigned uploads and downloads must also use the CNAME domain in this case.
+The [Alibaba Cloud China documentation](https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints) continues to list `oss-cn-<region>.aliyuncs.com` as the public endpoint for Chinese mainland regions, so the default configuration above applies to China-site accounts. Alibaba Cloud [separately states](https://www.alibabacloud.com/en/notice/oss_update_notice_policy_change_in_calling_data_api_operations_via_the_default_public_domain_name_45a) that international-site users who activate OSS after March 20, 2025 at 00:00:00 (UTC+8) cannot call data API operations for buckets in Chinese mainland regions through default public domain names. International-site users who activated OSS before that time and internal domain names are not affected. If a request returns `PublicEndpointForbidden` (HTTP 400, EC `0048-00000401`), [bind a custom domain to the bucket](https://www.alibabacloud.com/help/en/oss/user-guide/access-buckets-via-custom-domain-names), enable **Use a custom domain (CNAME)**, and use that domain as the public endpoint. Browser presigned uploads and downloads must also use the CNAME domain in this case.
 :::
 
 Do not paste the AccessKey into logs, screenshots, or issues. AsterDrive encrypts connector credentials at rest; backups and migrations must also preserve `[auth].storage_credential_secret_key`.
@@ -45,7 +45,7 @@ Do not paste the AccessKey into logs, screenshots, or issues. AsterDrive encrypt
 | --- | --- |
 | Public endpoint | Generates browser-visible presigned URLs; also handles backend I/O when no server-side endpoint is set |
 | Server-side endpoint | Optional and used only by AsterDrive backend requests; never appears in browser presigned URLs |
-| Use CNAME custom domain | Treats the public endpoint as a custom domain already bound to the current bucket |
+| Use a custom domain (CNAME) | Treats the public endpoint as a custom domain already bound to the current bucket |
 
 In normal mode, endpoints must use an `aliyuncs.com` OSS hostname. In CNAME mode, the public endpoint must be a custom domain. The bucket remains part of the OSS V4 canonical URI but is not repeated in the transmitted URL path.
 
@@ -104,4 +104,4 @@ The server-side endpoint only proves backend reachability. Check the public endp
 
 ### The Bucket Appears Again in a CNAME URL
 
-Enable **Use CNAME custom domain** and make sure the public endpoint is the custom domain bound to the bucket, not an `aliyuncs.com` provider endpoint.
+Enable **Use a custom domain (CNAME)** and make sure the public endpoint is the custom domain bound to the bucket, not an `aliyuncs.com` provider endpoint.

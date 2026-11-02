@@ -26,7 +26,6 @@ use super::s3::S3ConnectorConfigV1;
 use super::sftp::SftpConnectorConfigV1;
 use super::tencent_cos::TencentCosConnectorConfigV1;
 use super::*;
-use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
 struct LocalizationContractConnector {
     descriptor: StorageConnectorDescriptor,
@@ -248,6 +247,7 @@ fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfig
 
 fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV1 {
     TencentCosConnectorConfigV1 {
+        cos_use_cname: false,
         download_base_url: None,
         endpoint: "https://cos.ap-beijing.myqcloud.com".to_string(),
         bucket: "archive-1250000000".to_string(),
@@ -257,12 +257,42 @@ fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV
     }
 }
 
+#[test]
+fn persisted_cos_configs_default_missing_cname_and_preserve_explicit_modes() {
+    for configured in [None, Some(false), Some(true)] {
+        let mut values = serde_json::to_value(cos_config(ObjectStorageUploadStrategy::RelayStream))
+            .expect("COS config should serialize");
+        let fields = values.as_object_mut().expect("COS config object");
+        if let Some(enabled) = configured {
+            fields.insert("cos_use_cname".to_string(), serde_json::json!(enabled));
+        } else {
+            fields.remove("cos_use_cname");
+        }
+        let policy = super::test_support::policy(
+            TencentCosConnector::ID,
+            1,
+            values,
+            StoragePolicyBehaviorConfig::default(),
+        );
+        // Decode persisted configuration directly, bypassing the API normalizer
+        // that would otherwise insert descriptor defaults and hide this regression.
+        let (decoded, _) =
+            super::common::decode_typed_policy_config::<TencentCosConnectorConfigV1>(
+                &policy,
+                TencentCosConnector::ID,
+                1,
+            )
+            .expect("stored COS policy should decode without being resaved");
+        assert_eq!(decoded.cos_use_cname, configured.unwrap_or(false));
+    }
+}
+
 fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1 {
     HuaweiObsConnectorConfigV1 {
         endpoint: "https://obs.cn-north-4.myhuaweicloud.com".to_string(),
         bucket: "archive-bucket".to_string(),
         obs_region: "cn-north-4".to_string(),
-        obs_addressing_mode: HuaweiObsAddressingMode::VirtualHosted,
+        obs_use_cname: false,
         base_path: "tenant-a".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
@@ -1597,7 +1627,7 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
         "endpoint",
         "bucket",
         "obs_region",
-        "obs_addressing_mode",
+        "obs_use_cname",
         "base_path",
         "object_storage_upload_strategy",
         "object_storage_download_strategy",
@@ -1623,7 +1653,7 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
 
     let mut custom = obs_config(ObjectStorageUploadStrategy::RelayStream);
     custom.endpoint = "https://files.example.test".to_string();
-    custom.obs_addressing_mode = HuaweiObsAddressingMode::CustomDomain;
+    custom.obs_use_cname = true;
     custom.obs_region.clear();
     connector
         .validate_connector_config(&super::test_support::connection_config(

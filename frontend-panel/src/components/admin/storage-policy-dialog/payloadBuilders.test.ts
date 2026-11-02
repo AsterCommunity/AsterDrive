@@ -73,6 +73,44 @@ function form(overrides: Partial<PolicyFormData> = {}): PolicyFormData {
 }
 
 describe("storage policy payload builders", () => {
+	it("preserves COS CNAME mode and its endpoint across create, edit, and connection tests", () => {
+		const schema = {
+			...descriptor(),
+			connector_id: "asterdrive.storage.tencent_cos",
+			config_schema_version: 1,
+			fields: [
+				field("endpoint", "connector_config"),
+				field("cos_use_cname", "connector_config", {
+					kind: "boolean",
+					default_value: false,
+				}),
+			],
+		} as StorageConnectorDescriptor;
+		for (const enabled of [false, true]) {
+			const input = form({
+				connector_id: schema.connector_id,
+				connector_config_values: {
+					endpoint: "https://files.example.test",
+					cos_use_cname: enabled,
+				},
+				credential_values: {},
+			});
+			const create = buildCreatePolicyPayload(input, schema);
+			const update = buildUpdatePolicyPayload(input, schema);
+			const connectionTest = buildPolicyTestPayload(input, schema);
+			for (const values of [
+				create.connection.connector_config.values,
+				update.connector_config.values,
+				connectionTest.connection.connector_config.values,
+			]) {
+				expect(values).toEqual({
+					endpoint: "https://files.example.test",
+					cos_use_cname: enabled,
+				});
+			}
+		}
+	});
+
 	it("builds a versioned create connection and keeps config, credential, and behavior isolated", () => {
 		const payload = buildCreatePolicyPayload(form(), descriptor());
 

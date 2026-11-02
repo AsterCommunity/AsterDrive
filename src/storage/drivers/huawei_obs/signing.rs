@@ -15,8 +15,6 @@ use std::collections::BTreeMap;
 use std::time::{Duration, UNIX_EPOCH};
 use url::Url;
 
-use super::HuaweiObsAddressingMode;
-
 type HmacSha1 = Hmac<Sha1>;
 
 // Native signing and request normalization are pinned against Huawei's official
@@ -110,16 +108,13 @@ const OBS_CANONICAL_RESOURCE_PARAMS: &[&str] = &[
 pub(super) fn configure_obs_auth(
     builder: aws_sdk_s3::config::Builder,
     bucket: String,
-    addressing_mode: HuaweiObsAddressingMode,
+    use_cname: bool,
 ) -> aws_sdk_s3::config::Builder {
     builder
         .request_checksum_calculation(aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired)
         .response_checksum_validation(aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired)
         .push_auth_scheme(ObsAuthScheme {
-            signer: ObsSigner {
-                bucket,
-                addressing_mode,
-            },
+            signer: ObsSigner { bucket, use_cname },
         })
 }
 
@@ -148,7 +143,7 @@ impl AuthScheme for ObsAuthScheme {
 #[derive(Debug)]
 struct ObsSigner {
     bucket: String,
-    addressing_mode: HuaweiObsAddressingMode,
+    use_cname: bool,
 }
 
 impl Sign for ObsSigner {
@@ -163,7 +158,7 @@ impl Sign for ObsSigner {
         let credentials = identity
             .data::<Credentials>()
             .ok_or("Huawei OBS signer requires AWS credential identity")?;
-        normalize_aws_request_for_obs(request, &self.bucket, self.addressing_mode)?;
+        normalize_aws_request_for_obs(request, &self.bucket, self.use_cname)?;
 
         let operation_config = config_bag.load::<SigV4OperationSigningConfig>();
         let signature_type = operation_config
@@ -194,8 +189,7 @@ impl Sign for ObsSigner {
                     .as_secs()
                     .checked_add(expires.as_secs())
                     .ok_or("Huawei OBS presign expiration overflow")?;
-                let canonical_resource =
-                    canonical_resource(&url, &self.bucket, self.addressing_mode);
+                let canonical_resource = canonical_resource(&url, &self.bucket, self.use_cname);
                 let string_to_sign = obs_string_to_sign(
                     request.method(),
                     request,
@@ -217,8 +211,7 @@ impl Sign for ObsSigner {
                 }
                 let date = format_obs_date(now);
                 request.headers_mut().insert("date", date.clone());
-                let canonical_resource =
-                    canonical_resource(&url, &self.bucket, self.addressing_mode);
+                let canonical_resource = canonical_resource(&url, &self.bucket, self.use_cname);
                 let string_to_sign =
                     obs_string_to_sign(request.method(), request, &canonical_resource, &date);
                 let signature = obs_signature(credentials.secret_access_key(), &string_to_sign)?;
@@ -236,13 +229,13 @@ impl Sign for ObsSigner {
 fn normalize_aws_request_for_obs(
     request: &mut HttpRequest,
     bucket: &str,
-    addressing_mode: HuaweiObsAddressingMode,
+    use_cname: bool,
 ) -> std::result::Result<(), BoxError> {
     crate::storage::drivers::s3_vendor::normalize_aws_s3_vendor_request(
         request,
         OBS_HEADER_RENAMES,
         |url| {
-            if addressing_mode == HuaweiObsAddressingMode::CustomDomain {
+            if use_cname {
                 let host = url
                     .host_str()
                     .ok_or("Huawei OBS custom-domain request URL is missing a host")?
@@ -278,10 +271,11 @@ fn normalize_aws_request_for_obs(
     Ok(())
 }
 
-fn canonical_resource(url: &Url, bucket: &str, addressing_mode: HuaweiObsAddressingMode) -> String {
-    let resource_bucket = match addressing_mode {
-        HuaweiObsAddressingMode::VirtualHosted => bucket,
-        HuaweiObsAddressingMode::CustomDomain => url.host_str().unwrap_or(bucket),
+fn canonical_resource(url: &Url, bucket: &str, use_cname: bool) -> String {
+    let resource_bucket = if use_cname {
+        url.host_str().unwrap_or(bucket)
+    } else {
+        bucket
     };
     let mut resource = format!("/{resource_bucket}{}", url.path());
     let mut params = url
@@ -387,15 +381,14 @@ mod tests {
     use url::Url;
 
     use super::{
-        OBS_PRESIGNED_PUT_CONTENT_TYPE, canonical_obs_headers, configure_obs_auth,
-        normalize_aws_request_for_obs, obs_signature, obs_string_to_sign,
+        OBS_PRESIGNED_PUT_CONTENT_TYPE, canonical_obs_headers, canonical_resource,
+        configure_obs_auth, normalize_aws_request_for_obs, obs_signature, obs_string_to_sign,
     };
-    use crate::storage::drivers::huawei_obs::HuaweiObsAddressingMode;
 
     fn obs_sdk_client(
         endpoint: &str,
         bucket: &str,
-        addressing_mode: HuaweiObsAddressingMode,
+        use_cname: bool,
         response: Option<http::Response<SdkBody>>,
     ) -> (aws_sdk_s3::Client, CaptureRequestReceiver) {
         let (http_client, receiver) = capture_request(response);
@@ -412,7 +405,7 @@ mod tests {
             .region(Region::new("cn-north-4"))
             .endpoint_url(endpoint)
             .force_path_style(false);
-        let config = configure_obs_auth(builder, bucket.to_string(), addressing_mode).build();
+        let config = configure_obs_auth(builder, bucket.to_string(), use_cname).build();
         (aws_sdk_s3::Client::from_conf(config), receiver)
     }
 
@@ -479,12 +472,8 @@ mod tests {
         request.headers_mut().append("x-amz-meta-note", "alpha");
         request.headers_mut().append("x-amz-meta-note", "beta");
 
-        normalize_aws_request_for_obs(
-            &mut request,
-            "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
-        )
-        .expect("metadata headers should normalize");
+        normalize_aws_request_for_obs(&mut request, "archive-bucket", false)
+            .expect("metadata headers should normalize");
 
         let values = request
             .headers()
@@ -501,7 +490,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             Some(empty_success_response()),
         );
 
@@ -537,7 +526,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             Some(empty_success_response()),
         );
 
@@ -578,7 +567,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             Some(response),
         );
 
@@ -611,7 +600,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             Some(empty_success_response()),
         );
         let _ = client
@@ -631,7 +620,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             Some(empty_success_response()),
         );
         let _ = client
@@ -672,7 +661,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             None,
         );
         let presigned = client
@@ -712,7 +701,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             None,
         );
         let part = client
@@ -746,7 +735,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://obs.cn-north-4.myhuaweicloud.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::VirtualHosted,
+            false,
             None,
         );
         let put = client
@@ -788,7 +777,7 @@ mod tests {
         let (client, receiver) = obs_sdk_client(
             "https://files.example.com",
             "archive-bucket",
-            HuaweiObsAddressingMode::CustomDomain,
+            true,
             Some(empty_success_response()),
         );
         client
@@ -810,5 +799,66 @@ mod tests {
                 .expect("OBS Authorization header")
                 .starts_with("OBS AccessKeyExample:")
         );
+    }
+
+    #[test]
+    fn cname_canonical_resource_uses_request_host_and_sorted_subresources() {
+        let url = Url::parse(
+            "https://files.example.com/docs/report.txt?uploadId=u1&partNumber=7&ignored=value",
+        )
+        .expect("CNAME object URL");
+        assert_eq!(
+            canonical_resource(&url, "archive-bucket", true),
+            "/files.example.com/docs/report.txt?partNumber=7&uploadId=u1"
+        );
+        assert_eq!(
+            canonical_resource(&url, "archive-bucket", false),
+            "/archive-bucket/docs/report.txt?partNumber=7&uploadId=u1"
+        );
+    }
+
+    #[tokio::test]
+    async fn cname_presigned_get_signs_the_custom_host_resource() {
+        let (client, receiver) =
+            obs_sdk_client("https://files.example.com", "archive-bucket", true, None);
+        let presigned = client
+            .get_object()
+            .bucket("archive-bucket")
+            .key("docs/report.txt")
+            .response_content_disposition("attachment")
+            .presigned(
+                PresigningConfig::builder()
+                    .start_time(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .expires_in(Duration::from_secs(600))
+                    .build()
+                    .expect("presign config"),
+            )
+            .await
+            .expect("CNAME presigned GET");
+        receiver.expect_no_request();
+
+        let url = Url::parse(presigned.uri()).expect("CNAME presigned URL");
+        assert_eq!(url.host_str(), Some("files.example.com"));
+        assert_eq!(url.path(), "/docs/report.txt");
+        let query = url.query_pairs().into_owned().collect::<HashMap<_, _>>();
+        assert_eq!(
+            query.get("AccessKeyId").map(String::as_str),
+            Some("AccessKeyExample")
+        );
+        assert_eq!(query.get("Expires").map(String::as_str), Some("1700000600"));
+        assert_eq!(
+            query
+                .get("response-content-disposition")
+                .map(String::as_str),
+            Some("attachment")
+        );
+        // Independent HMAC-SHA1/Base64 vector over:
+        // GET\n\n\n1700000600\n/files.example.com/docs/report.txt?response-content-disposition=attachment
+        // The host-based canonical resource follows the official OBS SDK conf.go.
+        assert_eq!(
+            query.get("Signature").map(String::as_str),
+            Some("YC2IyjifudJNpFvdofgY7pepvRQ=")
+        );
+        assert!(!query.keys().any(|key| key.starts_with("X-Amz-")));
     }
 }

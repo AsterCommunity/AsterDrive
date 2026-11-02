@@ -152,6 +152,29 @@ function renderPanel({
 }
 
 describe("StorageConnectorFieldsPanel", () => {
+	it("renders the COS CNAME descriptor switch and preserves the configured endpoint", () => {
+		const { onFieldChange } = renderPanel({
+			fields: [
+				field("endpoint", "text"),
+				field("cos_use_cname", "boolean", {
+					default_value: false,
+					help_key: "cos_use_cname_desc",
+				}),
+			],
+			form: {
+				...emptyForm,
+				connector_config_values: { endpoint: "https://files.example.test" },
+			},
+		});
+		expect(screen.getByRole("switch")).not.toBeChecked();
+		expect(screen.getByText("cos_use_cname_desc")).toBeVisible();
+		fireEvent.click(screen.getByRole("switch"));
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			endpoint: "https://files.example.test",
+			cos_use_cname: true,
+		});
+	});
+
 	it("renders nothing when the descriptor has no visible fields", () => {
 		const { container } = renderPanel({ fields: [] });
 		expect(container).toBeEmptyDOMElement();

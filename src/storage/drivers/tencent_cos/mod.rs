@@ -44,6 +44,7 @@ pub struct TencentCosDriver {
     access_key: String,
     secret_key: String,
     base_path: String,
+    use_cname: bool,
     download_base_url: Option<String>,
 }
 
@@ -52,6 +53,7 @@ pub struct TencentCosDriverConfig {
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
+    pub use_cname: bool,
     pub download_base_url: Option<String>,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
@@ -65,10 +67,7 @@ pub struct TencentCosStaticCredentials {
 }
 
 impl TencentCosDriver {
-    pub fn validate_config(
-        config: &TencentCosDriverConfig,
-        credentials: &TencentCosStaticCredentials,
-    ) -> Result<()> {
+    pub fn validate_connection_config(config: &TencentCosDriverConfig) -> Result<()> {
         let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
         if normalized.endpoint.trim().is_empty() {
@@ -82,10 +81,28 @@ impl TencentCosDriver {
         let host = endpoint.host_str().ok_or_else(|| {
             storage_driver_error(StorageErrorKind::Misconfigured, "COS endpoint missing host")
         })?;
-        if !host.ends_with(".myqcloud.com") {
+        if !endpoint.username().is_empty()
+            || endpoint.password().is_some()
+            || endpoint.query().is_some()
+            || endpoint.fragment().is_some()
+            || config.endpoint.contains('\\')
+            || config.endpoint.chars().any(char::is_control)
+        {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                "COS endpoint must use a Tencent COS myqcloud.com host",
+                "COS endpoint must not contain credentials, query, fragment, backslashes, or control characters",
+            ));
+        }
+        if config.use_cname && endpoint.path() != "/" && !endpoint.path().is_empty() {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "COS CNAME endpoint must not contain a path; use base_path for object key prefixes",
+            ));
+        }
+        if !config.use_cname && !host.ends_with(".myqcloud.com") {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "COS endpoint must use a Tencent COS myqcloud.com host unless CNAME mode is enabled",
             ));
         }
         if let Some(download_base_url) = config.download_base_url.as_deref() {
@@ -107,16 +124,27 @@ impl TencentCosDriver {
                 ));
             }
         }
+        Ok(())
+    }
+
+    pub fn validate_config(
+        config: &TencentCosDriverConfig,
+        credentials: &TencentCosStaticCredentials,
+    ) -> Result<()> {
+        Self::validate_connection_config(config)?;
+        let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
+            .map_err(Self::rewrap_s3_config_error)?;
         S3Driver::validate_config(
             &S3DriverConfig {
-                endpoint: signing::cos_virtual_hosted_s3_endpoint(
+                endpoint: signing::cos_s3_endpoint(
                     &normalized.endpoint,
                     &normalized.bucket,
+                    config.use_cname,
                 )?,
                 bucket: normalized.bucket,
                 base_path: config.base_path.clone(),
                 region: "auto".to_string(),
-                path_style: false,
+                path_style: config.use_cname,
                 connect_timeout: config.connect_timeout,
                 read_timeout: config.read_timeout,
                 operation_timeout: config.operation_timeout,
@@ -138,14 +166,15 @@ impl TencentCosDriver {
             .map_err(Self::rewrap_s3_config_error)?;
         let s3_driver = S3Driver::new(
             S3DriverConfig {
-                endpoint: signing::cos_virtual_hosted_s3_endpoint(
+                endpoint: signing::cos_s3_endpoint(
                     &normalized.endpoint,
                     &normalized.bucket,
+                    config.use_cname,
                 )?,
                 bucket: normalized.bucket.clone(),
                 base_path: config.base_path.clone(),
                 region: "auto".to_string(),
-                path_style: false,
+                path_style: config.use_cname,
                 connect_timeout: config.connect_timeout,
                 read_timeout: config.read_timeout,
                 operation_timeout: config.operation_timeout,
@@ -154,8 +183,17 @@ impl TencentCosDriver {
                 access_key: credentials.access_key.clone(),
                 secret_key: credentials.secret_key.clone(),
             },
-            S3DriverOptions::virtual_hosted_style(),
-            signing::configure_cos_auth,
+            if config.use_cname {
+                S3DriverOptions::path_style()
+            } else {
+                S3DriverOptions::virtual_hosted_style()
+            },
+            |builder| {
+                signing::configure_cos_auth(
+                    builder,
+                    config.use_cname.then(|| normalized.bucket.clone()),
+                )
+            },
         )?;
         let storage = S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
             Arc::new(s3_driver),
@@ -179,6 +217,7 @@ impl TencentCosDriver {
             access_key: credentials.access_key,
             secret_key: credentials.secret_key,
             base_path: config.base_path,
+            use_cname: config.use_cname,
             download_base_url: config.download_base_url,
         })
     }
