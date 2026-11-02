@@ -1,6 +1,10 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import {
+	isConnectorFieldRequired,
+	isConnectorFieldVisible,
+} from "@/components/admin/storage-policy-dialog/connectorFieldRules";
 import { supportsStorageCredentialLifecycle } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
 import {
 	connectorFormValue,
@@ -306,9 +310,18 @@ function hasMissingRequiredConnectorField(
 ) {
 	return (
 		descriptor?.fields.some((field) => {
-			if (!field.required || field.scope === "action_input") {
+			if (field.scope === "action_input") {
 				return false;
 			}
+			const values =
+				field.scope === "connector_config"
+					? form.connector_config_values
+					: form.credential_values;
+			if (
+				!isConnectorFieldVisible(field, values, form.connector_config_values) ||
+				!isConnectorFieldRequired(field, values, form.connector_config_values)
+			)
+				return false;
 			const value =
 				field.scope === "connector_config"
 					? connectorFormValue(form, field.name)

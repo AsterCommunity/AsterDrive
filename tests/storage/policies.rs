@@ -6175,3 +6175,129 @@ async fn test_huawei_obs_cname_policy_round_trips_and_builds_runtime_driver() {
         assert_eq!(url.path(), "/tenant/files/report.txt");
     }
 }
+
+#[actix_web::test]
+async fn test_cos_cdn_private_delivery_credentials_roundtrip_and_config_only_rejection() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let mut connection = connection_json(common::tencent_cos_connection(
+        "https://cos.ap-guangzhou.myqcloud.com",
+        "media-1250000000",
+        "tenant/files",
+        "AKIDEXAMPLE",
+        "SECRETEXAMPLE",
+    ));
+    connection["connector_config"]["values"]["download_delivery"] =
+        serde_json::json!("tencent_cdn_type_d_sha256");
+    connection["connector_config"]["values"]["download_base_url"] =
+        serde_json::json!("https://cdn.example.test/assets");
+    connection["connector_config"]["values"]["cdn_auth_validity_seconds"] = serde_json::json!(300);
+    connection["connector_config"]["values"]["object_storage_download_strategy"] =
+        serde_json::json!("presigned");
+    let before = policy_repo::find_all(state.writer_db())
+        .await
+        .unwrap()
+        .len();
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"Missing CDN key","connection":connection}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 400);
+    assert_eq!(
+        policy_repo::find_all(state.writer_db())
+            .await
+            .unwrap()
+            .len(),
+        before
+    );
+
+    const KEY: &str = "CdnSecret0123456789";
+    connection["credential"]["values"]["tencent_cdn_auth_key"] = serde_json::json!(KEY);
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"Private CDN","connection":connection}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    let status = response.status();
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(status, 201, "{body}");
+    assert!(!body.to_string().contains(KEY));
+    let id = body["data"]["id"].as_i64().unwrap();
+    let credential_before =
+        storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), id)
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(!format!("{credential_before:?}").contains(KEY));
+    for patch in [
+        serde_json::json!({"name":"CDN renamed"}),
+        serde_json::json!({"credential":{"mode":"static","values":{"tencent_cdn_auth_key":"","tencent_cos_secret_key":""}}}),
+    ] {
+        let request = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/policies/{id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(patch)
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        let status = response.status();
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(status, 200, "{body}");
+        assert!(!body.to_string().contains(KEY));
+    }
+    let policy = policy_repo::find_by_id(state.writer_db(), id)
+        .await
+        .unwrap();
+    let driver = state.driver_registry().get_driver(&policy).unwrap();
+    let request = driver
+        .extensions()
+        .direct_download
+        .unwrap()
+        .resolve_download_url(
+            "report.txt",
+            std::time::Duration::from_secs(60),
+            Default::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let url = url::Url::parse(&request.url).unwrap();
+    assert_eq!(url.path(), "/assets/tenant/files/report.txt");
+    assert_eq!(url.host_str(), Some("cdn.example.test"));
+    assert_eq!(
+        url.query_pairs()
+            .find(|(k, _)| k == "sign")
+            .unwrap()
+            .1
+            .len(),
+        64
+    );
+    assert_eq!(url.query_pairs().count(), 2);
+
+    // An existing origin policy cannot switch to CDN with only a config patch
+    // unless its encrypted credentials already contain a CDN key.
+    let origin =
+        create_tencent_cos_policy_via_admin(&app, &token, "Origin without CDN secret").await;
+    let existing = policy_repo::find_by_id(state.writer_db(), origin)
+        .await
+        .unwrap();
+    let request = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{origin}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"connector_config":connection["connector_config"]}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 400);
+    let after = policy_repo::find_by_id(state.writer_db(), origin)
+        .await
+        .unwrap();
+    assert_eq!(after.storage_config, existing.storage_config);
+}

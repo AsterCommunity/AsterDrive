@@ -74,7 +74,11 @@ export function StorageConnectorFieldsPanel({
 		descriptor?.fields.filter((field) => field.scope !== "action_input") ??
 		[];
 	const visibleFields = fields.filter((field) =>
-		isConnectorFieldVisible(field, fieldScopeValues(form, field.scope)),
+		isConnectorFieldVisible(
+			field,
+			fieldScopeValues(form, field.scope),
+			form.connector_config_values,
+		),
 	);
 	if (visibleFields.length === 0) {
 		return null;
@@ -214,7 +218,11 @@ function ConnectorField({
 	const value = fieldValue(form, field);
 	const scopeValues = fieldScopeValues(form, field.scope);
 	const resolvedDefault = resolvedConnectorFieldDefault(field, scopeValues);
-	const required = isConnectorFieldRequired(field, scopeValues);
+	const required = isConnectorFieldRequired(
+		field,
+		scopeValues,
+		form.connector_config_values,
+	);
 	const missing =
 		showRequiredErrors &&
 		required &&

@@ -2,6 +2,51 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "cos_download_delivery",
+        "Download delivery method",
+        "下载交付方式",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_download_origin",
+        "COS origin direct access",
+        "COS 源站直连",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_download_cdn",
+        "Tencent CDN accelerated download (Type D + SHA-256)",
+        "腾讯 CDN 加速下载（Type D + SHA-256）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_download_delivery_desc",
+        "COS origin uses Q-Sign. CDN uses independent Type D + SHA-256 authentication (sign/t, decimal Unix seconds). Private COS origin authorization and CDN authentication for ALL paths must both be enabled. Exact response-header/attachment requests use server relay; Blob previews can use CDN. Connection tests verify the storage endpoint only.",
+        "源站模式使用 COS Q-Sign；CDN 使用独立 Type D + SHA-256 鉴权（sign/t、十进制 Unix 秒）。私有 COS 回源授权与覆盖全部路径的 CDN 鉴权必须同时开启。需要精确响应头或附件名的请求使用服务端中继，Blob 预览可走 CDN。连接测试仅验证存储 endpoint。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_download_base_url_desc",
+        "Optional custom origin URL in COS mode; required CDN URL in CDN mode. Appends base path and object key; no query or fragment. This does not configure DNS, certificates, origin authorization or CDN access control.",
+        "源站模式可选填自定义源站地址；CDN 模式必须填写 CDN 地址。会追加基础路径和对象 key，不允许 query 或 fragment。此字段不会配置 DNS、证书、回源授权或 CDN 访问控制。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_validity_seconds",
+        "CDN authentication validity (seconds)",
+        "CDN 鉴权有效期（秒）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_validity_seconds_desc",
+        "Must equal the Tencent CDN Type D + SHA-256 validity (1–3600 seconds). Links use sign/t and decimal timestamps. Shorter requested lifetimes are backdated; no link exceeds the configured validity.",
+        "必须与腾讯 CDN Type D + SHA-256 的有效时长一致（1–3600 秒）。使用 sign/t 和十进制时间戳；请求更短有效期时回溯签发时间，不超过云端配置时长。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "tencent_cdn_auth_key",
+        "Tencent CDN authentication key",
+        "腾讯 CDN 鉴权密钥",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "tencent_cdn_auth_key_desc",
+        "Independent of COS SecretKey. Match the CDN Type D + SHA-256 primary or backup key: 6–32 ASCII letters or digits. Encrypted at rest; blank edits keep the saved key. Use separate keys for unrelated CDN domains.",
+        "与 COS SecretKey 独立，填写 CDN Type D + SHA-256 主密钥或备用密钥：6–32 位英文字母或数字。加密存储，编辑时留空保留原密钥。不同安全边界的 CDN 域名应使用不同密钥。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "cos_endpoint_hint",
         "Use the COS service or bucket domain, or enable CNAME mode for a bucket-bound custom source domain. Enter the bucket separately, for example <bucket-appid>.",
         "填写 COS 服务域名或 bucket 域名；使用绑定 bucket 的自定义源站域名时开启 CNAME 模式。bucket 请单独填写，例如 <bucket-appid>。",

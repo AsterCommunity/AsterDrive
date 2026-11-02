@@ -249,6 +249,8 @@ fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfig
 
 fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV1 {
     TencentCosConnectorConfigV1 {
+        download_delivery: Default::default(),
+        cdn_auth_validity_seconds: 300,
         cos_use_cname: false,
         download_base_url: None,
         endpoint: "https://cos.ap-beijing.myqcloud.com".to_string(),
@@ -257,6 +259,32 @@ fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
     }
+}
+
+#[test]
+fn cos_cdn_configuration_declares_explicit_private_delivery_mode() {
+    let mut values =
+        serde_json::to_value(cos_config(ObjectStorageUploadStrategy::RelayStream)).unwrap();
+    values["download_delivery"] = serde_json::json!("tencent_cdn_type_d_sha256");
+    values["download_base_url"] = serde_json::json!("https://cdn.example.test/assets");
+    values["cdn_auth_validity_seconds"] = serde_json::json!(300);
+    let input = super::test_support::connection_config(TencentCosConnector::ID, 1, values);
+    let normalized = connector(TencentCosConnector::ID)
+        .validate_connector_config(&input)
+        .expect("CDN delivery is a connector-owned configuration mode");
+    assert_eq!(
+        normalized.values["download_delivery"],
+        "tencent_cdn_type_d_sha256"
+    );
+    let descriptor = descriptor(TencentCosConnector::ID);
+    let secret = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "tencent_cdn_auth_key")
+        .expect("CDN has its own encrypted credential");
+    assert!(secret.secret);
+    assert_eq!(secret.scope, StorageConnectorFieldScope::StaticCredential);
+    assert!(!secret.required_when.is_empty());
 }
 
 #[test]
@@ -1367,7 +1395,7 @@ fn credential_channels_are_mutually_exclusive_by_connector_contract() {
                 .map(|field| {
                     (
                         field.name,
-                        serde_json::Value::String("test-value".to_string()),
+                        serde_json::Value::String("TestValue012345".to_string()),
                     )
                 })
                 .collect(),
@@ -2518,4 +2546,115 @@ async fn connector_neutral_factory_builds_qiniu_without_a_policy_entity() {
         .expect("connector-neutral factory should build without policy entity");
     assert!(driver.extensions().direct_download.is_some());
     assert!(driver.extensions().presigned_upload.is_some());
+}
+
+#[test]
+fn cos_cdn_config_and_credential_boundaries_fail_closed() {
+    let connector = connector(TencentCosConnector::ID);
+    let mut values =
+        serde_json::to_value(cos_config(ObjectStorageUploadStrategy::RelayStream)).unwrap();
+    values["download_delivery"] = serde_json::json!("tencent_cdn_type_d_sha256");
+    values["download_base_url"] = serde_json::json!("https://cdn.example.test/assets");
+    let config = super::test_support::connection_config(TencentCosConnector::ID, 1, &values);
+    let normalized = connector.validate_connector_config(&config).unwrap();
+    let mut credential = serde_json::json!({"tencent_cos_secret_id":"AKIDEXAMPLE", "tencent_cos_secret_key":"SECRETEXAMPLE"});
+    assert!(
+        connector
+            .validate_connection_credential(
+                &normalized,
+                &StorageConnectorCredentialInput::Static(credential.clone())
+            )
+            .is_err()
+    );
+    credential["tencent_cdn_auth_key"] = serde_json::json!("CdnKey0123456789");
+    connector
+        .validate_connection_credential(
+            &normalized,
+            &StorageConnectorCredentialInput::Static(credential.clone()),
+        )
+        .unwrap();
+    for key in [
+        "",
+        "bad!secret",
+        "short",
+        "secret key",
+        "密钥密钥",
+        &"x".repeat(33),
+    ] {
+        credential["tencent_cdn_auth_key"] = serde_json::json!(key);
+        let error = connector
+            .validate_connection_credential(
+                &normalized,
+                &StorageConnectorCredentialInput::Static(credential.clone()),
+            )
+            .unwrap_err();
+        assert!(!error.message().contains("SECRETEXAMPLE"));
+        if key.len() >= 6 {
+            assert!(!error.message().contains(key));
+        }
+    }
+    for (field, value) in [
+        ("download_base_url", serde_json::Value::Null),
+        (
+            "download_base_url",
+            serde_json::json!("http://cdn.example.test"),
+        ),
+        (
+            "download_base_url",
+            serde_json::json!("https://cdn.example.test?sign=anything"),
+        ),
+        ("cdn_auth_validity_seconds", serde_json::json!(0)),
+        ("cdn_auth_validity_seconds", serde_json::json!(3601)),
+        ("cdn_auth_validity_seconds", serde_json::json!(-1)),
+        ("download_delivery", serde_json::json!("public")),
+        ("download_delivery", serde_json::json!("tencent_cdn_type_d")),
+        (
+            "tencent_cdn_auth_key",
+            serde_json::json!("MUSTNOTBESTOREDINCONFIG"),
+        ),
+    ] {
+        let mut invalid = values.clone();
+        invalid[field] = value;
+        assert!(
+            connector
+                .validate_connector_config(&super::test_support::connection_config(
+                    TencentCosConnector::ID,
+                    1,
+                    invalid
+                ))
+                .is_err(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn cos_origin_legacy_config_and_credentials_remain_compatible() {
+    let mut values =
+        serde_json::to_value(cos_config(ObjectStorageUploadStrategy::RelayStream)).unwrap();
+    values.as_object_mut().unwrap().remove("download_delivery");
+    values
+        .as_object_mut()
+        .unwrap()
+        .remove("cdn_auth_validity_seconds");
+    let decoded: TencentCosConnectorConfigV1 = serde_json::from_value(values.clone()).unwrap();
+    assert_eq!(
+        decoded.download_delivery,
+        crate::storage::drivers::tencent_cos::CosDownloadDelivery::CosOrigin
+    );
+    assert_eq!(decoded.cdn_auth_validity_seconds, 300);
+    let connector = connector(TencentCosConnector::ID);
+    let normalized = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            TencentCosConnector::ID,
+            1,
+            values,
+        ))
+        .unwrap();
+    let credential = StorageConnectorCredentialInput::Static(
+        serde_json::json!({"tencent_cos_secret_id":"AKIDEXAMPLE", "tencent_cos_secret_key":"SECRETEXAMPLE"}),
+    );
+    connector
+        .validate_connection_credential(&normalized, &credential)
+        .unwrap();
 }

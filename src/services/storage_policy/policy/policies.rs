@@ -601,6 +601,44 @@ pub async fn update(
     }
 
     let existing_is_default = existing.is_default;
+    // Resolve saved secrets inside the write transaction even for config-only
+    // updates. A delivery-mode change must not persist unusable credentials.
+    let candidate_connector = connectors.require_input_connector(&connector_config.connector_id)?;
+    let candidate_descriptor = candidate_connector.descriptor();
+    if candidate_descriptor.credential_mode
+        == aster_drive_storage::StorageConnectorCredentialMode::StaticSecret
+        && candidate_descriptor.fields.iter().any(|field| {
+            field.scope == aster_drive_storage::StorageConnectorFieldScope::StaticCredential
+                && !field.required_when.is_empty()
+        })
+    {
+        let mut candidate_credential =
+            credential
+                .clone()
+                .unwrap_or(crate::storage::StorageConnectorCredentialInput::Static(
+                    serde_json::json!({}),
+                ));
+        if let Some(saved) =
+            crate::db::repository::storage_policy_connector_credential_repo::find_by_policy(
+                &txn, id,
+            )
+            .await?
+        {
+            let descriptor = candidate_connector.descriptor();
+            let saved = crate::storage::connectors::decode_connector_credential(
+                &state.config().auth.storage_credential_secret_key,
+                &saved,
+                &descriptor.connector_id,
+                descriptor.credential_schema_version.unwrap_or(1),
+            )?;
+            candidate_credential = crate::storage::connectors::merge_saved_static_credential(
+                candidate_credential,
+                saved,
+            )?;
+        }
+        candidate_connector
+            .validate_connection_credential(&connector_config, &candidate_credential)?;
+    }
     connectors
         .require_policy(&existing)?
         .validate_policy_update(&txn, &existing, &connector_config)

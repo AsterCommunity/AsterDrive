@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **腾讯 COS 私有 CDN 交付** — 显式支持 Type D / SHA-256 下载交付，使用独立加密的 CDN 密钥、受限的链接有效期及条件配置；已有 COS Q-Sign 仍为默认方式。Blob 预览可走 CDN，需要精确响应头或附件名的请求保留同源中继。必须同时启用私有 COS 回源授权与覆盖全部路径的 CDN 鉴权，并分别验证缓存未命中和命中时的访问控制。
+- **腾讯 COS 自定义源站域名** — 可选 CNAME 模式支持绑定 bucket 的自定义 endpoint，用于对象读写、multipart、预签名链接、COS 数据万象和 CORS；按最终请求 Host 签名，不向 URL 追加 bucket。已有官方 endpoint 与独立下载交付地址保持原有行为。
 - **阿里云 OSS CDN 下载分发** — OSS connector 新增可选的 CDN 下载域名、鉴权方式（`type_a` / `type_b` / `type_c` / `none`）和鉴权密钥。配置后，面向用户的下载链接使用 CDN 域名并按所选阿里云 CDN URL 鉴权方式签名；读写、上传、multipart、清理等后端操作仍使用 OSS API endpoint。CDN 域名会被校验为干净的 scheme + host，不允许携带凭证、query、fragment 或路径；对象键做 percent-encode，拒绝路径遍历；鉴权密钥标记为 secret，密钥和完整签名 URL 不写入日志与审计。中英文文档覆盖配置和验收步骤。真实阿里云 CDN 实机验收单独跟踪，本次改动未执行。(#685)
 - **CLI 实例选择与凭据输入** — 服务启动和运维命令统一支持 `--config-file` / `--data-dir`。Config 与 doctor 默认使用解析后的实例数据库，显式 CLI 参数与 CLI 环境变量可覆盖目标。未编译的 Prometheus / OTLP 导出器及其专属设置不会阻断离线操作或服务启动，doctor 检查实际生效的配置。敏感配置值和 enrollment token 支持隐藏终端、stdin 与私有文件输入。
 - **交互式运维 CLI** — `config get/set/delete/validate` 支持位置 key，set/validate 支持位置 value，原有参数写法保持兼容。终端缺少值时自动提示，省略 key 时提供可搜索的选择列表。普通输入正常显示，敏感输入随键入显示星号且不能切换为明文；回车保留已保存值，validate 会校验并预览该保存值；`--clear` 或显式空字符串请求清空并继续校验，非法输入可编辑重试。取消恢复终端状态，另起一行提示 `Canceled.` 并以 `130` 退出，不再作为校验错误。交互元信息遵循终端配色，提示写入 stderr，stdout 保留结构化结果。Node enroll 支持位置参数或交互输入主控 URL，再以星号反馈 token 输入；离线密码哈希同时支持终端掩码输入和管道，保留前后空格，并按 1–4096 个 UTF-8 字节及无控制字符的规则校验。显式输入优先于环境变量默认值，无终端且缺少必要输入时立即报错。交互编辑按键遵循 `inquire`，Tab 键不写入文本，字段校验针对库返回值；管道和文件输入不经过交互编辑器。交互支持统一归入 `operations-cli`，不新增独立 feature。
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **对象存储 CNAME 配置** — OSS、OBS 和 COS 使用一致的自定义域名开关文案。华为 OBS 以布尔字段 `obs_use_cname` 替代 `obs_addressing_mode`，可逆迁移在已保存策略、远端存储目标和延迟清理快照中保留官方／自定义域名行为。所有节点应统一升级，API 客户端须改用布尔字段。
 - **运行时配置备份（破坏性变更）** — `config export` 输出可直接导入的版本化备份，默认省略敏感值；完整备份须显式添加 `--include-sensitive`。Import 与文件校验只接受新格式，拒绝展示元数据、未知系统 key、重复 key 和脱敏占位值。批次校验后在同一事务内提交，再通知运行实例刷新。读取、校验与 doctor 不再初始化默认配置或意外数据库。
 - **服务与运维命令（构建 feature 改名）** — 默认 Cargo feature `cli` 改名为 `operations-cli`，显式 Cargo 与 Docker feature 列表须同步更新。服务启动、`serve all/api/worker`、实例选择、构建详情（`version`）与帮助不依赖该 feature。`version` / `version --json` 无需加载实例配置即可展示 revision、工作树状态、构建目标、profile、features 与时间。所有命令帮助以产品名及版本开头，并区分配置展示、备份、校验和恢复操作。
 

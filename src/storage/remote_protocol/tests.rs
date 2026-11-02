@@ -621,6 +621,7 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
             "folder/file name.txt",
             Duration::from_secs(60),
             DirectDownloadOptions {
+                allow_provider_response_headers: false,
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private".to_string()),

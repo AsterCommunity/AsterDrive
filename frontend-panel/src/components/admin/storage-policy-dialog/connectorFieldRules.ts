@@ -10,27 +10,37 @@ type FieldValues = Record<string, ConnectorFormValue | undefined>;
 export function connectorFieldConditionsMatch(
 	conditions: StorageConnectorFieldDescriptor["visible_when"],
 	values: FieldValues,
+	configValues?: FieldValues,
 ) {
 	return (conditions ?? []).every(
-		(condition) => values[condition.field] === condition.value,
+		(condition) =>
+			(condition.scope === "connector_config" ? configValues : values)?.[
+				condition.field
+			] === condition.value,
 	);
 }
 
 export function isConnectorFieldVisible(
 	field: StorageConnectorFieldDescriptor,
 	values: FieldValues,
+	configValues?: FieldValues,
 ) {
-	return connectorFieldConditionsMatch(field.visible_when, values);
+	return connectorFieldConditionsMatch(
+		field.visible_when,
+		values,
+		configValues,
+	);
 }
 
 export function isConnectorFieldRequired(
 	field: StorageConnectorFieldDescriptor,
 	values: FieldValues,
+	configValues?: FieldValues,
 ) {
 	return (
 		field.required ||
 		((field.required_when?.length ?? 0) > 0 &&
-			connectorFieldConditionsMatch(field.required_when, values))
+			connectorFieldConditionsMatch(field.required_when, values, configValues))
 	);
 }
 
