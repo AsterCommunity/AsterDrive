@@ -20,6 +20,18 @@ pub enum ConfigCommand {
     Import(FileArgs),
 }
 
+impl ConfigCommand {
+    /// Whether this invocation may write state, excluding read commands and previews.
+    pub(super) fn writes_state(&self) -> bool {
+        match self {
+            Self::Set(args) => !args.dry_run,
+            Self::Delete(args) => !args.dry_run,
+            Self::Import(args) => !args.dry_run,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Args)]
 #[group(skip)]
 pub struct KeyArgs {

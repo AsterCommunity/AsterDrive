@@ -1,10 +1,6 @@
 //! Pure human and JSON rendering for config reports.
-use super::{
-    model::{
-        ConfigCommandKind, ConfigCommandPayload, ConfigCommandReport, ConfigListOutput,
-        DeleteOutput,
-    },
-    values::format_config_value,
+use super::model::{
+    ConfigCommandKind, ConfigCommandPayload, ConfigCommandReport, ConfigListOutput, DeleteOutput,
 };
 use crate::cli::common::{
     output::{OutputFormat, ResolvedOutputFormat, render_error_json, render_success_envelope},
@@ -143,6 +139,24 @@ pub(super) fn format_config_list_value(
     format_config_value(&config.value)
 }
 
+// Escape only controls so ordinary text, including Unicode and paths, stays readable.
+fn format_config_value(value: &ConfigValue) -> String {
+    let value = match value {
+        ConfigValue::String(value) => value.clone(),
+        ConfigValue::StringArray(values) => serde_json::to_string(values)
+            .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
+    };
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_control() {
+            output.extend(character.escape_debug());
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
 pub(super) fn summarize_multiline_value(value: &str) -> String {
     let trimmed = value.trim();
     let line_count = value.lines().count();
@@ -220,6 +234,9 @@ pub(super) fn render_config_entry_human(
             ConfigCommandKind::Set => format!("{} updated", palette.status_badge("updated")),
             ConfigCommandKind::Validate =>
                 format!("{} valid preview", palette.status_badge("valid")),
+            ConfigCommandKind::Preview =>
+                format!("{} planned, not written", palette.status_badge("planned")),
+            ConfigCommandKind::Unchanged => format!("{} unchanged", palette.status_badge("ok")),
             _ => format!("{} loaded", palette.status_badge("ok")),
         }
     ));
@@ -297,4 +314,70 @@ pub(super) fn config_entry_title(kind: ConfigCommandKind) -> &'static str {
 
 pub(super) fn yes_no_label(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::commands::config::values::preview_system_config;
+
+    #[test]
+    fn human_values_escape_terminal_controls_without_changing_json_or_multiline_summaries() {
+        let raw = "猫's \\ path\x1b[2J\x1b]0;spoofed\x07\r\t\u{009b}31m";
+        let config = preview_system_config("custom.terminal", raw);
+        let palette = CliTerminalPalette::new(false);
+        let entry = render_config_entry_human(ConfigCommandKind::Preview, &config, &palette);
+        let list = render_config_list_human(
+            ConfigCommandKind::Preview,
+            &ConfigListOutput {
+                count: 1,
+                configs: vec![config.clone()],
+            },
+            &palette,
+        );
+        for output in [entry, list] {
+            assert!(
+                !output.chars().any(|c| c.is_control() && c != '\n'),
+                "{output:?}"
+            );
+            assert!(output.contains("猫's \\ path"));
+            assert!(output.contains(r"\u{1b}[2J"));
+            assert!(output.contains(r"\u{1b}]0;spoofed\u{7}\r\t\u{9b}31m"));
+        }
+        // JSON serialization already escapes C0 controls, but can preserve C1 CSI/OSC.
+        let array_value = ConfigValue::StringArray(vec![raw.to_owned()]);
+        let rendered_array = format_config_value(&array_value);
+        assert!(!rendered_array.chars().any(char::is_control));
+        assert!(rendered_array.contains(r"\u{9b}31m"));
+        let report = ConfigCommandReport::preview_config(config, "would_insert");
+        for format in [OutputFormat::Json, OutputFormat::PrettyJson] {
+            let output: serde_json::Value =
+                serde_json::from_str(&render_success(format, &report)).unwrap();
+            assert_eq!(output["data"]["preview"]["data"]["value"], raw);
+        }
+        let multiline = preview_system_config("custom.multiline", "line one\nline two\x1b[2J");
+        assert_eq!(
+            format_config_list_value(&multiline, &palette),
+            summarize_multiline_value("line one\nline two\x1b[2J")
+        );
+    }
+
+    #[test]
+    fn human_entry_status_distinguishes_planned_unchanged_and_completed_actions() {
+        let config = preview_system_config("custom.status", "value");
+        let palette = CliTerminalPalette::new(false);
+        for (kind, expected) in [
+            (ConfigCommandKind::Preview, "planned, not written"),
+            (ConfigCommandKind::Unchanged, "unchanged"),
+            (ConfigCommandKind::Set, "updated"),
+            (ConfigCommandKind::Validate, "valid preview"),
+            (ConfigCommandKind::Get, "loaded"),
+        ] {
+            let output = render_config_entry_human(kind, &config, &palette);
+            assert!(
+                output.lines().last().unwrap().ends_with(expected),
+                "{output}"
+            );
+        }
+    }
 }

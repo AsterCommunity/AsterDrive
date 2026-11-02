@@ -67,6 +67,8 @@ The distinction is simple: `validate` checks the input itself; `--dry-run` resol
 
 Interactive config writes display the validated plan before confirmation, keeping sensitive values redacted. `node enroll` has no dry-run because consuming a remote enrollment token cannot be rehearsed offline. `doctor --fix --dry-run` performs the audit and lists counter differences. Migration previews and verification require an existing SQLite target file (use `touch` to prepare an empty target); only actual migrations can create the target database file.
 
+Human-readable config values escape terminal control characters so backup contents cannot alter the display or confirmation prompt. JSON and backups preserve the original values. Preview status reads `planned, not written`; keeping a saved value reports `unchanged`.
+
 ## Shell Completion
 
 Completion scripts are generated from the CLI's Clap command definitions. Installation does not connect to the service or database and does not access the network. Install for the shell named by `$SHELL`:
@@ -451,6 +453,8 @@ Remember three things when using it:
 - The source database must already be at the "current schema"; pending migrations cause immediate refusal.
 - Do not continue writing new data into the source database during migration.
 - Only `ready_to_cutover = true` in the report means the target database is ready for switching.
+
+Preflight accepts empty legacy `storage_policy_credentials` and `storage_connector_application_configs` tables without copying them. Nonempty legacy tables or old static policy credentials block migration with guidance to finish importing credentials on 0.5.x first. Other unknown tables remain rejected.
 
 ## When to Read This Page First
 

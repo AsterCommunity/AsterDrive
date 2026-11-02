@@ -78,12 +78,18 @@ pub(super) const PROGRESS_ENV: &str = "ASTER_CLI_PROGRESS";
 pub(super) const COPY_BATCH_SIZE_ENV: &str = "ASTER_CLI_COPY_BATCH_SIZE";
 pub(super) const FAIL_AFTER_BATCHES_ENV: &str = "ASTER_CLI_FAIL_AFTER_BATCHES";
 
+// Recognized for preflight only; nonempty legacy stores must never be silently omitted.
+const LEGACY_STORAGE_TABLES: &[&str] = &[
+    "storage_policy_credentials",
+    "storage_connector_application_configs",
+];
+
 /// Loads the ordered source table plans that drive copy and verification stages.
 pub(super) async fn load_source_plans(source: &DatabaseConnection) -> Result<Vec<TablePlan>> {
     let backend = source.get_database_backend();
     let existing_tables = source_table_names(source, backend).await?;
-    validate_source_tables(backend, &existing_tables)?;
     validate_legacy_storage_source(source, backend, &existing_tables).await?;
+    validate_source_tables(backend, &existing_tables)?;
 
     let existing_lookup: BTreeSet<&str> = existing_tables.iter().map(String::as_str).collect();
     let mut plans = Vec::with_capacity(COPY_TABLE_ORDER.len());
@@ -139,6 +145,7 @@ fn validate_source_tables(backend: DbBackend, existing_tables: &[String]) -> Res
         .iter()
         .copied()
         .chain([MIGRATION_TABLE, CHECKPOINT_TABLE])
+        .chain(LEGACY_STORAGE_TABLES.iter().copied())
         .collect();
     let unexpected: Vec<String> = existing_tables
         .iter()
@@ -164,10 +171,7 @@ async fn validate_legacy_storage_source(
     backend: DbBackend,
     existing_tables: &[String],
 ) -> Result<()> {
-    for table in [
-        "storage_policy_credentials",
-        "storage_connector_application_configs",
-    ] {
+    for &table in LEGACY_STORAGE_TABLES {
         if existing_tables.iter().any(|name| name == table) {
             let rows = count_rows(source, backend, table).await?;
             if rows > 0 {

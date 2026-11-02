@@ -23,17 +23,10 @@ pub async fn execute_config_command(
     context: &CliContext,
     command: &ConfigCommand,
 ) -> CliResult<ConfigCommandReport> {
-    let dry_run = match command {
-        ConfigCommand::Set(args) => args.dry_run,
-        ConfigCommand::Delete(args) => args.dry_run,
-        ConfigCommand::Import(args) => args.dry_run,
-        _ => false,
-    };
-    let config_sync = match command {
-        ConfigCommand::Set(_) | ConfigCommand::Delete(_) | ConfigCommand::Import(_) if !dry_run => {
-            Some(build_cli_config_sync_runtime(&context.config)?)
-        }
-        _ => None,
+    let config_sync = if command.writes_state() {
+        Some(build_cli_config_sync_runtime(&context.config)?)
+    } else {
+        None
     };
     execute_config_command_with_runtime(&context.database, command, config_sync.as_ref()).await
 }
@@ -43,21 +36,12 @@ async fn execute_config_command_with_runtime(
     command: &ConfigCommand,
     config_sync: Option<&aster_forge_config::ConfigSyncRuntime>,
 ) -> CliResult<ConfigCommandReport> {
-    let read_only = match command {
-        ConfigCommand::Set(args) => args.dry_run,
-        ConfigCommand::Delete(args) => args.dry_run,
-        ConfigCommand::Import(args) => args.dry_run,
-        _ => true,
+    let access = if command.writes_state() {
+        DatabaseAccess::ReadWrite
+    } else {
+        DatabaseAccess::ReadOnly
     };
-    let db = connect_existing_database(
-        database,
-        if read_only {
-            DatabaseAccess::ReadOnly
-        } else {
-            DatabaseAccess::ReadWrite
-        },
-    )
-    .await?;
+    let db = connect_existing_database(database, access).await?;
 
     match command {
         ConfigCommand::List => Ok(ConfigCommandReport::list(

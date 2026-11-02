@@ -231,14 +231,6 @@ pub(super) fn parse_cli_config_value(key: &str, value: &str) -> Result<ConfigVal
     Ok(ConfigValue::StringArray(values))
 }
 
-pub(super) fn format_config_value(value: &ConfigValue) -> String {
-    match value {
-        ConfigValue::String(value) => value.clone(),
-        ConfigValue::StringArray(values) => serde_json::to_string(values)
-            .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
-    }
-}
-
 pub(super) fn preview_system_config(key: &str, value: &str) -> SystemConfig {
     let model = if let Some(def) = CONFIG_REGISTRY.get(key) {
         system_config::Model {

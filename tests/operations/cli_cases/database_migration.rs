@@ -987,3 +987,118 @@ async fn test_root_binary_database_migrate_human_output_supports_forced_color() 
     assert!(stdout.contains("\u{1b}["));
     assert!(stderr.contains("\u{1b}["));
 }
+
+#[tokio::test]
+async fn migration_preflight_checks_legacy_data_before_accepting_only_empty_legacy_tables() {
+    let source = setup_database_url().await;
+    let target = setup_database_url().await;
+    let db = db::connect_with_metrics(
+        &DatabaseConfig {
+            url: source.clone().into(),
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive_metrics::NoopMetrics::arc(),
+    )
+    .await
+    .unwrap();
+    let run = || {
+        run_aster_drive(&[
+            "database-migrate",
+            "--source-database-url",
+            &source,
+            "--target-database-url",
+            &target,
+            "--dry-run",
+        ])
+    };
+    for table in [
+        "storage_policy_credentials",
+        "storage_connector_application_configs",
+    ] {
+        db.execute_unprepared(&format!(
+            "CREATE TABLE {table} (id INTEGER PRIMARY KEY, secret TEXT)"
+        ))
+        .await
+        .unwrap();
+        let empty = run();
+        assert!(
+            empty.status.success(),
+            "{}",
+            String::from_utf8_lossy(&empty.stderr)
+        );
+        let report: Value = serde_json::from_slice(&empty.stdout).unwrap();
+        assert!(
+            !report["data"]["tables"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["name"] == table)
+        );
+        db.execute_unprepared(&format!(
+            "INSERT INTO {table} VALUES (1, 'legacy-secret-marker')"
+        ))
+        .await
+        .unwrap();
+        let populated = run();
+        assert!(!populated.status.success());
+        assert!(populated.stdout.is_empty());
+        let error: Value = serde_json::from_slice(&populated.stderr).unwrap();
+        let message = error["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("unmigrated rows")
+                && message.contains(table)
+                && message.contains("0.5.x"),
+            "{message}"
+        );
+        assert!(!message.contains("legacy-secret-marker"));
+        assert_eq!(
+            scalar_i64(
+                &db,
+                DbBackend::Sqlite,
+                &format!("SELECT COUNT(*) FROM {table}")
+            )
+            .await,
+            1
+        );
+        db.execute_unprepared(&format!("DELETE FROM {table}"))
+            .await
+            .unwrap();
+    }
+    db.execute_unprepared("ALTER TABLE storage_policies ADD COLUMN access_key TEXT")
+        .await
+        .unwrap();
+    db.execute_unprepared("INSERT INTO storage_policies (name, connector_id, access_key, created_at, updated_at) VALUES ('legacy', 'asterdrive.storage.local', 'static-secret-marker', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)").await.unwrap();
+    let static_credentials = run();
+    assert!(!static_credentials.status.success());
+    let error: Value = serde_json::from_slice(&static_credentials.stderr).unwrap();
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unmigrated static storage credential")
+    );
+    assert!(!String::from_utf8_lossy(&static_credentials.stderr).contains("static-secret-marker"));
+    db.execute_unprepared("DELETE FROM storage_policies WHERE name = 'legacy'")
+        .await
+        .unwrap();
+    db.execute_unprepared("CREATE TABLE unknown_product_data (id INTEGER)")
+        .await
+        .unwrap();
+    let unknown = run();
+    assert!(!unknown.status.success());
+    let error: Value = serde_json::from_slice(&unknown.stderr).unwrap();
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unsupported tables")
+    );
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown_product_data")
+    );
+    db.close().await.unwrap();
+}

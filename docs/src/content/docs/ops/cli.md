@@ -67,6 +67,8 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 
 配置写操作在交互确认前展示已校验的计划；敏感值继续脱敏。`node enroll` 不提供 dry-run，因为远端 enrollment token 的消费无法离线预演。`doctor --fix --dry-run` 保留审计扫描并列出计数差异。数据库迁移的预览和只验证模式要求 SQLite 目标文件已存在（新目标可先用 `touch` 创建空文件），不会替操作者创建数据库；实际迁移仍可创建目标文件。
 
+人类可读的配置值会转义终端控制字符，防止备份内容改变显示画面或确认提示；JSON 和备份保留原值。预览状态显示 `planned, not written`，保留保存值时显示 `unchanged`。
+
 ## Shell 自动补全
 
 补全脚本从 CLI 的 Clap 命令定义生成，安装时不连接服务或数据库，也不访问网络。安装当前 `$SHELL` 对应的补全：
@@ -451,6 +453,8 @@ Docker follower 更推荐用启动环境变量自动 enroll，不需要进容器
 - 源库必须先是“当前 schema”，有待执行迁移就会直接拒绝
 - 迁移过程中不要继续往源库写新数据
 - 只有报告里的 `ready_to_cutover = true`，才说明目标库已经达到可切换状态
+
+预检允许空的 `storage_policy_credentials` 和 `storage_connector_application_configs` 遗留表，但不会复制它们；非空遗留表或旧策略静态凭据会阻断迁移并提示先在 0.5.x 完成凭据导入，其他未知表仍会被拒绝。
 
 ## 什么时候优先看这页
 
