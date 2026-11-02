@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **CLI 终端输出** — 人类可读配置值转义控制字符，避免已保存或导入的 ANSI／OSC 序列修改终端画面和写入确认；JSON 报告及备份保留原始内容。
+- **CLI 终端输出** — 人类可读配置值及交互式当前值提示统一转义 C0/C1 控制字符，避免已保存或导入的 ANSI／OSC 序列修改终端画面和写入确认；JSON 报告及备份保留原始内容。
 
 ### Fixed
 

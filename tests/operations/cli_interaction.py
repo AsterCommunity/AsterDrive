@@ -200,6 +200,33 @@ with os.fdopen(os.open(private_backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o6
                "omitted_sensitive_keys": []}, stream)
 cli("import", "--input-file", private_backup)
 
+# Stored values from files and backups must be safe in the current-value prompt,
+# including C1 CSI/OSC/ST characters which JSON encoding can leave unescaped.
+terminal_value = "猫's \\ path\x1b[2J\x1b]0;spoofed\x07\r\t\u009b31m\u009dtitle\u009c"
+value_file = os.path.join(working_dir, "terminal-value.txt")
+with os.fdopen(os.open(value_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
+    stream.write(terminal_value)
+cli("set", "custom.terminal_file", "--value-file", value_file)
+terminal_backup = os.path.join(working_dir, "terminal-backup.json")
+with os.fdopen(os.open(terminal_backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
+    json.dump({"format": "asterdrive.runtime-config", "version": 1,
+               "configs": [{"key": "custom.terminal_backup", "value": terminal_value,
+                            "source": "custom", "visibility": "private", "is_sensitive": False}],
+               "omitted_sensitive_keys": []}, stream)
+cli("import", "--input-file", terminal_backup)
+for key in ("custom.terminal_file", "custom.terminal_backup"):
+    before = cli("get", key)
+    result, output = interact(["set", key], [(normal_prompt, b"\r", False)])
+    current_line = next(line for line in output.split(b"\n") if b"Current value:" in line)
+    assert all(bytes([c]) not in current_line.rstrip(b"\r") for c in range(32)), current_line
+    assert not any(chr(c).encode() in output for c in range(0x7f, 0xa0)), output
+    assert b"\\u{9b}31m\\u{9d}title\\u{9c}" in current_line, current_line
+    assert result["data"]["value"] == terminal_value
+    assert saved(key)["value"] == terminal_value
+    assert cli("get", key) == before, "Enter changed value or timestamp"
+    interact(["set", key], [(normal_prompt, b"\x03", False)], succeeds=False, canceled=True)
+    assert cli("get", key) == before, "cancellation changed value or timestamp"
+
 # Interactive writes require explicit confirmation after the proposed value
 # has been validated; declining leaves the stored value untouched.
 before_confirmation = cli("get", "branding_title")

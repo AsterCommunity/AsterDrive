@@ -4,7 +4,7 @@ use super::model::{
 };
 use crate::cli::common::{
     output::{OutputFormat, ResolvedOutputFormat, render_error_json, render_success_envelope},
-    terminal::{CliTerminalPalette, human_key},
+    terminal::{CliTerminalPalette, escape_terminal_controls, human_key},
 };
 use crate::errors::AsterError;
 use crate::services::ops::config::SystemConfig;
@@ -139,22 +139,13 @@ pub(super) fn format_config_list_value(
     format_config_value(&config.value)
 }
 
-// Escape only controls so ordinary text, including Unicode and paths, stays readable.
 fn format_config_value(value: &ConfigValue) -> String {
     let value = match value {
         ConfigValue::String(value) => value.clone(),
         ConfigValue::StringArray(values) => serde_json::to_string(values)
             .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
     };
-    let mut output = String::with_capacity(value.len());
-    for character in value.chars() {
-        if character.is_control() {
-            output.extend(character.escape_debug());
-        } else {
-            output.push(character);
-        }
-    }
-    output
+    escape_terminal_controls(&value)
 }
 
 pub(super) fn summarize_multiline_value(value: &str) -> String {

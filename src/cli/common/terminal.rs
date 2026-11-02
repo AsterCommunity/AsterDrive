@@ -2,6 +2,20 @@
 use crate::cli::common::error::{CliError, CliResult};
 use aster_forge_config::ConfigSource;
 use std::io::{self, IsTerminal};
+
+/// Escapes terminal controls while keeping ordinary Unicode and paths readable.
+pub(in crate::cli) fn escape_terminal_controls(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_control() {
+            output.extend(character.escape_debug());
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
 pub(in crate::cli) struct CliTerminalPalette {
     enabled: bool,
 }
@@ -122,5 +136,27 @@ pub(in crate::cli) fn confirm_write(message: &str, yes: bool) -> CliResult<()> {
         Ok(())
     } else {
         Err(CliError::Canceled)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::escape_terminal_controls;
+
+    #[test]
+    fn terminal_text_escapes_c0_del_and_c1_but_preserves_readable_text() {
+        let text = "猫's \\ path / \"quoted\"";
+        assert_eq!(escape_terminal_controls(text), text);
+        for code in (0..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(code).unwrap();
+            let escaped = escape_terminal_controls(&format!("before{control}after"));
+            assert!(!escaped.chars().any(char::is_control), "{code:x}");
+            assert!(escaped.starts_with("before\\"), "{escaped}");
+            assert!(escaped.ends_with("after"), "{escaped}");
+        }
+        assert_eq!(
+            escape_terminal_controls("\x1b[2J\u{9b}31m\u{9d}title\u{9c}\r\n\t"),
+            r"\u{1b}[2J\u{9b}31m\u{9d}title\u{9c}\r\n\t"
+        );
     }
 }

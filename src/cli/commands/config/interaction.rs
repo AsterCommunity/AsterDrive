@@ -15,7 +15,7 @@ use super::{
 };
 use crate::cli::common::error::CliResult;
 use crate::cli::common::input::{read_terminal_value, terminal_error};
-use crate::cli::common::terminal::CliTerminalPalette;
+use crate::cli::common::terminal::{CliTerminalPalette, escape_terminal_controls};
 use crate::config::definitions::CONFIG_REGISTRY;
 use crate::errors::{AsterError, Result};
 use crate::services::ops::config::SystemConfig;
@@ -112,11 +112,11 @@ pub(super) fn prompt_value(
             palette.warn("[hidden sensitive value]")
         );
     } else if let Some(model) = existing {
-        // JSON quoting prevents stored control sequences from altering the terminal.
+        // JSON quoting escapes C0 controls, but C1 controls need terminal escaping too.
         let value = if value_type.is_multiline() || model.value.contains('\n') {
             render::summarize_multiline_value(&model.value)
         } else {
-            serde_json::to_string(&model.value).unwrap_or_default()
+            escape_terminal_controls(&serde_json::to_string(&model.value).unwrap_or_default())
         };
         eprintln!(
             "{} {}",
