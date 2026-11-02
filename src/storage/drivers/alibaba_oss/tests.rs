@@ -493,3 +493,42 @@ async fn cdn_url_respects_base_path_prefix() {
         "https://cdn.example.com/tenant/prefix/sub/file.txt"
     );
 }
+
+#[tokio::test]
+async fn cdn_fallback_to_oss_when_response_content_disposition_required() {
+    // CDN 不支持 response-content-disposition query 参数（会破坏签名）。
+    // 当需要控制下载文件名时，必须 fallback 到 OSS presigned URL。
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".to_string());
+    config.cdn_auth_type = Some("type_a".to_string());
+
+    let mut credentials = sample_credentials();
+    credentials.cdn_auth_key = Some("test-cdn-key".to_string());
+
+    let driver =
+        AlibabaOssDriver::new(config, credentials).expect("OSS driver with CDN should build");
+
+    let result = driver
+        .extensions()
+        .direct_download
+        .expect("direct download extension")
+        .resolve_download_url(
+            "files/document.pdf",
+            Duration::from_secs(300),
+            DirectDownloadOptions {
+                response_content_disposition: Some("attachment; filename=\"report.pdf\"".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("download URL")
+        .expect("URL returned");
+
+    // 应该返回 OSS presigned URL，不是 CDN URL
+    assert!(result.url.contains("oss-cn-hangzhou.aliyuncs.com"));
+    assert!(result.url.contains("x-oss-signature="));
+    assert!(!result.url.contains("cdn.example.com"));
+    assert!(!result.url.contains("auth_key="));
+    // 确认包含 response-content-disposition 参数
+    assert!(result.url.contains("response-content-disposition="));
+}

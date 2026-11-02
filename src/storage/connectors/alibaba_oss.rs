@@ -142,6 +142,7 @@ aster_drive_storage::storage_connector_schema! {
         pub object_storage_download_strategy: ObjectStorageDownloadStrategy => transfer_strategy_field(
             "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
+        #[serde(default)]
         pub oss_cdn_domain: String => {
             let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                 name: "oss_cdn_domain", scope: StorageConnectorFieldScope::ConnectorConfig,
@@ -156,6 +157,7 @@ aster_drive_storage::storage_connector_schema! {
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        #[serde(default)]
         pub oss_cdn_auth_type: String => {
             let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                 name: "oss_cdn_auth_type", scope: StorageConnectorFieldScope::ConnectorConfig,

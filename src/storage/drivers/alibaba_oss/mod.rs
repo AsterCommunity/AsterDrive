@@ -100,6 +100,12 @@ impl AlibabaOssDriver {
         }
 
         // CDN 下载域名只影响用户侧下载交付，这里做干净 host 校验。
+        let has_cdn_domain = config
+            .cdn_domain
+            .as_ref()
+            .filter(|domain| !domain.trim().is_empty())
+            .is_some();
+
         if let Some(cdn_domain) = config
             .cdn_domain
             .as_ref()
@@ -109,6 +115,12 @@ impl AlibabaOssDriver {
         }
 
         // 校验 CDN 鉴权类型配置
+        let has_cdn_auth_type = config
+            .cdn_auth_type
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+            .is_some();
+
         if let Some(auth_type_str) = config
             .cdn_auth_type
             .as_ref()
@@ -116,6 +128,18 @@ impl AlibabaOssDriver {
         {
             cdn_signing::CdnAuthType::parse(auth_type_str)?;
         }
+
+        // 安全要求：配置了 CDN 域名时，必须显式配置鉴权类型
+        // （避免管理员误以为私有 OSS 回源能保护 CDN 对象）
+        if has_cdn_domain && !has_cdn_auth_type {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "CDN domain requires explicit authentication type configuration. \
+                 Set cdn_auth_type to 'type_a', 'type_b', 'type_c', or explicitly choose 'none' \
+                 if you understand the security implications of unauthenticated CDN access.",
+            ));
+        }
+
         Ok(())
     }
 
@@ -490,9 +514,7 @@ impl DirectDownloadStorageDriver for AlibabaOssDriver {
         if let Some(cdn_config) = &self.cdn_config {
             // 阿里云 CDN 鉴权 URL 不支持 query 参数（会破坏签名），无法覆盖响应头。
             // 当需要设置 Content-Disposition 时，fallback 到 OSS presigned URL。
-            if options.response_content_disposition.is_some() {
-                // 不使用 CDN，继续走 fallback 路径
-            } else {
+            if options.response_content_disposition.is_none() {
                 // CDN 交付不经过 OSS API client，这里用与 S3Driver::full_key 相同的
                 // base_path 拼接逻辑（join_key_prefix），确保对象键前缀一致。
                 let object_key =
@@ -511,6 +533,7 @@ impl DirectDownloadStorageDriver for AlibabaOssDriver {
                     aster_drive_storage::DirectDownloadRequest::temporary_url(url, expires),
                 ));
             }
+            // 如果需要 response_content_disposition，跳过 CDN，继续 fallback 到下方
         }
 
         // fallback: 使用原有 OSS V4 签名

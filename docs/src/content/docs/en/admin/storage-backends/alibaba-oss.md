@@ -67,14 +67,14 @@ CDN configuration only affects download delivery:
 
 - A CNAME custom domain addresses the OSS object API and cannot replace CDN download authentication; they are distinct features
 - Backend I/O never routes to the CDN domain
-- The actual link validity period = AsterDrive's configured TTL + the "Authentication URL Validity Period" set in the CDN console (default 1800 seconds). AsterDrive cannot read the console configuration, so administrators should reduce the console validity period for more precise link expiration control
+- The actual link validity period = AsterDrive's configured TTL (set by the code path that generates the link and not configurable by administrators) + the "Authentication URL Validity Period" set in the CDN console (default 1800 seconds). The timestamp in the URL is the expiry time AsterDrive computes from its TTL, and the CDN adds the console validity period on top of it when verifying. AsterDrive cannot read the console configuration, so administrators should reduce the console validity period for more precise link expiration control
 - Revocation requires rotating the authentication KEY in the Alibaba Cloud CDN console
 
 Preparation:
 
 1. Add an acceleration domain in the Alibaba Cloud CDN console with the current OSS bucket as origin
 2. Enable URL authentication (type A / B / C) and record the primary authentication KEY
-3. **Recommended: Set the "Custom Cache Duration" (i.e., authentication URL validity period) to a small value (e.g., 60 seconds) so AsterDrive's download TTL takes effect more accurately**
+3. **Recommended: Set the "Authentication URL Validity Period" to a small value (e.g., 60 seconds) so AsterDrive's download TTL takes effect more accurately**
 4. Verify CDN origin authorization to OSS so CDN caching does not bypass access control
 5. Fill the CDN download domain, authentication type, and authentication key in the AsterDrive policy
 
