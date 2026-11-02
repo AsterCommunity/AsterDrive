@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::huawei_obs::{
-    HuaweiObsAddressingMode, HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
+    HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
@@ -13,9 +13,8 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
     StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
     StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
-    StorageConnectorSelectOptionInput, StorageConnectorUiDescriptorInput,
-    object_storage_connector_descriptor, storage_connector_field,
-    storage_connector_field_with_display, storage_connector_select_field,
+    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
+    storage_connector_field, storage_connector_field_with_display,
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
@@ -125,22 +124,19 @@ aster_drive_storage::storage_connector_schema! {
             field.validation.max_length = Some(128);
             field
         },
-        pub obs_addressing_mode: HuaweiObsAddressingMode => obs_select_field(
-            "obs_addressing_mode",
-            vec![
-                select_option(
-                    "virtual_hosted",
-                    "obs_addressing_mode_virtual_hosted",
-                    Some("obs_addressing_mode_virtual_hosted_desc"),
-                ),
-                select_option(
-                    "custom_domain",
-                    "obs_addressing_mode_custom_domain",
-                    Some("obs_addressing_mode_custom_domain_desc"),
-                ),
-            ],
-            "virtual_hosted",
-        ),
+        #[serde(default)]
+        pub obs_use_cname: bool => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "obs_use_cname", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Boolean, required: false, secret: false,
+                label_key: "obs_use_cname", placeholder: None, help_key: Some("obs_use_cname_desc"),
+                required_message_key: None, invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(), allow_endpoint_without_protocol: false,
+                trim_on_blur: false,
+            });
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
+            field
+        },
         pub base_path: String => {
             let mut field = storage_connector_field(
                 "base_path", StorageConnectorFieldScope::ConnectorConfig,
@@ -170,35 +166,6 @@ aster_drive_storage::storage_connector_schema! {
     }
 }
 
-fn obs_select_field(
-    name: &str,
-    options: Vec<StorageConnectorSelectOptionInput<'static>>,
-    default_value: &str,
-) -> aster_drive_storage::StorageConnectorFieldDescriptor {
-    let mut field = storage_connector_select_field(
-        name,
-        StorageConnectorFieldScope::ConnectorConfig,
-        true,
-        options,
-    );
-    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
-        default_value.to_string(),
-    ));
-    field
-}
-
-const fn select_option(
-    value: &'static str,
-    label_key: &'static str,
-    description_key: Option<&'static str>,
-) -> StorageConnectorSelectOptionInput<'static> {
-    StorageConnectorSelectOptionInput {
-        value,
-        label_key,
-        description_key,
-    }
-}
-
 impl HuaweiObsConnector {
     pub const ID: &'static str = "asterdrive.storage.huawei_obs";
 
@@ -212,7 +179,7 @@ impl HuaweiObsConnector {
             bucket: config.bucket,
             base_path: config.base_path,
             region: config.obs_region,
-            addressing_mode: config.obs_addressing_mode,
+            use_cname: config.obs_use_cname,
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
@@ -311,7 +278,7 @@ impl StorageConnector for HuaweiObsConnector {
             &config.endpoint,
             &config.bucket,
             &config.obs_region,
-            config.obs_addressing_mode,
+            config.obs_use_cname,
         )
         .map_err(AsterError::from)?;
         config.endpoint = endpoint.endpoint;

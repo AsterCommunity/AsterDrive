@@ -196,6 +196,7 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 | --- | --- |
 | Endpoint | `https://asterdrive-prod-1250000000.cos.ap-guangzhou.myqcloud.com` |
 | Bucket | `asterdrive-prod-1250000000` |
+| 使用自定义域名（CNAME） | 默认关闭；使用自定义源站 Endpoint 时开启 |
 | Access Key | 腾讯云访问密钥 ID |
 | Secret Key | 腾讯云访问密钥 Secret |
 | Prefix / 基础路径 | `prod/` |
@@ -205,9 +206,21 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 
 使用腾讯云控制台提供的 COS endpoint 即可，不需要把它当普通 S3 服务调整 path-style。
 
-如果 bucket 已经通过自定义源站域、CDN 或部署方反向代理暴露相同对象 key，可以填写可选的 **下载交付地址**。该地址只用于启用直连下载后的浏览器请求；AsterDrive 会把基础路径和对象路径追加到地址的 path prefix，并针对最终域名生成 COS Q-Sign。后端读写、上传、清理、CORS 和 bucket 管理仍使用上面的官方 Endpoint。
+### 自定义源站域名
 
-下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。连接测试只证明官方 COS Endpoint 可用；启用前还要实际验证交付域能访问私有对象、Range 下载和响应头覆盖。
+先按腾讯云的[开启自定义源站域名](https://cloud.tencent.com/document/product/436/36638)指引，将域名绑定到目标 bucket 的默认源站或已启用的全球加速源站，配置 CNAME 和 HTTPS 证书。静态网站源站不适合作为对象 API endpoint。域名和证书变更通常需要约 30 分钟生效，以实际访问结果为准。
+
+在 AsterDrive 开启 **使用自定义域名（CNAME）**，Endpoint 填写例如 `https://files.example.com`，Bucket 仍填写 `asterdrive-prod-1250000000`。读写、分片、预签名、COS 数据万象和 CORS 都通过这个域名请求，URL 不会再添加 bucket。Endpoint 只填写协议和域名（可带端口），对象前缀填写基础路径；不要附带路径、账号密码、query 或 fragment。官方域名的旧配置无需调整。
+
+腾讯云[设置访问域名](https://cloud.tencent.com/document/product/436/55437)中的 `Domain` 同样用于 bucket 和对象 API；[预签名文档](https://cloud.tencent.com/document/product/436/36121)要求签入实际请求 Host。请直接使用 HTTPS 地址，避免“强制 HTTPS”的 302 重定向；COS 原生请求不会跟随重定向。AsterDrive 不额外要求查询域名绑定的控制面权限，请通过连接测试验证读写，再分别验证浏览器预签名、COS CI 和 CORS；这些能力依赖实际源站配置。自定义源站故障时不会自动回退到其他域名。
+
+仅用于 CDN 下载的域名仍填写下面的下载交付地址；CDN 域名不应当作完整对象 API endpoint。
+
+### 下载交付地址
+
+如果 bucket 已经通过自定义源站域、CDN 或部署方反向代理暴露相同对象 key，可以填写可选的 **下载交付地址**。该地址只用于启用直连下载后的浏览器请求；AsterDrive 会把基础路径和对象路径追加到地址的 path prefix，并针对最终域名生成 COS Q-Sign。后端读写、上传、清理、CORS 和 bucket 管理仍使用上面配置的 Endpoint。
+
+下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。连接测试只证明所配置的 COS Endpoint 可用；启用前还要实际验证交付域能访问私有对象、Range 下载和响应头覆盖。
 
 ## 6. 保存前先测试连接
 

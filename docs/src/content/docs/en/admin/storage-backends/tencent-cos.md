@@ -192,6 +192,7 @@ Common fields:
 | --- | --- |
 | Endpoint | `https://asterdrive-prod-1250000000.cos.ap-guangzhou.myqcloud.com` |
 | Bucket | `asterdrive-prod-1250000000` |
+| Use a custom domain (CNAME) | Off by default; enable for a custom source Endpoint |
 | Access Key | Tencent Cloud secret ID |
 | Secret Key | Tencent Cloud secret key |
 | Prefix / base path | `prod/` |
@@ -201,9 +202,21 @@ Common fields:
 
 Use the COS endpoint shown in the Tencent Cloud console. You do not need to tune it as a generic S3 path-style service.
 
-If the bucket exposes the same object keys through a custom origin domain, CDN, or deployment-managed reverse proxy, you can set the optional **Download delivery URL**. It is used only for browser requests after direct download is enabled. AsterDrive appends the policy base path and object path to its path prefix and generates COS Q-Sign against the final host. Backend reads and writes, uploads, cleanup, CORS, and bucket administration continue to use the official Endpoint above.
+### Custom Source Domains
 
-The delivery URL must be HTTPS with a DNS hostname. It may include a fixed path prefix, but it must not contain credentials, a non-default port, query, fragment, backslashes, or traversal segments. A successful connection test proves only that the official COS Endpoint works; verify private-object access, Range downloads, and response-header overrides through the delivery domain before enabling it for users.
+Follow Tencent Cloud's [custom source domain guide](https://cloud.tencent.com/document/product/436/36638) to bind the domain to the bucket's default origin or an enabled global acceleration origin, configure its CNAME, and bind an HTTPS certificate. Static-website origins are unsuitable for object API endpoints. Domain and certificate changes may take about 30 minutes; verify actual availability.
+
+Enable **Use a custom domain (CNAME)** in AsterDrive and set Endpoint to, for example, `https://files.example.com`. Keep Bucket as `asterdrive-prod-1250000000`. Reads, writes, multipart, presigned URLs, COS CI, and CORS use that domain without adding the bucket to the URL. Endpoint contains only the scheme and host (optionally a port); put object prefixes in the base path. Paths, credentials, query, and fragments are rejected. Existing official-domain configurations need no changes.
+
+Tencent Cloud's [Domain option](https://cloud.tencent.com/document/product/436/55437) applies to bucket and object APIs, and its [presigning guide](https://cloud.tencent.com/document/product/436/36121) signs the actual request Host. Use HTTPS directly to avoid the forced-HTTPS 302 redirect; COS-native requests do not follow redirects. AsterDrive does not require additional control-plane permissions to inspect domain bindings. Test connectivity, then verify browser presigning, COS CI, and CORS separately against the actual origin configuration. There is no automatic fallback to another domain.
+
+Keep CDN-only download domains in the delivery URL below rather than using them as full object API endpoints.
+
+### Download Delivery URL
+
+If the bucket exposes the same object keys through a custom origin domain, CDN, or deployment-managed reverse proxy, you can set the optional **Download delivery URL**. It is used only for browser requests after direct download is enabled. AsterDrive appends the policy base path and object path to its path prefix and generates COS Q-Sign against the final host. Backend reads and writes, uploads, cleanup, CORS, and bucket administration continue to use the configured Endpoint above.
+
+The delivery URL must be HTTPS with a DNS hostname. It may include a fixed path prefix, but it must not contain credentials, a non-default port, query, fragment, backslashes, or traversal segments. A successful connection test proves only that the configured COS Endpoint works; verify private-object access, Range downloads, and response-header overrides through the delivery domain before enabling it for users.
 
 Before or after saving, click `Test Connection` once. When editing an existing policy, leaving Access Key or Secret Key blank lets the draft connection test reuse the credentials already saved for that policy. This lets you test endpoint, bucket, base path, upload mode, or COS CI switch changes without pasting the secret every time. New policies have no saved credentials to reuse, so required credentials still need to be filled in.
 

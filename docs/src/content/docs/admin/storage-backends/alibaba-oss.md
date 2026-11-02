@@ -34,7 +34,7 @@ title: "阿里云 OSS 存储策略教程"
 5. 如果使用 `presigned`，为 AsterDrive 站点配置 OSS CORS
 
 :::caution[Alibaba Cloud 国际站账号]
-[阿里云中国站文档](https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints)仍将 `oss-cn-<region>.aliyuncs.com` 列为中国内地地域的外网 endpoint，上面的默认配置适用于中国站账号。Alibaba Cloud 国际站则[另行规定](https://www.alibabacloud.com/zh/notice/oss_update_notice_policy_change_in_calling_data_api_operations_via_the_default_public_domain_name_45a)：在 2025 年 3 月 20 日 00:00:00（UTC+8）之后激活 OSS 的国际站用户，不能通过默认公网域名调用中国内地地域 bucket 的数据 API；此前已激活的国际站用户和内网域名不受影响。若请求返回 `PublicEndpointForbidden`（HTTP 400，EC `0048-00000401`），请给 bucket [绑定自定义域名](https://help.aliyun.com/zh/oss/user-guide/map-custom-domain-names-5)，启用 **使用 CNAME 自定义域名**，再把该域名配置为公网 endpoint。浏览器 presigned 上传和下载也需要使用该 CNAME 域名。
+[阿里云中国站文档](https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints)仍将 `oss-cn-<region>.aliyuncs.com` 列为中国内地地域的外网 endpoint，上面的默认配置适用于中国站账号。Alibaba Cloud 国际站则[另行规定](https://www.alibabacloud.com/zh/notice/oss_update_notice_policy_change_in_calling_data_api_operations_via_the_default_public_domain_name_45a)：在 2025 年 3 月 20 日 00:00:00（UTC+8）之后激活 OSS 的国际站用户，不能通过默认公网域名调用中国内地地域 bucket 的数据 API；此前已激活的国际站用户和内网域名不受影响。若请求返回 `PublicEndpointForbidden`（HTTP 400，EC `0048-00000401`），请给 bucket [绑定自定义域名](https://help.aliyun.com/zh/oss/user-guide/map-custom-domain-names-5)，启用 **使用自定义域名（CNAME）**，再把该域名配置为公网 endpoint。浏览器 presigned 上传和下载也需要使用该 CNAME 域名。
 :::
 
 不要把 AccessKey 写入日志、截图或 issue。AsterDrive 会把 connector credential 加密存储，备份和迁移时必须同时保留 `[auth].storage_credential_secret_key`。
@@ -45,7 +45,7 @@ title: "阿里云 OSS 存储策略教程"
 | --- | --- |
 | 公网 endpoint | 生成浏览器可见的 presigned URL；没有服务端 endpoint 时也用于后端 I/O |
 | 服务端 endpoint | 可选，只用于 AsterDrive 后端请求；不会出现在浏览器 presigned URL 中 |
-| 使用 CNAME 自定义域名 | 把公网 endpoint 视为已绑定当前 bucket 的自定义域名 |
+| 使用自定义域名（CNAME） | 把公网 endpoint 视为已绑定当前 bucket 的自定义域名 |
 
 普通模式的 endpoint 必须使用 `aliyuncs.com` OSS 域名。CNAME 模式的公网 endpoint 必须是自定义域名；bucket 仍参与 OSS V4 canonical URI，但不会重复出现在实际 URL path 中。
 

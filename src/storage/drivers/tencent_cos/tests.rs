@@ -1,5 +1,5 @@
 use super::native_thumbnail::is_cos_image_thumbnail_candidate;
-use super::signing::cos_virtual_hosted_s3_endpoint;
+use super::signing::cos_s3_endpoint;
 use super::*;
 use aster_drive_storage::traits::driver::StorageDriver;
 use aster_drive_storage::traits::extensions::{
@@ -10,6 +10,7 @@ use url::Url;
 fn sample_config(endpoint: &str, bucket: &str) -> TencentCosDriverConfig {
     TencentCosDriverConfig {
         download_base_url: None,
+        use_cname: false,
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
         base_path: "tenant/prefix".to_string(),
@@ -68,10 +69,11 @@ fn validate_config_accepts_myqcloud_host() {
 }
 
 #[test]
-fn cos_virtual_hosted_s3_endpoint_strips_bucket_host() {
-    let endpoint = cos_virtual_hosted_s3_endpoint(
+fn cos_s3_endpoint_strips_bucket_host() {
+    let endpoint = cos_s3_endpoint(
         "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com",
         "bucket-1250000000",
+        false,
     )
     .expect("COS S3 endpoint");
 
@@ -79,10 +81,11 @@ fn cos_virtual_hosted_s3_endpoint_strips_bucket_host() {
 }
 
 #[test]
-fn cos_virtual_hosted_s3_endpoint_keeps_root_host() {
-    let endpoint = cos_virtual_hosted_s3_endpoint(
+fn cos_s3_endpoint_keeps_root_host() {
+    let endpoint = cos_s3_endpoint(
         "https://cos.ap-guangzhou.myqcloud.com",
         "bucket-1250000000",
+        false,
     )
     .expect("COS S3 endpoint");
 
@@ -244,4 +247,120 @@ async fn custom_download_base_url_builds_and_signs_the_final_host() {
     );
     assert!(query.contains_key("q-signature"));
     assert!(request.expires_at.is_some());
+}
+
+#[test]
+fn cname_endpoint_accepts_custom_host_and_preserves_bucket_like_label() {
+    let mut config = sample_config(
+        "https://bucket-1250000000.files.example.test",
+        "bucket-1250000000",
+    );
+    config.use_cname = true;
+    TencentCosDriver::validate_config(&config, &sample_credentials()).expect("CNAME config");
+    assert_eq!(
+        cos_s3_endpoint(&config.endpoint, &config.bucket, true).unwrap(),
+        config.endpoint
+    );
+}
+
+#[test]
+fn cname_endpoint_rejects_ambiguous_url_components() {
+    for endpoint in [
+        "https://user:pass@files.example.test",
+        "https://files.example.test?query=value",
+        "https://files.example.test#fragment",
+        "https://files.example.test/prefix",
+        "https://files.example.test/prefix/",
+        "https://files.example.test\\prefix",
+        "https://files.example.test/\n",
+        "ftp://files.example.test",
+    ] {
+        let mut config = sample_config(endpoint, "bucket-1250000000");
+        config.use_cname = true;
+        assert!(
+            TencentCosDriver::validate_config(&config, &sample_credentials()).is_err(),
+            "accepted {endpoint:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn cname_driver_presigns_final_host_and_encoded_object_key() {
+    use aster_drive_storage::MultipartStorageDriver;
+    let mut config = sample_config("https://files.example.test:9443", "bucket-1250000000");
+    config.use_cname = true;
+    let driver = TencentCosDriver::new(config, sample_credentials()).unwrap();
+    let key = "目录/a b+%2F#?.txt";
+    let ttl = Duration::from_secs(300);
+    let download = driver
+        .resolve_download_url(key, ttl, DirectDownloadOptions::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let upload = driver
+        .presigned_put_request(key, ttl)
+        .await
+        .unwrap()
+        .unwrap();
+    let part = driver
+        .presigned_upload_part_request(key, "upload+/%id", 7, ttl)
+        .await
+        .unwrap();
+    for request_url in [&download.url, &upload.url, &part.url] {
+        let url = Url::parse(request_url).unwrap();
+        assert_eq!(url.host_str(), Some("files.example.test"));
+        assert_eq!(url.port(), Some(9443));
+        assert_eq!(
+            percent_encoding::percent_decode_str(url.path())
+                .decode_utf8()
+                .unwrap(),
+            format!("/tenant/prefix/{key}")
+        );
+        assert_eq!(query_value(&url, "q-header-list").as_deref(), Some("host"));
+        assert!(query_value(&url, "q-signature").is_some());
+        assert!(!request_url.contains("X-Amz-"));
+    }
+    let part_url = Url::parse(&part.url).unwrap();
+    assert_eq!(
+        query_value(&part_url, "uploadId").as_deref(),
+        Some("upload+/%id")
+    );
+    assert_eq!(query_value(&part_url, "partNumber").as_deref(), Some("7"));
+}
+
+#[test]
+fn cname_native_processing_and_cors_use_bucket_bound_host() {
+    let mut config = sample_config("https://files.example.test", "bucket-1250000000");
+    config.use_cname = true;
+    let driver = TencentCosDriver::new(config, sample_credentials()).unwrap();
+    let key = "目录/a b+%2F#?.png";
+    for signed in [
+        driver.signed_ci_thumbnail_url(key, 320, 240).unwrap(),
+        driver.signed_ci_media_info_url(key).unwrap(),
+    ] {
+        let url = Url::parse(&signed).unwrap();
+        assert_eq!(url.host_str(), Some("files.example.test"));
+        assert_eq!(
+            percent_encoding::percent_decode_str(url.path())
+                .decode_utf8()
+                .unwrap(),
+            format!("/tenant/prefix/{key}")
+        );
+        assert!(
+            query_value(&url, "sign")
+                .unwrap()
+                .contains("q-header-list=host")
+        );
+    }
+    let url = driver.bucket_cors_url().unwrap();
+    assert_eq!(url.as_str(), "https://files.example.test/?cors");
+    let headers = driver
+        .signed_cos_request_headers("PUT", &url, &[], "1700000000;1700000600")
+        .unwrap();
+    assert!(
+        headers[reqwest::header::AUTHORIZATION]
+            .to_str()
+            .unwrap()
+            .contains("q-url-param-list=cors")
+    );
 }

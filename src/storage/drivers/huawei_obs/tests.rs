@@ -2,17 +2,15 @@ use std::time::Duration;
 
 use aster_drive_storage::{StorageDriver, StorageErrorKind};
 
-use super::{
-    HuaweiObsAddressingMode, HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
-};
+use super::{HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials};
 
-fn config(endpoint: &str, addressing_mode: HuaweiObsAddressingMode) -> HuaweiObsDriverConfig {
+fn config(endpoint: &str, use_cname: bool) -> HuaweiObsDriverConfig {
     HuaweiObsDriverConfig {
         endpoint: endpoint.to_string(),
         bucket: "archive-bucket".to_string(),
         base_path: "tenant-a".to_string(),
         region: "cn-north-4".to_string(),
-        addressing_mode,
+        use_cname,
         connect_timeout: Duration::from_secs(5),
         read_timeout: Duration::from_secs(30),
         operation_timeout: Duration::from_secs(3_600),
@@ -32,7 +30,7 @@ fn normalizes_bucket_prefixed_official_endpoint() {
         "https://archive-bucket.obs.cn-north-4.myhuaweicloud.com/",
         "archive-bucket",
         " CN-NORTH-4 ",
-        HuaweiObsAddressingMode::VirtualHosted,
+        false,
     )
     .expect("official OBS endpoint");
 
@@ -50,7 +48,7 @@ fn rejects_incompatible_endpoint_and_addressing_combinations() {
         "https://s3.example.com",
         "archive-bucket",
         "cn-north-4",
-        HuaweiObsAddressingMode::VirtualHosted,
+        false,
     )
     .expect_err("generic S3 endpoint must not pass as native OBS");
     assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
@@ -60,7 +58,7 @@ fn rejects_incompatible_endpoint_and_addressing_combinations() {
         "https://obs.cn-north-4.myhuaweicloud.com",
         "archive-bucket",
         "cn-north-4",
-        HuaweiObsAddressingMode::CustomDomain,
+        true,
     )
     .expect_err("official endpoint must not be marked as a custom domain");
     assert!(error.message().contains("custom-domain addressing"));
@@ -69,7 +67,7 @@ fn rejects_incompatible_endpoint_and_addressing_combinations() {
         "https://archive-bucket.obs.cn-north-4.myhuaweicloud.com",
         "archive-bucket",
         "cn-north-4",
-        HuaweiObsAddressingMode::CustomDomain,
+        true,
     )
     .expect_err("bucket-prefixed official endpoint is not a custom domain");
 }
@@ -80,7 +78,7 @@ fn rejects_invalid_region_and_bucket_names() {
         "https://obs.cn-north-4.myhuaweicloud.com",
         "archive-bucket",
         "cn_north_4",
-        HuaweiObsAddressingMode::VirtualHosted,
+        false,
     )
     .expect_err("underscore is not a valid OBS region character");
     assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
@@ -90,7 +88,7 @@ fn rejects_invalid_region_and_bucket_names() {
         "https://obs.cn-north-4.myhuaweicloud.com",
         "Ab",
         "cn-north-4",
-        HuaweiObsAddressingMode::VirtualHosted,
+        false,
     )
     .expect_err("short uppercase bucket must be rejected");
     assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
@@ -100,10 +98,7 @@ fn rejects_invalid_region_and_bucket_names() {
 #[test]
 fn exposes_s3_shaped_runtime_capabilities_under_obs_signing() {
     let driver = HuaweiObsDriver::new(
-        config(
-            "https://obs.cn-north-4.myhuaweicloud.com",
-            HuaweiObsAddressingMode::VirtualHosted,
-        ),
+        config("https://obs.cn-north-4.myhuaweicloud.com", false),
         credentials(),
     )
     .expect("valid OBS driver");
@@ -119,10 +114,7 @@ fn exposes_s3_shaped_runtime_capabilities_under_obs_signing() {
 #[test]
 fn obs_reports_upload_part_limits() {
     let driver = HuaweiObsDriver::new(
-        config(
-            "https://obs.cn-north-4.myhuaweicloud.com",
-            HuaweiObsAddressingMode::VirtualHosted,
-        ),
+        config("https://obs.cn-north-4.myhuaweicloud.com", false),
         credentials(),
     )
     .expect("valid OBS driver");
@@ -138,10 +130,7 @@ fn obs_reports_upload_part_limits() {
 
 #[test]
 fn custom_domain_allows_region_to_be_omitted() {
-    let mut config = config(
-        "https://files.example.com",
-        HuaweiObsAddressingMode::CustomDomain,
-    );
+    let mut config = config("https://files.example.com", true);
     config.region.clear();
     HuaweiObsDriver::new(config, credentials()).expect("custom-domain OBS driver");
 
@@ -149,7 +138,7 @@ fn custom_domain_allows_region_to_be_omitted() {
         "https://archive-bucket.example.com",
         "archive-bucket",
         "",
-        HuaweiObsAddressingMode::CustomDomain,
+        true,
     )
     .expect("a valid custom domain may start with the bucket name");
 }

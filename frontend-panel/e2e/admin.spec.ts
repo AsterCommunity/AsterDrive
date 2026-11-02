@@ -197,6 +197,102 @@ test.describe
 			).toBeVisible();
 		});
 
+		for (const provider of [
+			{
+				label: "Tencent COS",
+				field: "cos_use_cname",
+				accessKeyLabel: "Tencent COS SecretId",
+				secretKeyLabel: "Tencent COS SecretKey",
+				officialEndpoint:
+					"https://media-1250000000.cos.ap-guangzhou.myqcloud.com",
+			},
+			{
+				label: "Huawei Cloud OBS",
+				field: "obs_use_cname",
+				accessKeyLabel: "Huawei Cloud Access Key ID",
+				secretKeyLabel: "Huawei Cloud Secret Access Key",
+				officialEndpoint: "https://obs.cn-north-4.myhuaweicloud.com",
+			},
+		]) {
+			test(`configures ${provider.label} CNAME endpoints through create and edit`, async ({
+				page,
+				request,
+			}) => {
+				await authenticate(page, request);
+				// Exercise the real policy API while stubbing external-provider availability.
+				await page.route("**/api/v1/admin/policies/test", async (route) => {
+					await route.fulfill({
+						status: 200,
+						json: { code: "success", msg: "success", data: {} },
+					});
+				});
+
+				await gotoAdminPage(page, "/admin/policies", "Storage Policies");
+				await page.getByRole("button", { name: "New Policy" }).click();
+				await page
+					.getByRole("button", { name: provider.label, exact: true })
+					.click();
+				await page.getByRole("button", { name: "Next", exact: true }).click();
+				const useCname = page.getByRole("switch", {
+					name: "Use a custom domain (CNAME)",
+				});
+				await expect(useCname).not.toBeChecked();
+				const policyName = uniqueName(`pw-${provider.field}`);
+				await page.locator("#name").fill(policyName);
+				await page.locator("#endpoint").fill("https://files.example.test");
+				await page.locator("#bucket").fill("media-1250000000");
+				await page.locator("#base_path").fill("e2e/cos");
+				if (provider.field === "obs_use_cname")
+					await page.locator("#obs_region").fill("cn-north-4");
+				await page
+					.getByLabel(provider.accessKeyLabel)
+					.fill("playwright-access-key");
+				await page
+					.getByLabel(provider.secretKeyLabel)
+					.fill("playwright-cos-secret");
+				await useCname.click();
+				await page.getByRole("button", { name: "Review", exact: true }).click();
+				const [created] = await Promise.all([
+					page.waitForResponse(
+						(response) =>
+							response.request().method() === "POST" &&
+							response.url().endsWith("/api/v1/admin/policies"),
+					),
+					page.getByRole("button", { name: "Create", exact: true }).click(),
+				]);
+				expect(created.status()).toBe(201);
+				expect(
+					created.request().postDataJSON().connection.connector_config.values,
+				).toMatchObject({
+					endpoint: "https://files.example.test",
+					[provider.field]: true,
+				});
+				await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);
+				await expect(useCname).toBeChecked();
+				await page.locator("#endpoint").fill(provider.officialEndpoint);
+				await useCname.click();
+				const [updated] = await Promise.all([
+					page.waitForResponse(
+						(response) =>
+							response.request().method() === "PATCH" &&
+							response.url().includes("/api/v1/admin/policies/"),
+					),
+					page.getByRole("button", { name: "Save Changes" }).first().click(),
+				]);
+				expect(updated.ok()).toBe(true);
+				expect(
+					updated.request().postDataJSON().connector_config.values[
+						provider.field
+					],
+				).toBe(false);
+				await page.reload();
+				await expect(useCname).not.toBeChecked();
+				await expect(page.locator("#endpoint")).toHaveValue(
+					provider.officialEndpoint,
+				);
+			});
+		}
+
 		test("renders and validates Alibaba Cloud OSS from its connector descriptor", async ({
 			page,
 			request,
@@ -215,7 +311,7 @@ test.describe
 			const bucket = page.getByLabel("Bucket");
 			const basePath = page.getByLabel("Base Path");
 			const useCname = page.getByRole("switch", {
-				name: "Use CNAME custom domain",
+				name: "Use a custom domain (CNAME)",
 			});
 			const accessKeyId = page.getByLabel("Alibaba Cloud AccessKey ID");
 			const accessKeySecret = page.getByLabel("Alibaba Cloud AccessKey Secret");
