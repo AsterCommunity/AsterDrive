@@ -107,6 +107,15 @@ impl AlibabaOssDriver {
         {
             cdn_signing::validate_cdn_domain(cdn_domain)?;
         }
+
+        // 校验 CDN 鉴权类型配置
+        if let Some(auth_type_str) = config
+            .cdn_auth_type
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            cdn_signing::CdnAuthType::parse(auth_type_str)?;
+        }
         Ok(())
     }
 
@@ -127,6 +136,29 @@ impl AlibabaOssDriver {
                 "OSS access key secret cannot be empty",
             ));
         }
+
+        // 校验 CDN 鉴权配置：如果配置了需要签名的鉴权类型，必须提供密钥
+        if let Some(auth_type_str) = config
+            .cdn_auth_type
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            let auth_type = cdn_signing::CdnAuthType::parse(auth_type_str)?;
+            if auth_type != cdn_signing::CdnAuthType::None
+                && credentials
+                    .cdn_auth_key
+                    .as_ref()
+                    .map_or(true, |k| k.trim().is_empty())
+            {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Auth,
+                    format!(
+                        "CDN auth type '{auth_type_str}' requires a CDN authentication key"
+                    ),
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -158,13 +190,17 @@ impl AlibabaOssDriver {
             .cdn_domain
             .as_ref()
             .filter(|domain| !domain.trim().is_empty())
-            .map(|domain| CdnConfig {
-                domain: domain.clone(),
-                auth_type: cdn_signing::CdnAuthType::from_str(
+            .map(|domain| {
+                let auth_type = cdn_signing::CdnAuthType::parse(
                     config.cdn_auth_type.as_deref().unwrap_or(""),
-                ),
-                auth_key: credentials.cdn_auth_key.clone(),
-                base_path: config.base_path.clone(),
+                )
+                .expect("CDN auth type already validated");
+                CdnConfig {
+                    domain: domain.trim().to_string(),
+                    auth_type,
+                    auth_key: credentials.cdn_auth_key.clone(),
+                    base_path: config.base_path.clone(),
+                }
             });
 
         Ok(Self {
@@ -452,23 +488,29 @@ impl DirectDownloadStorageDriver for AlibabaOssDriver {
     ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
         // 如果配置了 CDN，使用 CDN 签名
         if let Some(cdn_config) = &self.cdn_config {
-            // CDN 交付不经过 OSS API client，这里用与 S3Driver::full_key 相同的
-            // base_path 拼接逻辑（join_key_prefix），确保对象键前缀一致。
-            let object_key =
-                aster_drive_storage::object_key::join_key_prefix(&cdn_config.base_path, path);
-            let auth_key = cdn_config.auth_key.as_deref().unwrap_or("");
+            // 阿里云 CDN 鉴权 URL 不支持 query 参数（会破坏签名），无法覆盖响应头。
+            // 当需要设置 Content-Disposition 时，fallback 到 OSS presigned URL。
+            if options.response_content_disposition.is_some() {
+                // 不使用 CDN，继续走 fallback 路径
+            } else {
+                // CDN 交付不经过 OSS API client，这里用与 S3Driver::full_key 相同的
+                // base_path 拼接逻辑（join_key_prefix），确保对象键前缀一致。
+                let object_key =
+                    aster_drive_storage::object_key::join_key_prefix(&cdn_config.base_path, path);
+                let auth_key = cdn_config.auth_key.as_deref().unwrap_or("");
 
-            let url = cdn_signing::generate_cdn_signed_url(
-                &cdn_config.domain,
-                &object_key,
-                cdn_config.auth_type,
-                auth_key,
-                expires,
-            )?;
+                let url = cdn_signing::generate_cdn_signed_url(
+                    &cdn_config.domain,
+                    &object_key,
+                    cdn_config.auth_type,
+                    auth_key,
+                    expires,
+                )?;
 
-            return Ok(Some(
-                aster_drive_storage::DirectDownloadRequest::temporary_url(url, expires),
-            ));
+                return Ok(Some(
+                    aster_drive_storage::DirectDownloadRequest::temporary_url(url, expires),
+                ));
+            }
         }
 
         // fallback: 使用原有 OSS V4 签名

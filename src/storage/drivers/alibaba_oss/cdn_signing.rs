@@ -43,10 +43,10 @@ pub fn validate_cdn_domain(domain: &str) -> Result<()> {
         )
     })?;
 
-    if url.scheme() != "http" && url.scheme() != "https" {
+    if url.scheme() != "https" {
         return Err(storage_driver_error(
             StorageErrorKind::Misconfigured,
-            "CDN download domain must use http or https",
+            "CDN download domain must use https",
         ));
     }
 
@@ -94,12 +94,24 @@ pub enum CdnAuthType {
 }
 
 impl CdnAuthType {
-    pub fn from_str(s: &str) -> Self {
-        match s.trim().to_lowercase().as_str() {
-            "type_a" | "a" => Self::TypeA,
-            "type_b" | "b" => Self::TypeB,
-            "type_c" | "c" => Self::TypeC,
-            _ => Self::None,
+    /// 解析鉴权类型字符串。
+    ///
+    /// 接受的值：`none`、`type_a`、`type_b`、`type_c`（大小写不敏感）。
+    /// 空字符串视为 `none`。未知值返回错误。
+    pub fn parse(s: &str) -> Result<Self> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Ok(Self::None);
+        }
+        match s.to_lowercase().as_str() {
+            "none" => Ok(Self::None),
+            "type_a" | "a" => Ok(Self::TypeA),
+            "type_b" | "b" => Ok(Self::TypeB),
+            "type_c" | "c" => Ok(Self::TypeC),
+            _ => Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("invalid CDN auth type: {s}"),
+            )),
         }
     }
 }
@@ -167,13 +179,14 @@ pub fn generate_cdn_signed_url(
 /// 格式: `http://DomainName/Filename?auth_key=timestamp-rand-uid-md5hash`
 /// 其中 `md5hash = md5(uri-timestamp-rand-uid-PrivateKey)`。
 /// `encoded_key` 为已 UrlEncode 的对象键，签名与 URL 共用。
+/// timestamp 使用 Unix 秒（十进制）。
 fn generate_type_a_url(
     cdn_domain: &str,
     encoded_key: &str,
     auth_key: &str,
     expires: Duration,
 ) -> Result<String> {
-    let timestamp = calculate_expiry_timestamp(expires)?;
+    let timestamp = calculate_expiry_datetime(expires)?.timestamp();
     let rand = "0";
     let uid = "0";
     let uri = format!("/{encoded_key}");
@@ -191,13 +204,17 @@ fn generate_type_a_url(
 ///
 /// 格式: `http://DomainName/timestamp/md5hash/Filename`
 /// 其中 `md5hash = md5(PrivateKey + timestamp + uri)`。
+/// timestamp 使用 UTC+8 的 YYYYMMDDHHMM 格式（年月日时分，无秒）。
 fn generate_type_b_url(
     cdn_domain: &str,
     encoded_key: &str,
     auth_key: &str,
     expires: Duration,
 ) -> Result<String> {
-    let timestamp = calculate_expiry_timestamp(expires)?;
+    let expiry = calculate_expiry_datetime(expires)?;
+    // 阿里云 CDN 鉴权方式 B 要求使用 UTC+8 的 YYYYMMDDHHMM 格式
+    let cst = chrono::FixedOffset::east_opt(8 * 3600).expect("UTC+8 offset is valid");
+    let timestamp = expiry.with_timezone(&cst).format("%Y%m%d%H%M").to_string();
     let uri = format!("/{encoded_key}");
 
     // 拼接待签名字符串: PrivateKey + timestamp + uri
@@ -211,13 +228,16 @@ fn generate_type_b_url(
 ///
 /// 格式: `http://DomainName/md5hash/timestamp/Filename`
 /// 其中 `md5hash = md5(PrivateKey + uri + timestamp)`。
+/// timestamp 使用十六进制 Unix 时间戳（无 0x 前缀）。
 fn generate_type_c_url(
     cdn_domain: &str,
     encoded_key: &str,
     auth_key: &str,
     expires: Duration,
 ) -> Result<String> {
-    let timestamp = calculate_expiry_timestamp(expires)?;
+    let expiry = calculate_expiry_datetime(expires)?;
+    // 阿里云 CDN 鉴权方式 C 要求使用十六进制 Unix 时间戳
+    let timestamp = format!("{:x}", expiry.timestamp());
     let uri = format!("/{encoded_key}");
 
     // 拼接待签名字符串: PrivateKey + uri + timestamp
@@ -227,8 +247,8 @@ fn generate_type_c_url(
     Ok(format!("{cdn_domain}/{md5hash}/{timestamp}/{encoded_key}"))
 }
 
-/// 计算过期时间戳（秒）
-fn calculate_expiry_timestamp(expires: Duration) -> Result<i64> {
+/// 计算过期时刻（DateTime）
+fn calculate_expiry_datetime(expires: Duration) -> Result<chrono::DateTime<Utc>> {
     let expiry_duration = chrono::Duration::from_std(expires).map_err(|e| {
         storage_driver_error(
             StorageErrorKind::Misconfigured,
@@ -244,7 +264,6 @@ fn calculate_expiry_timestamp(expires: Duration) -> Result<i64> {
                 "CDN URL expiry timestamp overflow",
             )
         })
-        .map(|dt| dt.timestamp())
 }
 
 #[cfg(test)]
@@ -253,12 +272,18 @@ mod tests {
 
     #[test]
     fn cdn_auth_type_parsing() {
-        assert_eq!(CdnAuthType::from_str("type_a"), CdnAuthType::TypeA);
-        assert_eq!(CdnAuthType::from_str("A"), CdnAuthType::TypeA);
-        assert_eq!(CdnAuthType::from_str("type_b"), CdnAuthType::TypeB);
-        assert_eq!(CdnAuthType::from_str("type_c"), CdnAuthType::TypeC);
-        assert_eq!(CdnAuthType::from_str("none"), CdnAuthType::None);
-        assert_eq!(CdnAuthType::from_str("invalid"), CdnAuthType::None);
+        assert_eq!(CdnAuthType::parse("type_a").unwrap(), CdnAuthType::TypeA);
+        assert_eq!(CdnAuthType::parse("A").unwrap(), CdnAuthType::TypeA);
+        assert_eq!(CdnAuthType::parse("type_b").unwrap(), CdnAuthType::TypeB);
+        assert_eq!(CdnAuthType::parse("type_c").unwrap(), CdnAuthType::TypeC);
+        assert_eq!(CdnAuthType::parse("none").unwrap(), CdnAuthType::None);
+        assert_eq!(CdnAuthType::parse("").unwrap(), CdnAuthType::None);
+        assert_eq!(CdnAuthType::parse("  ").unwrap(), CdnAuthType::None);
+
+        // 未知值应该返回错误
+        assert!(CdnAuthType::parse("invalid").is_err());
+        assert!(CdnAuthType::parse("typea").is_err());
+        assert!(CdnAuthType::parse("type_d").is_err());
     }
 
     #[test]
@@ -310,8 +335,9 @@ mod tests {
             .splitn(3, '/')
             .collect();
         assert_eq!(parts.len(), 3);
-        // parts[0] = timestamp (数字)
-        assert!(parts[0].parse::<i64>().is_ok());
+        // parts[0] = timestamp (YYYYMMDDHHMM 格式，12位数字)
+        assert_eq!(parts[0].len(), 12);
+        assert!(parts[0].chars().all(|c| c.is_ascii_digit()));
         // parts[1] = md5hash (32位十六进制)
         assert_eq!(parts[1].len(), 32);
         assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
@@ -339,8 +365,11 @@ mod tests {
         // parts[0] = md5hash (32位十六进制)
         assert_eq!(parts[0].len(), 32);
         assert!(parts[0].chars().all(|c| c.is_ascii_hexdigit()));
-        // parts[1] = timestamp (数字)
-        assert!(parts[1].parse::<i64>().is_ok());
+        // parts[1] = timestamp (十六进制，无 0x 前缀)
+        assert!(parts[1].len() > 0);
+        assert!(parts[1].chars().all(|c| c.is_ascii_hexdigit()));
+        // 验证可以解析为十六进制数字
+        assert!(i64::from_str_radix(parts[1], 16).is_ok());
         // parts[2] = filename
         assert_eq!(parts[2], "test/file.txt");
     }
@@ -432,7 +461,7 @@ mod tests {
     #[test]
     fn validate_cdn_domain_accepts_clean_https() {
         validate_cdn_domain("https://cdn.example.com").expect("clean https domain");
-        validate_cdn_domain("http://cdn.example.com:8080").expect("clean http with port");
+        validate_cdn_domain("https://cdn.example.com:8443").expect("clean https with port");
         validate_cdn_domain("https://cdn.example.com/").expect("trailing slash allowed");
     }
 

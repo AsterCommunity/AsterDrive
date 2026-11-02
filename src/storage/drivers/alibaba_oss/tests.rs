@@ -24,7 +24,7 @@ fn sample_credentials() -> AlibabaOssStaticCredentials {
     AlibabaOssStaticCredentials {
         access_key: "ak".to_string(),
         secret_key: "sk".to_string(),
-        cdn_auth_key: None,
+        cdn_auth_key: Some("test-cdn-key".to_string()),
     }
 }
 
@@ -394,12 +394,14 @@ async fn fallback_to_oss_when_no_cdn_configured() {
 fn cdn_auth_type_parsing() {
     use super::cdn_signing::CdnAuthType;
 
-    assert_eq!(CdnAuthType::from_str("type_a"), CdnAuthType::TypeA);
-    assert_eq!(CdnAuthType::from_str("type_b"), CdnAuthType::TypeB);
-    assert_eq!(CdnAuthType::from_str("type_c"), CdnAuthType::TypeC);
-    assert_eq!(CdnAuthType::from_str("none"), CdnAuthType::None);
-    // 未知值回退到 None（无鉴权）
-    assert_eq!(CdnAuthType::from_str("invalid"), CdnAuthType::None);
+    assert_eq!(CdnAuthType::parse("type_a").unwrap(), CdnAuthType::TypeA);
+    assert_eq!(CdnAuthType::parse("type_b").unwrap(), CdnAuthType::TypeB);
+    assert_eq!(CdnAuthType::parse("type_c").unwrap(), CdnAuthType::TypeC);
+    assert_eq!(CdnAuthType::parse("none").unwrap(), CdnAuthType::None);
+    assert_eq!(CdnAuthType::parse("").unwrap(), CdnAuthType::None);
+    // 未知值应该返回错误
+    assert!(CdnAuthType::parse("invalid").is_err());
+    assert!(CdnAuthType::parse("typea").is_err());
 }
 
 #[test]
@@ -414,6 +416,43 @@ fn validate_config_rejects_unsafe_cdn_domain() {
     let err = AlibabaOssDriver::validate_config(&config, &sample_credentials())
         .expect_err("CDN domain with path must be rejected");
     assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
+}
+
+#[test]
+fn validate_config_rejects_invalid_cdn_auth_type() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".to_string());
+    config.cdn_auth_type = Some("invalid_type".to_string());
+    let err = AlibabaOssDriver::validate_connection_config(&config)
+        .expect_err("invalid CDN auth type must be rejected");
+    assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
+}
+
+#[test]
+fn validate_config_requires_auth_key_for_signed_types() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".to_string());
+    config.cdn_auth_type = Some("type_a".to_string());
+
+    let mut credentials = sample_credentials();
+    credentials.cdn_auth_key = None;
+
+    let err = AlibabaOssDriver::validate_config(&config, &credentials)
+        .expect_err("type_a without auth key must be rejected");
+    assert_eq!(err.kind(), StorageErrorKind::Auth);
+}
+
+#[test]
+fn validate_config_accepts_none_type_without_auth_key() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".to_string());
+    config.cdn_auth_type = Some("none".to_string());
+
+    let mut credentials = sample_credentials();
+    credentials.cdn_auth_key = None;
+
+    AlibabaOssDriver::validate_config(&config, &credentials)
+        .expect("none type without auth key should be accepted");
 }
 
 #[test]

@@ -204,8 +204,14 @@ impl AlibabaOssConnector {
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
-            cdn_domain: Some(config.oss_cdn_domain).filter(|s| !s.trim().is_empty()),
-            cdn_auth_type: Some(config.oss_cdn_auth_type).filter(|s| !s.trim().is_empty()),
+            cdn_domain: {
+                let trimmed = config.oss_cdn_domain.trim();
+                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            },
+            cdn_auth_type: {
+                let trimmed = config.oss_cdn_auth_type.trim();
+                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            },
         }
     }
 
