@@ -6063,6 +6063,12 @@ async fn test_tencent_cos_cname_policy_round_trips_and_builds_runtime_driver() {
         let body: Value = test::read_body_json(response).await;
         assert_eq!(status, if cname { 201 } else { 400 }, "{body}");
         if !cname {
+            assert!(
+                body["msg"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("myqcloud.com")),
+                "{body}"
+            );
             continue;
         }
         let id = body["data"]["id"].as_i64().unwrap();

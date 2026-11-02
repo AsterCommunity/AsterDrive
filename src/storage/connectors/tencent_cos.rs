@@ -182,6 +182,7 @@ aster_drive_storage::storage_connector_schema! {
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        #[serde(default)]
         pub cos_use_cname: bool => {
             let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                 name: "cos_use_cname", scope: StorageConnectorFieldScope::ConnectorConfig,

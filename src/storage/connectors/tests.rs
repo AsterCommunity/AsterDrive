@@ -257,6 +257,36 @@ fn cos_config(upload: ObjectStorageUploadStrategy) -> TencentCosConnectorConfigV
     }
 }
 
+#[test]
+fn persisted_cos_configs_default_missing_cname_and_preserve_explicit_modes() {
+    for configured in [None, Some(false), Some(true)] {
+        let mut values = serde_json::to_value(cos_config(ObjectStorageUploadStrategy::RelayStream))
+            .expect("COS config should serialize");
+        let fields = values.as_object_mut().expect("COS config object");
+        if let Some(enabled) = configured {
+            fields.insert("cos_use_cname".to_string(), serde_json::json!(enabled));
+        } else {
+            fields.remove("cos_use_cname");
+        }
+        let policy = super::test_support::policy(
+            TencentCosConnector::ID,
+            1,
+            values,
+            StoragePolicyBehaviorConfig::default(),
+        );
+        // Decode persisted configuration directly, bypassing the API normalizer
+        // that would otherwise insert descriptor defaults and hide this regression.
+        let (decoded, _) =
+            super::common::decode_typed_policy_config::<TencentCosConnectorConfigV1>(
+                &policy,
+                TencentCosConnector::ID,
+                1,
+            )
+            .expect("stored COS policy should decode without being resaved");
+        assert_eq!(decoded.cos_use_cname, configured.unwrap_or(false));
+    }
+}
+
 fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1 {
     HuaweiObsConnectorConfigV1 {
         endpoint: "https://obs.cn-north-4.myhuaweicloud.com".to_string(),

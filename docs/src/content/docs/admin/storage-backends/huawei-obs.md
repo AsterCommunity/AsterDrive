@@ -144,9 +144,9 @@ AsterDrive 的连接测试只从服务端验证 endpoint、凭证和基础对象
 保存前或保存后点击 `测试连接`，确认：
 
 1. AsterDrive 服务端可以访问 endpoint
-2. bucket 名和 region 匹配
+2. `obs_use_cname=false` 时，核对 bucket 名、区域 endpoint 和 `obs_region` 是否匹配
 3. AK/SK 有目标 prefix 的读、写、删和 multipart 权限
-4. custom domain 确实已经绑定到目标 bucket
+4. `obs_use_cname=true` 时，核对自定义域名是否已绑定目标 bucket；`obs_region` 可以留空
 5. AsterDrive 服务器时间准确
 
 编辑已保存策略时，如果凭据字段留空，草稿测试可以复用已保存的静态凭据；新建策略仍要填写完整凭据。

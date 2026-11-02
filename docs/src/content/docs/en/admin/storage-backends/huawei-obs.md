@@ -35,7 +35,7 @@ AsterDrive normalizes that value to the regional root and generates virtual-host
 
 Custom-domain mode sends requests directly to the OBS-bound hostname. AsterDrive does not prepend the bucket to that hostname, and its canonical signed resource follows the OBS SDK's CNAME behavior. Do not mark an official OBS endpoint as a custom domain.
 
-The **Use a custom domain (CNAME)** switch maps to connector field `obs_use_cname` and defaults to `false`. It follows the official Go SDK's [`WithCustomDomainName(bool)`](https://github.com/huaweicloud/huaweicloud-sdk-go-obs/blob/master/obs/conf.go) and Python SDK's `is_cname` option. The upgrade migration converts legacy `obs_addressing_mode=virtual_hosted` / `custom_domain` to `false` / `true` in policies, remote targets, and deleted-policy cleanup snapshots. Upgrade all nodes together; API clients must use the boolean field. Run the corresponding down migration before reverting to an older binary. Finish active OBS storage-migration tasks before upgrading and regenerate unexecuted migration preflight plans afterward.
+The **Use a custom domain (CNAME)** switch maps to connector field `obs_use_cname` and defaults to `false`. It follows the official Go SDK's [`WithCustomDomainName(bool)`](https://github.com/huaweicloud/huaweicloud-sdk-go-obs/blob/master/obs/conf.go) and Python SDK's `is_cname` option. The upgrade migration converts legacy `obs_addressing_mode=virtual_hosted` / `custom_domain` to `false` / `true` in policies, remote targets, and deleted-policy cleanup snapshots without changing existing object paths or signing semantics. Upgrade all nodes together; API clients must use the boolean field. Run the corresponding down migration before reverting to an older binary. Finish active OBS storage-migration tasks before upgrading and regenerate unexecuted migration preflight plans afterward.
 
 OBS supports CDN origins, but CNAME mode does not implement CDN download authentication. Separate delivery configuration and private-origin access are tracked in [#686](https://github.com/AsterCommunity/AsterDrive/issues/686).
 
@@ -144,9 +144,9 @@ Signing is fixed to the native OBS protocol by the connector driver and is not a
 Before or after saving, run `Test Connection` and verify:
 
 1. the AsterDrive server reaches the endpoint;
-2. the bucket and region match;
+2. when `obs_use_cname=false`, the bucket, regional endpoint, and `obs_region` match;
 3. the AK/SK can read, write, delete, and use multipart under the target prefix;
-4. the custom domain is actually bound to the target bucket; and
+4. when `obs_use_cname=true`, the custom domain is bound to the target bucket; `obs_region` may be empty; and
 5. the AsterDrive server clock is accurate.
 
 When editing a saved policy, leaving credential fields blank lets draft tests reuse the saved static credential. A new policy still needs complete credentials.
