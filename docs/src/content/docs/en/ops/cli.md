@@ -25,6 +25,10 @@ Running `./aster_drive` directly starts the service. Running it with a subcomman
 
 Server startup (`serve all/api/worker` or no subcommand), `--config-file` / `--data-dir`, and `version` / `version --json` remain available without the `operations-cli` Cargo feature. That feature controls the operational subcommands below. Build a service-only binary with `cargo build --no-default-features --features server`, or pass `--build-arg CARGO_FEATURES=server` to Docker.
 
+## Output channels in scripts
+
+Command results go to stdout; errors, interactive prompts, and migration progress go to stderr. Specify `--output-format json` for machine-readable operational reports. Redirecting stdout does not disable prompts on terminal stderr, and automated writes still require `--yes`. Server-only and full builds retain the same command names, arguments, and output contracts; compiled features determine which subcommands are available.
+
 ## Command Quick Reference
 
 | What you want to do | Command | When to use it |
@@ -62,6 +66,8 @@ Interactive terminals ask for confirmation before `config set`, `config delete`,
 The distinction is simple: `validate` checks the input itself; `--dry-run` resolves it against current state and shows what would be added, updated, or deleted.
 
 Interactive config writes display the validated plan before confirmation, keeping sensitive values redacted. `node enroll` has no dry-run because consuming a remote enrollment token cannot be rehearsed offline. `doctor --fix --dry-run` performs the audit and lists counter differences. Migration previews and verification require an existing SQLite target file (use `touch` to prepare an empty target); only actual migrations can create the target database file.
+
+Human-readable config values escape terminal control characters so backup contents cannot alter the display or confirmation prompt. Plain-text values double literal backslashes to distinguish them from control escapes, such as `\t` for a tab. Displayed JSON arrays and quoted current values use valid JSON Unicode escapes, such as `\u009b`, and remain parseable. JSON reports and backups preserve the original values. Preview status reads `planned, not written`; keeping a saved value reports `unchanged`.
 
 ## Shell Completion
 
@@ -447,6 +453,8 @@ Remember three things when using it:
 - The source database must already be at the "current schema"; pending migrations cause immediate refusal.
 - Do not continue writing new data into the source database during migration.
 - Only `ready_to_cutover = true` in the report means the target database is ready for switching.
+
+Preflight accepts empty legacy `storage_policy_credentials` and `storage_connector_application_configs` tables without copying them. Nonempty legacy tables or old static policy credentials block migration with guidance to finish importing credentials on 0.5.x first. Other unknown tables remain rejected.
 
 ## When to Read This Page First
 

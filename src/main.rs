@@ -90,10 +90,10 @@ async fn main() -> std::io::Result<()> {
 
     aster_forge_auth::initialize_jwt_crypto_provider().map_err(io_other)?;
 
-    let (serve_role, config_location) = match aster_drive::cli::command::execute().await? {
-        aster_drive::cli::command::CommandOutcome::Serve { role, location } => (role, location),
-        aster_drive::cli::command::CommandOutcome::Exit(0) => return Ok(()),
-        aster_drive::cli::command::CommandOutcome::Exit(code) => std::process::exit(code),
+    let (serve_role, config_location) = match aster_drive::cli::run().await? {
+        aster_drive::cli::CommandOutcome::Serve { role, location } => (role, location),
+        aster_drive::cli::CommandOutcome::Exit(0) => return Ok(()),
+        aster_drive::cli::CommandOutcome::Exit(code) => std::process::exit(code),
     };
     let bootstrap_config_path =
         aster_drive::services::remote::node_enrollment::prepare_follower_bootstrap_config(

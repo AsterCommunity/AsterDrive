@@ -25,6 +25,10 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 
 `serve all/api/worker`、无子命令启动、`--config-file` / `--data-dir`、`version` / `version --json` 在禁用 `operations-cli` Cargo feature 时仍然可用；`operations-cli` 只控制下文的运维子命令。仅构建服务可用 `cargo build --no-default-features --features server`，Docker 对应 `--build-arg CARGO_FEATURES=server`。
 
+## 脚本中的输出通道
+
+命令结果写入 stdout，错误、交互提示和迁移进度写入 stderr。需要机器可读的运维报告时显式指定 `--output-format json`；重定向 stdout 不会关闭 stderr 上的终端提示，自动化写入仍须使用 `--yes`。服务构建、完整构建使用相同的命令名称、参数和输出契约，可用子命令由当前二进制编译的 feature 决定。
+
 ## 命令速查
 
 | 你要做什么 | 用哪个命令 | 什么时候用 |
@@ -62,6 +66,8 @@ AsterDrive 现在自带一组命令行工具，适合下面这些场景：
 `validate` 与 `--dry-run` 的差别：前者校验输入本身；后者解析输入并与当前状态比较，展示将新增、更新或删除的内容。
 
 配置写操作在交互确认前展示已校验的计划；敏感值继续脱敏。`node enroll` 不提供 dry-run，因为远端 enrollment token 的消费无法离线预演。`doctor --fix --dry-run` 保留审计扫描并列出计数差异。数据库迁移的预览和只验证模式要求 SQLite 目标文件已存在（新目标可先用 `touch` 创建空文件），不会替操作者创建数据库；实际迁移仍可创建目标文件。
+
+人类可读的配置值会转义终端控制字符，防止备份内容改变显示画面或确认提示。普通文本中的字面反斜杠显示为双反斜杠，与 Tab 的 `\t` 等控制字符转义区分；展示的 JSON 数组及带引号当前值使用 `\u009b` 等合法 JSON Unicode 转义，仍可解析。JSON 报告和备份保留原值。预览状态显示 `planned, not written`，保留保存值时显示 `unchanged`。
 
 ## Shell 自动补全
 
@@ -447,6 +453,8 @@ Docker follower 更推荐用启动环境变量自动 enroll，不需要进容器
 - 源库必须先是“当前 schema”，有待执行迁移就会直接拒绝
 - 迁移过程中不要继续往源库写新数据
 - 只有报告里的 `ready_to_cutover = true`，才说明目标库已经达到可切换状态
+
+预检允许空的 `storage_policy_credentials` 和 `storage_connector_application_configs` 遗留表，但不会复制它们；非空遗留表或旧策略静态凭据会阻断迁移并提示先在 0.5.x 完成凭据导入，其他未知表仍会被拒绝。
 
 ## 什么时候优先看这页
 

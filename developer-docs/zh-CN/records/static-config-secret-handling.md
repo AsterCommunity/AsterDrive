@@ -84,7 +84,7 @@
 
 ### URL 脱敏约束
 
-`src/cli/db_shared.rs::redact_database_url` 用于 doctor 和数据库迁移输出，必须同时覆盖：
+`src/cli/common/database.rs::redact_database_url` 用于 doctor 和数据库迁移输出，必须同时覆盖：
 
 - authority 中的用户名和密码，输出中不保留任一凭据；
 - query 参数中名称为 `token`、`password`、`secret`、`api_key`、`credential` 及其常见前缀/后缀变体的值；

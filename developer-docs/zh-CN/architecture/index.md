@@ -26,7 +26,7 @@
 | 你想回答的问题 | 先看哪里 | 为什么 |
 | --- | --- | --- |
 | 服务怎么启动、怎么区分 primary / follower | `src/main.rs`、`src/config/node_mode.rs`、`src/runtime/startup/` | 这里决定启动模式、运行时状态和节点职责 |
-| 运维 CLI 怎么执行 | `src/cli/command.rs`、`src/cli/**` | `operations-cli` feature 下的子命令在进入 HTTP 启动前分派 |
+| 运维 CLI 怎么执行 | `src/cli/app.rs`、`src/cli/dispatch.rs`、`src/cli/commands/**` | `operations-cli` feature 下的子命令在进入 HTTP 启动前分派 |
 | 主节点挂了哪些路由 | `src/api/primary.rs`、`src/api/routes/` | 这里决定 `/api/v1`、`/health`、`/d`、`/pv`、WebDAV 和前端兜底的注册顺序 |
 | 从节点到底暴露什么 | `src/api/follower.rs`、`src/api/routes/internal_storage.rs` | follower 只负责内部存储协议和健康检查 |
 | 远端节点 binding 与反向隧道怎么走 | `src/api/routes/remote_node_control.rs`、`src/services/remote/binding_control.rs`、`src/api/routes/remote_tunnel.rs`、`src/storage/remote_protocol/tunnel/` | follower 通过独立控制面拉取 binding desired state，只在有效 transport 为 reverse tunnel 时启动数据面 worker |
@@ -207,7 +207,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 
 1. 安装 panic hook
 2. 加载 `.env`
-3. 由 `src/cli/command.rs` 解析根命令和实例路径；`serve all/api/worker` 始终可用，`operations-cli` 只控制运维子命令，执行后直接退出
+3. 由 `src/cli/app.rs` 解析根命令、`src/cli/dispatch.rs` 分派命令和实例路径；`serve all/api/worker` 始终可用，`operations-cli` 只控制运维子命令，执行后直接退出
 4. 初始化静态配置
 5. 初始化日志
 6. 清理 runtime 临时目录
@@ -277,7 +277,7 @@ topic = "aster_drive.config_reload"
 
 ```bash
 cargo nextest run --profile ci --test-threads=1 --lib services::ops::config::
-cargo nextest run --profile ci --test-threads=1 --lib cli::config::tests
+cargo nextest run --profile ci --test-threads=1 --lib cli::commands::config::execute::tests
 cargo check --features operations-cli -j 1
 cargo check --tests -j 1
 ```
@@ -383,15 +383,17 @@ dispatcher 认领任务后会为业务执行创建 `TaskExecutionContext`。它�
 
 ## CLI 与离线运维入口
 
-`Cargo.toml` 里默认 feature 包含 `operations-cli`，所以默认构建出来的 `aster_drive` 既能直接启动服务，也能执行离线运维子命令。`src/cli/command.rs` 会在 HTTP 服务启动前先解析这些子命令：
+CLI 的入口、共享能力、命令分层和测试入口见[CLI 架构](./cli.md)。
+
+`Cargo.toml` 里默认 feature 包含 `operations-cli`，所以默认构建出来的 `aster_drive` 既能直接启动服务，也能执行离线运维子命令。`src/cli/app.rs` 定义静态命令树，`src/cli/dispatch.rs` 会在 HTTP 服务启动前分派这些子命令：
 
 | 子命令 | 代码入口 | 当前职责 |
 | --- | --- | --- |
-| `serve all/api/worker` 或无子命令 | `src/cli/command.rs` → `src/main.rs` | 不依赖 `operations-cli`；选择进程职责并启动配置指定的 primary / follower 服务 |
-| `doctor` | `src/cli/doctor/mod.rs`、`src/cli/doctor/**` | 数据库、migration、运行时配置、存储策略和深度一致性审计 |
-| `config` | `src/cli/config.rs` | 离线读取、设置、导入、导出、校验 `system_config` |
-| `database-migrate` | `src/cli/database_migration/mod.rs`、`src/cli/database_migration/**` | 跨数据库后端迁移，支持 dry-run、verify-only 和断点续传 |
-| `node enroll` | `src/cli/node.rs` | follower 用主节点签发的 enrollment token 写入本地 master binding |
+| `serve all/api/worker` 或无子命令 | `src/cli/app.rs` → `src/cli/dispatch.rs` → `src/main.rs` | 不依赖 `operations-cli`；选择进程职责并启动配置指定的 primary / follower 服务 |
+| `doctor` | `src/cli/commands/doctor/` | 数据库、migration、运行时配置、存储策略和深度一致性审计 |
+| `config` | `src/cli/commands/config/` | 离线读取、设置、导入、导出、校验 `system_config` |
+| `database-migrate` | `src/cli/commands/database_migration/` | 跨数据库后端迁移，支持 dry-run、verify-only 和断点续传 |
+| `node enroll` | `src/cli/commands/node/` | follower 用主节点签发的 enrollment token 写入本地 master binding |
 
 这些 CLI 通常直接连接数据库，不经过 HTTP route 层。改这类能力时先看 `src/cli/**` 和对应 service，而不是去 `src/api/routes/**` 里找。
 

@@ -35,7 +35,7 @@ def saved(key):
 
 
 def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="config", extra_env=None,
-             canceled=False, expect_color=False):
+             canceled=False, expect_color=False, raw_output=None):
     # stdout is deliberately a pipe: prompts and terminal echo must not corrupt JSON.
     stdout_read, stdout_write = os.pipe()
     ready_read, ready_write = os.pipe()
@@ -164,6 +164,8 @@ def interact(args, steps, succeeds=True, hidden=False, forbidden=(), root="confi
             assert plain.splitlines()[-1] == b"Canceled.", "prompt text remained after cancellation notice"
         for marker in forbidden:
             assert marker not in output and marker not in stdout, "sensitive value leaked"
+        if raw_output is not None:
+            raw_output.extend(output)
         if succeeds:
             if root not in ("config", "node"):
                 assert stdout.startswith(b"$argon2id$") and stdout.count(b"\n") == 1
@@ -199,6 +201,38 @@ with os.fdopen(os.open(private_backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o6
                             "source": "custom", "visibility": "private", "is_sensitive": True}],
                "omitted_sensitive_keys": []}, stream)
 cli("import", "--input-file", private_backup)
+
+# Stored values from files and backups must be safe in the current-value prompt,
+# including C1 CSI/OSC/ST characters which JSON encoding can leave unescaped.
+terminal_value = "猫's \\ path\x1b[2J\x1b]0;spoofed\x07\r\t\u009b31m\u009dtitle\u009c"
+value_file = os.path.join(working_dir, "terminal-value.txt")
+with os.fdopen(os.open(value_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
+    stream.write(terminal_value)
+cli("set", "custom.terminal_file", "--value-file", value_file)
+terminal_backup = os.path.join(working_dir, "terminal-backup.json")
+with os.fdopen(os.open(terminal_backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as stream:
+    json.dump({"format": "asterdrive.runtime-config", "version": 1,
+               "configs": [{"key": "custom.terminal_backup", "value": terminal_value,
+                            "source": "custom", "visibility": "private", "is_sensitive": False}],
+               "omitted_sensitive_keys": []}, stream)
+cli("import", "--input-file", terminal_backup)
+for key in ("custom.terminal_file", "custom.terminal_backup"):
+    before = cli("get", key)
+    raw_output = bytearray()
+    result, output = interact(["set", key], [(normal_prompt, b"\r", False)], raw_output=raw_output)
+    assert b"\x1b[2J" not in raw_output, "raw CSI sequence reached terminal output"
+    raw_current_line = next(line for line in raw_output.split(b"\n") if b"Current value:" in line)
+    assert b"\x1b" not in raw_current_line, "raw ESC reached current-value prompt"
+    current_line = next(line for line in output.split(b"\n") if b"Current value:" in line)
+    assert all(bytes([c]) not in current_line.rstrip(b"\r") for c in range(32)), current_line
+    assert not any(chr(c).encode() in output for c in range(0x7f, 0xa0)), output
+    displayed_value = current_line.split(b"Current value: ", 1)[1].rstrip(b"\r")
+    assert json.loads(displayed_value) == terminal_value, "current value is not round-trip JSON"
+    assert result["data"]["value"] == terminal_value
+    assert saved(key)["value"] == terminal_value
+    assert cli("get", key) == before, "Enter changed value or timestamp"
+    interact(["set", key], [(normal_prompt, b"\x03", False)], succeeds=False, canceled=True)
+    assert cli("get", key) == before, "cancellation changed value or timestamp"
 
 # Interactive writes require explicit confirmation after the proposed value
 # has been validated; declining leaves the stored value untouched.
@@ -380,7 +414,9 @@ for password, entered in [
         ("abc", "猫😀\x7f\x7fabc".encode()),
         ("x" * 4096, b"x" * 4096),
         ("猫" * 1365, ("猫" * 1365).encode())]:
-    result, _ = interact([], [(b"Password (masked)", entered, False),
+    response = (b"\x1b[200~" + entered + b"\x1b[201~"
+                if len(entered) >= 1024 else entered)
+    result, _ = interact([], [(b"Password (masked)", response, False),
                              (b"*" * min(len(password), 8), b"\r", False)],
                          root="hash-password", forbidden=(entered,))
     hashes.append((password, result.decode().strip()))
@@ -401,7 +437,8 @@ result, _ = interact([], [(b"Password (masked)", b"\r", False),
                      root="hash-password", forbidden=(new_secret,))
 hashes.append((new_secret.decode(), result.decode().strip()))
 for entered in [b"x" * 4097, ("猫" * 1366).encode()]:
-    interact([], [(b"Password (masked)", entered + b"\r", False),
+    pasted = b"\x1b[200~" + entered + b"\x1b[201~\r"
+    interact([], [(b"Password (masked)", pasted, False),
                   (b"must contain 1..4096", b"\x03", False)],
              root="hash-password", succeeds=False, canceled=True, forbidden=(entered,))
 interact([], [(b"Password (masked)", new_secret + b"\x12\x03", False)],

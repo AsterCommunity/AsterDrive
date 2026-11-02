@@ -11,12 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CLI 实例选择与凭据输入** — 服务启动和运维命令统一支持 `--config-file` / `--data-dir`。Config 与 doctor 默认使用解析后的实例数据库，显式 CLI 参数与 CLI 环境变量可覆盖目标。未编译的 Prometheus / OTLP 导出器及其专属设置不会阻断离线操作或服务启动，doctor 检查实际生效的配置。敏感配置值和 enrollment token 支持隐藏终端、stdin 与私有文件输入。
 - **交互式运维 CLI** — `config get/set/delete/validate` 支持位置 key，set/validate 支持位置 value，原有参数写法保持兼容。终端缺少值时自动提示，省略 key 时提供可搜索的选择列表。普通输入正常显示，敏感输入随键入显示星号且不能切换为明文；回车保留已保存值，validate 会校验并预览该保存值；`--clear` 或显式空字符串请求清空并继续校验，非法输入可编辑重试。取消恢复终端状态，另起一行提示 `Canceled.` 并以 `130` 退出，不再作为校验错误。交互元信息遵循终端配色，提示写入 stderr，stdout 保留结构化结果。Node enroll 支持位置参数或交互输入主控 URL，再以星号反馈 token 输入；离线密码哈希同时支持终端掩码输入和管道，保留前后空格，并按 1–4096 个 UTF-8 字节及无控制字符的规则校验。显式输入优先于环境变量默认值，无终端且缺少必要输入时立即报错。交互编辑按键遵循 `inquire`，Tab 键不写入文本，字段校验针对库返回值；管道和文件输入不经过交互编辑器。交互支持统一归入 `operations-cli`，不新增独立 feature。
-- **CLI 写入预览与 Shell 补全** — `config set/delete/import`、doctor 计数修复与数据库迁移提供 dry-run 预览，不写入状态或发布配置刷新通知。交互写入默认拒绝并要求确认，非交互写入须显式使用 `--yes` 或 `ASTER_CLI_YES=true`；现有校验与备份要求仍保留。`completions install [bash|zsh|fish]` 根据 Clap 命令定义生成并安装补全，省略 shell 时读取 `$SHELL`，无需启动服务或数据库。管理页面生成的接入命令自动携带 `--yes`，可直接复制到从节点执行。数据库迁移预览和只验证模式要求 SQLite 目标文件已存在，不会创建或初始化目标文件。
+- **CLI 写入预览与 Shell 补全** — `config set/delete/import`、doctor 计数修复与数据库迁移提供 dry-run 预览，不写入状态或发布配置刷新通知。交互写入默认拒绝并要求确认，非交互写入须显式使用 `--yes` 或 `ASTER_CLI_YES=true`；现有校验与备份要求仍保留。`completions install [bash|zsh|fish]` 根据 Clap 命令定义生成并安装补全，省略 shell 时读取 `$SHELL`，无需启动服务或数据库。管理页面生成的接入命令自动携带 `--yes`，可直接复制到从节点执行。数据库迁移预览和只验证模式要求 SQLite 目标文件已存在，不会创建或初始化目标文件。人类可读状态明确区分计划变更、未修改与已完成写入。
 
 ### Changed
 
 - **运行时配置备份（破坏性变更）** — `config export` 输出可直接导入的版本化备份，默认省略敏感值；完整备份须显式添加 `--include-sensitive`。Import 与文件校验只接受新格式，拒绝展示元数据、未知系统 key、重复 key 和脱敏占位值。批次校验后在同一事务内提交，再通知运行实例刷新。读取、校验与 doctor 不再初始化默认配置或意外数据库。
 - **服务与运维命令（构建 feature 改名）** — 默认 Cargo feature `cli` 改名为 `operations-cli`，显式 Cargo 与 Docker feature 列表须同步更新。服务启动、`serve all/api/worker`、实例选择、构建详情（`version`）与帮助不依赖该 feature。`version` / `version --json` 无需加载实例配置即可展示 revision、工作树状态、构建目标、profile、features 与时间。所有命令帮助以产品名及版本开头，并区分配置展示、备份、校验和恢复操作。
+
+### Security
+
+- **CLI 终端输出** — 人类可读配置值及交互式当前值提示统一转义 C0/C1 控制字符，避免已保存或导入的 ANSI／OSC 序列修改终端画面和写入确认；普通文本区分字面反斜杠与控制字符转义，展示的 JSON 数组及带引号当前值仍使用合法 JSON 转义。JSON 报告及备份保留原始内容。
+
+### Fixed
+
+- **数据库迁移预检** — 允许存在空的遗留存储凭据／应用配置表但不复制它们；非空遗留表和静态凭据仍返回专用升级提示，未知表继续拒绝迁移。
 
 ## [v0.7.0] - 2026-11-01
 

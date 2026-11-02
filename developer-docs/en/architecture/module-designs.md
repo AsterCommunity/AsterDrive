@@ -506,9 +506,12 @@ These use reader connections only and do not cause business side effects. Typica
 
 Main code paths:
 
-- `src/cli/doctor/mod.rs`
-- `src/cli/doctor/execute.rs`
-- `src/cli/doctor/storage_scan.rs`
+- `src/cli/commands/doctor/checks/`
+- `src/cli/commands/doctor/render.rs`
+- `src/cli/commands/doctor/args.rs`
+- `src/cli/commands/doctor/report.rs`
+- `src/cli/commands/doctor/execute.rs`
+- `src/cli/commands/doctor/storage_scan.rs`
 - `src/services/ops/integrity.rs`
 - `crates/aster_drive_storage/src/traits/driver.rs`
 
@@ -527,12 +530,7 @@ Those questions should not be buried inside online requests or hidden behind bac
 
 ### Layering
 
-`doctor` is split into two layers:
-
-1. `src/cli/doctor/mod.rs`
-   handles argument parsing, mode selection, report aggregation, human-readable output, and JSON output
-2. `src/services/ops/integrity.rs`
-   handles the real deep audit and some repair logic
+The CLI subsystem separates arguments (`args.rs`), typed reports (`report.rs`), check families (`checks/`), execution (`execute.rs`), and rendering (`render.rs`). See [CLI architecture](./cli.md) for the process and shared capability boundaries. `src/services/ops/integrity.rs` owns the actual data audit and deterministic repair logic.
 
 The point is to separate “how the result is shown” from “how the actual system state is calculated.”
 
@@ -615,13 +613,18 @@ It is not meant to replace monitoring, logs, or alerts.
 
 Main code paths:
 
-- `src/cli/database_migration/mod.rs`
-- `src/cli/database_migration/apply/mod.rs`
-- `src/cli/database_migration/apply/copy.rs`
-- `src/cli/database_migration/apply/convert.rs`
-- `src/cli/database_migration/checkpoint.rs`
-- `src/cli/database_migration/schema.rs`
-- `src/cli/database_migration/verify.rs`
+- `src/cli/commands/database_migration/args.rs`
+- `src/cli/commands/database_migration/execute.rs`
+- `src/cli/commands/database_migration/model.rs`
+- `src/cli/commands/database_migration/plan.rs`
+- `src/cli/commands/database_migration/apply/mod.rs`
+- `src/cli/commands/database_migration/apply/copy.rs`
+- `src/cli/commands/database_migration/apply/convert.rs`
+- `src/cli/commands/database_migration/checkpoint.rs`
+- `src/cli/commands/database_migration/schema.rs`
+- `src/cli/commands/database_migration/verify.rs`
+- `src/cli/commands/database_migration/render.rs`
+- `src/cli/commands/database_migration/progress.rs`
 
 ### Design goal
 

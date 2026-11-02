@@ -59,6 +59,7 @@ const sidebar = assertUniqueSidebarLinks([
 			{ label: '架构概览', translations: { en: 'Architecture Overview' }, link: '/architecture/' },
 			{ label: '项目契约', translations: { en: 'Project Contract' }, link: '/architecture/project-contract/' },
 			{ label: '关键模块设计', translations: { en: 'Core Module Design' }, link: '/architecture/module-designs/' },
+			{ label: 'CLI 架构', translations: { en: 'CLI Architecture' }, link: '/architecture/cli/' },
 			{
 				label: '后端服务所有权',
 				translations: { en: 'Backend Service Ownership' },

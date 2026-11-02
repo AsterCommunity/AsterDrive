@@ -584,9 +584,12 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 
 对应代码主要在：
 
-- `src/cli/doctor/mod.rs`
-- `src/cli/doctor/execute.rs`
-- `src/cli/doctor/storage_scan.rs`
+- `src/cli/commands/doctor/checks/`
+- `src/cli/commands/doctor/render.rs`
+- `src/cli/commands/doctor/args.rs`
+- `src/cli/commands/doctor/report.rs`
+- `src/cli/commands/doctor/execute.rs`
+- `src/cli/commands/doctor/storage_scan.rs`
 - `src/services/ops/integrity.rs`
 - `crates/aster_drive_storage/src/traits/driver.rs`
 
@@ -605,12 +608,7 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 
 ### 分层设计
 
-`doctor` 当前分成两层：
-
-1. `src/cli/doctor/mod.rs`
-   负责参数解析、模式选择、报告聚合、人类可读输出和 JSON 输出
-2. `src/services/ops/integrity.rs`
-   负责真正的深度审计和部分修复逻辑
+`doctor` 的参数、报告模型、检查分组、执行编排和渲染分别位于 `args.rs`、`report.rs`、`checks/`、`execute.rs` 和 `render.rs`；对象扫描适配位于 `storage_scan.rs`。整体入口和跨命令共享边界见[CLI 架构](./cli.md)。`src/services/ops/integrity.rs` 负责真正的数据深度审计和部分修复逻辑。
 
 这种拆法的目的，是把“如何向用户展示检查结果”和“如何计算系统真实状态”分离开。
 
@@ -706,13 +704,18 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 
 对应代码主要在：
 
-- `src/cli/database_migration/mod.rs`
-- `src/cli/database_migration/apply/mod.rs`
-- `src/cli/database_migration/apply/copy.rs`
-- `src/cli/database_migration/apply/convert.rs`
-- `src/cli/database_migration/checkpoint.rs`
-- `src/cli/database_migration/schema.rs`
-- `src/cli/database_migration/verify.rs`
+- `src/cli/commands/database_migration/args.rs`
+- `src/cli/commands/database_migration/execute.rs`
+- `src/cli/commands/database_migration/model.rs`
+- `src/cli/commands/database_migration/plan.rs`
+- `src/cli/commands/database_migration/apply/mod.rs`
+- `src/cli/commands/database_migration/apply/copy.rs`
+- `src/cli/commands/database_migration/apply/convert.rs`
+- `src/cli/commands/database_migration/checkpoint.rs`
+- `src/cli/commands/database_migration/schema.rs`
+- `src/cli/commands/database_migration/verify.rs`
+- `src/cli/commands/database_migration/render.rs`
+- `src/cli/commands/database_migration/progress.rs`
 
 ### 设计目标
 
