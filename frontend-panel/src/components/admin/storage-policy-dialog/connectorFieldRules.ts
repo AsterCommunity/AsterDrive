@@ -12,12 +12,16 @@ export function connectorFieldConditionsMatch(
 	values: FieldValues,
 	configValues?: FieldValues,
 ) {
-	return (conditions ?? []).every(
-		(condition) =>
-			(condition.scope === "connector_config" ? configValues : values)?.[
-				condition.field
-			] === condition.value,
-	);
+	return (conditions ?? []).every((condition) => {
+		const value = (
+			condition.scope === "connector_config" ? configValues : values
+		)?.[condition.field];
+		return (
+			value !== undefined &&
+			value !== null &&
+			(value === condition.value) !== Boolean(condition.negate)
+		);
+	});
 }
 
 export function isConnectorFieldVisible(

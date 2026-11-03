@@ -20,6 +20,7 @@ use super::TencentCosDriver;
 pub enum CosDownloadDelivery {
     #[default]
     CosOrigin,
+    CustomOrigin,
     TencentCdnTypeDSha256,
 }
 

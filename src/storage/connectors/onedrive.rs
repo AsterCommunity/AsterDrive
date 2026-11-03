@@ -261,6 +261,7 @@ fn onedrive_optional_text_field(
 
 fn onedrive_condition(field: &str, value: &str) -> StorageConnectorFieldCondition {
     StorageConnectorFieldCondition {
+        negate: false,
         scope: None,
         field: field.to_string(),
         value: StorageConnectorFieldDefaultValue::String(value.to_string()),
