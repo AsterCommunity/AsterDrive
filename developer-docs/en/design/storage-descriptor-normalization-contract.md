@@ -36,6 +36,8 @@ Shared field meanings and pure normalization helpers live in `src/storage/field_
 
 ## Normalization Rules
 
+OSS, COS, and OBS share the same meaning for `oss_use_cname`, `cos_use_cname`, and `obs_use_cname`: disabled uses an official service endpoint; enabled uses the final bucket-bound endpoint without adding a bucket host prefix or path. SDK-based CNAME requests share `src/storage/drivers/s3_vendor.rs` to remove the synthetic bucket path segment before provider signing, preserving the final host, port, encoded object key, and query. OBS retains its native host-based canonical resource in CNAME mode. This protocol detail does not introduce another configuration mode. CNAME applies to object API, multipart, and presigned operations; CDN download delivery is configured separately.
+
 Field normalization belongs in backend use cases or connector/driver-specific pure helpers. It must not be scattered in handlers or frontend components.
 
 - Shared field semantics and normalization helpers live in `src/storage/field_contract.rs`.

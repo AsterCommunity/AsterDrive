@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Object storage CNAME configuration** — OSS, OBS, and COS use the same custom-domain switch wording. Huawei OBS replaces `obs_addressing_mode` with boolean `obs_use_cname`; a reversible migration preserves official/custom-domain behavior in saved policies, remote targets, and deferred cleanup snapshots. Upgrade nodes together and update API clients to use the boolean field.
+- **Object storage CNAME configuration** — OSS, OBS, and COS use the same custom-domain switch wording and bucket-bound addressing, preserving the final host, port, and object path before each provider signs the request. Huawei OBS replaces `obs_addressing_mode` with boolean `obs_use_cname`; a reversible migration preserves official/custom-domain behavior in saved policies, remote targets, and deferred cleanup snapshots. Upgrade nodes together and update API clients to use the boolean field.
 
 - **Runtime configuration backups (breaking)** — `config export` emits a directly importable versioned backup, omitting sensitive values by default; complete backups require `--include-sensitive`. Import and file validation accept only this format and reject display metadata, unknown system keys, duplicate keys, and secret placeholders. Import commits the validated batch atomically and notifies running instances only after commit. Config reads, validation and doctor no longer initialize default settings or an unexpected instance.
 - **Service and operations commands (build feature rename)** — The default `cli` Cargo feature is renamed to `operations-cli`; update explicit Cargo and Docker feature lists. Service startup, `serve all/api/worker`, instance selection, build details (`version`), and help remain available without it. `version` / `version --json` report revision, working-tree provenance, target, profile, features and build time without loading instance configuration. Every command help page starts with the product name and package version. Command descriptions explain operator actions, and runtime settings help distinguishes display, backup, validation and restore operations.
@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OSS CNAME object-key encoding** — Removing the SDK bucket path preserves encoded object keys, including literal percent escapes such as `%2F`, so ordinary and presigned requests address the intended object.
 - **Database migration preflight** — Empty legacy storage credential/application tables are accepted without being copied. Nonempty legacy tables and static credentials produce the dedicated upgrade guidance; unknown tables remain rejected.
 
 ## [v0.7.0] - 2026-11-01

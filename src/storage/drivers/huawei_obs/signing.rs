@@ -236,16 +236,7 @@ fn normalize_aws_request_for_obs(
         OBS_HEADER_RENAMES,
         |url| {
             if use_cname {
-                let host = url
-                    .host_str()
-                    .ok_or("Huawei OBS custom-domain request URL is missing a host")?
-                    .to_string();
-                let prefixed = format!("{bucket}.");
-                let custom_host = host.strip_prefix(&prefixed).ok_or(
-                    "Huawei OBS custom-domain request did not contain the SDK bucket host prefix",
-                )?;
-                url.set_host(Some(custom_host))
-                    .map_err(|_| "failed to rewrite Huawei OBS custom-domain request host")?;
+                crate::storage::drivers::s3_vendor::normalize_cname_url(url, bucket)?;
             }
             Ok(())
         },
@@ -404,7 +395,7 @@ mod tests {
             ))
             .region(Region::new("cn-north-4"))
             .endpoint_url(endpoint)
-            .force_path_style(false);
+            .force_path_style(use_cname);
         let config = configure_obs_auth(builder, bucket.to_string(), use_cname).build();
         (aws_sdk_s3::Client::from_conf(config), receiver)
     }
@@ -773,7 +764,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn custom_domain_requests_remove_the_sdk_bucket_host_prefix() {
+    async fn custom_domain_requests_remove_the_sdk_bucket_path_prefix() {
         let (client, receiver) = obs_sdk_client(
             "https://files.example.com",
             "archive-bucket",
@@ -798,6 +789,95 @@ mod tests {
                 .get("authorization")
                 .expect("OBS Authorization header")
                 .starts_with("OBS AccessKeyExample:")
+        );
+    }
+
+    #[tokio::test]
+    async fn cname_get_keeps_range_and_signs_the_final_host_resource() {
+        let (client, receiver) = obs_sdk_client(
+            "https://archive-bucket.files.example.test:9443",
+            "archive-bucket",
+            true,
+            Some(empty_success_response()),
+        );
+        client
+            .get_object()
+            .bucket("archive-bucket")
+            .key("tenant/目录/a b+%2F#?.txt")
+            .range("bytes=3-9")
+            .send()
+            .await
+            .unwrap();
+        let request = receiver.expect_request();
+        let url = Url::parse(request.uri()).unwrap();
+        assert_eq!(url.host_str(), Some("archive-bucket.files.example.test"));
+        assert_eq!(url.port(), Some(9443));
+        assert_eq!(request.headers().get("range"), Some("bytes=3-9"));
+        assert_eq!(
+            percent_encoding::percent_decode_str(url.path())
+                .decode_utf8()
+                .unwrap(),
+            "/tenant/目录/a b+%2F#?.txt"
+        );
+        let resource = format!("/archive-bucket.files.example.test{}", url.path());
+        let to_sign = obs_string_to_sign(
+            "GET",
+            &request,
+            &resource,
+            request.headers().get("date").unwrap(),
+        );
+        let signature = obs_signature("SecretKeyExample", &to_sign).unwrap();
+        assert_eq!(
+            request.headers().get("authorization"),
+            Some(format!("OBS AccessKeyExample:{signature}").as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn cname_bucket_operation_signs_the_domain_root() {
+        let response = http::Response::builder()
+            .status(200)
+            .body(SdkBody::from("<CORSConfiguration/>"))
+            .unwrap();
+        let (client, receiver) = obs_sdk_client(
+            "https://files.example.test",
+            "archive-bucket",
+            true,
+            Some(response),
+        );
+        client
+            .get_bucket_cors()
+            .bucket("archive-bucket")
+            .send()
+            .await
+            .unwrap();
+        let request = receiver.expect_request();
+        let url = Url::parse(request.uri()).unwrap();
+        assert_eq!(url.host_str(), Some("files.example.test"));
+        assert_eq!(url.path(), "/");
+        let query = url.query_pairs().into_owned().collect::<HashMap<_, _>>();
+        assert!(query.contains_key("cors"));
+        assert_eq!(
+            canonical_resource(&url, "archive-bucket", true),
+            "/files.example.test/?cors"
+        );
+        let to_sign = format!(
+            "GET\n\n\n{}\n/files.example.test/?cors",
+            request.headers().get("date").unwrap()
+        );
+        let signature = obs_signature("SecretKeyExample", &to_sign).unwrap();
+        assert_eq!(
+            request.headers().get("authorization"),
+            Some(format!("OBS AccessKeyExample:{signature}").as_str())
+        );
+        // Python hmac/sha1 vector over GET\n\n\n1700000600\n/files.example.test/?cors.
+        assert_eq!(
+            obs_signature(
+                "SecretKeyExample",
+                "GET\n\n\n1700000600\n/files.example.test/?cors"
+            )
+            .unwrap(),
+            "t2cpkw96AN5mw5R99JgFgZGhTu8="
         );
     }
 

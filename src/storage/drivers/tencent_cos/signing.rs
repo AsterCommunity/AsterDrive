@@ -457,16 +457,7 @@ fn normalize_aws_request_for_cos(
             // preserving the encoded object key before signing the final URL.
             // Official SDK: sdk/base.js getUrl / getSignHost.
             if let Some(bucket) = cname_bucket {
-                let prefix = format!("/{bucket}/");
-                let path = match url.path() {
-                    path if path == format!("/{bucket}") => "/".to_string(),
-                    path => format!(
-                        "/{}",
-                        path.strip_prefix(&prefix)
-                            .ok_or("COS CNAME request path is missing the bucket prefix")?
-                    ),
-                };
-                url.set_path(&path);
+                crate::storage::drivers::s3_vendor::normalize_cname_url(url, bucket)?;
             }
             Ok(())
         },

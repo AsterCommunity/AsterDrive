@@ -20,6 +20,8 @@ title: "华为云 OBS 存储策略教程"
 
 ## 自定义域名（CNAME）
 
+`obs_use_cname` 与 OSS 的 `oss_use_cname`、COS 的 `cos_use_cname` 含义一致：关闭时由驱动使用 bucket 构造官方访问地址；开启时直接使用已绑定 bucket 的域名。对象读写、multipart 和预签名 URL 使用同一开关，最终 URL 的 host 和路径都不会重复追加 bucket。各家签名协议由对应驱动处理。
+
 | `obs_use_cname` | Endpoint 示例 | `obs_region` | 请求地址 | 适用情况 |
 | --- | --- | --- | --- | --- |
 | `false`（默认关闭） | `https://obs.cn-north-4.myhuaweicloud.com` | 必填，例如 `cn-north-4` | `https://BUCKET.obs.REGION.myhuaweicloud.com/OBJECT` | 官方区域 endpoint，推荐默认使用 |

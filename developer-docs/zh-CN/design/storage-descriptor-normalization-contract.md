@@ -40,6 +40,8 @@ Provider resumable 浏览器上传使用[后端协调契约](./browser-upload-co
 
 ## 条件比较与交付模式
 
+OSS、COS、OBS 的 `oss_use_cname`、`cos_use_cname`、`obs_use_cname` 使用同一寻址语义：关闭时使用官方服务 endpoint，开启时 endpoint 是已绑定 bucket 的最终请求域名，不再添加 bucket 主机名前缀或路径。复用 S3 序列化的 CNAME 请求统一通过 `src/storage/drivers/s3_vendor.rs` 去掉 SDK 的 bucket 路径段，保留最终 host、port、编码后的对象 key 和 query，再由 provider 签名。OBS 原生签名在 CNAME 模式使用实际域名构造 canonical resource；这项协议差异不增加新的配置模式。CNAME 开关适用于对象 API、multipart 和预签名操作，CDN 下载交付单独配置。
+
 `StorageConnectorFieldCondition` 默认为等值比较；显式 `negate: true` 表示字段存在且不等于指定标量。缺失值与 JSON null 都不匹配否定条件。一个条件列表仍按 AND 求值，scope、禁止依赖敏感字段和循环依赖校验保持一致。后端默认规则和前端可见性、必填、选项及默认规则使用相同语义，不能在组件中硬编码 COS 模式。
 
 COS 的 `download_delivery` 明确区分 `cos_origin`、`custom_origin` 和 `tencent_cdn_type_d_sha256`。默认源站隐藏并忽略额外下载地址；另两种模式显示并要求同一个 `download_base_url`。CDN 密钥与有效期只在 CDN 模式展示。隐藏地址保持可恢复，下载策略 `relay_stream` 优先覆盖三种交付选择；它不是非法配置组合。

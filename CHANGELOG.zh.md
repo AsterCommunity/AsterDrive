@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **对象存储 CNAME 配置** — OSS、OBS 和 COS 使用一致的自定义域名开关文案。华为 OBS 以布尔字段 `obs_use_cname` 替代 `obs_addressing_mode`，可逆迁移在已保存策略、远端存储目标和延迟清理快照中保留官方／自定义域名行为。所有节点应统一升级，API 客户端须改用布尔字段。
+- **对象存储 CNAME 配置** — OSS、OBS 和 COS 使用一致的自定义域名开关文案及桶绑定寻址，各家签名前保留最终 host、port 和对象路径。华为 OBS 以布尔字段 `obs_use_cname` 替代 `obs_addressing_mode`，可逆迁移在已保存策略、远端存储目标和延迟清理快照中保留官方／自定义域名行为。所有节点应统一升级，API 客户端须改用布尔字段。
 - **运行时配置备份（破坏性变更）** — `config export` 输出可直接导入的版本化备份，默认省略敏感值；完整备份须显式添加 `--include-sensitive`。Import 与文件校验只接受新格式，拒绝展示元数据、未知系统 key、重复 key 和脱敏占位值。批次校验后在同一事务内提交，再通知运行实例刷新。读取、校验与 doctor 不再初始化默认配置或意外数据库。
 - **服务与运维命令（构建 feature 改名）** — 默认 Cargo feature `cli` 改名为 `operations-cli`，显式 Cargo 与 Docker feature 列表须同步更新。服务启动、`serve all/api/worker`、实例选择、构建详情（`version`）与帮助不依赖该 feature。`version` / `version --json` 无需加载实例配置即可展示 revision、工作树状态、构建目标、profile、features 与时间。所有命令帮助以产品名及版本开头，并区分配置展示、备份、校验和恢复操作。
 
@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OSS CNAME 对象键编码** — 移除 SDK 的 bucket 路径时保留对象键编码，包括 `%2F` 等字面百分号转义，确保普通请求和预签名请求访问预期对象。
 - **数据库迁移预检** — 允许存在空的遗留存储凭据／应用配置表但不复制它们；非空遗留表和静态凭据仍返回专用升级提示，未知表继续拒绝迁移。
 
 ## [v0.7.0] - 2026-11-01

@@ -20,6 +20,8 @@ Huawei Cloud OBS is a good fit when you:
 
 ## Custom domains (CNAME)
 
+`obs_use_cname` has the same meaning as OSS `oss_use_cname` and COS `cos_use_cname`: disabled lets the driver construct the official bucket address; enabled directly uses a domain already bound to that bucket. Object I/O, multipart, and presigned URLs use the same switch, without duplicating the bucket in the final host or path. Each driver handles its provider's signing protocol.
+
 | `obs_use_cname` | Endpoint example | `obs_region` | Request URL | Use it when |
 | --- | --- | --- | --- | --- |
 | `false` | `https://obs.cn-north-4.myhuaweicloud.com` | Required, for example `cn-north-4` | `https://BUCKET.obs.REGION.myhuaweicloud.com/OBJECT` | Using an official regional endpoint; recommended default |

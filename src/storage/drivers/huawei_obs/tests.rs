@@ -142,3 +142,58 @@ fn custom_domain_allows_region_to_be_omitted() {
     )
     .expect("a valid custom domain may start with the bucket name");
 }
+
+#[tokio::test]
+async fn cname_driver_presigns_download_upload_and_parts_on_the_final_domain() {
+    use aster_drive_storage::{
+        DirectDownloadStorageDriver, MultipartStorageDriver, PresignedUploadStorageDriver,
+    };
+
+    for endpoint in [
+        "https://files.example.test:9443",
+        "https://archive-bucket.files.example.test",
+    ] {
+        let driver = HuaweiObsDriver::new(config(endpoint, true), credentials()).unwrap();
+        let key = "目录/a b+%2F#?.txt";
+        let ttl = Duration::from_secs(300);
+        let download = driver
+            .resolve_download_url(key, ttl, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        let upload = driver
+            .presigned_put_request(key, ttl)
+            .await
+            .unwrap()
+            .unwrap();
+        let part = driver
+            .presigned_upload_part_request(key, "upload+/%id", 7, ttl)
+            .await
+            .unwrap();
+        let endpoint = url::Url::parse(endpoint).unwrap();
+        for request in [&download.url, &upload.url, &part.url] {
+            let url = url::Url::parse(request).unwrap();
+            assert_eq!(url.host_str(), endpoint.host_str());
+            assert_eq!(url.port(), endpoint.port());
+            assert_eq!(
+                percent_encoding::percent_decode_str(url.path())
+                    .decode_utf8()
+                    .unwrap(),
+                format!("/tenant-a/{key}")
+            );
+            let query = url
+                .query_pairs()
+                .collect::<std::collections::HashMap<_, _>>();
+            assert_eq!(query.get("AccessKeyId").unwrap(), "access-key");
+            assert!(query.contains_key("Signature"));
+            assert!(query.contains_key("Expires"));
+            assert!(!query.keys().any(|key| key.starts_with("X-Amz-")));
+        }
+        let part_url = url::Url::parse(&part.url).unwrap();
+        let query = part_url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(query.get("uploadId").unwrap(), "upload+/%id");
+        assert_eq!(query.get("partNumber").unwrap(), "7");
+    }
+}
