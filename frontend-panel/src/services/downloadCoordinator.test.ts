@@ -236,6 +236,37 @@ describe("downloadCoordinator", () => {
 		});
 	});
 
+	it("saves a CDN Blob download under the current file name without response overrides", async () => {
+		const cdnUrl =
+			"https://cdn.example.test/Tenant/objects/resource.bin?auth_key=test-token";
+		mocks.resolveResourceHandle.mockResolvedValue({
+			request: { url: cdnUrl, credentials: "omit" },
+		});
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(responseBody(["contents"]), {
+				status: 200,
+				headers: { "content-type": "application/octet-stream" },
+			}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		await startProxyFileDownload(
+			{ kind: "personal" },
+			{ id: 7, name: "renamed-report.pdf", size: 8 },
+		);
+		expect(window.showSaveFilePicker).toHaveBeenCalledWith(
+			expect.objectContaining({ suggestedName: "renamed-report.pdf" }),
+		);
+		expect(fetchMock).toHaveBeenCalledWith(
+			cdnUrl,
+			expect.objectContaining({ credentials: "omit", redirect: "follow" }),
+		);
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			name: "renamed-report.pdf",
+			status: "completed",
+			bytesReceived: 8,
+		});
+	});
+
 	it("parses RFC 5987 and quoted content-disposition filenames", () => {
 		expect(
 			filenameFromContentDisposition(

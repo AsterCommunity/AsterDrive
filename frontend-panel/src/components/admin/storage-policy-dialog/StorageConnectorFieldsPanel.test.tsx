@@ -152,6 +152,49 @@ function renderPanel({
 }
 
 describe("StorageConnectorFieldsPanel", () => {
+	it.each(["origin", "cdn"])(
+		"shows CDN connection and credential fields only in %s delivery mode",
+		(delivery) => {
+			const condition = {
+				scope: "connector_config" as const,
+				field: "mode",
+				value: "cdn",
+			};
+			renderPanel({
+				fields: [
+					field("mode", "text"),
+					field("text_field", "text", {
+						visible_when: [condition],
+						required_when: [condition],
+					}),
+					field("number_field", "number", {
+						visible_when: [condition],
+						default_value: 300,
+					}),
+					field("secret_field", "secret", {
+						scope: "static_credential",
+						visible_when: [condition],
+						required_when: [condition],
+					}),
+				],
+				form: {
+					...emptyForm,
+					connector_config_values: { mode: delivery },
+					credential_values: { mode: delivery === "cdn" ? "origin" : "cdn" },
+				},
+			});
+			if (delivery === "cdn") {
+				expect(screen.getByLabelText("Text field")).toBeRequired();
+				expect(screen.getByLabelText("Number field")).toHaveValue(300);
+				expect(screen.getByLabelText("Secret field")).toBeRequired();
+			} else {
+				expect(screen.queryByLabelText("Text field")).toBeNull();
+				expect(screen.queryByLabelText("Number field")).toBeNull();
+				expect(screen.queryByLabelText("Secret field")).toBeNull();
+			}
+		},
+	);
+
 	it("renders the COS CNAME descriptor switch and preserves the configured endpoint", () => {
 		const { onFieldChange } = renderPanel({
 			fields: [

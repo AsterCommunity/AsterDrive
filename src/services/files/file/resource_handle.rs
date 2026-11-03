@@ -149,7 +149,7 @@ async fn original_handle(
         file,
         blob,
         disposition,
-        request.purpose == FileResourcePurpose::Preview
+        request.purpose != FileResourcePurpose::ExternalViewer
             && request.delivery_mode == FileResourceDeliveryMode::BlobUrl,
     )
     .await?
@@ -779,7 +779,7 @@ mod tests {
             (
                 FileResourcePurpose::Download,
                 FileResourceDeliveryMode::BlobUrl,
-                false,
+                true,
             ),
             (
                 FileResourcePurpose::Download,
@@ -835,6 +835,126 @@ mod tests {
             .await
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn oss_cdn_blob_delivery_preserves_authorization_names_and_strict_fallback() {
+        use crate::storage::drivers::alibaba_oss::{
+            AlibabaOssDriver, AlibabaOssDriverConfig, AlibabaOssStaticCredentials,
+        };
+        use std::time::Duration;
+        for mime in ["image/png", "text/html"] {
+            let driver = AlibabaOssDriver::new(
+                AlibabaOssDriverConfig {
+                    endpoint: "https://files.example.test".into(),
+                    server_side_endpoint: "https://oss-cn-hangzhou-internal.aliyuncs.com".into(),
+                    region: "cn-hangzhou".into(),
+                    bucket: "archive-bucket".into(),
+                    base_path: "Tenant".into(),
+                    use_cname: true,
+                    download_delivery: crate::storage::drivers::alibaba_oss::cdn::OssDownloadDelivery::AlibabaCdnTypeA,
+                    cdn_domain: Some("https://cdn.example.test".into()),
+                    cdn_auth_validity_seconds: 300,
+                    connect_timeout: Duration::from_secs(5),
+                    read_timeout: Duration::from_secs(30),
+                    operation_timeout: Duration::from_secs(60),
+                },
+                AlibabaOssStaticCredentials {
+                    access_key: "AKIDEXAMPLE".into(),
+                    secret_key: "SECRETEXAMPLE".into(),
+                    cdn_auth_key: Some("CdnKey0123456789".into()),
+                },
+            )
+            .unwrap();
+            let policy = crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.alibaba_oss",
+                1,
+                serde_json::json!({ "endpoint":"https://files.example.test", "oss_server_side_endpoint":"https://oss-cn-hangzhou-internal.aliyuncs.com", "oss_use_cname":true, "oss_region":"cn-hangzhou", "bucket":"archive-bucket", "base_path":"Tenant", "download_delivery":"alibaba_cdn_type_a", "download_base_url":"https://cdn.example.test", "oss_cdn_auth_validity_seconds":300, "object_storage_upload_strategy":"relay_stream", "object_storage_download_strategy":"presigned" }),
+                Default::default(),
+            );
+            let (state, file, _) =
+                build_resource_handle_state(driver, Some(policy), "renamed-file.png", mime).await;
+            let scope = WorkspaceStorageScope::Personal {
+                user_id: file.owner_user_id.unwrap(),
+            };
+            for (purpose, mode, cdn) in [
+                (
+                    FileResourcePurpose::Preview,
+                    FileResourceDeliveryMode::BlobUrl,
+                    mime == "image/png",
+                ),
+                (
+                    FileResourcePurpose::Download,
+                    FileResourceDeliveryMode::BlobUrl,
+                    true,
+                ),
+                (
+                    FileResourcePurpose::Preview,
+                    FileResourceDeliveryMode::DirectUrl,
+                    false,
+                ),
+                (
+                    FileResourcePurpose::Download,
+                    FileResourceDeliveryMode::DirectUrl,
+                    false,
+                ),
+                (
+                    FileResourcePurpose::ExternalViewer,
+                    FileResourceDeliveryMode::DirectUrl,
+                    false,
+                ),
+                (
+                    FileResourcePurpose::ExternalViewer,
+                    FileResourceDeliveryMode::BlobUrl,
+                    false,
+                ),
+            ] {
+                let handle = resolve_file_resource_handle(
+                    &state,
+                    scope,
+                    file.id,
+                    paths(),
+                    &request(purpose, mode, FileResourceRepresentation::Original),
+                )
+                .await
+                .unwrap();
+                assert_eq!(handle.delivery.mime_type.as_deref(), Some(mime));
+                if cdn {
+                    let url = url::Url::parse(&handle.request.url).unwrap();
+                    assert_eq!(url.host_str(), Some("cdn.example.test"));
+                    assert_eq!(url.path(), "/Tenant/objects/resource.bin");
+                    assert_eq!(url.query_pairs().count(), 1);
+                    assert!(url.query_pairs().all(|(key, _)| key == "auth_key"));
+                    assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+                    assert_eq!(
+                        handle.request.conditional_headers,
+                        FileResourceConditionalHeaders::Forbidden
+                    );
+                    assert!(handle.lifecycle.is_some());
+                } else {
+                    assert!(handle.request.url.starts_with("/files/"));
+                    assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+                    assert!(handle.lifecycle.is_none());
+                }
+            }
+            assert!(
+                resolve_file_resource_handle(
+                    &state,
+                    WorkspaceStorageScope::Personal {
+                        user_id: file.owner_user_id.unwrap() + 1
+                    },
+                    file.id,
+                    paths(),
+                    &request(
+                        FileResourcePurpose::Download,
+                        FileResourceDeliveryMode::BlobUrl,
+                        FileResourceRepresentation::Original
+                    )
+                )
+                .await
+                .is_err()
+            );
+        }
     }
 
     #[test]

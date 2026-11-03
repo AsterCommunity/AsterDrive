@@ -224,6 +224,9 @@ fn oss_config(upload: ObjectStorageUploadStrategy) -> AlibabaOssConnectorConfigV
         oss_use_cname: false,
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
+        download_delivery: Default::default(),
+        download_base_url: String::new(),
+        oss_cdn_auth_validity_seconds: 300,
     }
 }
 
@@ -1537,7 +1540,7 @@ fn s3_connector_preserves_sigv4_region_validation_contract() {
 fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
     let connector = connector(AlibabaOssConnector::ID);
     let descriptor = connector.descriptor();
-    assert_eq!(descriptor.related_issues, vec![450, 474]);
+    assert_eq!(descriptor.related_issues, vec![450, 474, 685]);
     assert!(descriptor.promotions.iter().any(|promotion| {
         promotion.promotion_id.as_str() == "promote_from_s3"
             && promotion.source_connector_id.as_str() == S3Connector::ID
@@ -1564,8 +1567,11 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
         "oss_use_cname",
         "object_storage_upload_strategy",
         "object_storage_download_strategy",
+        "download_base_url",
+        "oss_cdn_auth_validity_seconds",
         "aliyun_oss_access_key_id",
         "aliyun_oss_access_key_secret",
+        "oss_cdn_auth_key",
     ] {
         assert!(
             descriptor
@@ -1580,6 +1586,14 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
             .fields
             .iter()
             .find(|field| field.name == "aliyun_oss_access_key_secret")
+            .is_some_and(|field| field.secret)
+    );
+    // CDN 鉴权密钥必须标记为 secret，避免出现在日志/审计中。
+    assert!(
+        descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "oss_cdn_auth_key")
             .is_some_and(|field| field.secret)
     );
 
@@ -1611,6 +1625,127 @@ fn alibaba_oss_connector_validates_endpoint_region_and_cname_contract() {
             config,
         ))
         .expect("custom domain with CNAME mode");
+}
+
+#[test]
+fn alibaba_oss_cdn_requires_type_a_key_and_matching_console_validity() {
+    let connector = connector(AlibabaOssConnector::ID);
+    let descriptor = connector.descriptor();
+    assert!(descriptor.capabilities.custom_download_base_url);
+    let mode = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_delivery")
+        .unwrap();
+    assert_eq!(
+        mode.default_value,
+        Some(aster_drive_storage::StorageConnectorFieldDefaultValue::String("oss_origin".into()))
+    );
+    for name in [
+        "download_base_url",
+        "oss_cdn_auth_validity_seconds",
+        "oss_cdn_auth_key",
+    ] {
+        let field = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == name)
+            .unwrap();
+        assert_eq!(field.visible_when.len(), 1);
+        assert_eq!(field.visible_when[0].field, "download_delivery");
+        assert_eq!(
+            field.visible_when[0].value,
+            aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                "alibaba_cdn_type_a".into()
+            )
+        );
+        if name != "oss_cdn_auth_validity_seconds" {
+            assert_eq!(field.required_when, field.visible_when);
+        }
+    }
+    let mut values =
+        serde_json::to_value(oss_config(ObjectStorageUploadStrategy::RelayStream)).unwrap();
+    values["download_delivery"] = serde_json::json!("alibaba_cdn_type_a");
+    values["download_base_url"] = serde_json::json!(" https://cdn.example.test/ ");
+    let normalized = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            AlibabaOssConnector::ID,
+            1,
+            &values,
+        ))
+        .unwrap();
+    assert_eq!(
+        normalized.values["download_base_url"],
+        "https://cdn.example.test/"
+    );
+    let mut credential = serde_json::json!({"aliyun_oss_access_key_id":"AKIDEXAMPLE", "aliyun_oss_access_key_secret":"SECRETEXAMPLE"});
+    assert!(
+        connector
+            .validate_connection_credential(
+                &normalized,
+                &StorageConnectorCredentialInput::Static(credential.clone())
+            )
+            .is_err()
+    );
+    credential["oss_cdn_auth_key"] = serde_json::json!("CdnKey0123456789");
+    connector
+        .validate_connection_credential(
+            &normalized,
+            &StorageConnectorCredentialInput::Static(credential.clone()),
+        )
+        .unwrap();
+    let decoded: super::alibaba_oss::AlibabaOssStaticCredentialsV1 =
+        serde_json::from_value(credential.clone()).unwrap();
+    assert!(!format!("{decoded:?}").contains("CdnKey0123456789"));
+    for key in [
+        "",
+        "short",
+        "with-hyphen",
+        " keywithspace",
+        "密钥密钥",
+        &"x".repeat(129),
+    ] {
+        credential["oss_cdn_auth_key"] = serde_json::json!(key);
+        let error = connector
+            .validate_connection_credential(
+                &normalized,
+                &StorageConnectorCredentialInput::Static(credential.clone()),
+            )
+            .unwrap_err();
+        assert!(!error.message().contains("SECRETEXAMPLE"));
+        if key.len() >= 6 {
+            assert!(!error.message().contains(key));
+        }
+    }
+    for (field, value) in [
+        (
+            "download_base_url",
+            serde_json::json!("http://cdn.example.test"),
+        ),
+        ("oss_cdn_auth_validity_seconds", serde_json::json!(0)),
+        (
+            "oss_cdn_auth_validity_seconds",
+            serde_json::json!(31_536_001),
+        ),
+        ("oss_cdn_auth_validity_seconds", serde_json::json!(-1)),
+        ("oss_cdn_auth_type", serde_json::json!("none")),
+        ("download_delivery", serde_json::json!("none")),
+        ("download_base_url", serde_json::json!("")),
+        ("oss_cdn_auth_key", serde_json::json!("NOTCONFIGDATA")),
+    ] {
+        let mut invalid = values.clone();
+        invalid[field] = value;
+        assert!(
+            connector
+                .validate_connector_config(&super::test_support::connection_config(
+                    AlibabaOssConnector::ID,
+                    1,
+                    invalid
+                ))
+                .is_err(),
+            "{field}"
+        );
+    }
 }
 
 #[test]

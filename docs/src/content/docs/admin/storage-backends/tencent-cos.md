@@ -241,7 +241,7 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 
 AsterDrive 使用 `SHA256(key + encoded_path + timestamp)` 生成 Type D 链接，路径包含交付地址前缀、策略基础路径和对象 key。中文先编码，字面百分号保持一次编码语义。真实过期点为 `timestamp + 云端有效时长`；请求更短有效期时回溯时间戳，不生成未来时间戳。云端有效期若大于填写值，会使链接实际存活更久，必须保持一致。
 
-Type D 不签普通业务 query，因此不会把 COS Q-Sign 或 `response-cache-control`、`response-content-type`、`response-content-disposition` 追加到 CDN URL。**浏览器 Blob 预览**可使用 CDN，由已授权的资源句柄提供 MIME，前端重建 Blob。需要附件原文件名、精确响应头、直接媒体/iframe 响应或沙箱的请求使用已有同源中继；不会降级为公开 CDN 链接。已有源站模式及自定义源站 Q-Sign 配置保持原行为。
+Type D 不签普通业务 query，因此不会把 COS Q-Sign 或 `response-cache-control`、`response-content-type`、`response-content-disposition` 追加到 CDN URL。**浏览器 Blob 下载与预览**可使用 CDN：下载由前端以当前文件名选择本地写入目标，预览由已授权的资源句柄提供 MIME 并重建 Blob。需要附件原文件名、精确响应头、直接媒体/iframe 响应或沙箱的请求使用已有同源中继；不会降级为公开 CDN 链接。已有源站模式及自定义源站 Q-Sign 配置保持原行为。
 
 普通「测试连接」只验证存储 Endpoint，不读取或修改 CDN 控制面配置，也不能证明 CDN 已开启鉴权。部署验收必须先对无敏感内容的测试对象验证：有效签名成功；无签名、错误密钥、修改路径/时间/签名和过期链接均被拒绝，且在**缓存未命中和命中后分别验证**；同时验证 HEAD/Range、HTTPS、CORS 和响应头。通过真实 CDN 前，本地签名/表单测试不能当作云端验收。
 
