@@ -1,5 +1,5 @@
 ---
-description: Huawei Cloud OBS storage policy tutorial covering native OBS signing, regional endpoints, custom domains, credentials, CORS, presigned URLs, and multipart validation.
+description: Huawei Cloud OBS storage policy tutorial covering native signing, CNAME, Type A / SHA-256 CDN delivery, private origins, CORS, and multipart validation.
 title: "Huawei Cloud OBS Storage Policy Tutorial"
 ---
 
@@ -39,7 +39,7 @@ Custom-domain mode sends requests directly to the OBS-bound hostname. AsterDrive
 
 The **Use a custom domain (CNAME)** switch maps to connector field `obs_use_cname` and defaults to `false`. It follows the official Go SDK's [`WithCustomDomainName(bool)`](https://github.com/huaweicloud/huaweicloud-sdk-go-obs/blob/master/obs/conf.go) and Python SDK's `is_cname` option. The upgrade migration converts legacy `obs_addressing_mode=virtual_hosted` / `custom_domain` to `false` / `true` in policies, remote targets, and deleted-policy cleanup snapshots without changing existing object paths or signing semantics. Upgrade all nodes together; API clients must use the boolean field. Run the corresponding down migration before reverting to an older binary. Finish active OBS storage-migration tasks before upgrading and regenerate unexecuted migration preflight plans afterward.
 
-OBS supports CDN origins, but CNAME mode does not implement CDN download authentication. Separate delivery configuration and private-origin access are tracked in [#686](https://github.com/AsterCommunity/AsterDrive/issues/686).
+OBS supports CDN origins, but CNAME mode does not enable CDN download authentication. Use the separate CDN delivery settings below for accelerated downloads; CNAME can still address the OBS API origin.
 
 ## 1. Prepare the OBS bucket and credentials
 
@@ -84,6 +84,66 @@ AsterDrive only issues a short-lived OBS URL
 ```
 
 Presigned mode requires the browser to reach the OBS endpoint or custom domain, and requires correct OBS CORS, HTTPS certificates, and exposed response headers.
+
+## 2.1 Optional: Huawei CDN download delivery
+
+AsterDrive supports Huawei CDN **Type A URL authentication with SHA-256**. The default is **OBS origin (native OBS signature)**. Choosing **Huawei CDN accelerated download (Type A + SHA-256)** reveals the required CDN domain, validity, authentication parameter, and key.
+
+| Field | Setting |
+| --- | --- |
+| Download strategy | `presigned`; `relay_stream` continues to use AsterDrive relay while preserving CDN settings |
+| `download_delivery` | Default `obs_origin`; select `huawei_cdn_type_a_sha256` for CDN |
+| `download_base_url` | HTTPS acceleration domain, for example `https://cdn.example.com`, without credentials, non-default port, path, query, or fragment |
+| `obs_cdn_auth_validity_seconds` | Default 300 seconds, range 1–31536000; must match the Huawei CDN console |
+| `obs_cdn_auth_param` | Default `auth_key`, matching the console; 1–100 ASCII letters, digits or underscores, starting with a letter |
+| `obs_cdn_auth_key` | Active Type A primary or backup key, 6–32 ASCII letters or digits; encrypted separately from OBS AK/SK |
+
+Object paths continue to use the policy's **Base path**. With `prod`, the download path is `/prod/OBJECT_KEY`; do not add another prefix to the CDN domain. Uploads, multipart, listing, deletion, cleanup, and server relay continue to use the OBS API endpoint.
+
+### Cloud preparation and AsterDrive configuration
+
+1. Add the acceleration domain in Huawei CDN, enable HTTPS, and select the existing OBS bucket as origin.
+2. For a private bucket, complete CDN authorization to access the private OBS origin. Check the bucket, origin Host and permissions; do not make the bucket public to enable CDN delivery.
+3. Under the domain's **Access Control → URL Authentication**, enable **Method A**, **SHA256**, and authentication for **all files**. AsterDrive object keys may have no extension, so extension-only rules are insufficient.
+4. Enter the same active primary or backup key, authentication parameter and validity in AsterDrive. AsterDrive requires positive validity and does not use the console's zero-second setting.
+5. Configure CORS on the CDN domain for the AsterDrive site. Check GET, HEAD, Range and required exposed response headers such as `Content-Range`, `Content-Length`, `Content-Type`, `Content-Disposition`, and `ETag`. OBS bucket CORS does not replace CDN CORS.
+6. Preserve object path case and encoding without rewrites that change object identity. Authenticate the final encoded request path; validate Chinese characters, spaces, `+`, `%`, `#`, and `?` separately.
+7. Configure **Ignore URL Parameters** and other cache rules according to Huawei's documentation so random authentication values do not unnecessarily split the cache. Ignoring parameters in the cache key, stripping them before origin fetches, and authentication on cache hits are separate behaviors to verify. Restrict unexpected business queries, especially OBS `response-*` overrides.
+
+**The ordinary connection test validates the OBS API endpoint and local CDN configuration completeness.** It does not read or modify the CDN console and cannot prove edge authentication, CORS, caching, or private-origin authorization.
+
+:::caution[Client authentication and private-origin authorization are separate]
+Giving CDN permission to read a private OBS bucket does not require clients to authenticate. Enable Type A / SHA-256 for all paths as well. AsterDrive signs links only after existing file or share permission checks; this cannot replace cloud-side access control.
+:::
+
+### Link validity and caching
+
+Type A emits `auth_key=timestamp-rand-0-sha256`, using the configured parameter name and a UUID without hyphens. The digest follows Huawei's `Filename-Timestamp-rand-uid-PrivateKey` formula. Filename is the final encoded path without query. AsterDrive adds neither OBS signatures nor unauthenticated response-header overrides to the CDN URL.
+
+**The validity boundary is `timestamp + console validity`, not timestamp alone.** AsterDrive limits the remaining lifetime to the smaller of the caller's request and configured validity. Shorter requests backdate the signing time so the resource handle's expiration matches. With 300 seconds configured and 60 requested, the signing time is backdated 240 seconds; it is not set to the current time plus 60 seconds.
+
+**Authentication validity is separate from cache retention.** An object may remain cached while expired or invalid credentials must still be rejected. Check browser caching response headers separately from edge retention; configure an appropriate CDN response policy such as `Cache-Control: private, no-store` when browsers must not retain private downloads. Share revocation and permission changes do not immediately revoke issued links, which remain reusable during their validity. Urgent revocation requires cloud-side key rotation, accounting for concurrently valid primary and backup keys.
+
+### Requests eligible for CDN
+
+- Authorized browser Blob downloads and safe previews can use CDN. The frontend saves the current file name and reconstructs MIME from the resource handle.
+- Exact attachment names, strict response headers, and requests requiring application-origin isolation retain relay. Inline webpage previews requiring isolation are not delivered directly through CDN.
+- OBS-origin mode never activates CDN merely because a CDN domain remains saved. Switching modes preserves recoverable settings.
+- This release does not support B/C1/C2, MD5, upload acceleration, or application integration for M3U8 subresource authentication inheritance.
+
+### Layered acceptance
+
+Validate ordinary OBS/CNAME requests, presigned PUT/GET, multipart and cleanup before CDN:
+
+1. Check a freshly issued GET, HEAD and one-byte Range, including returned content and `Content-Range`.
+2. On a cold object and again after filling the cache with a valid link, check missing signatures, wrong keys, modified path/time/digest and expired links. All must be rejected by CDN. Verify Huawei's inclusive expiration boundary: current time is less than or equal to timestamp plus validity.
+3. Prove the first origin fetch can read the private bucket, then check caching and authentication on repeated requests. Confirm the intended CDN domain, origin bucket and Host.
+4. Check browser Blob downloads, image previews, current file names, Range, CORS and exposed headers; inspect browser and edge cache retention separately.
+5. Check special object keys, extensionless objects, query caching/forwarding and key rotation. Unexpected queries must not change a shared cached response.
+
+Local vectors, mocks and browser form tests do not establish real Huawei CDN acceptance. Record origin, edge cache, CORS, expiration and rotation results separately without storing complete signed URLs or credentials.
+
+See Huawei's [Method A authentication](https://support.huaweicloud.com/usermanual-cdn/cdn_01_0040.html) and [full domain configuration API](https://support.huaweicloud.com/api-cdn/UpdateDomainFullConfig.html).
 
 ## 3. Configure OBS CORS
 

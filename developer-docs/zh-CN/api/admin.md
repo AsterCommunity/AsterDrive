@@ -113,6 +113,7 @@
 - 创建和更新都会采用请求里的 `chunk_size`
 - `options` 当前承载策略级行为：
   - S3-compatible / Alibaba OSS / Azure Blob / Tencent COS 这类对象存储 connector 使用 `object_storage_upload_strategy` / `object_storage_download_strategy` 表达传输策略，例如 `{"object_storage_upload_strategy":"presigned","object_storage_download_strategy":"presigned"}`；旧 `s3_upload_strategy` / `s3_download_strategy` JSON 字段仍作为兼容 alias 接受
+  - Huawei OBS 同样声明 `custom_download_base_url`。`download_delivery` 默认 `obs_origin`，可选 `huawei_cdn_type_a_sha256`；CDN 使用独立 HTTPS `download_base_url`、`obs_cdn_auth_validity_seconds`（1–31536000 秒，默认 300）、`obs_cdn_auth_param`（默认 `auth_key`）及加密凭据 `obs_cdn_auth_key`（6–32 位英文字母或数字）。字段由 descriptor 条件显示并必填，创建、更新、草稿测试和运行时均校验完整性；编辑留空保留已有密钥。Type A 对最终编码路径、十进制时间、无中划线 UUID、uid=0 和密钥计算 SHA-256；短请求回拨 timestamp，使到期点对应控制台时长与请求时长的较小值。`relay_stream` 优先覆盖 CDN 交付并保留设置，OBS 上传、multipart、清理和 API 请求保持源站签名。
   - Tencent COS descriptor 声明 `custom_download_base_url`，复用 `download_base_url` 配置下载交付根地址。`download_delivery` 默认为 `cos_origin`（COS Q-Sign），`tencent_cdn_type_d_sha256` 使用独立加密凭据 `tencent_cdn_auth_key` 和 `cdn_auth_validity_seconds`（1–3600 秒，与云端一致）；缺少密钥时创建、更新和运行时均拒绝 CDN 模式。普通 I/O、上传、清理、CORS 和管理继续使用 Endpoint。
   - CDN Type D 仅签编码路径和时间戳，不附加 COS 签名或未签名响应参数。授权后的 Blob 预览可走 CDN；要求精确附件名/响应头的请求保留同源中继。资源句柄先校验文件权限，返回不携带站点凭据的 URL 及真实过期点。CDN 全路径鉴权、私有回源授权、缓存命中/未命中负向用例必须另做真实环境验收。
   - 字段条件默认在本 scope 求值；静态凭据的 `visible_when` / `required_when` 可用 `scope: "connector_config"` 显式依赖非敏感配置。禁止反向依赖秘密或跨 scope 推导默认值。前端必须按 scope 求值，不把配置混入凭据 payload。

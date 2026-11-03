@@ -324,6 +324,10 @@ fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1
         bucket: "archive-bucket".to_string(),
         obs_region: "cn-north-4".to_string(),
         obs_use_cname: false,
+        download_delivery: crate::storage::drivers::huawei_obs::cdn::ObsDownloadDelivery::ObsOrigin,
+        download_base_url: String::new(),
+        obs_cdn_auth_validity_seconds: 300,
+        obs_cdn_auth_param: "auth_key".into(),
         base_path: "tenant-a".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
@@ -1752,7 +1756,7 @@ fn alibaba_oss_cdn_requires_type_a_key_and_matching_console_validity() {
 fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
     let connector = connector(HuaweiObsConnector::ID);
     let descriptor = connector.descriptor();
-    assert_eq!(descriptor.related_issues, vec![451]);
+    assert_eq!(descriptor.related_issues, vec![451, 686]);
     assert!(descriptor.promotions.iter().any(|promotion| {
         promotion.promotion_id.as_str() == "promote_from_s3"
             && promotion.source_connector_id.as_str() == S3Connector::ID
@@ -1825,6 +1829,205 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
             custom,
         ))
         .expect("custom-domain Huawei OBS endpoint should normalize");
+}
+
+#[test]
+fn huawei_obs_cdn_declares_sha256_mode_and_validates_conditional_credentials() {
+    let connector = connector(HuaweiObsConnector::ID);
+    let descriptor = connector.descriptor();
+    assert!(descriptor.capabilities.custom_download_base_url);
+    let delivery = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_delivery")
+        .unwrap();
+    assert_eq!(
+        delivery.default_value,
+        Some(StorageConnectorFieldDefaultValue::String(
+            "obs_origin".into()
+        ))
+    );
+    assert_eq!(
+        delivery
+            .select
+            .as_ref()
+            .unwrap()
+            .options
+            .iter()
+            .map(|option| match &option.value {
+                aster_drive_storage::connector_descriptor::StorageConnectorSelectOptionValue::String(value) => value.as_str(),
+                aster_drive_storage::connector_descriptor::StorageConnectorSelectOptionValue::Integer(_) => panic!("delivery modes must use string values"),
+            })
+            .collect::<Vec<_>>(),
+        ["obs_origin", "huawei_cdn_type_a_sha256"]
+    );
+    for name in [
+        "download_base_url",
+        "obs_cdn_auth_validity_seconds",
+        "obs_cdn_auth_param",
+        "obs_cdn_auth_key",
+    ] {
+        let field = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == name)
+            .unwrap();
+        assert_eq!(field.visible_when.len(), 1);
+        assert_eq!(field.required_when, field.visible_when);
+        assert_eq!(field.visible_when[0].field, "download_delivery");
+        assert_eq!(
+            field.visible_when[0].value,
+            StorageConnectorFieldDefaultValue::String("huawei_cdn_type_a_sha256".into())
+        );
+        if name == "obs_cdn_auth_key" {
+            assert!(field.secret);
+            assert_eq!(
+                field.visible_when[0].scope,
+                Some(StorageConnectorFieldScope::ConnectorConfig)
+            );
+        }
+    }
+    let mut values =
+        serde_json::to_value(obs_config(ObjectStorageUploadStrategy::Presigned)).unwrap();
+    values["download_delivery"] = serde_json::json!("huawei_cdn_type_a_sha256");
+    values["download_base_url"] = serde_json::json!(" https://cdn.example.test/ ");
+    values["obs_cdn_auth_param"] = serde_json::json!("Download_Auth");
+    let normalized = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            &values,
+        ))
+        .unwrap();
+    assert_eq!(
+        normalized.values["download_base_url"],
+        "https://cdn.example.test/"
+    );
+    let mut credential = serde_json::json!({"obs_access_key_id":"AKIDEXAMPLE", "obs_secret_access_key":"SECRETEXAMPLE"});
+    assert!(
+        connector
+            .validate_connection_credential(
+                &normalized,
+                &StorageConnectorCredentialInput::Static(credential.clone())
+            )
+            .is_err()
+    );
+    credential["obs_cdn_auth_key"] = serde_json::json!("CdnKey0123456789");
+    connector
+        .validate_connection_credential(
+            &normalized,
+            &StorageConnectorCredentialInput::Static(credential.clone()),
+        )
+        .unwrap();
+    let decoded: super::huawei_obs::HuaweiObsStaticCredentialsV1 =
+        serde_json::from_value(credential.clone()).unwrap();
+    assert!(!format!("{decoded:?}").contains("CdnKey0123456789"));
+    for key in [
+        "",
+        "short",
+        "with-hyphen",
+        " keywithspace",
+        "密钥密钥",
+        &"x".repeat(33),
+    ] {
+        credential["obs_cdn_auth_key"] = serde_json::json!(key);
+        let error = connector
+            .validate_connection_credential(
+                &normalized,
+                &StorageConnectorCredentialInput::Static(credential.clone()),
+            )
+            .unwrap_err();
+        assert!(!error.message().contains("SECRETEXAMPLE"));
+        if key.len() >= 6 {
+            assert!(!error.message().contains(key));
+        }
+    }
+    for (name, value) in [
+        (
+            "download_base_url",
+            serde_json::json!("http://cdn.example.test"),
+        ),
+        ("download_base_url", serde_json::json!("")),
+        (
+            "download_base_url",
+            serde_json::json!("https://cdn.example.test/../"),
+        ),
+        ("obs_cdn_auth_validity_seconds", serde_json::json!(0)),
+        (
+            "obs_cdn_auth_validity_seconds",
+            serde_json::json!(31_536_001),
+        ),
+        ("obs_cdn_auth_validity_seconds", serde_json::json!(-1)),
+        (
+            "download_base_url",
+            serde_json::json!("\thttps://cdn.example.test"),
+        ),
+        (
+            "download_base_url",
+            serde_json::json!("https://cdn.example.test/\n"),
+        ),
+        ("obs_cdn_auth_param", serde_json::json!("1auth")),
+        (
+            "download_delivery",
+            serde_json::json!("huawei_cdn_type_a_md5"),
+        ),
+        (
+            "download_delivery",
+            serde_json::json!("huawei_cdn_type_c2_sha256"),
+        ),
+        ("obs_cdn_auth_key", serde_json::json!("NOTCONFIGDATA")),
+    ] {
+        let mut invalid = values.clone();
+        invalid[name] = value;
+        assert!(
+            connector
+                .validate_connector_config(&super::test_support::connection_config(
+                    HuaweiObsConnector::ID,
+                    1,
+                    invalid
+                ))
+                .is_err(),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn persisted_huawei_obs_configs_default_to_origin_and_preserve_dormant_cdn_settings() {
+    let connector = connector(HuaweiObsConnector::ID);
+    let mut values =
+        serde_json::to_value(obs_config(ObjectStorageUploadStrategy::RelayStream)).unwrap();
+    for name in [
+        "download_delivery",
+        "download_base_url",
+        "obs_cdn_auth_param",
+        "obs_cdn_auth_validity_seconds",
+    ] {
+        values.as_object_mut().unwrap().remove(name);
+    }
+    let normalized = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            &values,
+        ))
+        .unwrap();
+    assert_eq!(normalized.values["download_delivery"], "obs_origin");
+    assert_eq!(normalized.values["obs_cdn_auth_param"], "auth_key");
+    assert_eq!(normalized.values["obs_cdn_auth_validity_seconds"], 300);
+    values["download_base_url"] = serde_json::json!("https://cdn.example.test");
+    let normalized = connector
+        .validate_connector_config(&super::test_support::connection_config(
+            HuaweiObsConnector::ID,
+            1,
+            &values,
+        ))
+        .unwrap();
+    assert_eq!(normalized.values["download_delivery"], "obs_origin");
+    assert_eq!(
+        normalized.values["download_base_url"],
+        "https://cdn.example.test"
+    );
 }
 
 fn assert_empty_base_path_normalizes<T>(

@@ -7,6 +7,7 @@
 //! Object listing uses OBS' native marker-based ListObjects contract rather
 //! than S3 ListObjectsV2.
 
+pub mod cdn;
 mod signing;
 #[cfg(test)]
 mod tests;
@@ -29,15 +30,27 @@ pub struct HuaweiObsDriverConfig {
     pub base_path: String,
     pub region: String,
     pub use_cname: bool,
+    pub download_delivery: cdn::ObsDownloadDelivery,
+    pub cdn_domain: Option<String>,
+    pub cdn_auth_validity_seconds: u32,
+    pub cdn_auth_param: String,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HuaweiObsStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
+    pub cdn_auth_key: Option<String>,
+}
+
+impl std::fmt::Debug for HuaweiObsStaticCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HuaweiObsStaticCredentials")
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +62,12 @@ pub struct NormalizedHuaweiObsEndpoint {
 
 pub struct HuaweiObsDriver {
     storage: S3CompatibleDriver,
+    download_delivery: DownloadDelivery,
+}
+
+enum DownloadDelivery {
+    ObsOrigin,
+    HuaweiCdnTypeASha256(cdn::CdnConfig),
 }
 
 impl HuaweiObsDriver {
@@ -130,10 +149,50 @@ impl HuaweiObsDriver {
         })
     }
 
+    pub fn validate_connection_config(config: &HuaweiObsDriverConfig) -> Result<()> {
+        Self::normalize_endpoint(
+            &config.endpoint,
+            &config.bucket,
+            &config.region,
+            config.use_cname,
+        )?;
+        match config.download_delivery {
+            cdn::ObsDownloadDelivery::ObsOrigin => {}
+            cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256 => {
+                let domain = config.cdn_domain.as_deref().ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "Huawei CDN download domain is required",
+                    )
+                })?;
+                cdn::validated_cdn_domain(domain)?;
+                cdn::validate_cdn_auth_validity(config.cdn_auth_validity_seconds)?;
+                cdn::validate_cdn_auth_param(&config.cdn_auth_param)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn validate_config(
         config: &HuaweiObsDriverConfig,
         credentials: &HuaweiObsStaticCredentials,
     ) -> Result<()> {
+        Self::validate_connection_config(config)?;
+        match (
+            config.download_delivery,
+            credentials.cdn_auth_key.as_deref(),
+        ) {
+            (cdn::ObsDownloadDelivery::ObsOrigin, _) => {}
+            (cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256, Some(key)) => {
+                cdn::validate_cdn_auth_key(key)?
+            }
+            (cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256, None) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Huawei CDN authentication key is required",
+                ));
+            }
+        }
         let normalized = Self::normalize_endpoint(
             &config.endpoint,
             &config.bucket,
@@ -162,6 +221,7 @@ impl HuaweiObsDriver {
         config: HuaweiObsDriverConfig,
         credentials: HuaweiObsStaticCredentials,
     ) -> Result<Self> {
+        Self::validate_config(&config, &credentials)?;
         let normalized = Self::normalize_endpoint(
             &config.endpoint,
             &config.bucket,
@@ -170,6 +230,28 @@ impl HuaweiObsDriver {
         )?;
         let bucket = normalized.bucket.clone();
         let use_cname = config.use_cname;
+        let download_delivery = match (
+            config.download_delivery,
+            config.cdn_domain,
+            credentials.cdn_auth_key,
+        ) {
+            (cdn::ObsDownloadDelivery::ObsOrigin, _, _) => DownloadDelivery::ObsOrigin,
+            (cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256, Some(domain), Some(auth_key)) => {
+                DownloadDelivery::HuaweiCdnTypeASha256(cdn::CdnConfig {
+                    domain: cdn::validated_cdn_domain(&domain)?,
+                    auth_key,
+                    validity_seconds: config.cdn_auth_validity_seconds,
+                    auth_param: config.cdn_auth_param,
+                    base_path: config.base_path.clone(),
+                })
+            }
+            (cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256, _, _) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Huawei CDN domain and authentication key are required",
+                ));
+            }
+        };
         let storage = S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
             Arc::new(S3Driver::new(
                 S3DriverConfig {
@@ -202,7 +284,10 @@ impl HuaweiObsDriver {
                 upload_mode: MultipartUploadMode::NativeStreaming,
             },
         );
-        Ok(Self { storage })
+        Ok(Self {
+            storage,
+            download_delivery,
+        })
     }
 
     pub fn s3_driver(&self) -> Arc<S3Driver> {
@@ -226,9 +311,16 @@ impl aster_drive_storage::DirectDownloadStorageDriver for HuaweiObsDriver {
         expires: Duration,
         options: aster_drive_storage::DirectDownloadOptions,
     ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
-        self.storage
-            .resolve_download_url(path, expires, options)
-            .await
+        match &self.download_delivery {
+            DownloadDelivery::ObsOrigin => {
+                self.storage
+                    .resolve_download_url(path, expires, options)
+                    .await
+            }
+            DownloadDelivery::HuaweiCdnTypeASha256(config) => {
+                config.download_request(path, expires, &options)
+            }
+        }
     }
 }
 

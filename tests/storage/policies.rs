@@ -6455,6 +6455,167 @@ async fn test_oss_cdn_type_a_credentials_roundtrip_and_config_only_rejection() {
 }
 
 #[actix_web::test]
+async fn test_obs_cdn_sha256_credentials_roundtrip_and_config_only_rejection() {
+    use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let mut connection = serde_json::json!({
+        "connector_config": {"format_version":1, "connector_id":"asterdrive.storage.huawei_obs", "schema_version":1, "values":{
+            "endpoint":"https://files.example.test",
+            "bucket":"archive-bucket", "obs_region":"cn-north-4", "obs_use_cname":true,
+            "base_path":"tenant/files", "download_delivery":"huawei_cdn_type_a_sha256",
+            "download_base_url":"https://cdn.example.test", "obs_cdn_auth_validity_seconds":300, "obs_cdn_auth_param":"Download_Auth",
+            "object_storage_upload_strategy":"presigned", "object_storage_download_strategy":"presigned"
+        }},
+        "credential": {"mode":"static", "values":{"obs_access_key_id":"AKIDEXAMPLE", "obs_secret_access_key":"SECRETEXAMPLE"}},
+        "behavior": {}
+    });
+    let before = policy_repo::find_all(state.writer_db())
+        .await
+        .unwrap()
+        .len();
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"Missing CDN key","connection":connection}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 400);
+    assert_eq!(
+        policy_repo::find_all(state.writer_db())
+            .await
+            .unwrap()
+            .len(),
+        before
+    );
+
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/policies/test")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"connection":connection}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(
+        response.status(),
+        400,
+        "draft diagnostics must reject missing CDN credentials before provider I/O"
+    );
+
+    const KEY: &str = "CdnSecret0123456789";
+    connection["credential"]["values"]["obs_cdn_auth_key"] = serde_json::json!(KEY);
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"Private CDN","connection":connection}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    let status = response.status();
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(status, 201, "{body}");
+    assert!(!body.to_string().contains(KEY));
+    let id = body["data"]["id"].as_i64().unwrap();
+    let credential_before =
+        storage_policy_connector_credential_repo::find_by_policy(state.writer_db(), id)
+            .await
+            .unwrap()
+            .unwrap();
+    assert!(!format!("{credential_before:?}").contains(KEY));
+    for patch in [
+        serde_json::json!({"name":"CDN renamed"}),
+        serde_json::json!({"credential":{"mode":"static","values":{"obs_cdn_auth_key":"","obs_secret_access_key":""}}}),
+    ] {
+        let request = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/policies/{id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(patch)
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        let status = response.status();
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(status, 200, "{body}");
+        assert!(!body.to_string().contains(KEY));
+    }
+    let policy = policy_repo::find_by_id(state.writer_db(), id)
+        .await
+        .unwrap();
+    let driver = state.driver_registry().get_driver(&policy).unwrap();
+    let request = driver
+        .extensions()
+        .direct_download
+        .unwrap()
+        .resolve_download_url(
+            "report.txt",
+            std::time::Duration::from_secs(60),
+            Default::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let url = url::Url::parse(&request.url).unwrap();
+    assert_eq!(url.path(), "/tenant/files/report.txt");
+    assert_eq!(url.host_str(), Some("cdn.example.test"));
+    let auth = url
+        .query_pairs()
+        .find(|(key, _)| key == "Download_Auth")
+        .unwrap()
+        .1;
+    assert_eq!(auth.split('-').count(), 4);
+    assert_eq!(auth.split('-').next_back().unwrap().len(), 64);
+    assert_eq!(url.query_pairs().count(), 1);
+    let upload = driver
+        .extensions()
+        .presigned_upload
+        .unwrap()
+        .presigned_put_request("report.txt", std::time::Duration::from_secs(60))
+        .await
+        .unwrap()
+        .unwrap();
+    let upload_url = url::Url::parse(&upload.url).unwrap();
+    assert_eq!(upload_url.host_str(), Some("files.example.test"));
+    assert!(upload_url.query_pairs().any(|(key, _)| key == "Signature"));
+
+    // An existing origin policy cannot switch to CDN with only a config patch
+    // unless its encrypted credentials already contain a CDN key.
+    let mut origin_connection = connection.clone();
+    origin_connection["connector_config"]["values"]["download_delivery"] =
+        serde_json::json!("obs_origin");
+    origin_connection["credential"]["values"]
+        .as_object_mut()
+        .unwrap()
+        .remove("obs_cdn_auth_key");
+    let request = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"OBS origin without CDN key", "connection":origin_connection}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let origin = body["data"]["id"].as_i64().unwrap();
+    let existing = policy_repo::find_by_id(state.writer_db(), origin)
+        .await
+        .unwrap();
+    let request = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{origin}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"connector_config":connection["connector_config"]}))
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert_eq!(response.status(), 400);
+    let after = policy_repo::find_by_id(state.writer_db(), origin)
+        .await
+        .unwrap();
+    assert_eq!(after.storage_config, existing.storage_config);
+}
+
+#[actix_web::test]
 async fn test_cos_delivery_modes_round_trip_and_require_explicit_custom_origin() {
     use aster_drive::db::repository::policy_repo;
     let state = common::setup().await;

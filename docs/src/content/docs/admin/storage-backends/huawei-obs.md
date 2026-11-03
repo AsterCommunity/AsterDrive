@@ -1,5 +1,5 @@
 ---
-description: 华为云 OBS 存储策略教程，覆盖原生 OBS 签名、区域 endpoint、自定义域名、凭证、CORS、预签名和 multipart 验收。
+description: 华为云 OBS 存储策略教程，覆盖原生 OBS 签名、CNAME、Type A / SHA-256 CDN 下载、私有回源、CORS 和 multipart 验收。
 title: "华为云 OBS 存储策略教程"
 ---
 
@@ -39,7 +39,7 @@ AsterDrive 会把它规范化保存为区域根 endpoint，并由 driver 按 buc
 
 升级后，旧 `obs_addressing_mode=virtual_hosted` / `custom_domain` 会分别迁移为 `obs_use_cname=false` / `true`，已有对象路径和签名语义不变；策略、远端目标和已删除策略的清理快照都会转换。所有节点一起升级，旧 API 客户端应改用布尔字段；回退旧版本前需执行对应 down migration。升级前先完成正在执行的 OBS 策略迁移任务，升级后重新生成尚未执行的迁移预检计划。
 
-OBS 支持 CDN 回源，但 CNAME 开关不提供 CDN 下载鉴权。独立 CDN 下载交付与私有桶回源由 [#686](https://github.com/AsterCommunity/AsterDrive/issues/686) 跟踪。
+OBS 支持 CDN 回源，但 CNAME 开关不提供 CDN 下载鉴权。需要加速下载时，使用下方独立的 CDN 下载交付配置；CNAME 可同时用于 OBS API 源站。
 
 ## 1. 准备 OBS bucket 和凭证
 
@@ -84,6 +84,66 @@ AsterDrive 只负责签发短时效 OBS URL
 ```
 
 预签名模式要求浏览器可以访问 OBS endpoint 或 custom domain，并且 OBS CORS、HTTPS 证书和响应头都配置正确。
+
+## 2.1 可选：华为云 CDN 下载交付
+
+AsterDrive 支持华为云 CDN 的 **Type A URL 鉴权 + SHA-256**。默认选择 **OBS 源站直连（原生 OBS 签名）**。将 **下载交付方式**改为 **华为云 CDN 加速下载（Type A + SHA-256）**后，才展示 CDN 域名、有效时长、鉴权参数名和密钥；这些字段在 CDN 模式必填。
+
+| 字段 | 配置 |
+| --- | --- |
+| 下载方式 | `presigned`；选择 `relay_stream` 时仍使用 AsterDrive 中继，并保留 CDN 设置 |
+| 下载交付方式 `download_delivery` | 默认 `obs_origin`；CDN 选择 `huawei_cdn_type_a_sha256` |
+| 下载交付地址 `download_base_url` | HTTPS 加速域名，例如 `https://cdn.example.com`；不包含凭证、非默认端口、路径、query 或 fragment |
+| CDN 鉴权有效时长 `obs_cdn_auth_validity_seconds` | 默认 300 秒，范围 1–31536000 秒，必须与华为云 CDN 控制台一致 |
+| CDN 鉴权参数名 `obs_cdn_auth_param` | 默认 `auth_key`，必须与控制台一致；1–100 位，以英文字母开头，仅含英文字母、数字和下划线 |
+| CDN 鉴权密钥 `obs_cdn_auth_key` | Type A 的主 KEY 或备 KEY，6–32 位英文字母或数字；加密保存，与 OBS AK/SK 分开配置 |
+
+对象路径继续使用策略的 **Base path**。例如 Base path 为 `prod`，下载 URL 的路径就是 `/prod/对象键`；CDN 域名中不再添加第二份路径前缀。上传、multipart、列表、删除、清理及服务端中继继续使用 OBS API endpoint。
+
+### 云端准备与 AsterDrive 配置
+
+1. 在华为云 CDN 控制台添加加速域名并启用 HTTPS，源站选择当前 OBS bucket。
+2. 私有桶需要完成 CDN 的 OBS 私有回源授权，确认目标 bucket、回源 Host 和权限。不要为了 CDN 下载把 bucket 改成公共读。
+3. 进入目标域名的 **访问控制 → URL 鉴权**，启用 **方式 A**、**SHA256**，鉴权范围选择 **所有文件**。AsterDrive 对象键可能没有后缀，仅按扩展名鉴权无法覆盖全部文件。
+4. 记录当前主 KEY 或备 KEY、鉴权参数名和有效时间，在 AsterDrive 填写相同值。AsterDrive 仅支持正有效期，不使用控制台允许的 0 秒设置。
+5. 在 CDN 端配置允许 AsterDrive 站点来源的 CORS；检查 GET、HEAD、Range，以及 `Content-Range`、`Content-Length`、`Content-Type`、`Content-Disposition`、`ETag` 等所需响应头。OBS bucket 的 CORS 不能代替 CDN 域名的 CORS。
+6. 保持对象路径大小写及编码，不配置会改变对象身份的路径重写。CDN 验签应使用最终请求中的编码路径；中文、空格、`+`、`%`、`#`、`?` 的对象分别验证。
+7. 按华为云文档配置 **忽略 URL 参数**等缓存规则，避免每个随机鉴权参数产生独立缓存。缓存 key 忽略参数、回源是否剥离参数、缓存命中是否仍鉴权是不同问题，必须分别验证。限制非预期业务 query，尤其是可能影响 OBS 响应的 `response-*` 参数。
+
+**普通“测试连接”验证的是 OBS API endpoint，并检查本地 CDN 配置是否完整。** 它不会读取或修改 CDN 控制台，也不能证明 CDN 边缘鉴权、CORS、缓存和私有回源已经生效。
+
+:::caution[用户鉴权与私有回源分别配置]
+CDN 获得读取私有 OBS bucket 的权限，并不表示客户端需要鉴权。必须同时启用 Type A / SHA-256 的全路径鉴权。AsterDrive 只在原有文件或分享权限检查通过后签发链接；无法替代云端访问控制配置。
+:::
+
+### 链接有效期与缓存
+
+Type A 使用 `auth_key=timestamp-rand-0-sha256`，参数名可按控制台配置修改。随机数为无中划线 UUID；摘要按华为文档的 `Filename-Timestamp-rand-uid-PrivateKey` 规则计算，Filename 为最终编码路径，不包含 query。AsterDrive 不向 CDN URL 追加 OBS 签名或未认证的响应头覆盖参数。
+
+**实际有效期边界是 `timestamp + 控制台有效时长`**，不是 timestamp 本身。AsterDrive 将链接剩余时长限制为调用方请求时长与配置时长的较小值；请求较短时回拨签名时间，使资源句柄中的到期时间与之匹配。例如配置 300 秒、调用方只请求 60 秒，签名时间回拨 240 秒，而不是将当前时间加 60 秒填入 timestamp。
+
+**鉴权期限不等于缓存保留时间。** CDN 对象可以继续驻留缓存，但过期或无效凭据仍应被拒绝。检查客户端响应的浏览器缓存策略；需要避免浏览器保留私有下载内容时，在 CDN 配置相应响应头，例如 `Cache-Control: private, no-store`，并分别验证边缘缓存策略。分享撤销或权限变更不会即时撤销已签发链接；有效期内链接仍可被持有者重复使用。紧急撤销需按云端配置轮换密钥，并注意主、备 KEY 的并行有效期。
+
+### 哪些请求可以使用 CDN
+
+- 已授权的浏览器 Blob 下载和安全预览可以使用 CDN，前端按当前文件名保存，并根据资源句柄重建 MIME。
+- 必须精确控制附件文件名、响应头或使用应用同源隔离的请求继续使用中继；网页等需隔离的内联预览不会直接交付 CDN。
+- 选择 OBS 源站交付时，即使保存着 CDN 地址，也不会自动启用 CDN；切换交付方式保留可恢复设置。
+- 本轮不支持 B/C1/C2、MD5、上传加速或 M3U8 子资源鉴权继承的应用集成。
+
+### 分层验收
+
+先验收 OBS 源站或 CNAME 的普通请求、预签名 PUT/GET、multipart 和清理，再测试 CDN：
+
+1. 使用新签发链接，验证 GET、HEAD 和单字节 Range，检查返回内容及 `Content-Range`。
+2. 分别对冷缓存对象、用有效链接填充缓存后的对象测试：无签名、错误密钥、篡改路径/时间/摘要和过期链接都被 CDN 拒绝；到期边界按华为的“当前时间小于或等于 timestamp + 有效时长”核对。
+3. 检查首次回源能读取私有桶，再检查重复请求的缓存命中与鉴权。确认请求确实来自预期的 CDN 域名、源站 bucket 和 Host。
+4. 验证浏览器 Blob 下载、图片预览、当前文件名、Range、CORS 和暴露头；单独检查浏览器缓存与 CDN 缓存的保留行为。
+5. 测试特殊对象键、无扩展名对象、鉴权参数缓存/回源规则及密钥轮换；核对非预期 query 不会改变共享缓存中的响应。
+
+本地签名向量、mock 和浏览器表单测试不代表真实华为云 CDN 验收通过。真实环境的回源、边缘缓存、CORS、过期及密钥轮换结果需要单独记录，不保存完整签名 URL 或凭据。
+
+参考华为云官方[配置鉴权方式 A](https://support.huaweicloud.com/usermanual-cdn/cdn_01_0040.html)和[CDN 域名全量配置](https://support.huaweicloud.com/api-cdn/UpdateDomainFullConfig.html)。
 
 ## 3. 配置 OBS CORS
 

@@ -67,6 +67,8 @@ COS 的 `download_delivery` 明确区分 `cos_origin`、`custom_origin` 和 `ten
 - `src/services/remote/storage_target/driver.rs` 负责 remote storage target driver descriptor、driver-field normalization、target-to-policy materialization 和 driver build/validate。
 - `src/storage/remote_protocol/` 只处理 wire model、签名、path encoding、transport 和 response parsing，不决定 UI 字段和 policy target 选择。
 
+OBS 的 `download_delivery` 明确选择 `obs_origin` 或 `huawei_cdn_type_a_sha256`。CDN 模式才显示并要求 `download_base_url`、`obs_cdn_auth_validity_seconds`、`obs_cdn_auth_param` 及独立静态凭据 `obs_cdn_auth_key`，旧配置默认源站。下载地址只接受 HTTPS 域名，不包含路径前缀，对象前缀统一使用 `base_path`。`obs_use_cname` 继续负责 OBS API 源站寻址。CDN Type A 签名使用最终编码路径；不能将原生 OBS 签名换 host 后作为 CDN 鉴权。浏览器 Blob 交付可省略响应头覆盖时使用 CDN，其余严格请求返回中继；`relay_stream` 继续优先。
+
 ## 测试要求
 
 修改 descriptor 或 normalization 时至少补对应的纯函数/单元测试：

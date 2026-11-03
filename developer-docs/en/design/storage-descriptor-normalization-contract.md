@@ -58,6 +58,8 @@ Field normalization belongs in backend use cases or connector/driver-specific pu
 - `src/services/remote/storage_target/driver.rs` owns remote storage target driver descriptors, driver-field normalization, target-to-policy materialization, and driver build/validate.
 - `src/storage/remote_protocol/` handles wire models, signing, path encoding, transport, and response parsing. It does not decide UI fields or policy target selection.
 
+OBS `download_delivery` explicitly selects `obs_origin` or `huawei_cdn_type_a_sha256`. Only CDN mode shows and requires `download_base_url`, `obs_cdn_auth_validity_seconds`, `obs_cdn_auth_param` and independent static credential `obs_cdn_auth_key`; old configurations default to origin. The delivery address accepts an HTTPS domain without a path prefix; object prefixes come from `base_path`. `obs_use_cname` continues to address the OBS API origin. Type A signs the final encoded path rather than replacing the host of an OBS signature. Eligible browser Blob delivery may omit response overrides and use CDN; strict requests return relay, and `relay_stream` retains precedence.
+
 ## Tests
 
 When descriptor or normalization behavior changes, add focused unit tests:
