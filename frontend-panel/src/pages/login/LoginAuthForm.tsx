@@ -214,10 +214,15 @@ export function LoginAuthForm({
 							: "username"
 					}
 					aria-invalid={!!errors.identifier}
+					aria-describedby={
+						errors.identifier ? "login-identifier-error" : undefined
+					}
 					className="h-10"
 				/>
 				{errors.identifier ? (
-					<p className="text-xs text-destructive">{errors.identifier}</p>
+					<p id="login-identifier-error" className="text-xs text-destructive">
+						{errors.identifier}
+					</p>
 				) : null}
 			</div>
 
@@ -234,10 +239,13 @@ export function LoginAuthForm({
 						required={requiresExtraField}
 						autoComplete={identifier.includes("@") ? "off" : "email"}
 						aria-invalid={!!errors.extra}
+						aria-describedby={errors.extra ? "login-extra-error" : undefined}
 						className="h-10"
 					/>
 					{errors.extra ? (
-						<p className="text-xs text-destructive">{errors.extra}</p>
+						<p id="login-extra-error" className="text-xs text-destructive">
+							{errors.extra}
+						</p>
 					) : null}
 				</div>
 			</AnimateHeight>
@@ -259,6 +267,9 @@ export function LoginAuthForm({
 								mode === "login" ? "current-password" : "new-password"
 							}
 							aria-invalid={!!errors.password}
+							aria-describedby={
+								errors.password ? "login-password-error" : undefined
+							}
 							className="h-10 pr-10"
 						/>
 						<button
@@ -278,7 +289,9 @@ export function LoginAuthForm({
 						</button>
 					</div>
 					{errors.password ? (
-						<p className="text-xs text-destructive">{errors.password}</p>
+						<p id="login-password-error" className="text-xs text-destructive">
+							{errors.password}
+						</p>
 					) : null}
 				</div>
 			) : null}

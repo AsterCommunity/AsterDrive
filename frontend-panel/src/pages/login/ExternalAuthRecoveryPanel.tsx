@@ -123,10 +123,18 @@ export function ExternalAuthRecoveryPanel({
 										autoFocus
 										autoComplete="username"
 										aria-invalid={!!identifierError}
+										aria-describedby={
+											identifierError
+												? "external-auth-identifier-error"
+												: undefined
+										}
 										className="h-10"
 									/>
 									{identifierError ? (
-										<p className="text-xs text-destructive">
+										<p
+											id="external-auth-identifier-error"
+											className="text-xs text-destructive"
+										>
 											{identifierError}
 										</p>
 									) : null}
@@ -147,10 +155,18 @@ export function ExternalAuthRecoveryPanel({
 										onChange={(event) => onPasswordChange(event.target.value)}
 										autoComplete="current-password"
 										aria-invalid={!!passwordError}
+										aria-describedby={
+											passwordError ? "external-auth-password-error" : undefined
+										}
 										className="h-10"
 									/>
 									{passwordError ? (
-										<p className="text-xs text-destructive">{passwordError}</p>
+										<p
+											id="external-auth-password-error"
+											className="text-xs text-destructive"
+										>
+											{passwordError}
+										</p>
 									) : null}
 								</div>
 
@@ -198,10 +214,18 @@ export function ExternalAuthRecoveryPanel({
 										}}
 										autoComplete="email"
 										aria-invalid={!!emailError}
+										aria-describedby={
+											emailError ? "external-auth-email-error" : undefined
+										}
 										className="h-10"
 									/>
 									{emailError ? (
-										<p className="text-xs text-destructive">{emailError}</p>
+										<p
+											id="external-auth-email-error"
+											className="text-xs text-destructive"
+										>
+											{emailError}
+										</p>
 									) : null}
 								</div>
 

@@ -54,7 +54,7 @@ function renderForm(
 
 describe("LoginAuthForm", () => {
 	it("exposes field errors to the shared input invalid state", () => {
-		renderForm({
+		const view = renderForm({
 			mode: "register",
 			errors: {
 				identifier: "invalid user",
@@ -73,6 +73,25 @@ describe("LoginAuthForm", () => {
 		expect(screen.getByLabelText("password")).toHaveAttribute(
 			"aria-invalid",
 			"true",
+		);
+		expect(
+			screen.getByLabelText("email_or_username"),
+		).toHaveAccessibleDescription("invalid user");
+		expect(screen.getByLabelText("email")).toHaveAccessibleDescription(
+			"invalid email",
+		);
+		expect(screen.getByLabelText("password")).toHaveAccessibleDescription(
+			"invalid password",
+		);
+		view.rerender(<LoginAuthForm {...view.props} errors={{}} />);
+		expect(screen.getByLabelText("email_or_username")).not.toHaveAttribute(
+			"aria-describedby",
+		);
+		expect(screen.getByLabelText("email")).not.toHaveAttribute(
+			"aria-describedby",
+		);
+		expect(screen.getByLabelText("password")).not.toHaveAttribute(
+			"aria-describedby",
 		);
 	});
 

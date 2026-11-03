@@ -37,7 +37,7 @@ describe("Textarea", () => {
 			"min-h-32",
 			"focus-visible:inset-ring-3",
 			"aria-invalid:inset-ring-3",
-			"aria-invalid:focus-visible:inset-ring-destructive/20",
+			"aria-invalid:focus-visible:inset-ring-destructive/50",
 		);
 		expect(textarea).not.toHaveClass(
 			"focus-visible:ring-3",

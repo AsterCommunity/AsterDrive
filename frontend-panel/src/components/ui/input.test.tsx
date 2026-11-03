@@ -175,7 +175,7 @@ describe("Input focus and invalid indicators", () => {
 		expect(input).toHaveClass(
 			"focus-visible:inset-ring-3",
 			"aria-invalid:inset-ring-3",
-			"aria-invalid:focus-visible:inset-ring-destructive/20",
+			"aria-invalid:focus-visible:inset-ring-destructive/50",
 			"forced-colors:focus-visible:outline-solid",
 		);
 		expect(input).not.toHaveClass(

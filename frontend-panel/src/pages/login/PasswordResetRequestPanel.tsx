@@ -52,10 +52,18 @@ export function PasswordResetRequestPanel({
 					autoFocus
 					autoComplete="email"
 					aria-invalid={!!passwordResetError}
+					aria-describedby={
+						passwordResetError ? "password-reset-email-error" : undefined
+					}
 					className="h-10"
 				/>
 				{passwordResetError ? (
-					<p className="text-xs text-destructive">{passwordResetError}</p>
+					<p
+						id="password-reset-email-error"
+						className="text-xs text-destructive"
+					>
+						{passwordResetError}
+					</p>
 				) : null}
 			</div>
 

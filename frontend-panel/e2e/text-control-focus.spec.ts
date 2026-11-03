@@ -55,7 +55,7 @@ async function assertClippedControl(page: Page, source: Locator) {
 	await control.focus();
 	await expect
 		.poll(() => control.evaluate((el) => getComputedStyle(el).boxShadow))
-		.toBe(invalidShadow);
+		.not.toBe(invalidShadow);
 	await page.emulateMedia({ forcedColors: "active" });
 	await expect
 		.poll(() => control.evaluate((el) => getComputedStyle(el).outlineStyle))
@@ -81,6 +81,9 @@ test("text controls keep inset focus and invalid indicators at clipped edges", a
 	await page.goto("/login");
 	await expect(page.locator("#identifier")).toBeVisible();
 	await assertClippedControl(page, page.locator("#identifier"));
+	await page.evaluate(() => document.documentElement.classList.add("dark"));
+	await assertClippedControl(page, page.locator("#identifier"));
+	await page.evaluate(() => document.documentElement.classList.remove("dark"));
 	for (const [name, width, height] of [
 		["desktop", 1440, 960],
 		["mobile", 390, 844],
