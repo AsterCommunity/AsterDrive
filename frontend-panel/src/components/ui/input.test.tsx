@@ -164,6 +164,12 @@ describe("Input", () => {
 
 		expect(input).toHaveAttribute("data-slot", "input");
 		expect(input).toHaveAttribute("data-theme-surface", "control");
-		expect(input).toHaveClass("h-8", "rounded-lg", "custom-input");
+		expect(input).toHaveClass(
+			"h-8",
+			"rounded-lg",
+			"focus-visible:ring-inset",
+			"aria-invalid:ring-inset",
+			"custom-input",
+		);
 	});
 });

@@ -4,6 +4,7 @@ import { SkeletonTable } from "@/components/common/SkeletonTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type { TeamInfo } from "@/types/api";
 
@@ -62,14 +63,14 @@ export function TeamManageOverviewSection({
 						<Label htmlFor="team-manage-description">
 							{t("settings:settings_team_description")}
 						</Label>
-						<textarea
+						<Textarea
 							id="team-manage-description"
 							aria-label={t("settings:settings_team_description")}
 							value={teamDescription}
 							readOnly={!canManageTeam}
 							disabled={mutating || detailLoading}
 							rows={5}
-							className="min-h-28 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50"
+							className="min-h-28"
 							onChange={(event) => onDescriptionChange(event.target.value)}
 						/>
 					</div>
