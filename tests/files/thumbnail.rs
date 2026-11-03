@@ -256,7 +256,10 @@ async fn test_thumbnail_task_creation_triggers_dispatch_wakeup() {
     let (token, _) = register_and_login!(app);
 
     let file_id = upload_file_bytes!(app, token, "wakeup.png", "image/png", tiny_png());
-    let notified = state.background_task_dispatch_wakeup.notified();
+    let mut wakeup_probe =
+        common::task_wakeup::TaskWakeupProbe::new(state.background_task_dispatch_wakeup.clone())
+            .await;
+    let notified = wakeup_probe.notified();
     tokio::pin!(notified);
 
     let resp = request_thumbnail!(app, token, file_id);

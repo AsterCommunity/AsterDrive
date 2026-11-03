@@ -4,6 +4,8 @@
     reason = "shared integration-test support exposes helpers used by different test binaries"
 )]
 
+pub mod task_wakeup;
+
 use aster_drive::runtime::PrimaryAppState;
 use aster_forge_test::{
     fixture::{SuiteFixtureLock, SuiteFixtureState},
@@ -1700,8 +1702,7 @@ async fn setup_with_database_url_and_pool_size(
         mail_sender,
         storage_change_bus,
         share_download_rollback,
-        background_task_dispatch_wakeup:
-            aster_drive::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+        background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol,
     }
 }

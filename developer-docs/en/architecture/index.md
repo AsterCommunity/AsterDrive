@@ -270,12 +270,13 @@ Then `src/api/follower.rs` registers only:
 
 ## Background Tasks
 
-Primary background work is registered by `src/runtime/tasks.rs` and is split into one resident worker plus periodic tasks:
+Primary background work is registered by `src/runtime/tasks.rs` and is split into resident workers plus periodic tasks:
 
-- resident worker: `share-download-rollback`
+- resident workers:
+  - `share-download-rollback`
+  - `background-task-dispatch` (one consumer per lane; not part of the singleton scheduler lease)
 - periodic tasks:
   - `mail-outbox-dispatch`
-  - `background-task-dispatch`
   - `upload-cleanup`
   - `completed-upload-cleanup`
   - `blob-reconcile`
@@ -297,10 +298,14 @@ User-visible `background_tasks` records are dispatched by `background-task-dispa
 - `Archive`: `archive_compress`, `archive_extract`, `archive_preview_generate`
 - `Thumbnail`: `thumbnail_generate`, `image_preview_generate`, `media_metadata_extract`
 - `OfflineDownload`: `offline_download`
-- `StorageMigration`: `storage_policy_migration`
-- `Fallback`: `storage_policy_temp_cleanup`, `trash_purge_all`, `blob_maintenance`, `system_runtime`
+- `StorageMigration`: `storage_policy_migration`, `storage_policy_forced_purge`
+- `Fallback`: `storage_policy_temp_cleanup`, `trash_purge_all`, `folder_tree_mutation`, `blob_maintenance`, `system_runtime`
 
 The first four business lanes have their own runtime concurrency settings. Fallback uses the generic `background_task_max_concurrency`. Lane assignment, payload/result codecs, steps, retry behavior, and execution entry points are declared centrally in `src/services/task/spec/` and `src/services/task/registry.rs`; new task kinds must not duplicate `kind` matches across the dispatcher, presentation, and creation paths.
+
+Each lane has an independent Forge `TaskWakeup` subscription established before startup claiming. Enqueue/retry broadcasts reach all local consumers and remain unread while a claim is in flight. A shared competing `Notify::notify_one()` must not be used: it may wake a lane that cannot claim the new task. Startup claiming and bounded polling remain authoritative, including for writes from other processes.
+
+For local diagnostics, use `RUST_LOG=info,aster_drive::services::task=trace,aster_forge_tasks=trace,aster_forge_db::transaction=trace`. Enqueue logs distinguish row insertion from committed enqueue/retry. Consumer/wakeup IDs, lane, claim sequence, task ID and lease generation correlate the lifecycle. Drive logs quota-lock calls, quota capacity, candidate selection and CAS outcomes (`shared_quota_full`, `no_candidates`, `cas_miss`); Forge adds transaction phases and real callers. Database-call duration does not claim to isolate server-side lock time. Idle polling remains at TRACE; payloads, filenames and raw errors are omitted.
 
 After claiming a task, the dispatcher creates a `TaskExecutionContext` for business execution. The context carries both the processing-token lease and the graceful-shutdown token; `main.rs` injects the same token into the HTTP server, SSE, and background-task stack, so SIGINT / SIGTERM starts all of them winding down together. Task code, download polling, and blocking archive compression / extraction workers should use this context for activity checks. Only lower-level helpers that write progress, runtime metadata, or final state should receive `TaskLeaseGuard` directly. During service shutdown, the context makes execution exit cooperatively; the dispatcher then releases a still-matching processing token back to `Retry` without spending retry budget.
 

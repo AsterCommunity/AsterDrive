@@ -3331,7 +3331,10 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     );
     assert_eq!(status, 201);
 
-    let archive_wakeup = state.background_task_dispatch_wakeup.notified();
+    let mut wakeup_probe =
+        common::task_wakeup::TaskWakeupProbe::new(state.background_task_dispatch_wakeup.clone())
+            .await;
+    let archive_wakeup = wakeup_probe.notified();
     tokio::pin!(archive_wakeup);
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/archive-compress")
@@ -3929,7 +3932,10 @@ async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
-    let retry_wakeup = state.background_task_dispatch_wakeup.notified();
+    let mut wakeup_probe =
+        common::task_wakeup::TaskWakeupProbe::new(state.background_task_dispatch_wakeup.clone())
+            .await;
+    let retry_wakeup = wakeup_probe.notified();
     tokio::pin!(retry_wakeup);
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);

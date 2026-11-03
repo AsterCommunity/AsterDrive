@@ -350,7 +350,7 @@ primary 后台工作由 `src/runtime/tasks.rs` 声明，通用运行机制使用
 
 任务分成常驻 worker 和周期任务：
 
-- 常驻 worker：`share-download-rollback`、`background-task-dispatch`（后者运行在 lease-scoped scheduler group 内）
+- 常驻 worker：`share-download-rollback`、`background-task-dispatch`（每条 lane 独立消费，不参与 singleton scheduler lease）
 - 周期任务：
   - `mail-outbox-dispatch`
   - `upload-cleanup`
@@ -374,10 +374,22 @@ primary 后台工作由 `src/runtime/tasks.rs` 声明，通用运行机制使用
 - `Archive`：`archive_compress`、`archive_extract`、`archive_preview_generate`
 - `Thumbnail`：`thumbnail_generate`、`image_preview_generate`、`media_metadata_extract`
 - `OfflineDownload`：`offline_download`
-- `StorageMigration`：`storage_policy_migration`
-- `Fallback`：`storage_policy_temp_cleanup`、`trash_purge_all`、`blob_maintenance`、`system_runtime`
+- `StorageMigration`：`storage_policy_migration`、`storage_policy_forced_purge`
+- `Fallback`：`storage_policy_temp_cleanup`、`trash_purge_all`、`folder_tree_mutation`、`blob_maintenance`、`system_runtime`
 
 前四条业务 lane 分别有自己的运行时并发配置；Fallback 使用通用 `background_task_max_concurrency`。任务的 lane、payload/result 编解码、steps、重试和执行入口统一由 `src/services/task/spec/` 与 `src/services/task/registry.rs` 声明，新增任务不要在 dispatcher、presentation 和创建路径各写一份 `kind` 分支。
+
+同进程内五条 consumer 共用 Forge `TaskWakeup`，每个 runner 在首次认领前建立独立订阅。
+任务入库提交、手动重试或执行释放回队列后广播通知；claim I/O 期间的通知保留到返回后处理。
+不能用共享 `Notify::notify_one()`，它可能叫醒不拥有该 task kind 的 lane，令目标 lane 继续等退避。
+启动时始终主动 claim；跨进程写入仍由有界轮询发现，进程内通知不提供跨实例投递。
+
+定向排障可使用 `RUST_LOG=info,aster_drive::services::task=trace,aster_forge_tasks=trace,aster_forge_db::transaction=trace`。
+入队日志区分 `record_inserted`（事务可能尚未提交）与 `enqueue_committed` / `retry_committed`。
+consumer/wakeup ID、lane、claim sequence 与 task ID/lease generation 关联调度和执行；
+`quota_lock`、quota 计数、selection 及 CAS outcome 由 Drive adapter 记录，通用事务阶段和真实 caller 由 Forge 记录。
+空结果会标注 `shared_quota_full` 或 `no_candidates`；CAS 竞争失败标注 `cas_miss`。
+锁阶段时间是相应数据库调用的总耗时，不能冒充已单独测量的服务端锁等待；日志不包含 payload、文件名或原始错误。
 
 dispatcher 认领任务后会为业务执行创建 `TaskExecutionContext`。它同时携带 processing-token lease 和 graceful-shutdown token；这个 token 由 `AsterRuntime` 持有，并通过 HTTP / background-task component 注入 HTTP server、SSE 和后台任务，所以 SIGINT / SIGTERM 到来时，几条链路会一起开始收尾。任务代码、下载轮询、压缩 / 解压的阻塞 worker 都应该通过这个 context 做活跃检查；只有进度写库、runtime metadata 写库和最终状态写库这类底层 helper 直接使用 `TaskLeaseGuard`。服务关闭时，context 会让执行流协作退出，dispatcher 再把仍匹配当前 processing token 的任务释放回 `Retry`，不消耗重试次数。
 

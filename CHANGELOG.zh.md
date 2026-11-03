@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **任务队列诊断** — 定向日志关联入队提交、广播唤醒、consumer/lane 身份、共享 quota 锁、候选选择、CAS、handler 生命周期及真实事务调用位置。空轮询保持 TRACE，诊断不记录任务 payload 或原始错误。
+
 - **腾讯 COS 私有 CDN 交付** — 显式支持 Type D / SHA-256 下载交付，使用独立加密的 CDN 密钥、受限的链接有效期及条件配置；明确区分默认源站、自定义源站 Q-Sign 和 CDN 三种交付；同一个下载地址仅在自定义源站与 CDN 模式显示并必填，默认源站忽略休眠地址。中继下载优先覆盖交付配置并保留其设置。可逆迁移为策略、远端目标及延迟清理快照中缺少显式模式的已发布自定义下载配置保留原行为。Blob 下载与预览可走 CDN，需要精确响应头或附件名的请求保留同源中继。必须同时启用私有 COS 回源授权与覆盖全部路径的 CDN 鉴权，并分别验证缓存未命中和命中时的访问控制。
 - **腾讯 COS 自定义源站域名** — 可选 CNAME 模式支持绑定 bucket 的自定义 endpoint，用于对象读写、multipart、预签名链接、COS 数据万象和 CORS；按最终请求 Host 签名，不向 URL 追加 bucket。已有官方 endpoint 与独立下载交付地址保持原有行为。
 - **阿里云 OSS CDN 下载分发** — 显式选择 OSS 源站或阿里云 CDN Type A 交付，CDN 模式才展示域名、加密密钥及与控制台一致的有效时长，域名与密钥必填。已授权的 Blob 下载和安全预览使用有界有效期的 CDN 签名 URL；严格响应头请求及需隔离的内联预览使用中继。OSS V4、CNAME 上传、multipart 和后端 I/O 保持既有 endpoint；校验路径与配置并对 CDN 密钥进行 Debug 脱敏。中英文配置与验收指南分别说明链接有效期和缓存时间，真实阿里云 CNAME/CDN 验收仍由维护者执行。 (#685)
@@ -17,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI 写入预览与 Shell 补全** — `config set/delete/import`、doctor 计数修复与数据库迁移提供 dry-run 预览，不写入状态或发布配置刷新通知。交互写入默认拒绝并要求确认，非交互写入须显式使用 `--yes` 或 `ASTER_CLI_YES=true`；现有校验与备份要求仍保留。`completions install [bash|zsh|fish]` 根据 Clap 命令定义生成并安装补全，省略 shell 时读取 `$SHELL`，无需启动服务或数据库。管理页面生成的接入命令自动携带 `--yes`，可直接复制到从节点执行。数据库迁移预览和只验证模式要求 SQLite 目标文件已存在，不会创建或初始化目标文件。人类可读状态明确区分计划变更、未修改与已完成写入。
 
 ### Changed
+
+- **Workspace 依赖所有权** — 全部 Forge 依赖由 workspace 统一固定到同一 revision，`crates/*` 的依赖版本也统一继承 workspace，成员保留各自的 feature 配置。
 
 - **对象存储 CNAME 配置** — OSS、OBS 和 COS 使用一致的自定义域名开关文案。华为 OBS 以布尔字段 `obs_use_cname` 替代 `obs_addressing_mode`，可逆迁移在已保存策略、远端存储目标和延迟清理快照中保留官方／自定义域名行为。所有节点应统一升级，API 客户端须改用布尔字段。
 - **运行时配置备份（破坏性变更）** — `config export` 输出可直接导入的版本化备份，默认省略敏感值；完整备份须显式添加 `--include-sensitive`。Import 与文件校验只接受新格式，拒绝展示元数据、未知系统 key、重复 key 和脱敏占位值。批次校验后在同一事务内提交，再通知运行实例刷新。读取、校验与 doctor 不再初始化默认配置或意外数据库。
@@ -27,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI 终端输出** — 人类可读配置值及交互式当前值提示统一转义 C0/C1 控制字符，避免已保存或导入的 ANSI／OSC 序列修改终端画面和写入确认；普通文本区分字面反斜杠与控制字符转义，展示的 JSON 数组及带引号当前值仍使用合法 JSON 转义。JSON 报告及备份保留原始内容。
 
 ### Fixed
+
+- **API/worker 同进程任务唤醒** — 入队和重试通知广播到全部已订阅的 lane，并保留 claim 执行期间收到的通知，避免无关 lane 消费唯一信号、目标 lane 继续等待空闲轮询。启动恢复和跨进程发现仍由数据库轮询保证。（#703）
 
 - **回收站修改并发保护** — 个人及团队回收站的清空任务处于排队、执行、重试或等待取消确认状态时，还原、移入回收站及单项/批量永久删除返回 `409 trash.purge_in_progress`。数据库协调同时覆盖排队目录删除/还原，并阻止 lease 接管后的旧 worker 继续删除；任务进入终态后自动解除限制。操作失败会显示具体原因；目录永久删除的文件/版本、引用计数、配额和目录数据同事务提交，物理清理在提交后执行；排队目录还原显式接收任务数据并提示任务已创建，与同步完成区分显示。（#704）
 
