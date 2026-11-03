@@ -543,23 +543,24 @@ async fn sdk_operations_keep_blob_endpoint_and_do_not_follow_redirects() {
         StorageErrorKind::Permission
     );
     assert!(driver.get("redirect").await.is_err());
-    let requests = captured.lock().unwrap();
-    assert_eq!(requests.len(), 11);
-    assert!(requests.iter().all(
-        |(_, path, query, _)| (path.starts_with("/archive/base%20path/") || path == "/archive")
-            && query.contains("sig=")
-    ));
-    assert!(!requests.iter().any(|(_, path, _, _)| path == "/leaked"));
-    assert!(
-        requests
-            .iter()
-            .any(|(_, _, query, _)| query.contains("comp=block&"))
-    );
-    assert!(
-        requests
-            .iter()
-            .any(|(_, _, _, range)| range.as_deref() == Some("bytes=1-2"))
-    );
-    drop(requests);
+    {
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 11);
+        assert!(requests.iter().all(
+            |(_, path, query, _)| (path.starts_with("/archive/base%20path/") || path == "/archive")
+                && query.contains("sig=")
+        ));
+        assert!(!requests.iter().any(|(_, path, _, _)| path == "/leaked"));
+        assert!(
+            requests
+                .iter()
+                .any(|(_, _, query, _)| query.contains("comp=block&"))
+        );
+        assert!(
+            requests
+                .iter()
+                .any(|(_, _, _, range)| range.as_deref() == Some("bytes=1-2"))
+        );
+    }
     handle.stop(true).await;
 }
