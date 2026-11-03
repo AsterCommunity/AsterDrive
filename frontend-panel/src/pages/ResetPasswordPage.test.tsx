@@ -152,6 +152,20 @@ describe("ResetPasswordPage", () => {
 		).toBeInTheDocument();
 	});
 
+	it("associates the password error and clears the description when corrected", () => {
+		mockState.location.search = "?token=reset-token";
+		render(<ResetPasswordPage />);
+		const input = screen.getByLabelText("password");
+		expect(input).not.toHaveAttribute("aria-describedby");
+		fireEvent.change(input, { target: { value: "short" } });
+		fireEvent.click(
+			screen.getByRole("button", { name: "reset_password_submit" }),
+		);
+		expect(input).toHaveAccessibleDescription("invalid-password");
+		fireEvent.change(input, { target: { value: "long-enough" } });
+		expect(input).not.toHaveAttribute("aria-describedby");
+	});
+
 	it("submits a new password and redirects back to login", async () => {
 		mockState.location = {
 			hash: "",

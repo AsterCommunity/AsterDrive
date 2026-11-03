@@ -167,3 +167,20 @@ describe("Input", () => {
 		expect(input).toHaveClass("h-8", "rounded-lg", "custom-input");
 	});
 });
+
+describe("Input focus and invalid indicators", () => {
+	it("uses outer indicators and keeps focused errors distinct", () => {
+		render(<Input aria-label="invalid-input" aria-invalid="true" />);
+		const input = screen.getByLabelText("invalid-input");
+		expect(input).toHaveClass(
+			"focus-visible:ring-3",
+			"aria-invalid:ring-3",
+			"aria-invalid:focus-visible:ring-destructive/50",
+			"forced-colors:focus-visible:outline-solid",
+		);
+		expect(input).not.toHaveClass(
+			"focus-visible:inset-ring-3",
+			"aria-invalid:inset-ring-3",
+		);
+	});
+});
