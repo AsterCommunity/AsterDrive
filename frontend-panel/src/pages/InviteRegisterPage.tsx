@@ -396,6 +396,8 @@ function InviteRegisterForm({
 	username,
 	usernameError,
 }: InviteRegisterFormProps) {
+	const usernameErrorId = "invite-username-error";
+	const passwordErrorId = "invite-password-error";
 	const animationClassName =
 		status === "revealing_form"
 			? "animate-in fade-in space-y-4 duration-150 motion-reduce:animate-none"
@@ -416,15 +418,17 @@ function InviteRegisterForm({
 					value={username}
 					onChange={(event) => onUsernameChange(event.target.value)}
 					autoComplete="username"
-					className={
-						usernameError
-							? "border-destructive focus-visible:ring-destructive"
-							: undefined
-					}
+					aria-describedby={usernameError ? usernameErrorId : undefined}
 					aria-invalid={!!usernameError}
 				/>
 				{usernameError ? (
-					<p className="text-xs text-destructive">{usernameError}</p>
+					<p
+						id={usernameErrorId}
+						role="alert"
+						className="text-xs text-destructive"
+					>
+						{usernameError}
+					</p>
 				) : null}
 			</div>
 			<div className="space-y-1.5">
@@ -438,11 +442,8 @@ function InviteRegisterForm({
 						value={password}
 						onChange={(event) => onPasswordChange(event.target.value)}
 						autoComplete="new-password"
-						className={
-							passwordError
-								? "border-destructive pr-10 focus-visible:ring-destructive"
-								: "pr-10"
-						}
+						className="pr-10"
+						aria-describedby={passwordError ? passwordErrorId : undefined}
 						aria-invalid={!!passwordError}
 					/>
 					<button
@@ -461,7 +462,13 @@ function InviteRegisterForm({
 					</button>
 				</div>
 				{passwordError ? (
-					<p className="text-xs text-destructive">{passwordError}</p>
+					<p
+						id={passwordErrorId}
+						role="alert"
+						className="text-xs text-destructive"
+					>
+						{passwordError}
+					</p>
 				) : null}
 			</div>
 

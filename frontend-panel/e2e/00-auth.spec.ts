@@ -158,6 +158,79 @@ test.describe
 				.toEqual([4, 4]);
 		});
 
+		test("keeps login focus and invalid rings inside clipped text controls", async ({
+			page,
+			request,
+		}) => {
+			await disablePasskeyBrowserSupport(page);
+			if (!(await hasUsers(request))) {
+				await setupAdmin(page);
+				await logout(page);
+			}
+
+			await page.goto("/login");
+			const identifier = page.getByLabel("Email or username");
+			const clippedGeometry = await identifier.evaluate((input) => {
+				let ancestor = input.parentElement;
+				while (ancestor) {
+					const style = getComputedStyle(ancestor);
+					if (["hidden", "clip"].includes(style.overflowX)) {
+						const inputRect = input.getBoundingClientRect();
+						const ancestorRect = ancestor.getBoundingClientRect();
+						return {
+							leftGap: inputRect.left - ancestorRect.left,
+							rightGap: ancestorRect.right - inputRect.right,
+						};
+					}
+					ancestor = ancestor.parentElement;
+				}
+				return null;
+			});
+			expect(clippedGeometry).not.toBeNull();
+			expect(
+				Math.abs(clippedGeometry?.leftGap ?? Number.POSITIVE_INFINITY),
+			).toBeLessThanOrEqual(1);
+			expect(
+				Math.abs(clippedGeometry?.rightGap ?? Number.POSITIVE_INFINITY),
+			).toBeLessThanOrEqual(1);
+
+			await identifier.focus();
+			await expect
+				.poll(() =>
+					identifier.evaluate((input) => getComputedStyle(input).boxShadow),
+				)
+				.toContain("inset");
+			const focusShadow = await identifier.evaluate(
+				(input) => getComputedStyle(input).boxShadow,
+			);
+
+			await identifier.evaluate((input) => {
+				input.setAttribute("aria-invalid", "true");
+			});
+			await expect
+				.poll(() =>
+					identifier.evaluate((input) => getComputedStyle(input).boxShadow),
+				)
+				.toContain("inset");
+			const invalidFocusShadow = await identifier.evaluate(
+				(input) => getComputedStyle(input).boxShadow,
+			);
+			expect(invalidFocusShadow).not.toBe(focusShadow);
+
+			await page.emulateMedia({ forcedColors: "active" });
+			const forcedColorsOutline = await identifier.evaluate((input) => {
+				const style = getComputedStyle(input);
+				return {
+					offset: Number.parseFloat(style.outlineOffset),
+					style: style.outlineStyle,
+					width: Number.parseFloat(style.outlineWidth),
+				};
+			});
+			expect(forcedColorsOutline.style).not.toBe("none");
+			expect(forcedColorsOutline.width).toBeGreaterThanOrEqual(2);
+			expect(forcedColorsOutline.offset).toBeLessThanOrEqual(0);
+		});
+
 		test("uses conditional passkey UI without a typed identifier", async ({
 			page,
 			request,

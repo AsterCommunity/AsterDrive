@@ -252,4 +252,56 @@ describe("ExternalAuthRecoveryPanel", () => {
 			screen.queryByLabelText("email_or_username"),
 		).not.toBeInTheDocument();
 	});
+
+	it("links password and email recovery errors to their fields", () => {
+		const view = renderPanel({
+			identifierError: "identifier-error",
+			passwordError: "password-error",
+		});
+
+		expect(screen.getByLabelText("email_or_username")).toHaveAttribute(
+			"aria-describedby",
+			"external-auth-identifier-error",
+		);
+		expect(screen.getByLabelText("password")).toHaveAttribute(
+			"aria-describedby",
+			"external-auth-password-error",
+		);
+		expect(screen.getByText("identifier-error")).toHaveAttribute(
+			"role",
+			"alert",
+		);
+
+		view.rerender(
+			<ExternalAuthRecoveryPanel
+				email="invalid"
+				emailError="email-error"
+				emailSchema={invalidEmailSchema as never}
+				identifier="user@example.com"
+				identifierError=""
+				mode="email"
+				passwordLoginEnabled={true}
+				password="secret123"
+				passwordError=""
+				sent={false}
+				submittingEmail={false}
+				submittingPassword={false}
+				t={(key) => key.replace(/^core:/, "")}
+				onBack={vi.fn()}
+				onEmailChange={vi.fn()}
+				onIdentifierChange={vi.fn()}
+				onModeChange={vi.fn()}
+				onPasswordChange={vi.fn()}
+			/>,
+		);
+
+		expect(screen.getByLabelText("email")).toHaveAttribute(
+			"aria-describedby",
+			"external-auth-email-error",
+		);
+		expect(screen.getByText("email-error")).toHaveAttribute(
+			"id",
+			"external-auth-email-error",
+		);
+	});
 });

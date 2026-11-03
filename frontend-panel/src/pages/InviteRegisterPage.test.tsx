@@ -265,8 +265,18 @@ describe("InviteRegisterPage", () => {
 			screen.getByRole("button", { name: "invitation_register_submit" }),
 		);
 
-		expect(await screen.findByText("invalid-username")).toBeInTheDocument();
-		expect(screen.getByText("invalid-password")).toBeInTheDocument();
+		const usernameError = await screen.findByText("invalid-username");
+		const passwordError = screen.getByText("invalid-password");
+		expect(usernameError).toHaveAttribute("id", "invite-username-error");
+		expect(passwordError).toHaveAttribute("id", "invite-password-error");
+		expect(screen.getByLabelText("username")).toHaveAttribute(
+			"aria-describedby",
+			"invite-username-error",
+		);
+		expect(screen.getByLabelText("password")).toHaveAttribute(
+			"aria-describedby",
+			"invite-password-error",
+		);
 		expect(mockState.acceptInvitation).not.toHaveBeenCalled();
 	});
 

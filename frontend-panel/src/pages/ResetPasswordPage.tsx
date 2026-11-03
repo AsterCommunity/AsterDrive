@@ -29,6 +29,7 @@ export default function ResetPasswordPage() {
 	const [submitting, setSubmitting] = useState(false);
 	const [passwordError, setPasswordError] = useState("");
 	const [status, setStatus] = useState<ResetStatus>(token ? "form" : "missing");
+	const passwordErrorId = "reset-password-error";
 
 	usePageTitle(t("reset_password_title"));
 
@@ -114,11 +115,9 @@ export default function ResetPasswordPage() {
 									}
 								}}
 								autoComplete="new-password"
-								className={
-									passwordError
-										? "pr-10 border-destructive focus-visible:ring-destructive"
-										: "pr-10"
-								}
+								aria-describedby={passwordError ? passwordErrorId : undefined}
+								aria-invalid={passwordError ? true : undefined}
+								className="pr-10"
 							/>
 							<button
 								type="button"
@@ -139,7 +138,13 @@ export default function ResetPasswordPage() {
 							</button>
 						</div>
 						{passwordError ? (
-							<p className="text-xs text-destructive">{passwordError}</p>
+							<p
+								id={passwordErrorId}
+								role="alert"
+								className="text-xs text-destructive"
+							>
+								{passwordError}
+							</p>
 						) : null}
 					</div>
 

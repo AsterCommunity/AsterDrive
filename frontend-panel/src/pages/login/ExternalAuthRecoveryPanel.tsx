@@ -54,6 +54,9 @@ export function ExternalAuthRecoveryPanel({
 	const busy = submittingEmail || submittingPassword;
 	const tabPanelClassName =
 		"space-y-4 animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none";
+	const identifierErrorId = "external-auth-identifier-error";
+	const passwordErrorId = "external-auth-password-error";
+	const emailErrorId = "external-auth-email-error";
 
 	return (
 		<div className="space-y-4">
@@ -122,14 +125,18 @@ export function ExternalAuthRecoveryPanel({
 										onChange={(event) => onIdentifierChange(event.target.value)}
 										autoFocus
 										autoComplete="username"
-										className={cn(
-											"h-10",
-											identifierError &&
-												"border-destructive focus-visible:ring-destructive",
-										)}
+										aria-describedby={
+											identifierError ? identifierErrorId : undefined
+										}
+										aria-invalid={identifierError ? true : undefined}
+										className="h-10"
 									/>
 									{identifierError ? (
-										<p className="text-xs text-destructive">
+										<p
+											id={identifierErrorId}
+											role="alert"
+											className="text-xs text-destructive"
+										>
 											{identifierError}
 										</p>
 									) : null}
@@ -149,14 +156,20 @@ export function ExternalAuthRecoveryPanel({
 										value={password}
 										onChange={(event) => onPasswordChange(event.target.value)}
 										autoComplete="current-password"
-										className={cn(
-											"h-10",
-											passwordError &&
-												"border-destructive focus-visible:ring-destructive",
-										)}
+										aria-describedby={
+											passwordError ? passwordErrorId : undefined
+										}
+										aria-invalid={passwordError ? true : undefined}
+										className="h-10"
 									/>
 									{passwordError ? (
-										<p className="text-xs text-destructive">{passwordError}</p>
+										<p
+											id={passwordErrorId}
+											role="alert"
+											className="text-xs text-destructive"
+										>
+											{passwordError}
+										</p>
 									) : null}
 								</div>
 
@@ -203,14 +216,18 @@ export function ExternalAuthRecoveryPanel({
 											);
 										}}
 										autoComplete="email"
-										className={cn(
-											"h-10",
-											emailError &&
-												"border-destructive focus-visible:ring-destructive",
-										)}
+										aria-describedby={emailError ? emailErrorId : undefined}
+										aria-invalid={emailError ? true : undefined}
+										className="h-10"
 									/>
 									{emailError ? (
-										<p className="text-xs text-destructive">{emailError}</p>
+										<p
+											id={emailErrorId}
+											role="alert"
+											className="text-xs text-destructive"
+										>
+											{emailError}
+										</p>
 									) : null}
 								</div>
 

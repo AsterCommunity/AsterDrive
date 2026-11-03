@@ -46,6 +46,7 @@ export function MfaChallengePanel({
 	onEmailCodeSend,
 	onMethodChange,
 }: MfaChallengePanelProps) {
+	const codeErrorId = "mfa-code-error";
 	const availableMethods = methods.length > 0 ? methods : [selectedMethod];
 	const emailCodeResendSeconds = Math.max(
 		0,
@@ -174,12 +175,15 @@ export function MfaChallengePanel({
 					autoFocus
 					inputMode={codeInputMode}
 					placeholder={codePlaceholder}
-					className={
-						error ? "border-destructive focus-visible:ring-destructive" : ""
-					}
+					aria-describedby={error ? codeErrorId : undefined}
+					aria-invalid={error ? true : undefined}
 					onChange={(event) => handleCodeChange(event.target.value)}
 				/>
-				{error ? <p className="text-xs text-destructive">{error}</p> : null}
+				{error ? (
+					<p id={codeErrorId} role="alert" className="text-xs text-destructive">
+						{error}
+					</p>
+				) : null}
 			</div>
 
 			<Button type="submit" className="h-10 w-full" disabled={!canSubmit}>

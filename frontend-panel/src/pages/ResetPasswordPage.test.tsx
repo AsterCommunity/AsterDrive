@@ -180,6 +180,30 @@ describe("ResetPasswordPage", () => {
 		);
 	});
 
+	it("links an invalid password to its validation message", async () => {
+		mockState.location = {
+			hash: "",
+			pathname: "/reset-password",
+			search: "?token=reset-token",
+		};
+
+		render(<ResetPasswordPage />);
+
+		const password = screen.getByLabelText("password");
+		fireEvent.change(password, { target: { value: "short" } });
+		fireEvent.click(
+			screen.getByRole("button", { name: "reset_password_submit" }),
+		);
+
+		const error = await screen.findByText("invalid-password");
+		expect(error).toHaveAttribute("id", "reset-password-error");
+		expect(error).toHaveAttribute("role", "alert");
+		expect(password).toHaveAttribute(
+			"aria-describedby",
+			"reset-password-error",
+		);
+	});
+
 	it("switches to an invalid state for used or bad tokens", async () => {
 		mockState.location = {
 			hash: "",

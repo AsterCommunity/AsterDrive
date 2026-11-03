@@ -160,6 +160,9 @@ export function LoginAuthForm({
 		submitting || passkeySubmitting || externalAuthBusyProvider !== null;
 	const showPasswordRecoveryLinks =
 		passwordLoginEnabled && (mode === "login" || mode === "register");
+	const identifierErrorId = "login-identifier-error";
+	const extraErrorId = "login-extra-error";
+	const passwordErrorId = "login-password-error";
 
 	return (
 		<>
@@ -213,14 +216,18 @@ export function LoginAuthForm({
 							? "username webauthn"
 							: "username"
 					}
-					className={cn(
-						"h-10",
-						errors.identifier &&
-							"border-destructive focus-visible:ring-destructive",
-					)}
+					aria-describedby={errors.identifier ? identifierErrorId : undefined}
+					aria-invalid={errors.identifier ? true : undefined}
+					className="h-10"
 				/>
 				{errors.identifier ? (
-					<p className="text-xs text-destructive">{errors.identifier}</p>
+					<p
+						id={identifierErrorId}
+						role="alert"
+						className="text-xs text-destructive"
+					>
+						{errors.identifier}
+					</p>
 				) : null}
 			</div>
 
@@ -236,14 +243,18 @@ export function LoginAuthForm({
 						onChange={(event) => onExtraFieldChange(event.target.value)}
 						required={requiresExtraField}
 						autoComplete={identifier.includes("@") ? "off" : "email"}
-						className={cn(
-							"h-10",
-							errors.extra &&
-								"border-destructive focus-visible:ring-destructive",
-						)}
+						aria-describedby={errors.extra ? extraErrorId : undefined}
+						aria-invalid={errors.extra ? true : undefined}
+						className="h-10"
 					/>
 					{errors.extra ? (
-						<p className="text-xs text-destructive">{errors.extra}</p>
+						<p
+							id={extraErrorId}
+							role="alert"
+							className="text-xs text-destructive"
+						>
+							{errors.extra}
+						</p>
 					) : null}
 				</div>
 			</AnimateHeight>
@@ -264,11 +275,9 @@ export function LoginAuthForm({
 							autoComplete={
 								mode === "login" ? "current-password" : "new-password"
 							}
-							className={cn(
-								"h-10 pr-10",
-								errors.password &&
-									"border-destructive focus-visible:ring-destructive",
-							)}
+							aria-describedby={errors.password ? passwordErrorId : undefined}
+							aria-invalid={errors.password ? true : undefined}
+							className="h-10 pr-10"
 						/>
 						<button
 							type="button"
@@ -287,7 +296,13 @@ export function LoginAuthForm({
 						</button>
 					</div>
 					{errors.password ? (
-						<p className="text-xs text-destructive">{errors.password}</p>
+						<p
+							id={passwordErrorId}
+							role="alert"
+							className="text-xs text-destructive"
+						>
+							{errors.password}
+						</p>
 					) : null}
 				</div>
 			) : null}

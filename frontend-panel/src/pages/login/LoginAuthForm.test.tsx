@@ -200,4 +200,42 @@ describe("LoginAuthForm", () => {
 			screen.queryByRole("button", { name: "sign_in" }),
 		).not.toBeInTheDocument();
 	});
+
+	it("links each invalid field to its validation message", () => {
+		const view = renderForm({
+			errors: {
+				extra: "extra-error",
+				identifier: "identifier-error",
+				password: "password-error",
+			},
+			mode: "register",
+		});
+
+		const identifier = view.container.querySelector("#identifier");
+		const extra = view.container.querySelector("#extra");
+		const password = view.container.querySelector("#password");
+
+		expect(identifier).toHaveAttribute("aria-invalid", "true");
+		expect(identifier).toHaveAttribute(
+			"aria-describedby",
+			"login-identifier-error",
+		);
+		expect(extra).toHaveAttribute("aria-describedby", "login-extra-error");
+		expect(password).toHaveAttribute(
+			"aria-describedby",
+			"login-password-error",
+		);
+		expect(screen.getByText("identifier-error")).toHaveAttribute(
+			"role",
+			"alert",
+		);
+		expect(screen.getByText("extra-error")).toHaveAttribute(
+			"id",
+			"login-extra-error",
+		);
+		expect(screen.getByText("password-error")).toHaveAttribute(
+			"id",
+			"login-password-error",
+		);
+	});
 });
