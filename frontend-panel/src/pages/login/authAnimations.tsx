@@ -54,7 +54,7 @@ export function AnimateHeight({
 			}}
 			onTransitionEnd={handleTransitionEnd}
 		>
-			<div className="overflow-hidden">{children}</div>
+			<div className="focus-ring-space min-h-0 overflow-hidden">{children}</div>
 		</div>
 	);
 }
@@ -168,7 +168,10 @@ export function AnimateMeasuredHeight({
 	}, []);
 
 	return (
-		<div ref={containerRef} className={cn("flow-root", className)}>
+		<div
+			ref={containerRef}
+			className={cn("focus-ring-space box-content flow-root", className)}
+		>
 			<div ref={contentRef} className={contentClassName}>
 				{children}
 			</div>
@@ -247,7 +250,7 @@ export function AnimateSwap({
 	}, [activeKey, children, renderedKey]);
 
 	return (
-		<div className="overflow-hidden">
+		<div className="focus-ring-space overflow-hidden">
 			<div
 				className={cn(
 					"transition-all duration-200 ease-out will-change-transform",

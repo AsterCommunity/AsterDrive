@@ -174,12 +174,15 @@ export function MfaChallengePanel({
 					autoFocus
 					inputMode={codeInputMode}
 					placeholder={codePlaceholder}
-					className={
-						error ? "border-destructive focus-visible:ring-destructive" : ""
-					}
+					aria-invalid={!!error}
+					aria-describedby={error ? "mfa-code-error" : undefined}
 					onChange={(event) => handleCodeChange(event.target.value)}
 				/>
-				{error ? <p className="text-xs text-destructive">{error}</p> : null}
+				{error ? (
+					<p id="mfa-code-error" className="text-xs text-destructive">
+						{error}
+					</p>
+				) : null}
 			</div>
 
 			<Button type="submit" className="h-10 w-full" disabled={!canSubmit}>

@@ -56,8 +56,24 @@ impl TaskConsumer for LaneConsumer {
             ),
         )
     }
-    async fn notified(&self) {
-        self.state.background_task_dispatch_wakeup.notified().await;
+    fn name(&self) -> &'static str {
+        match self.lane {
+            TaskLane::Archive => "archive",
+            TaskLane::Thumbnail => "thumbnail",
+            TaskLane::OfflineDownload => "offline_download",
+            TaskLane::StorageMigration => "storage_migration",
+            TaskLane::Fallback => "fallback",
+        }
+    }
+    fn wakeup(&self) -> &aster_forge_tasks::TaskWakeup {
+        &self.state.background_task_dispatch_wakeup
+    }
+    fn error_kind(&self, error: &crate::errors::AsterError) -> &'static str {
+        match error {
+            crate::errors::AsterError::DatabaseConnection(_) => "database_connection",
+            crate::errors::AsterError::DatabaseOperation(_) => "database_operation",
+            _ => error.api_error_code().as_str(),
+        }
     }
     async fn claim(&self, available: usize) -> Result<Vec<Self::Task>> {
         let result = claim_due_for_lane(self.state.get_ref(), self.config(), available).await;
@@ -141,3 +157,7 @@ pub(crate) fn spawn_consumers(
         });
     }
 }
+
+#[cfg(test)]
+#[path = "tests/consumer_wakeup.rs"]
+mod tests;

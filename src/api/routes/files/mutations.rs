@@ -90,6 +90,7 @@ pub async fn extract_archive(
     operation_id = "delete_file",
     params(("id" = i64, Path, description = "File ID")),
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "File deleted"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
@@ -485,6 +486,7 @@ pub(crate) async fn team_copy_file(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Team file deleted"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),

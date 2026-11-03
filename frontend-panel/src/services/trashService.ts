@@ -21,7 +21,11 @@ export function createTrashService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			api.post<void>(`${basePath}/file/${id}/restore`),
 
 		restoreFolder: (id: number) =>
-			api.post<void>(`${basePath}/folder/${id}/restore`),
+			api.post<undefined | TaskInfo>(
+				`${basePath}/folder/${id}/restore`,
+				undefined,
+				{ accept202: true },
+			),
 
 		purgeFile: (id: number) => api.delete<void>(`${basePath}/file/${id}`),
 

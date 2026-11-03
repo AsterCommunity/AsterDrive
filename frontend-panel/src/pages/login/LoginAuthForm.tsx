@@ -213,14 +213,16 @@ export function LoginAuthForm({
 							? "username webauthn"
 							: "username"
 					}
-					className={cn(
-						"h-10",
-						errors.identifier &&
-							"border-destructive focus-visible:ring-destructive",
-					)}
+					aria-invalid={!!errors.identifier}
+					aria-describedby={
+						errors.identifier ? "login-identifier-error" : undefined
+					}
+					className="h-10"
 				/>
 				{errors.identifier ? (
-					<p className="text-xs text-destructive">{errors.identifier}</p>
+					<p id="login-identifier-error" className="text-xs text-destructive">
+						{errors.identifier}
+					</p>
 				) : null}
 			</div>
 
@@ -236,14 +238,14 @@ export function LoginAuthForm({
 						onChange={(event) => onExtraFieldChange(event.target.value)}
 						required={requiresExtraField}
 						autoComplete={identifier.includes("@") ? "off" : "email"}
-						className={cn(
-							"h-10",
-							errors.extra &&
-								"border-destructive focus-visible:ring-destructive",
-						)}
+						aria-invalid={!!errors.extra}
+						aria-describedby={errors.extra ? "login-extra-error" : undefined}
+						className="h-10"
 					/>
 					{errors.extra ? (
-						<p className="text-xs text-destructive">{errors.extra}</p>
+						<p id="login-extra-error" className="text-xs text-destructive">
+							{errors.extra}
+						</p>
 					) : null}
 				</div>
 			</AnimateHeight>
@@ -264,11 +266,11 @@ export function LoginAuthForm({
 							autoComplete={
 								mode === "login" ? "current-password" : "new-password"
 							}
-							className={cn(
-								"h-10 pr-10",
-								errors.password &&
-									"border-destructive focus-visible:ring-destructive",
-							)}
+							aria-invalid={!!errors.password}
+							aria-describedby={
+								errors.password ? "login-password-error" : undefined
+							}
+							className="h-10 pr-10"
 						/>
 						<button
 							type="button"
@@ -287,7 +289,9 @@ export function LoginAuthForm({
 						</button>
 					</div>
 					{errors.password ? (
-						<p className="text-xs text-destructive">{errors.password}</p>
+						<p id="login-password-error" className="text-xs text-destructive">
+							{errors.password}
+						</p>
 					) : null}
 				</div>
 			) : null}

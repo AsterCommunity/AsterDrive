@@ -12,6 +12,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type { StorageQuotaUnit } from "@/lib/storageQuota";
 import type { AdminTeamInfo } from "@/types/api";
@@ -179,13 +180,13 @@ export function AdminTeamDetailOverviewSection({
 							<Label htmlFor="admin-team-detail-description">
 								{t("description")}
 							</Label>
-							<textarea
+							<Textarea
 								id="admin-team-detail-description"
 								aria-label={t("description")}
 								value={description}
 								disabled={formDisabled}
 								rows={6}
-								className="min-h-32 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50"
+								className="min-h-32"
 								onChange={(event) => onDescriptionChange(event.target.value)}
 							/>
 						</div>

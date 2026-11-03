@@ -2,6 +2,7 @@
 
 mod cleanup;
 mod common;
+pub(crate) mod coordination;
 mod listing;
 mod models;
 mod purge;

@@ -238,8 +238,23 @@ async fn retry_task_record(
     let max_attempts = registry::max_attempts(state.runtime_config().as_ref(), task.kind);
 
     let now = Utc::now();
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    match task.kind {
+        BackgroundTaskKind::TrashPurgeAll => {
+            crate::services::files::trash::coordination::lock_scope_on(
+                &txn,
+                task_scope(task)?.into(),
+            )
+            .await?;
+        }
+        BackgroundTaskKind::FolderTreeMutation => {
+            crate::services::files::trash::coordination::admit_mutation_on(&txn, task_scope(task)?)
+                .await?;
+        }
+        _ => {}
+    }
     if !background_task_repo::reset_for_manual_retry(
-        state.writer_db(),
+        &txn,
         task.id,
         now,
         max_attempts,
@@ -252,7 +267,14 @@ async fn retry_task_record(
             task.id
         )));
     }
-    state.wake_background_task_dispatcher();
+    aster_forge_db::transaction::commit(txn).await?;
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "retry_committed",
+        "background task retry committed"
+    );
+    state.task_wakeup().notify();
     Ok(())
 }
 
@@ -660,7 +682,15 @@ pub(in crate::services::task) async fn insert_typed_task_record<
     let dedupe_key = request.dedupe_key.clone();
     let active = request.into_active_model(state)?;
     match background_task_repo::create(db, active).await {
-        Ok(task) => Ok(task),
+        Ok(task) => {
+            tracing::debug!(
+                task_id = task.id,
+                kind = task.kind.as_str(),
+                event = "record_inserted",
+                "background task row inserted; transaction may still be open"
+            );
+            Ok(task)
+        }
         Err(error) => {
             if let Some(dedupe_key) = dedupe_key
                 && let Some(existing) =
@@ -685,7 +715,13 @@ pub(in crate::services::task) async fn create_typed_task_record<S: BackgroundTas
         TypedTaskCreate::<S>::new(display_name, payload.clone()).in_scope(scope),
     )
     .await?;
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     Ok(task)
 }
 

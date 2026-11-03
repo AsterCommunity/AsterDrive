@@ -19,6 +19,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { formatBytes } from "@/lib/format";
 import type {
@@ -308,9 +309,9 @@ function StoragePolicyRecoveryDialogContent({
 									<Label htmlFor="policy-purge-reason">
 										{t("policy_forced_purge_reason")}
 									</Label>
-									<textarea
+									<Textarea
 										id="policy-purge-reason"
-										className="min-h-24 w-full resize-y border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+										className="min-h-24"
 										value={reason}
 										onChange={(event) => onReasonChange(event.target.value)}
 										disabled={submitting}

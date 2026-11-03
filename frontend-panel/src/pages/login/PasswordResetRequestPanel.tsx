@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 
 type Translate = (key: string) => string;
 
@@ -52,14 +51,19 @@ export function PasswordResetRequestPanel({
 					}}
 					autoFocus
 					autoComplete="email"
-					className={cn(
-						"h-10",
-						passwordResetError &&
-							"border-destructive focus-visible:ring-destructive",
-					)}
+					aria-invalid={!!passwordResetError}
+					aria-describedby={
+						passwordResetError ? "password-reset-email-error" : undefined
+					}
+					className="h-10"
 				/>
 				{passwordResetError ? (
-					<p className="text-xs text-destructive">{passwordResetError}</p>
+					<p
+						id="password-reset-email-error"
+						className="text-xs text-destructive"
+					>
+						{passwordResetError}
+					</p>
 				) : null}
 			</div>
 
