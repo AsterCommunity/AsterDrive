@@ -171,7 +171,13 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
         };
         transaction::commit(txn).await?;
     }
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     super::get_task_in_scope(state, scope, task.id).await
 }
 
@@ -930,8 +936,7 @@ mod tests {
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             share_download_rollback,
-            background_task_dispatch_wakeup:
-                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }
     }

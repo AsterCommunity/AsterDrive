@@ -65,8 +65,7 @@ pub async fn prepare_primary(
             mail_sender,
             storage_change_bus,
             share_download_rollback,
-            background_task_dispatch_wakeup:
-                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol,
         },
         share_download_rollback_worker,

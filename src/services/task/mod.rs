@@ -268,7 +268,13 @@ async fn retry_task_record(
         )));
     }
     aster_forge_db::transaction::commit(txn).await?;
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "retry_committed",
+        "background task retry committed"
+    );
+    state.task_wakeup().notify();
     Ok(())
 }
 
@@ -676,7 +682,15 @@ pub(in crate::services::task) async fn insert_typed_task_record<
     let dedupe_key = request.dedupe_key.clone();
     let active = request.into_active_model(state)?;
     match background_task_repo::create(db, active).await {
-        Ok(task) => Ok(task),
+        Ok(task) => {
+            tracing::debug!(
+                task_id = task.id,
+                kind = task.kind.as_str(),
+                event = "record_inserted",
+                "background task row inserted; transaction may still be open"
+            );
+            Ok(task)
+        }
         Err(error) => {
             if let Some(dedupe_key) = dedupe_key
                 && let Some(existing) =
@@ -701,7 +715,13 @@ pub(in crate::services::task) async fn create_typed_task_record<S: BackgroundTas
         TypedTaskCreate::<S>::new(display_name, payload.clone()).in_scope(scope),
     )
     .await?;
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     Ok(task)
 }
 

@@ -59,7 +59,7 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
     db
 }
 
-async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
+pub(super) async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
     let db = build_dispatch_test_db().await;
     let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
@@ -95,13 +95,12 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,
-        background_task_dispatch_wakeup:
-            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+        background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     }
 }
 
-async fn insert_dispatch_test_task(
+pub(super) async fn insert_dispatch_test_task(
     db: &sea_orm::DatabaseConnection,
     kind: BackgroundTaskKind,
     status: BackgroundTaskStatus,
