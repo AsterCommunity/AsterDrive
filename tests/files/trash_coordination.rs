@@ -513,7 +513,7 @@ async fn fresh_instance_reads_persisted_trash_task_state() {
             .status(),
         200
     );
-    let resp = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+    let resp = request!(app, token, delete, "/api/v1/trash").await;
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
     let user = user_repo::find_by_username(state.writer_db(), "testuser")
@@ -580,7 +580,7 @@ async fn processing_purge_cancellation_retains_remaining_items_and_unlocks_resto
     )
     .await
     .unwrap();
-    let resp = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+    let resp = request!(app, token, delete, "/api/v1/trash").await;
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
     let trigger = match state.writer_db().get_database_backend() {
@@ -655,7 +655,7 @@ async fn failed_purge_rolls_back_deletion_and_releases_restore_restriction() {
             .status(),
         200
     );
-    let resp = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+    let resp = request!(app, token, delete, "/api/v1/trash").await;
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
     let trigger = match state.writer_db().get_database_backend() {
@@ -717,7 +717,7 @@ async fn lease_takeover_keeps_restores_blocked_until_the_current_owner_finishes(
             .status(),
         200
     );
-    let response = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+    let response = request!(app, token, delete, "/api/v1/trash").await;
     let body: Value = test::read_body_json(response).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
     let now = Utc::now();
@@ -822,7 +822,7 @@ async fn manual_purge_retry_and_restore_are_serialized() {
                 .status(),
             200
         );
-        let response = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+        let response = request!(app, token, delete, "/api/v1/trash").await;
         let body: Value = test::read_body_json(response).await;
         let task_id = body["data"]["id"].as_i64().unwrap();
         set_status(&state, task_id, status).await;
@@ -1118,7 +1118,7 @@ async fn mysql_prior_snapshot_cannot_hide_a_committed_purge_admission() {
             .unwrap()
             .is_empty()
     );
-    let response = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+    let response = request!(app, token, delete, "/api/v1/trash").await;
     assert_eq!(response.status(), 200);
     lock_namespace_repo::ensure_and_lock(&txn, LockWorkspaceType::Personal, user.id)
         .await
