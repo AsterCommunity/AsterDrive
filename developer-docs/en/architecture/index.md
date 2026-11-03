@@ -270,12 +270,13 @@ Then `src/api/follower.rs` registers only:
 
 ## Background Tasks
 
-Primary background work is registered by `src/runtime/tasks.rs` and is split into one resident worker plus periodic tasks:
+Primary background work is registered by `src/runtime/tasks.rs` and is split into resident workers plus periodic tasks:
 
-- resident worker: `share-download-rollback`
+- resident workers:
+  - `share-download-rollback`
+  - `background-task-dispatch` (one consumer per lane; not part of the singleton scheduler lease)
 - periodic tasks:
   - `mail-outbox-dispatch`
-  - `background-task-dispatch`
   - `upload-cleanup`
   - `completed-upload-cleanup`
   - `blob-reconcile`
