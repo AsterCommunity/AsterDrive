@@ -23,7 +23,7 @@ describe("Textarea", () => {
 		expect(textarea).toBeDisabled();
 	});
 
-	it("shares inset focus and invalid indicators and accepts sizing classes", () => {
+	it("shares outer indicators and accepts sizing classes", () => {
 		render(
 			<Textarea
 				aria-label="description"
@@ -35,13 +35,13 @@ describe("Textarea", () => {
 		expect(textarea).toHaveAttribute("data-slot", "textarea");
 		expect(textarea).toHaveClass(
 			"min-h-32",
-			"focus-visible:inset-ring-3",
-			"aria-invalid:inset-ring-3",
-			"aria-invalid:focus-visible:inset-ring-destructive/50",
-		);
-		expect(textarea).not.toHaveClass(
 			"focus-visible:ring-3",
 			"aria-invalid:ring-3",
+			"aria-invalid:focus-visible:ring-destructive/50",
+		);
+		expect(textarea).not.toHaveClass(
+			"focus-visible:inset-ring-3",
+			"aria-invalid:inset-ring-3",
 		);
 	});
 });

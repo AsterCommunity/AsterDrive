@@ -386,6 +386,8 @@ export function CodePreviewEditor({
 							className={cn(
 								"code-preview-editor-input absolute inset-0 h-full w-full resize-none border-0 bg-transparent outline-none",
 								textControlFocusClasses,
+								// This borderless overlay fills the scroll viewport; keep its outline inside it.
+								"focus-visible:ring-0 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 forced-colors:focus-visible:-outline-offset-2",
 							)}
 							spellCheck={false}
 							wrap={wrap ? "soft" : "off"}
