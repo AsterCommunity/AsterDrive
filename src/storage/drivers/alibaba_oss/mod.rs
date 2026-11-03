@@ -4,7 +4,7 @@
 //! 鉴权阶段改写为 OSS V4。后端 I/O 可以走内网 endpoint，而所有浏览器可见的
 //! presigned URL 始终由 public endpoint client 生成。
 
-mod cdn_signing;
+pub mod cdn;
 mod signing;
 #[cfg(test)]
 mod tests;
@@ -32,14 +32,18 @@ use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 pub struct AlibabaOssDriver {
     storage: S3CompatibleDriver,
     public_driver: Arc<S3Driver>,
-    cdn_config: Option<CdnConfig>,
+    download_delivery: DownloadDelivery,
 }
 
-#[derive(Debug, Clone)]
+enum DownloadDelivery {
+    OssOrigin,
+    AlibabaCdnTypeA(CdnConfig),
+}
+
 struct CdnConfig {
-    domain: String,
-    auth_type: cdn_signing::CdnAuthType,
-    auth_key: Option<String>,
+    domain: Url,
+    auth_key: String,
+    validity_seconds: u32,
     /// base_path 前缀，用于 CDN URL 的对象键拼接。
     /// CDN 交付不经过 OSS API client，必须在 driver 层自行完成 key 拼接。
     base_path: String,
@@ -56,15 +60,29 @@ pub struct AlibabaOssDriverConfig {
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
+    pub download_delivery: cdn::OssDownloadDelivery,
     pub cdn_domain: Option<String>,
-    pub cdn_auth_type: Option<String>,
+    pub cdn_auth_validity_seconds: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AlibabaOssStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
     pub cdn_auth_key: Option<String>,
+}
+
+impl std::fmt::Debug for AlibabaOssStaticCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AlibabaOssStaticCredentials")
+            .field("access_key", &self.access_key)
+            .field("secret_key", &"[REDACTED]")
+            .field(
+                "cdn_auth_key",
+                &self.cdn_auth_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl AlibabaOssDriver {
@@ -77,67 +95,47 @@ impl AlibabaOssDriver {
         )?;
         validate_oss_bucket(&public.bucket)?;
         validate_oss_region(&config.region)?;
-        if !config.use_cname
-            && let Some(endpoint_region) = official_oss_endpoint_region(&public.endpoint)?
-            && !endpoint_region.eq_ignore_ascii_case(config.region.trim())
-        {
-            return Err(storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                format!(
-                    "OSS region '{}' does not match public endpoint region '{endpoint_region}'",
-                    config.region.trim()
-                ),
-            ));
+        let endpoint_region = match config.use_cname {
+            false => official_oss_endpoint_region(&public.endpoint)?,
+            true => None,
+        };
+        match endpoint_region {
+            Some(region) if !region.eq_ignore_ascii_case(config.region.trim()) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!(
+                        "OSS region '{}' does not match public endpoint region '{region}'",
+                        config.region.trim()
+                    ),
+                ));
+            }
+            Some(_) | None => {}
         }
 
-        if !config.server_side_endpoint.trim().is_empty() {
-            normalize_oss_endpoint(
-                &config.server_side_endpoint,
-                &config.bucket,
-                false,
-                "OSS server-side endpoint",
-            )?;
+        match config.server_side_endpoint.trim() {
+            "" => {}
+            endpoint => {
+                normalize_oss_endpoint(
+                    endpoint,
+                    &config.bucket,
+                    false,
+                    "OSS server-side endpoint",
+                )?;
+            }
         }
 
-        // CDN 下载域名只影响用户侧下载交付，这里做干净 host 校验。
-        let has_cdn_domain = config
-            .cdn_domain
-            .as_ref()
-            .filter(|domain| !domain.trim().is_empty())
-            .is_some();
-
-        if let Some(cdn_domain) = config
-            .cdn_domain
-            .as_ref()
-            .filter(|domain| !domain.trim().is_empty())
-        {
-            cdn_signing::validate_cdn_domain(cdn_domain)?;
-        }
-
-        // 校验 CDN 鉴权类型配置
-        let has_cdn_auth_type = config
-            .cdn_auth_type
-            .as_ref()
-            .filter(|s| !s.trim().is_empty())
-            .is_some();
-
-        if let Some(auth_type_str) = config
-            .cdn_auth_type
-            .as_ref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            cdn_signing::CdnAuthType::parse(auth_type_str)?;
-        }
-
-        // 安全要求：配置了 CDN 域名时，必须显式配置鉴权类型
-        // （避免管理员误以为私有 OSS 回源能保护 CDN 对象）
-        if has_cdn_domain && !has_cdn_auth_type {
-            return Err(storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "CDN domain requires explicit authentication type configuration. \
-                 Set cdn_auth_type to 'type_a', 'type_b', 'type_c', or explicitly choose 'none' \
-                 if you understand the security implications of unauthenticated CDN access.",
-            ));
+        match config.download_delivery {
+            cdn::OssDownloadDelivery::OssOrigin => {}
+            cdn::OssDownloadDelivery::AlibabaCdnTypeA => {
+                let domain = config.cdn_domain.as_deref().ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "Alibaba CDN download domain is required",
+                    )
+                })?;
+                cdn::validated_cdn_domain(domain)?;
+                cdn::validate_cdn_auth_validity(config.cdn_auth_validity_seconds)?;
+            }
         }
 
         Ok(())
@@ -148,37 +146,34 @@ impl AlibabaOssDriver {
         credentials: &AlibabaOssStaticCredentials,
     ) -> Result<()> {
         Self::validate_connection_config(config)?;
-        if credentials.access_key.trim().is_empty() {
-            return Err(storage_driver_error(
-                StorageErrorKind::Auth,
-                "OSS access key ID cannot be empty",
-            ));
-        }
-        if credentials.secret_key.trim().is_empty() {
-            return Err(storage_driver_error(
-                StorageErrorKind::Auth,
-                "OSS access key secret cannot be empty",
-            ));
-        }
-
-        // 校验 CDN 鉴权配置：如果配置了需要签名的鉴权类型，必须提供密钥
-        if let Some(auth_type_str) = config
-            .cdn_auth_type
-            .as_ref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            let auth_type = cdn_signing::CdnAuthType::parse(auth_type_str)?;
-            if auth_type != cdn_signing::CdnAuthType::None
-                && credentials
-                    .cdn_auth_key
-                    .as_ref()
-                    .map_or(true, |k| k.trim().is_empty())
-            {
+        match (credentials.access_key.trim(), credentials.secret_key.trim()) {
+            ("", _) => {
                 return Err(storage_driver_error(
                     StorageErrorKind::Auth,
-                    format!(
-                        "CDN auth type '{auth_type_str}' requires a CDN authentication key"
-                    ),
+                    "OSS access key ID cannot be empty",
+                ));
+            }
+            (_, "") => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Auth,
+                    "OSS access key secret cannot be empty",
+                ));
+            }
+            (_, _) => {}
+        }
+
+        match (
+            config.download_delivery,
+            credentials.cdn_auth_key.as_deref(),
+        ) {
+            (cdn::OssDownloadDelivery::OssOrigin, _) => {}
+            (cdn::OssDownloadDelivery::AlibabaCdnTypeA, Some(key)) => {
+                cdn::validate_cdn_auth_key(key)?
+            }
+            (cdn::OssDownloadDelivery::AlibabaCdnTypeA, None) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Alibaba CDN authentication key is required",
                 ));
             }
         }
@@ -198,39 +193,37 @@ impl AlibabaOssDriver {
             &credentials,
             config.use_cname,
         )?);
-        let backend_driver = if config.server_side_endpoint.trim().is_empty() {
-            public_driver.clone()
-        } else {
-            Arc::new(build_oss_s3_driver(
-                &config.server_side_endpoint,
-                &config,
-                &credentials,
-                false,
-            )?)
+        let backend_driver = match config.server_side_endpoint.trim() {
+            "" => public_driver.clone(),
+            endpoint => Arc::new(build_oss_s3_driver(endpoint, &config, &credentials, false)?),
         };
 
-        // 解析 CDN 配置
-        let cdn_config = config
-            .cdn_domain
-            .as_ref()
-            .filter(|domain| !domain.trim().is_empty())
-            .map(|domain| {
-                let auth_type = cdn_signing::CdnAuthType::parse(
-                    config.cdn_auth_type.as_deref().unwrap_or(""),
-                )
-                .expect("CDN auth type already validated");
-                CdnConfig {
-                    domain: domain.trim().to_string(),
-                    auth_type,
-                    auth_key: credentials.cdn_auth_key.clone(),
-                    base_path: config.base_path.clone(),
-                }
-            });
+        let download_delivery = match (
+            config.download_delivery,
+            config.cdn_domain,
+            credentials.cdn_auth_key,
+        ) {
+            (cdn::OssDownloadDelivery::OssOrigin, _, _) => DownloadDelivery::OssOrigin,
+            (cdn::OssDownloadDelivery::AlibabaCdnTypeA, Some(domain), Some(auth_key)) => {
+                DownloadDelivery::AlibabaCdnTypeA(CdnConfig {
+                    domain: cdn::validated_cdn_domain(&domain)?,
+                    auth_key,
+                    validity_seconds: config.cdn_auth_validity_seconds,
+                    base_path: config.base_path,
+                })
+            }
+            (cdn::OssDownloadDelivery::AlibabaCdnTypeA, _, _) => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Alibaba CDN domain and authentication key are required",
+                ));
+            }
+        };
 
         Ok(Self {
             storage: S3CompatibleDriver::from_s3_driver(backend_driver),
             public_driver,
-            cdn_config,
+            download_delivery,
         })
     }
 
@@ -250,17 +243,17 @@ fn official_oss_endpoint_region(endpoint: &str) -> Result<Option<String>> {
             format!("invalid OSS endpoint while resolving region: {error}"),
         )
     })?;
-    let Some(label) = url.host_str().and_then(|host| host.split('.').next()) else {
-        return Ok(None);
-    };
-    let Some(region) = label.strip_prefix("oss-") else {
-        return Ok(None);
-    };
-    let region = region.strip_suffix("-internal").unwrap_or(region);
-    if matches!(region, "accelerate" | "accelerate-overseas") || region.is_empty() {
-        return Ok(None);
+    match url
+        .host_str()
+        .and_then(|host| host.split('.').next())
+        .and_then(|label| label.strip_prefix("oss-"))
+    {
+        Some(region) => match region.strip_suffix("-internal").unwrap_or(region) {
+            "" | "accelerate" | "accelerate-overseas" => Ok(None),
+            region => Ok(Some(region.to_string())),
+        },
+        None => Ok(None),
     }
-    Ok(Some(region.to_string()))
 }
 
 fn build_oss_s3_driver(
@@ -290,10 +283,9 @@ fn build_oss_s3_driver(
             access_key: credentials.access_key.clone(),
             secret_key: credentials.secret_key.clone(),
         },
-        if use_cname {
-            S3DriverOptions::path_style()
-        } else {
-            S3DriverOptions::virtual_hosted_style()
+        match use_cname {
+            true => S3DriverOptions::path_style(),
+            false => S3DriverOptions::virtual_hosted_style(),
         },
         move |builder| {
             signing::configure_oss_auth(builder, signer_bucket, signer_region, use_cname)
@@ -314,13 +306,15 @@ fn normalize_oss_endpoint(
     label: &str,
 ) -> Result<NormalizedOssEndpoint> {
     let normalized =
-        normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(rewrap_s3_config_error)?;
-    if normalized.endpoint.is_empty() {
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            format!("{label} is required"),
-        ));
-    }
+        match normalize_s3_endpoint_and_bucket(endpoint, bucket).map_err(rewrap_s3_config_error)? {
+            normalized if normalized.endpoint.is_empty() => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("{label} is required"),
+                ));
+            }
+            normalized => normalized,
+        };
 
     let mut url = Url::parse(&normalized.endpoint).map_err(|error| {
         storage_driver_error(
@@ -328,23 +322,32 @@ fn normalize_oss_endpoint(
             format!("invalid {label}: {error}"),
         )
     })?;
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            format!("{label} must not contain credentials"),
-        ));
-    }
-    if url.query().is_some() || url.fragment().is_some() {
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            format!("{label} must not contain query or fragment components"),
-        ));
-    }
-    if url.path() != "/" && !url.path().is_empty() {
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            format!("{label} must not contain a path"),
-        ));
+    match (
+        url.username(),
+        url.password(),
+        url.query(),
+        url.fragment(),
+        url.path(),
+    ) {
+        (username, password, _, _, _) if !username.is_empty() || password.is_some() => {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("{label} must not contain credentials"),
+            ));
+        }
+        (_, _, Some(_), _, _) | (_, _, _, Some(_), _) => {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("{label} must not contain query or fragment components"),
+            ));
+        }
+        (_, _, _, _, "" | "/") => {}
+        _ => {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("{label} must not contain a path"),
+            ));
+        }
     }
 
     let host = url
@@ -357,21 +360,23 @@ fn normalize_oss_endpoint(
         })?
         .to_string();
     let is_aliyun_host = host == "aliyuncs.com" || host.ends_with(".aliyuncs.com");
-    if use_cname == is_aliyun_host {
-        let message = if use_cname {
-            "OSS CNAME mode requires a custom-domain endpoint"
-        } else {
-            "OSS endpoint must use an aliyuncs.com host unless CNAME mode is enabled"
-        };
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            message,
-        ));
-    }
-
-    if !use_cname {
-        let bucket_prefix = format!("{}.", normalized.bucket);
-        if let Some(root_host) = host.strip_prefix(&bucket_prefix) {
+    match (use_cname, is_aliyun_host) {
+        (true, true) => {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OSS CNAME mode requires a custom-domain endpoint",
+            ));
+        }
+        (false, false) => {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OSS endpoint must use an aliyuncs.com host unless CNAME mode is enabled",
+            ));
+        }
+        (true, false) => {}
+        (false, true) => {
+            let bucket_prefix = format!("{}.", normalized.bucket);
+            let root_host = host.strip_prefix(&bucket_prefix).unwrap_or(&host);
             url.set_host(Some(root_host)).map_err(|_| {
                 storage_driver_error(
                     StorageErrorKind::Misconfigured,
@@ -398,35 +403,35 @@ fn validate_oss_bucket(bucket: &str) -> Result<()> {
         && bytes
             .iter()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-');
-    if valid {
-        Ok(())
-    } else {
-        Err(storage_driver_error(
+    match valid {
+        true => Ok(()),
+        false => Err(storage_driver_error(
             StorageErrorKind::Misconfigured,
             "OSS bucket must be 3-63 lowercase letters, digits, or hyphens and start/end with a letter or digit",
-        ))
+        )),
     }
 }
 
 fn validate_oss_region(region: &str) -> Result<()> {
     let region = region.trim();
-    if region.is_empty() {
-        return Err(storage_driver_error(
+    match region {
+        "" => Err(storage_driver_error(
             StorageErrorKind::Misconfigured,
             "OSS region is required",
-        ));
+        )),
+        region
+            if region.len() > 128
+                || !region
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') =>
+        {
+            Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OSS region contains invalid characters",
+            ))
+        }
+        _ => Ok(()),
     }
-    if region.len() > 128
-        || !region
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-    {
-        return Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            "OSS region contains invalid characters",
-        ));
-    }
-    Ok(())
 }
 
 fn rewrap_s3_config_error(error: S3ConfigError) -> aster_drive_storage::StorageError {
@@ -510,43 +515,26 @@ impl DirectDownloadStorageDriver for AlibabaOssDriver {
         expires: Duration,
         options: DirectDownloadOptions,
     ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
-        // 如果配置了 CDN，使用 CDN 签名
-        if let Some(cdn_config) = &self.cdn_config {
-            // 阿里云 CDN 鉴权 URL 不支持 query 参数（会破坏签名），无法覆盖响应头。
-            // 当需要设置 Content-Disposition 时，fallback 到 OSS presigned URL。
-            if options.response_content_disposition.is_none() {
-                // CDN 交付不经过 OSS API client，这里用与 S3Driver::full_key 相同的
-                // base_path 拼接逻辑（join_key_prefix），确保对象键前缀一致。
-                let object_key =
-                    aster_drive_storage::object_key::join_key_prefix(&cdn_config.base_path, path);
-                let auth_key = cdn_config.auth_key.as_deref().unwrap_or("");
-
-                let url = cdn_signing::generate_cdn_signed_url(
-                    &cdn_config.domain,
-                    &object_key,
-                    cdn_config.auth_type,
-                    auth_key,
-                    expires,
-                )?;
-
-                return Ok(Some(
-                    aster_drive_storage::DirectDownloadRequest::temporary_url(url, expires),
-                ));
+        match &self.download_delivery {
+            DownloadDelivery::AlibabaCdnTypeA(config) => {
+                config.download_request(path, expires, &options)
             }
-            // 如果需要 response_content_disposition，跳过 CDN，继续 fallback 到下方
+            DownloadDelivery::OssOrigin => {
+                // OSS rejects response-content-type with 0017-00000902.
+                // The object's stored Content-Type remains authoritative.
+                // https://help.aliyun.com/zh/oss/support/0017-00000902
+                self.public_driver
+                    .resolve_download_url(
+                        path,
+                        expires,
+                        DirectDownloadOptions {
+                            response_content_type: None,
+                            ..options
+                        },
+                    )
+                    .await
+            }
         }
-
-        // fallback: 使用原有 OSS V4 签名
-        // OSS rejects response-content-type on signed GET requests with
-        // 0017-00000902. The object's stored Content-Type remains authoritative.
-        // https://help.aliyun.com/zh/oss/support/0017-00000902
-        let options = DirectDownloadOptions {
-            response_content_type: None,
-            ..options
-        };
-        self.public_driver
-            .resolve_download_url(path, expires, options)
-            .await
     }
 }
 

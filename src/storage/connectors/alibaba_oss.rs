@@ -4,6 +4,7 @@ use std::time::Duration;
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::alibaba_oss::{
     AlibabaOssDriver, AlibabaOssDriverConfig, AlibabaOssStaticCredentials,
+    cdn::{OssDownloadDelivery, default_cdn_auth_validity_seconds},
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
@@ -136,6 +137,20 @@ aster_drive_storage::storage_connector_schema! {
             field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
             field
         },
+        #[serde(default)]
+        pub download_delivery: OssDownloadDelivery => {
+            let mut field = aster_drive_storage::storage_connector_select_field(
+                "download_delivery", StorageConnectorFieldScope::ConnectorConfig, true,
+                vec![
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "oss_origin", label_key: "oss_download_origin", description_key: None },
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "alibaba_cdn_type_a", label_key: "oss_download_cdn", description_key: None },
+                ],
+            );
+            field.label_key = "oss_download_delivery".into();
+            field.help_key = Some("oss_download_delivery_desc".into());
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("oss_origin".into()));
+            field
+        },
         pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
             "object_storage_upload_strategy", StorageTransferDirection::Upload,
         ),
@@ -143,31 +158,39 @@ aster_drive_storage::storage_connector_schema! {
             "object_storage_download_strategy", StorageTransferDirection::Download,
         ),
         #[serde(default)]
-        pub oss_cdn_domain: String => {
+        pub download_base_url: String => {
             let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                name: "oss_cdn_domain", scope: StorageConnectorFieldScope::ConnectorConfig,
+                name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
                 kind: StorageConnectorFieldKind::Text, required: false, secret: false,
-                label_key: "oss_cdn_domain", placeholder: Some("https://cdn.example.com"),
-                help_key: Some("oss_cdn_domain_desc"), required_message_key: None,
+                label_key: "download_base_url", placeholder: Some("https://cdn.example.com"),
+                help_key: Some("oss_download_base_url_desc"), required_message_key: None,
                 invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
-                allowed_endpoint_protocols: vec!["http:", "https:"],
-                allow_endpoint_without_protocol: false, trim_on_blur: false,
+                allowed_endpoint_protocols: vec!["https:"],
+                allow_endpoint_without_protocol: false, trim_on_blur: true,
             });
             field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("alibaba_cdn_type_a".into()),
+            }];
+            field.required_when = field.visible_when.clone();
             field
         },
-        #[serde(default)]
-        pub oss_cdn_auth_type: String => {
-            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                name: "oss_cdn_auth_type", scope: StorageConnectorFieldScope::ConnectorConfig,
-                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
-                label_key: "oss_cdn_auth_type", placeholder: Some("type_a"),
-                help_key: Some("oss_cdn_auth_type_desc"), required_message_key: None,
-                invalid_protocol_message_key: None, allowed_endpoint_protocols: Vec::new(),
-                allow_endpoint_without_protocol: false, trim_on_blur: true,
-            });
-            field.default_value = Some(StorageConnectorFieldDefaultValue::String("none".to_string()));
+        #[serde(default = "default_cdn_auth_validity_seconds")]
+        pub oss_cdn_auth_validity_seconds: u32 => {
+            let mut field = storage_connector_field(
+                "oss_cdn_auth_validity_seconds", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Number, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(300));
+            field.validation.min_integer = Some(1);
+            field.validation.max_integer = Some(31_536_000);
+            field.help_key = Some("oss_cdn_auth_validity_seconds_desc".into());
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("alibaba_cdn_type_a".into()),
+            }];
             field
         },
         }
@@ -180,11 +203,31 @@ aster_drive_storage::storage_connector_schema! {
                 "aliyun_oss_access_key_secret", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
             ),
-            pub oss_cdn_auth_key: Option<String> => storage_connector_field(
-                "oss_cdn_auth_key", StorageConnectorFieldScope::StaticCredential,
-                StorageConnectorFieldKind::Secret, false, true,
-            ),
+            pub oss_cdn_auth_key: Option<AlibabaCdnAuthKey> => {
+                let mut field = storage_connector_field(
+                    "oss_cdn_auth_key", StorageConnectorFieldScope::StaticCredential,
+                    StorageConnectorFieldKind::Secret, false, true,
+                );
+                field.help_key = Some("oss_cdn_auth_key_desc".into());
+                field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                    scope: Some(StorageConnectorFieldScope::ConnectorConfig),
+                    field: "download_delivery".into(),
+                    value: StorageConnectorFieldDefaultValue::String("alibaba_cdn_type_a".into()),
+                }];
+                field.required_when = field.visible_when.clone();
+                field
+            },
         }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct AlibabaCdnAuthKey(String);
+
+impl std::fmt::Debug for AlibabaCdnAuthKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
     }
 }
 
@@ -206,14 +249,15 @@ impl AlibabaOssConnector {
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
+            download_delivery: config.download_delivery,
             cdn_domain: {
-                let trimmed = config.oss_cdn_domain.trim();
-                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                let trimmed = config.download_base_url.trim();
+                match trimmed {
+                    "" => None,
+                    domain => Some(domain.to_string()),
+                }
             },
-            cdn_auth_type: {
-                let trimmed = config.oss_cdn_auth_type.trim();
-                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
-            },
+            cdn_auth_validity_seconds: config.oss_cdn_auth_validity_seconds,
         }
     }
 
@@ -223,9 +267,7 @@ impl AlibabaOssConnector {
         AlibabaOssStaticCredentials {
             access_key: credentials.aliyun_oss_access_key_id,
             secret_key: credentials.aliyun_oss_access_key_secret,
-            cdn_auth_key: credentials
-                .oss_cdn_auth_key
-                .filter(|s| !s.trim().is_empty()),
+            cdn_auth_key: credentials.oss_cdn_auth_key.map(|key| key.0),
         }
     }
 
@@ -257,6 +299,7 @@ impl AlibabaOssConnector {
                 related_issues: vec![450, 474, 685],
             });
         descriptor.promotions.push(promote_from_s3_descriptor());
+        descriptor.capabilities.custom_download_base_url = true;
         descriptor
     }
 }
@@ -294,8 +337,9 @@ impl StorageConnector for AlibabaOssConnector {
                 input,
             )
             .map_err(|error| AsterError::validation_error(error.to_string()))?;
-        let config: AlibabaOssConnectorConfigV1 =
+        let mut config: AlibabaOssConnectorConfigV1 =
             super::common::decode_normalized_connector_config(&normalized)?;
+        config.download_base_url = config.download_base_url.trim().to_string();
         let driver_config = Self::driver_config(config.clone());
         AlibabaOssDriver::validate_connection_config(&driver_config)
             .map_err(|error| AsterError::validation_error(error.message().to_string()))?;
@@ -318,7 +362,29 @@ impl StorageConnector for AlibabaOssConnector {
             &credential.aliyun_oss_access_key_secret,
             "aliyun_oss_access_key_secret",
             Self::ID,
+        )?;
+        match credential.oss_cdn_auth_key {
+            Some(key) if !key.0.is_empty() => {
+                crate::storage::drivers::alibaba_oss::cdn::validate_cdn_auth_key(&key.0)
+                    .map_err(|error| AsterError::validation_error(error.message()))?;
+            }
+            Some(_) | None => {}
+        }
+        Ok(())
+    }
+
+    fn validate_connection_credential(
+        &self,
+        config: &aster_drive_storage::ConnectorConfigEnvelope,
+        credential: &StorageConnectorCredentialInput,
+    ) -> Result<()> {
+        let config = super::common::decode_normalized_connector_config(config)?;
+        let credential = super::common::decode_static_credential(credential, Self::ID)?;
+        AlibabaOssDriver::validate_config(
+            &Self::driver_config(config),
+            &Self::driver_credentials(credential),
         )
+        .map_err(|error| AsterError::validation_error(error.message()))
     }
 
     async fn build_driver_from_connection(

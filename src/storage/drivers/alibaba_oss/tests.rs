@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use aster_drive_storage::StorageDriver;
 
+use super::cdn::OssDownloadDelivery;
 use super::*;
 
-fn sample_config() -> AlibabaOssDriverConfig {
+pub(super) fn sample_config() -> AlibabaOssDriverConfig {
     AlibabaOssDriverConfig {
         endpoint: "https://oss-cn-hangzhou.aliyuncs.com".to_string(),
         server_side_endpoint: String::new(),
@@ -15,16 +16,17 @@ fn sample_config() -> AlibabaOssDriverConfig {
         connect_timeout: Duration::from_secs(5),
         read_timeout: Duration::from_secs(30),
         operation_timeout: Duration::from_secs(3_600),
+        download_delivery: OssDownloadDelivery::OssOrigin,
         cdn_domain: None,
-        cdn_auth_type: None,
+        cdn_auth_validity_seconds: 300,
     }
 }
 
-fn sample_credentials() -> AlibabaOssStaticCredentials {
+pub(super) fn sample_credentials() -> AlibabaOssStaticCredentials {
     AlibabaOssStaticCredentials {
         access_key: "ak".to_string(),
         secret_key: "sk".to_string(),
-        cdn_auth_key: Some("test-cdn-key".to_string()),
+        cdn_auth_key: Some("TestCdnKey123".to_string()),
     }
 }
 
@@ -313,222 +315,223 @@ async fn public_presigned_get_omits_unsupported_content_type_override() {
 #[tokio::test]
 async fn cdn_download_url_with_type_a_auth() {
     let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("type_a".to_string());
-
-    let mut credentials = sample_credentials();
-    credentials.cdn_auth_key = Some("test-cdn-key".to_string());
-
-    let driver =
-        AlibabaOssDriver::new(config, credentials).expect("OSS driver with CDN should build");
-
+    config.cdn_domain = Some(" https://cdn.example.com/ ".into());
+    config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+    let driver = AlibabaOssDriver::new(config, sample_credentials()).unwrap();
     let result = driver
-        .extensions()
-        .direct_download
-        .expect("direct download extension")
         .resolve_download_url(
             "files/document.pdf",
             Duration::from_secs(300),
-            DirectDownloadOptions::default(),
+            Default::default(),
         )
         .await
-        .expect("CDN download URL")
-        .expect("CDN URL returned");
-
-    assert!(result.url.starts_with("https://cdn.example.com/"));
-    assert!(result.url.contains("tenant/prefix/files/document.pdf"));
-    assert!(result.url.contains("auth_key="));
-}
-
-#[tokio::test]
-async fn cdn_download_url_without_auth() {
-    let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("none".to_string());
-
-    let driver = AlibabaOssDriver::new(config, sample_credentials())
-        .expect("OSS driver with CDN should build");
-
-    let result = driver
-        .extensions()
-        .direct_download
-        .expect("direct download extension")
-        .resolve_download_url(
-            "files/image.jpg",
-            Duration::from_secs(300),
-            DirectDownloadOptions::default(),
-        )
-        .await
-        .expect("CDN download URL")
-        .expect("CDN URL returned");
-
-    assert!(result.url.starts_with("https://cdn.example.com/"));
-    assert!(result.url.contains("tenant/prefix/files/image.jpg"));
-    assert!(!result.url.contains("auth_key="));
-}
-
-#[tokio::test]
-async fn fallback_to_oss_when_no_cdn_configured() {
-    let driver = AlibabaOssDriver::new(sample_config(), sample_credentials())
-        .expect("OSS driver should build");
-
-    let result = driver
-        .extensions()
-        .direct_download
-        .expect("direct download extension")
-        .resolve_download_url(
-            "files/video.mp4",
-            Duration::from_secs(300),
-            DirectDownloadOptions::default(),
-        )
-        .await
-        .expect("OSS download URL")
-        .expect("OSS URL returned");
-
-    assert!(result.url.contains("oss-cn-hangzhou.aliyuncs.com"));
-    assert!(result.url.contains("x-oss-signature="));
-    assert!(!result.url.contains("auth_key="));
-}
-
-#[test]
-fn cdn_auth_type_parsing() {
-    use super::cdn_signing::CdnAuthType;
-
-    assert_eq!(CdnAuthType::parse("type_a").unwrap(), CdnAuthType::TypeA);
-    assert_eq!(CdnAuthType::parse("type_b").unwrap(), CdnAuthType::TypeB);
-    assert_eq!(CdnAuthType::parse("type_c").unwrap(), CdnAuthType::TypeC);
-    assert_eq!(CdnAuthType::parse("none").unwrap(), CdnAuthType::None);
-    assert_eq!(CdnAuthType::parse("").unwrap(), CdnAuthType::None);
-    // 未知值应该返回错误
-    assert!(CdnAuthType::parse("invalid").is_err());
-    assert!(CdnAuthType::parse("typea").is_err());
-}
-
-#[test]
-fn validate_config_rejects_unsafe_cdn_domain() {
-    let mut config = sample_config();
-    config.cdn_domain = Some("https://user:pass@cdn.example.com".to_string());
-    let err = AlibabaOssDriver::validate_config(&config, &sample_credentials())
-        .expect_err("CDN domain with credentials must be rejected");
-    assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
-
-    config.cdn_domain = Some("https://cdn.example.com/prefix".to_string());
-    let err = AlibabaOssDriver::validate_config(&config, &sample_credentials())
-        .expect_err("CDN domain with path must be rejected");
-    assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
-}
-
-#[test]
-fn validate_config_rejects_invalid_cdn_auth_type() {
-    let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("invalid_type".to_string());
-    let err = AlibabaOssDriver::validate_connection_config(&config)
-        .expect_err("invalid CDN auth type must be rejected");
-    assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
-}
-
-#[test]
-fn validate_config_requires_auth_key_for_signed_types() {
-    let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("type_a".to_string());
-
-    let mut credentials = sample_credentials();
-    credentials.cdn_auth_key = None;
-
-    let err = AlibabaOssDriver::validate_config(&config, &credentials)
-        .expect_err("type_a without auth key must be rejected");
-    assert_eq!(err.kind(), StorageErrorKind::Auth);
-}
-
-#[test]
-fn validate_config_accepts_none_type_without_auth_key() {
-    let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("none".to_string());
-
-    let mut credentials = sample_credentials();
-    credentials.cdn_auth_key = None;
-
-    AlibabaOssDriver::validate_config(&config, &credentials)
-        .expect("none type without auth key should be accepted");
-}
-
-#[test]
-fn validate_config_accepts_clean_cdn_domain() {
-    let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("type_a".to_string());
-    AlibabaOssDriver::validate_config(&config, &sample_credentials())
-        .expect("clean CDN domain should be accepted");
-}
-
-#[tokio::test]
-async fn cdn_url_respects_base_path_prefix() {
-    // base_path 前缀必须出现在 CDN URL 中，和后端对象键一致。
-    let mut config = sample_config();
-    config.base_path = "tenant/prefix".to_string();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("none".to_string());
-
-    let driver = AlibabaOssDriver::new(config, sample_credentials())
-        .expect("OSS driver with CDN should build");
-
-    let result = driver
-        .extensions()
-        .direct_download
-        .expect("direct download extension")
-        .resolve_download_url(
-            "sub/file.txt",
-            Duration::from_secs(300),
-            DirectDownloadOptions::default(),
-        )
-        .await
-        .expect("CDN download URL")
-        .expect("CDN URL returned");
-
+        .unwrap()
+        .unwrap();
+    let url = Url::parse(&result.url).unwrap();
+    assert_eq!(url.host_str(), Some("cdn.example.com"));
+    assert_eq!(url.path(), "/tenant/prefix/files/document.pdf");
+    let auth = url
+        .query_pairs()
+        .find(|(key, _)| key == "auth_key")
+        .unwrap()
+        .1;
+    let parts: Vec<_> = auth.split('-').collect();
+    assert_eq!(parts.len(), 4);
+    assert_eq!(parts[1].len(), 32);
+    assert!(parts[1].bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_eq!(parts[2], "0");
+    assert_eq!(parts[3].len(), 32);
     assert_eq!(
-        result.url,
-        "https://cdn.example.com/tenant/prefix/sub/file.txt"
+        result.expires_at.unwrap().timestamp(),
+        parts[0].parse::<i64>().unwrap() + 300
     );
 }
 
 #[tokio::test]
-async fn cdn_fallback_to_oss_when_response_content_disposition_required() {
-    // CDN 不支持 response-content-disposition query 参数（会破坏签名）。
-    // 当需要控制下载文件名时，必须 fallback 到 OSS presigned URL。
+async fn cdn_blob_download_uses_cdn_with_provider_headers_allowed() {
     let mut config = sample_config();
-    config.cdn_domain = Some("https://cdn.example.com".to_string());
-    config.cdn_auth_type = Some("type_a".to_string());
-
-    let mut credentials = sample_credentials();
-    credentials.cdn_auth_key = Some("test-cdn-key".to_string());
-
-    let driver =
-        AlibabaOssDriver::new(config, credentials).expect("OSS driver with CDN should build");
-
+    config.cdn_domain = Some("https://cdn.example.com".into());
+    config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+    let driver = AlibabaOssDriver::new(config, sample_credentials()).unwrap();
     let result = driver
-        .extensions()
-        .direct_download
-        .expect("direct download extension")
         .resolve_download_url(
             "files/document.pdf",
-            Duration::from_secs(300),
+            Duration::from_secs(60),
             DirectDownloadOptions {
-                response_content_disposition: Some("attachment; filename=\"report.pdf\"".to_string()),
+                allow_provider_response_headers: true,
+                download_name: Some("renamed.pdf".into()),
+                response_cache_control: Some("private, max-age=0, must-revalidate".into()),
+                response_content_disposition: Some("attachment; filename=\"renamed.pdf\"".into()),
+                response_content_type: Some("application/pdf".into()),
                 ..Default::default()
             },
         )
         .await
-        .expect("download URL")
-        .expect("URL returned");
+        .unwrap()
+        .unwrap();
+    let url = Url::parse(&result.url).unwrap();
+    assert_eq!(url.host_str(), Some("cdn.example.com"));
+    assert_eq!(url.query_pairs().count(), 1);
+    assert!(url.query_pairs().all(|(key, _)| key == "auth_key"));
+}
 
-    // 应该返回 OSS presigned URL，不是 CDN URL
+#[tokio::test]
+async fn no_cdn_uses_oss_v4_without_cdn_key() {
+    let mut credentials = sample_credentials();
+    credentials.cdn_auth_key = None;
+    let driver = AlibabaOssDriver::new(sample_config(), credentials).unwrap();
+    let result = driver
+        .resolve_download_url(
+            "files/video.mp4",
+            Duration::from_secs(300),
+            Default::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
     assert!(result.url.contains("oss-cn-hangzhou.aliyuncs.com"));
     assert!(result.url.contains("x-oss-signature="));
-    assert!(!result.url.contains("cdn.example.com"));
     assert!(!result.url.contains("auth_key="));
-    // 确认包含 response-content-disposition 参数
-    assert!(result.url.contains("response-content-disposition="));
+}
+
+#[tokio::test]
+async fn oss_origin_delivery_does_not_activate_stored_cdn_settings() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".into());
+    let mut credentials = sample_credentials();
+    credentials.cdn_auth_key = None;
+    let driver = AlibabaOssDriver::new(config, credentials).unwrap();
+    let result = driver
+        .resolve_download_url("file", Duration::from_secs(60), Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result.url.contains("x-oss-signature="));
+    assert!(!result.url.contains("cdn.example.com"));
+}
+
+#[test]
+fn explicit_cdn_delivery_requires_a_domain() {
+    let mut config = sample_config();
+    config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+    assert!(AlibabaOssDriver::validate_config(&config, &sample_credentials()).is_err());
+}
+
+#[test]
+fn cdn_config_rejects_unsafe_domains() {
+    for domain in [
+        "http://cdn.example.com",
+        "https://user:secret@cdn.example.com",
+        "https://cdn.example.com/prefix",
+        "https://cdn.example.com/prefix/..",
+        "https://cdn.example.com/%2e",
+        "https://cdn.example.com?x=1",
+        "https://cdn.example.com#fragment",
+        "https://cdn.example.com/\\path",
+        "https://cdn.exa\nmple.com",
+        "https://127.0.0.1",
+        "https://localhost",
+    ] {
+        let mut config = sample_config();
+        config.cdn_domain = Some(domain.into());
+        config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+        let error =
+            AlibabaOssDriver::validate_config(&config, &sample_credentials()).expect_err(domain);
+        assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
+    }
+}
+
+#[test]
+fn cdn_config_requires_valid_key_and_validity() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".into());
+    config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+    for key in [
+        None,
+        Some(""),
+        Some("short"),
+        Some("with-hyphen"),
+        Some(" leading123"),
+        Some("尾部secret"),
+    ] {
+        let mut credentials = sample_credentials();
+        credentials.cdn_auth_key = key.map(str::to_owned);
+        assert!(AlibabaOssDriver::validate_config(&config, &credentials).is_err());
+    }
+    for validity in [0, 31_536_001, u32::MAX] {
+        config.cdn_auth_validity_seconds = validity;
+        assert!(AlibabaOssDriver::validate_connection_config(&config).is_err());
+    }
+    for validity in [1, 300, 31_536_000] {
+        config.cdn_auth_validity_seconds = validity;
+        AlibabaOssDriver::validate_config(&config, &sample_credentials()).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn cdn_strict_response_headers_request_relay_instead_of_unsigned_overrides() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".into());
+    config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+    let driver = AlibabaOssDriver::new(config, sample_credentials()).unwrap();
+    for options in [
+        DirectDownloadOptions {
+            response_content_disposition: Some("attachment; filename=report.pdf".into()),
+            ..Default::default()
+        },
+        DirectDownloadOptions {
+            response_content_type: Some("text/html".into()),
+            ..Default::default()
+        },
+        DirectDownloadOptions {
+            response_cache_control: Some("private".into()),
+            ..Default::default()
+        },
+        DirectDownloadOptions {
+            require_download_name_match: true,
+            allow_provider_response_headers: true,
+            ..Default::default()
+        },
+    ] {
+        assert!(
+            driver
+                .resolve_download_url("file", Duration::from_secs(60), options)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
+#[tokio::test]
+async fn cdn_and_cname_keep_presigned_uploads_on_oss_v4() {
+    let mut config = sample_config();
+    config.cdn_domain = Some("https://cdn.example.com".into());
+    config.download_delivery = OssDownloadDelivery::AlibabaCdnTypeA;
+    config.endpoint = "https://files.example.test".into();
+    config.use_cname = true;
+    config.server_side_endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".into();
+    let driver = AlibabaOssDriver::new(config, sample_credentials()).unwrap();
+    for request in [
+        driver
+            .presigned_put_request("objects/report.txt", Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap(),
+        driver
+            .presigned_upload_part_request(
+                "objects/report.txt",
+                "upload-id",
+                1,
+                Duration::from_secs(60),
+            )
+            .await
+            .unwrap(),
+    ] {
+        let url = Url::parse(&request.url).unwrap();
+        assert_eq!(url.host_str(), Some("files.example.test"));
+        assert_eq!(url.path(), "/tenant/prefix/objects/report.txt");
+        assert!(url.query_pairs().any(|(key, _)| key == "x-oss-signature"));
+        assert!(!url.query_pairs().any(|(key, _)| key == "auth_key"));
+    }
 }
