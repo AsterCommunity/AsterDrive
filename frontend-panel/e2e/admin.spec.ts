@@ -226,6 +226,26 @@ test.describe
 				.getByLabel("Tencent COS SecretKey", { exact: true })
 				.fill("playwright-origin-secret");
 			const delivery = page.locator("#download_delivery");
+			await expect(page.locator("#download_base_url")).toHaveCount(0);
+			await delivery.click();
+			await page
+				.getByRole("option", {
+					name: "Custom origin download domain (COS Q-Sign)",
+					exact: true,
+				})
+				.click();
+			await expect(page.locator("#download_base_url")).toBeVisible();
+			await expect(
+				page.getByLabel("Tencent CDN authentication key", { exact: true }),
+			).toHaveCount(0);
+			await page
+				.locator("#download_base_url")
+				.fill("https://origin.example.test/assets");
+			await delivery.click();
+			await page
+				.getByRole("option", { name: "Default COS origin", exact: true })
+				.click();
+			await expect(page.locator("#download_base_url")).toHaveCount(0);
 			await expect(
 				page.getByLabel("Tencent CDN authentication key", { exact: true }),
 			).toHaveCount(0);

@@ -5,6 +5,7 @@ import type {
 } from "@/types/api";
 import {
 	applyConnectorConfigFieldTransition,
+	connectorFieldConditionsMatch,
 	connectorSelectOptions,
 	isConnectorFieldRequired,
 	isConnectorFieldVisible,
@@ -397,5 +398,88 @@ describe("scoped credential conditions", () => {
 			true,
 		);
 		expect(isConnectorFieldVisible(secret, { delivery: "cdn" })).toBe(false);
+	});
+});
+
+describe("negated connector conditions", () => {
+	const conditions = [{ field: "mode", value: "origin", negate: true }];
+	it("requires a present unequal value and preserves equality when negate is omitted", () => {
+		expect(connectorFieldConditionsMatch(conditions, {})).toBe(false);
+		expect(connectorFieldConditionsMatch(conditions, { mode: null })).toBe(
+			false,
+		);
+		const address = field("address", {
+			visible_when: conditions,
+			required_when: conditions,
+		});
+		expect(isConnectorFieldVisible(address, { mode: null })).toBe(false);
+		expect(isConnectorFieldRequired(address, { mode: null })).toBe(false);
+
+		expect(connectorFieldConditionsMatch(conditions, { mode: "origin" })).toBe(
+			false,
+		);
+		expect(
+			connectorFieldConditionsMatch(conditions, { mode: "custom_origin" }),
+		).toBe(true);
+		expect(
+			connectorFieldConditionsMatch([{ field: "mode", value: "origin" }], {
+				mode: "origin",
+			}),
+		).toBe(true);
+	});
+	it("respects scope and ANDs negated conditions with the other conditions", () => {
+		const scoped = [{ ...conditions[0], scope: "connector_config" as const }];
+		expect(
+			connectorFieldConditionsMatch(
+				scoped,
+				{ mode: "cdn" },
+				{ mode: "origin" },
+			),
+		).toBe(false);
+		expect(
+			connectorFieldConditionsMatch(
+				scoped,
+				{ mode: "origin" },
+				{ mode: "cdn" },
+			),
+		).toBe(true);
+		expect(
+			connectorFieldConditionsMatch(
+				[...conditions, { field: "enabled", value: true }],
+				{ mode: "cdn", enabled: false },
+			),
+		).toBe(false);
+	});
+	it("preserves the dormant address while switching among default, custom and CDN modes", () => {
+		const descriptor = {
+			fields: [
+				field("mode", { default_value: "origin" }),
+				field("address", {
+					visible_when: conditions,
+					required_when: conditions,
+				}),
+			],
+		} as StorageConnectorDescriptor;
+		let values = {
+			mode: "custom_origin",
+			address: "https://download.example.test",
+		};
+		values = applyConnectorConfigFieldTransition(
+			values,
+			descriptor,
+			"mode",
+			"origin",
+		) as typeof values;
+		expect(isConnectorFieldVisible(descriptor.fields[1], values)).toBe(false);
+		expect(values.address).toBe("https://download.example.test");
+		values = applyConnectorConfigFieldTransition(
+			values,
+			descriptor,
+			"mode",
+			"cdn",
+		) as typeof values;
+		expect(isConnectorFieldVisible(descriptor.fields[1], values)).toBe(true);
+		expect(isConnectorFieldRequired(descriptor.fields[1], values)).toBe(true);
+		expect(values.address).toBe("https://download.example.test");
 	});
 });

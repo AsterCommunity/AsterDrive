@@ -85,6 +85,15 @@ impl TencentCosDriver {
     pub fn validate_connection_config(config: &TencentCosDriverConfig) -> Result<()> {
         match config.download_delivery {
             CosDownloadDelivery::CosOrigin => {}
+            CosDownloadDelivery::CustomOrigin => {
+                let base = config.download_base_url.as_deref().ok_or_else(|| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "Custom COS origin download URL is required",
+                    )
+                })?;
+                cdn::validated_base_url(base)?;
+            }
             CosDownloadDelivery::TencentCdnTypeDSha256 => {
                 let base = config.download_base_url.as_deref().ok_or_else(|| {
                     storage_driver_error(
@@ -169,9 +178,14 @@ impl TencentCosDriver {
             config.download_delivery,
             credentials.cdn_auth_key.as_deref(),
         ) {
-            (CosDownloadDelivery::CosOrigin, None | Some("")) => {}
             (
-                CosDownloadDelivery::CosOrigin | CosDownloadDelivery::TencentCdnTypeDSha256,
+                CosDownloadDelivery::CosOrigin | CosDownloadDelivery::CustomOrigin,
+                None | Some(""),
+            ) => {}
+            (
+                CosDownloadDelivery::CosOrigin
+                | CosDownloadDelivery::CustomOrigin
+                | CosDownloadDelivery::TencentCdnTypeDSha256,
                 Some(key),
             ) => {
                 cdn::validate_cdn_auth_key(key)?;
@@ -313,17 +327,17 @@ impl DirectDownloadStorageDriver for TencentCosDriver {
         expires: Duration,
         options: DirectDownloadOptions,
     ) -> Result<Option<DirectDownloadRequest>> {
-        match (self.download_delivery, self.download_base_url.as_deref()) {
-            (CosDownloadDelivery::TencentCdnTypeDSha256, _) => {
+        match self.download_delivery {
+            CosDownloadDelivery::TencentCdnTypeDSha256 => {
                 self.cdn_download_request(path, expires, &options)
             }
-            (CosDownloadDelivery::CosOrigin, Some(_)) => {
+            CosDownloadDelivery::CustomOrigin => {
                 let expires =
                     super::s3::presigned::clamp_presign_ttl(expires, "COS resolve_download_url");
                 let url = self.signed_custom_download_url(path, expires, &options)?;
                 Ok(Some(DirectDownloadRequest::temporary_url(url, expires)))
             }
-            (CosDownloadDelivery::CosOrigin, None) => {
+            CosDownloadDelivery::CosOrigin => {
                 self.storage
                     .resolve_download_url(path, expires, options)
                     .await

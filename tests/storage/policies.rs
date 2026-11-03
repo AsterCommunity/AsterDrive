@@ -6453,3 +6453,112 @@ async fn test_oss_cdn_type_a_credentials_roundtrip_and_config_only_rejection() {
         .unwrap();
     assert_eq!(after.storage_config, existing.storage_config);
 }
+
+#[actix_web::test]
+async fn test_cos_delivery_modes_round_trip_and_require_explicit_custom_origin() {
+    use aster_drive::db::repository::policy_repo;
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    for (mode, cdn_key, expected_host, signature) in [
+        (
+            "cos_origin",
+            false,
+            "media-1250000000.cos.ap-guangzhou.myqcloud.com",
+            "q-signature",
+        ),
+        (
+            "custom_origin",
+            false,
+            "download.example.test",
+            "q-signature",
+        ),
+        (
+            "tencent_cdn_type_d_sha256",
+            true,
+            "download.example.test",
+            "sign",
+        ),
+    ] {
+        let mut connection = connection_json(common::tencent_cos_connection(
+            "https://cos.ap-guangzhou.myqcloud.com",
+            "media-1250000000",
+            "tenant",
+            "AKIDEXAMPLE",
+            "SECRETEXAMPLE",
+        ));
+        connection["connector_config"]["values"]["download_delivery"] = serde_json::json!(mode);
+        connection["connector_config"]["values"]["download_base_url"] =
+            serde_json::json!("https://download.example.test/assets");
+        connection["connector_config"]["values"]["object_storage_download_strategy"] =
+            serde_json::json!("presigned");
+        if cdn_key {
+            connection["credential"]["values"]["tencent_cdn_auth_key"] =
+                serde_json::json!("CdnKey0123456789");
+        }
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(
+                serde_json::json!({"name":format!("Delivery {mode}"),"connection":connection}),
+            )
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let status = resp.status();
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(status, 201, "{body}");
+        let id = body["data"]["id"].as_i64().unwrap();
+        let policy = policy_repo::find_by_id(state.writer_db(), id)
+            .await
+            .unwrap();
+        let driver = state.driver_registry().get_driver(&policy).unwrap();
+        let request = driver
+            .extensions()
+            .direct_download
+            .unwrap()
+            .resolve_download_url(
+                "file",
+                std::time::Duration::from_secs(60),
+                Default::default(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let url = url::Url::parse(&request.url).unwrap();
+        assert_eq!(url.host_str(), Some(expected_host));
+        assert!(url.query_pairs().any(|(key, _)| key == signature));
+        assert_eq!(
+            url.path(),
+            match mode {
+                "cos_origin" => "/tenant/file",
+                _ => "/assets/tenant/file",
+            }
+        );
+        // Relay strategy overrides every delivery choice without dropping its address or credentials.
+        let mut relay = connection["connector_config"].clone();
+        relay["values"]["object_storage_download_strategy"] = serde_json::json!("relay_stream");
+        let req = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/policies/{id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"connector_config":relay}))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let status = resp.status();
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["download_delivery"],
+            mode
+        );
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["download_base_url"],
+            "https://download.example.test/assets"
+        );
+        assert_eq!(
+            body["data"]["connector_config"]["values"]["object_storage_download_strategy"],
+            "relay_stream"
+        );
+    }
+}

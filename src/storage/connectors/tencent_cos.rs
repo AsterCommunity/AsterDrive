@@ -202,6 +202,7 @@ aster_drive_storage::storage_connector_schema! {
                 "download_delivery", StorageConnectorFieldScope::ConnectorConfig, true,
                 vec![
                     aster_drive_storage::StorageConnectorSelectOptionInput { value: "cos_origin", label_key: "cos_download_origin", description_key: None },
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "custom_origin", label_key: "cos_download_custom_origin", description_key: None },
                     aster_drive_storage::StorageConnectorSelectOptionInput { value: "tencent_cdn_type_d_sha256", label_key: "cos_download_cdn", description_key: None },
                 ],
             );
@@ -220,10 +221,11 @@ aster_drive_storage::storage_connector_schema! {
             allowed_endpoint_protocols: vec!["https:"], allow_endpoint_without_protocol: false,
             trim_on_blur: true,
             });
-            field.required_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
-                scope: None,
-                field: "download_delivery".into(), value: StorageConnectorFieldDefaultValue::String("tencent_cdn_type_d_sha256".into()),
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: true, scope: None,
+                field: "download_delivery".into(), value: StorageConnectorFieldDefaultValue::String("cos_origin".into()),
             }];
+            field.required_when = field.visible_when.clone();
             field
         },
         #[serde(default = "default_cdn_auth_validity_seconds")]
@@ -234,6 +236,7 @@ aster_drive_storage::storage_connector_schema! {
             field.validation.max_integer = Some(3600);
             field.help_key = Some("cdn_auth_validity_seconds_desc".into());
             field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false,
                 scope: None,
                 field: "download_delivery".into(), value: StorageConnectorFieldDefaultValue::String("tencent_cdn_type_d_sha256".into()),
             }];
@@ -252,6 +255,7 @@ aster_drive_storage::storage_connector_schema! {
                 let mut field = storage_connector_field("tencent_cdn_auth_key", StorageConnectorFieldScope::StaticCredential, StorageConnectorFieldKind::Secret, false, true);
                 field.help_key = Some("tencent_cdn_auth_key_desc".into());
                 field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                    negate: false,
                     scope: Some(StorageConnectorFieldScope::ConnectorConfig),
                     field: "download_delivery".into(), value: StorageConnectorFieldDefaultValue::String("tencent_cdn_type_d_sha256".into()),
                 }];

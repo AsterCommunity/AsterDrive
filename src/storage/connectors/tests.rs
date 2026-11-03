@@ -2995,3 +2995,55 @@ fn cos_origin_legacy_config_and_credentials_remain_compatible() {
         .validate_connection_credential(&normalized, &credential)
         .unwrap();
 }
+
+#[test]
+fn cos_download_delivery_declares_three_modes_and_conditional_address() {
+    let connector = connector(TencentCosConnector::ID);
+    let descriptor = connector.descriptor();
+    let modes = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_delivery")
+        .unwrap();
+    assert_eq!(modes.select.as_ref().unwrap().options.len(), 3);
+    let address = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_base_url")
+        .unwrap();
+    assert_eq!(address.visible_when.len(), 1);
+    assert!(address.visible_when[0].negate);
+    assert_eq!(address.visible_when, address.required_when);
+    let mut values =
+        serde_json::to_value(cos_config(ObjectStorageUploadStrategy::RelayStream)).unwrap();
+    for mode in ["cos_origin", "custom_origin", "tencent_cdn_type_d_sha256"] {
+        values["download_delivery"] = serde_json::json!(mode);
+        values["download_base_url"] = serde_json::Value::Null;
+        let result = connector.validate_connector_config(&super::test_support::connection_config(
+            TencentCosConnector::ID,
+            1,
+            &values,
+        ));
+        assert_eq!(result.is_ok(), mode == "cos_origin", "{mode}");
+        values["download_base_url"] = serde_json::json!("https://download.example.test/assets");
+        let normalized = connector
+            .validate_connector_config(&super::test_support::connection_config(
+                TencentCosConnector::ID,
+                1,
+                &values,
+            ))
+            .unwrap();
+        assert_eq!(normalized.values["download_delivery"], mode);
+        assert_eq!(
+            normalized.values["object_storage_download_strategy"],
+            "relay_stream"
+        );
+        let policy = super::test_support::policy(
+            TencentCosConnector::ID,
+            1,
+            serde_json::to_value(&values).unwrap(),
+            Default::default(),
+        );
+        assert!(!connector.direct_download_enabled(&policy).unwrap());
+    }
+}
