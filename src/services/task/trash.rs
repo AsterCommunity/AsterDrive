@@ -1,7 +1,7 @@
 //! 回收站后台任务。
 
 use crate::errors::Result;
-use crate::runtime::PrimaryAppState;
+use crate::runtime::{PrimaryAppState, TaskRuntimeState};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::background_task;
 use aster_forge_tasks::TaskExecutionContext;
@@ -10,7 +10,9 @@ use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 use super::spec::{self, TrashPurgeAllTask, decode_payload_as};
 use super::steps::{TASK_STEP_PURGE_TRASH, TASK_STEP_WAITING, parse_task_steps_json};
 use super::types::{TaskInfo, TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult};
-use super::{create_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope};
+use super::{
+    TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope,
+};
 
 pub(crate) async fn create_trash_purge_all_task_in_scope(
     state: &PrimaryAppState,
@@ -18,8 +20,23 @@ pub(crate) async fn create_trash_purge_all_task_in_scope(
 ) -> Result<TaskInfo> {
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let payload = TrashPurgeAllTaskPayload {};
-    let task = create_typed_task_record::<TrashPurgeAllTask>(state, scope, "Empty trash", &payload)
-        .await?;
+    let task = aster_forge_db::transaction::with_transaction(state.writer_db(), async |txn| {
+        crate::services::files::trash::coordination::lock_scope_on(txn, scope.into()).await?;
+        insert_typed_task_record(
+            state,
+            txn,
+            TypedTaskCreate::<TrashPurgeAllTask>::new("Empty trash", payload).in_scope(scope),
+        )
+        .await
+    })
+    .await?;
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     super::get_task_in_scope(state, scope, task.id).await
 }
 
@@ -47,8 +64,12 @@ pub(super) async fn process_trash_purge_all_task(
     )?;
     mark_task_progress(state, &lease_guard, 0, 0, Some("Purging trash"), &steps).await?;
 
-    let purge_summary =
-        crate::services::files::trash::purge_all_in_scope_silent(state, scope).await?;
+    let purge_summary = crate::services::files::trash::purge_all_in_scope_silent(
+        state,
+        scope,
+        Some(lease_guard.lease()),
+    )
+    .await?;
     let purged = purge_summary.purged;
     let progress = i64::from(purged);
     set_task_step_succeeded(

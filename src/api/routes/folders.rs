@@ -216,6 +216,7 @@ pub async fn get_ancestors(
     operation_id = "delete_folder",
     params(("id" = i64, Path, description = "Folder ID")),
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Folder deleted"),
         (status = 202, description = "Folder deletion queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -550,6 +551,7 @@ pub(crate) async fn team_get_ancestors(
         ("id" = i64, Path, description = "Folder ID")
     ),
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Team folder deleted"),
         (status = 202, description = "Team folder deletion queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),

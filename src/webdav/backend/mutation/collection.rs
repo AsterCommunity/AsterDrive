@@ -10,7 +10,6 @@ use super::super::{
     AsterDavFs, AsterDavMutationError, AtomicTargetRevalidation, DavMutationConditions,
     DeletedResource, ResolvedNode, copy_visible_entity_properties_on, lock,
     map_ancestor_lock_error, map_atomic_lock_error, path_resolver, revalidate_atomic_target,
-    to_fs_error,
 };
 
 impl AsterDavFs {
@@ -44,8 +43,7 @@ impl AsterDavFs {
         {
             ResolvedNode::Folder(folder) => folder_repo::lock_by_id(&txn, folder.id)
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
+                .map_err(super::super::map_product_mutation_error)?,
             _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
         };
         revalidate_atomic_target(
@@ -126,8 +124,7 @@ impl AsterDavFs {
                     crate::services::workspace::activity::ActivitySource::Webdav,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
                 None
             }
             None => None,
@@ -141,8 +138,7 @@ impl AsterDavFs {
             let created_by_username =
                 crate::services::workspace::storage::load_scope_actor_username(&txn, self.scope)
                     .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
             let now = chrono::Utc::now();
             let folder = crate::services::workspace::activity::create_folder(
                 &txn,
@@ -161,8 +157,7 @@ impl AsterDavFs {
                 crate::services::workspace::activity::ActivitySource::Webdav,
             )
             .await
-            .map_err(to_fs_error)
-            .map_err(AsterDavMutationError::FileSystem)?;
+            .map_err(super::super::map_product_mutation_error)?;
             (folder, true)
         };
         copy_visible_entity_properties_on(

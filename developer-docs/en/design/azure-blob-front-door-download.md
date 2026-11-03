@@ -4,7 +4,7 @@ Issue #689 supports Azure Front Door Standard/Premium with client service SAS an
 
 ## Ownership
 
-- Connector: schema v1 adds `download_delivery`, defaulting to `blob_origin`, and optional `download_base_url`, required for `front_door_client_sas`. Descriptor metadata drives the generic form and payload builders. Serde defaults preserve existing persisted configurations. No database migration or generic OpenAPI type changes are needed.
+- Connector: schema v1 adds `download_delivery`, defaulting to `blob_origin`, and optional `download_base_url`, required and checked against Front Door origin rules only for `front_door_client_sas`. Blob-origin mode preserves and ignores the dormant download address; switching back to Front Door validates it again. Descriptor metadata drives the generic form and payload builders. Serde defaults preserve existing persisted configurations. No database migration or generic OpenAPI type changes are needed.
 - Driver: only `DirectDownloadStorageDriver` uses the delivery host. The canonical resource remains `/blob/account/container/full_key`. Blob API operations, uploads, multipart, copies, cleanup and connection tests retain their independent origin endpoint.
 - Service and resource handle: retain permission checks, transfer-policy selection, filename/content-type overrides, safe inline fallback and the five-minute download lifetime. Browsers omit credentials and conditional headers. Handle expiry equals the SAS `se` value.
 - Frontend: use the existing descriptor form without a provider/domain routing matrix.

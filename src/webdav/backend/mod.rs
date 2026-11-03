@@ -1704,8 +1704,21 @@ async fn delete_existing_destination_for_overwrite(
 }
 
 /// AsterError → FsError 映射
+fn map_product_mutation_error(error: crate::errors::AsterError) -> AsterDavMutationError {
+    if error.api_error_code() == crate::api::api_error_code::ApiErrorCode::TrashPurgeInProgress {
+        AsterDavMutationError::Conflict
+    } else {
+        AsterDavMutationError::FileSystem(to_fs_error(error))
+    }
+}
+
 fn to_fs_error(err: crate::errors::AsterError) -> FsError {
     match &err {
+        _ if err.api_error_code()
+            == crate::api::api_error_code::ApiErrorCode::TrashPurgeInProgress =>
+        {
+            FsError::Forbidden
+        }
         crate::errors::AsterError::FileNotFound(_)
         | crate::errors::AsterError::FolderNotFound(_)
         | crate::errors::AsterError::RecordNotFound(_) => FsError::NotFound,

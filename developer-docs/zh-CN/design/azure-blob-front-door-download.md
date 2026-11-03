@@ -4,7 +4,7 @@ Issue #689：支持 Azure Front Door Standard/Premium 客户端 service SAS 模�
 
 ## 分层职责
 
-- Connector：schema v1 增加可选下载入口，`download_delivery` 默认 `blob_origin`，可选 `front_door_client_sas`；`download_base_url` 仅在后者必填。descriptor 驱动显示和 payload；旧持久化配置通过 serde 默认值读取。不改变通用 OpenAPI 类型或数据库结构。
+- Connector：schema v1 增加可选下载入口，`download_delivery` 默认 `blob_origin`，可选 `front_door_client_sas`；`download_base_url` 仅在后者必填并校验 Front Door origin 规则；`blob_origin` 保留并忽略休眠的下载地址，切回 Front Door 时重新校验。descriptor 驱动显示和 payload；旧持久化配置通过 serde 默认值读取。不改变通用 OpenAPI 类型或数据库结构。
 - Driver：只在 `DirectDownloadStorageDriver` 组装交付 URL；canonical resource 始终是 `/blob/account/container/full_key`。Blob API、上传、multipart、复制、清理、连接测试不使用下载域名。
 - Service / resource handle：复用已有权限检查、策略选择、文件名/类型、安全内联回退和 300 秒 TTL；浏览器 omit credentials，禁止条件请求头，过期时间与 SAS `se` 一致。
 - Frontend：复用通用 descriptor 表单，不增加 provider/domain 白名单。

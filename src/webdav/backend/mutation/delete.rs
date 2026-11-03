@@ -11,7 +11,7 @@ use crate::webdav::handlers::resources::MUTATION_FOLDER_TREE_LIMITS;
 use super::super::{
     AsterDavFs, AsterDavMutationError, AtomicTargetRevalidation, DavMutationConditions,
     ResolvedNode, lock, map_ancestor_lock_error, map_atomic_lock_error, path_resolver,
-    revalidate_atomic_target, to_fs_error,
+    revalidate_atomic_target,
 };
 
 impl AsterDavFs {
@@ -55,8 +55,7 @@ impl AsterDavFs {
                     true,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
+                .map_err(super::super::map_product_mutation_error)?,
             ),
             (ResolvedNode::File(_), false) => None,
             _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
@@ -101,8 +100,7 @@ impl AsterDavFs {
                     crate::services::workspace::activity::ActivitySource::Webdav,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
                 Deleted::File(file)
             }
             (ResolvedNode::Folder(_), Some(locked)) => Deleted::Folder(
@@ -113,8 +111,7 @@ impl AsterDavFs {
                     crate::services::workspace::activity::ActivitySource::Webdav,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
+                .map_err(super::super::map_product_mutation_error)?,
             ),
             _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
         };

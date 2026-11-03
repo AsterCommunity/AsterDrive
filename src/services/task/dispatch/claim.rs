@@ -13,6 +13,7 @@ use aster_forge_db::transaction;
 use aster_forge_tasks::{ClaimedTask, TaskClaimCandidate, TaskClaimRequest, TaskLease};
 use chrono::{DateTime, Utc};
 use sea_orm::ConnectionTrait;
+use tracing::Instrument;
 
 struct BackgroundTaskClaimStore<'a, S> {
     state: &'a S,
@@ -28,53 +29,94 @@ impl<S: SharedRuntimeState + Sync>
         &self,
         request: TaskClaimRequest<BackgroundTaskKind, TaskLane>,
     ) -> Result<Vec<(background_task::Model, TaskLease)>> {
-        transaction::with_transaction(self.state.writer_db(), async |txn| {
-            let key = lane_lock_key(request.lane.lane);
-            config_repo::lock_by_key(txn, key).await?;
-            let request = request.at(Utc::now());
-            let setting = config_repo::find_by_key(txn, key).await?.ok_or_else(|| {
-                AsterError::config_error(format!("missing shared task quota {key}"))
-            })?;
-            let limit = crate::config::operations::parse_cluster_concurrency(key, &setting.value)?;
-            let available = if let Some(limit) = limit {
-                let active = background_task_repo::count_active_processing_by_kinds(
+        let span = tracing::trace_span!(
+            "drive_task_claim",
+            operation = "background_task_claim",
+            lane = ?request.lane.lane
+        );
+        async {
+            transaction::with_transaction(self.state.writer_db(), async |txn| {
+                let key = lane_lock_key(request.lane.lane);
+                let started = std::time::Instant::now();
+                tracing::trace!(phase = "quota_lock", "task claim phase started");
+                config_repo::lock_by_key(txn, key).await?;
+                tracing::trace!(
+                    phase = "quota_lock",
+                    elapsed_seconds = started.elapsed().as_secs_f64(),
+                    "task claim phase finished"
+                );
+                let request = request.at(Utc::now());
+                let setting = config_repo::find_by_key(txn, key).await?.ok_or_else(|| {
+                    AsterError::config_error(format!("missing shared task quota {key}"))
+                })?;
+                let limit =
+                    crate::config::operations::parse_cluster_concurrency(key, &setting.value)?;
+                let available = if let Some(limit) = limit {
+                    let active = background_task_repo::count_active_processing_by_kinds(
+                        txn,
+                        request.now,
+                        request.lane.kinds,
+                    )
+                    .await?;
+                    let remaining = aster_forge_tasks::available_lane_capacity(limit, active)
+                        .min(request.max_claim);
+                    tracing::trace!(
+                        phase = "quota",
+                        cluster_limit = limit,
+                        active,
+                        available = remaining,
+                        "task claim quota checked"
+                    );
+                    remaining
+                } else {
+                    request.max_claim
+                };
+                let selection_started = std::time::Instant::now();
+                let due = background_task_repo::list_claimable_by_kinds_for_update(
                     txn,
                     request.now,
+                    request.stale_before,
                     request.lane.kinds,
+                    aster_forge_tasks::claim_limit_to_u64(available),
                 )
                 .await?;
-                aster_forge_tasks::available_lane_capacity(limit, active).min(request.max_claim)
-            } else {
-                request.max_claim
-            };
-            let due = background_task_repo::list_claimable_by_kinds_for_update(
-                txn,
-                request.now,
-                request.stale_before,
-                request.lane.kinds,
-                aster_forge_tasks::claim_limit_to_u64(available),
-            )
-            .await?;
-            let candidates = aster_forge_tasks::task_claim_candidates(&due)?;
-            let claimed = claim_candidates_on(
-                txn,
-                available,
-                &candidates,
-                request.stale_before,
-                request.now,
-                request.lease_expires_at,
-            )
-            .await?;
-            Ok(claimed
-                .into_iter()
-                .map(|claim| {
-                    (
-                        due[claim.index].clone(),
-                        TaskLease::new(claim.task_id, claim.processing_token),
-                    )
-                })
-                .collect())
-        })
+                tracing::trace!(
+                    phase = "selection",
+                    available,
+                    candidates = due.len(),
+                    elapsed_seconds = selection_started.elapsed().as_secs_f64(),
+                    reason = if available == 0 {
+                        "shared_quota_full"
+                    } else if due.is_empty() {
+                        "no_candidates"
+                    } else {
+                        "candidates_found"
+                    },
+                    "task claim candidates selected"
+                );
+                let candidates = aster_forge_tasks::task_claim_candidates(&due)?;
+                let claimed = claim_candidates_on(
+                    txn,
+                    available,
+                    &candidates,
+                    request.stale_before,
+                    request.now,
+                    request.lease_expires_at,
+                )
+                .await?;
+                Ok(claimed
+                    .into_iter()
+                    .map(|claim| {
+                        (
+                            due[claim.index].clone(),
+                            TaskLease::new(claim.task_id, claim.processing_token),
+                        )
+                    })
+                    .collect())
+            })
+            .await
+        }
+        .instrument(span)
         .await
     }
 }
@@ -107,7 +149,8 @@ async fn claim_candidates_on<C: ConnectionTrait>(
         if claimed.len() >= available {
             break;
         }
-        if background_task_repo::try_claim(
+        let started = std::time::Instant::now();
+        let won = background_task_repo::try_claim(
             db,
             candidate.task_id,
             candidate.expected_processing_token,
@@ -116,8 +159,15 @@ async fn claim_candidates_on<C: ConnectionTrait>(
             candidate.next_processing_token,
             expires_at,
         )
-        .await?
-        {
+        .await?;
+        tracing::trace!(
+            phase = "cas",
+            task_id = candidate.task_id,
+            elapsed_seconds = started.elapsed().as_secs_f64(),
+            outcome = if won { "claimed" } else { "cas_miss" },
+            "task claim compare-and-swap finished"
+        );
+        if won {
             claimed.push(ClaimedTask {
                 index: candidate.index,
                 task_id: candidate.task_id,

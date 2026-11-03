@@ -127,6 +127,7 @@ pub(crate) async fn batch_delete_in_scope(
             }
         };
         crate::services::files::lock::lock_workspace_for_mutation_on(&txn, workspace).await?;
+        crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
 
         let mut folder_ids_to_delete = HashSet::new();
         for folder_id in &root_folder_ids_to_delete {

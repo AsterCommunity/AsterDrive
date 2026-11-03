@@ -43,6 +43,31 @@ function renderPanel(
 }
 
 describe("ExternalAuthRecoveryPanel", () => {
+	it("associates password-link field errors with their inputs", () => {
+		renderPanel({
+			identifierError: "bad identifier",
+			passwordError: "bad password",
+		});
+		expect(
+			screen.getByLabelText("email_or_username"),
+		).toHaveAccessibleDescription("bad identifier");
+		expect(screen.getByLabelText("password")).toHaveAccessibleDescription(
+			"bad password",
+		);
+	});
+
+	it("associates the email error only when present", () => {
+		const view = renderPanel({ mode: "email", emailError: "invalid email" });
+		expect(screen.getByLabelText("email")).toHaveAccessibleDescription(
+			"invalid email",
+		);
+		view.unmount();
+		renderPanel({ mode: "email" });
+		expect(screen.getByLabelText("email")).not.toHaveAttribute(
+			"aria-describedby",
+		);
+	});
+
 	it("uses a submit button for password linking so Enter submits the parent form", () => {
 		renderPanel({ mode: "password" });
 

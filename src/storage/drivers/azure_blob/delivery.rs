@@ -74,9 +74,6 @@ pub(super) fn delivery_base_url(value: &str) -> Result<Url> {
 impl AzureBlobDriver {
     pub fn validate_delivery_config(config: &AzureBlobDriverConfig) -> Result<()> {
         validate_blob_path(&config.base_path)?;
-        if let Some(base) = config.download_base_url.as_deref() {
-            delivery_base_url(base)?;
-        }
         if config.download_delivery == AzureBlobDownloadDelivery::FrontDoorClientSas {
             delivery_base_url(
                 config

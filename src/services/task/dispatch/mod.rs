@@ -66,7 +66,7 @@ pub(crate) async fn dispatch_due_with_shutdown(
     if let Some(first_error) = first_error {
         tracing::warn!(
             stats = ?stats,
-            error = %first_error,
+            error_code = first_error.api_error_code().as_str(),
             "partial background task dispatch results due to lane error"
         );
         return Err(first_error);
@@ -93,7 +93,10 @@ async fn refresh_pending_metric(state: &impl SharedRuntimeState) {
                     .metrics()
                     .forge_recorder()
                     .set_background_tasks_oldest_age_seconds(age),
-                Err(error) => tracing::warn!(%error,"failed to sample oldest pending task age"),
+                Err(error) => tracing::warn!(
+                    error_code = error.api_error_code().as_str(),
+                    "failed to sample oldest pending task age"
+                ),
             }
             state
                 .metrics()
@@ -101,7 +104,10 @@ async fn refresh_pending_metric(state: &impl SharedRuntimeState) {
         }
         Err(error) => {
             state.metrics().snapshot_status("tasks", false, 0.0);
-            tracing::warn!(error = %error,"failed to refresh background task pending metric");
+            tracing::warn!(
+                error_code = error.api_error_code().as_str(),
+                "failed to refresh background task pending metric"
+            );
         }
     }
 }

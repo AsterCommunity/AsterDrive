@@ -197,7 +197,13 @@ pub async fn create_storage_policy_forced_purge_task(
         Ok(task)
     })
     .await?;
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     super::get_task_in_scope(state, task_scope(&task)?, task.id).await
 }
 
@@ -286,6 +292,7 @@ pub(super) async fn process_storage_policy_forced_purge_task(
                 state,
                 batch.scope,
                 batch.files,
+                crate::services::files::trash::coordination::PurgeGuard::Maintenance,
             )
             .await?;
             runtime.last_processed_file_id = last_file_id;

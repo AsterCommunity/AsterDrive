@@ -129,7 +129,9 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
     #[cfg(test)] failed_task_barrier: Option<&tokio::sync::Barrier>,
 ) -> Result<TaskInfo> {
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
-    let root = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
+    let root = folder_repo::find_by_id(&txn, folder_id).await?;
     ensure_root_scope(&root, scope)?;
     ensure_operation_state(&root, operation)?;
     let payload = FolderTreeMutationTaskPayload {
@@ -146,21 +148,36 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
             .in_scope(scope)
             .dedupe_key(dedupe_key.clone())
     };
-    let mut task = insert_typed_task_record(state, state.writer_db(), create_request()).await?;
+    // Scope serialization lets us resolve dedupe before INSERT. A uniqueness error would
+    // abort a PostgreSQL transaction, making the generic post-error lookup unusable here.
+    let mut task = match background_task_repo::find_by_dedupe_key(&txn, dedupe_key.as_str()).await?
+    {
+        Some(existing) => existing,
+        None => insert_typed_task_record(state, &txn, create_request()).await?,
+    };
+    transaction::commit(txn).await?;
     if task.status == aster_drive_model::types::BackgroundTaskStatus::Failed {
         #[cfg(test)]
         if let Some(barrier) = failed_task_barrier {
             barrier.wait().await;
         }
-        background_task_repo::clear_unsuccessful_dedupe_key(
-            state.writer_db(),
-            task.id,
-            dedupe_key.as_str(),
-        )
-        .await?;
-        task = insert_typed_task_record(state, state.writer_db(), create_request()).await?;
+        let txn = transaction::begin(state.writer_db()).await?;
+        crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
+        background_task_repo::clear_unsuccessful_dedupe_key(&txn, task.id, dedupe_key.as_str())
+            .await?;
+        task = match background_task_repo::find_by_dedupe_key(&txn, dedupe_key.as_str()).await? {
+            Some(existing) => existing,
+            None => insert_typed_task_record(state, &txn, create_request()).await?,
+        };
+        transaction::commit(txn).await?;
     }
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     super::get_task_in_scope(state, scope, task.id).await
 }
 
@@ -460,6 +477,7 @@ async fn finalize_operation(
     let now = Utc::now();
     let marker = operation_lock_marker(task.id);
     let result = transaction::with_transaction(state.writer_db(), async |txn| {
+        crate::services::files::trash::coordination::admit_mutation_on(txn, scope).await?;
         let root = folder_repo::find_by_id(txn, payload.folder_id).await?;
         ensure_root_scope(&root, scope)?;
         enforce_task_root_lock(txn, &root, &lock_tokens).await?;
@@ -918,8 +936,7 @@ mod tests {
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             share_download_rollback,
-            background_task_dispatch_wakeup:
-                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }
     }
@@ -974,14 +991,17 @@ mod tests {
         task_id: i64,
     ) -> (background_task::Model, TaskExecutionContext) {
         let claimed_at = Utc::now();
+        let previous = background_task_repo::find_by_id(state.writer_db(), task_id)
+            .await
+            .unwrap();
         assert!(
             background_task_repo::try_claim(
                 state.writer_db(),
                 task_id,
-                0,
+                previous.processing_token,
                 claimed_at,
                 claimed_at - chrono::Duration::minutes(10),
-                1,
+                previous.processing_token + 1,
                 claimed_at + chrono::Duration::minutes(1),
             )
             .await
@@ -996,6 +1016,303 @@ mod tests {
             CancellationToken::new(),
         );
         (task, context)
+    }
+
+    #[tokio::test]
+    async fn trash_purge_blocks_queued_restore_admission_and_finalization() {
+        use crate::api::api_error_code::ApiErrorCode;
+        use aster_forge_db::transaction;
+        let state = build_test_state().await;
+        let (user, root) =
+            insert_test_user_and_root(&state, "purge-restore", Some(Utc::now())).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let restore = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Restore,
+        )
+        .await
+        .unwrap();
+        let (restore_task, context) = claim_task_with_context(&state, restore.id).await;
+        let purge =
+            crate::services::task::trash::create_trash_purge_all_task_in_scope(&state, scope)
+                .await
+                .unwrap();
+        let rejected = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Restore,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            rejected.api_error_code(),
+            ApiErrorCode::TrashPurgeInProgress
+        );
+        let error = super::process_folder_tree_mutation_task(&state, &restore_task, context)
+            .await
+            .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        assert!(
+            folder_repo::find_by_id(state.writer_db(), root.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_some()
+        );
+        let mut terminal: background_task::ActiveModel =
+            background_task_repo::find_by_id(state.writer_db(), purge.id)
+                .await
+                .unwrap()
+                .into();
+        terminal.status = Set(BackgroundTaskStatus::Canceled);
+        terminal.update(state.writer_db()).await.unwrap();
+        // A manually retried purge acquires the same admission lock and blocks restores again.
+        super::super::retry_task_in_scope(&state, scope, purge.id)
+            .await
+            .unwrap();
+        let txn = transaction::begin(state.writer_db()).await.unwrap();
+        let error = crate::services::files::trash::coordination::admit_mutation_on(&txn, scope)
+            .await
+            .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        txn.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn trash_purge_blocks_queued_delete_admission_finalization_and_retry() {
+        use crate::api::api_error_code::ApiErrorCode;
+        let state = build_test_state().await;
+        let (user, root) = insert_test_user_and_root(&state, "purge-delete", None).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let delete = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .unwrap();
+        let (delete_task, context) = claim_task_with_context(&state, delete.id).await;
+        let purge =
+            crate::services::task::trash::create_trash_purge_all_task_in_scope(&state, scope)
+                .await
+                .unwrap();
+        let error = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        let error = super::process_folder_tree_mutation_task(&state, &delete_task, context)
+            .await
+            .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        assert!(
+            folder_repo::find_by_id(state.writer_db(), root.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_none()
+        );
+        let mut failed: background_task::ActiveModel = delete_task.into();
+        failed.status = Set(BackgroundTaskStatus::Failed);
+        failed.failure_can_retry = Set(Some(true));
+        failed.update(state.writer_db()).await.unwrap();
+        let error = super::super::retry_task_in_scope(&state, scope, delete.id)
+            .await
+            .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        let mut canceled: background_task::ActiveModel =
+            background_task_repo::find_by_id(state.writer_db(), purge.id)
+                .await
+                .unwrap()
+                .into();
+        canceled.status = Set(BackgroundTaskStatus::Canceled);
+        canceled.update(state.writer_db()).await.unwrap();
+        super::super::retry_task_in_scope(&state, scope, delete.id)
+            .await
+            .unwrap();
+        let (task, context) = claim_task_with_context(&state, delete.id).await;
+        super::process_folder_tree_mutation_task(&state, &task, context)
+            .await
+            .unwrap();
+        assert!(
+            folder_repo::find_by_id(state.writer_db(), root.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn trash_purge_fences_takeover_expiry_cancellation_and_terminal_workers() {
+        use crate::api::api_error_code::ApiErrorCode;
+        use crate::services::files::trash::coordination::{admit_mutation_on, fence_purge_on};
+        use aster_forge_db::transaction;
+        let state = build_test_state().await;
+        let (user, _) = insert_test_user_and_root(&state, "purge-fence", Some(Utc::now())).await;
+        let (other, _) = insert_test_user_and_root(&state, "purge-other", Some(Utc::now())).await;
+        let now = Utc::now();
+        let policy = crate::storage::connectors::test_support::insertable_policy(
+            crate::storage::connectors::test_support::local_policy(
+                "/tmp/trash-fence-unused".to_string(),
+            ),
+        )
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+        let blob = file_blob::ActiveModel {
+            hash: Set("trash-fence-blob".into()),
+            size: Set(0),
+            policy_id: Set(policy.id),
+            storage_path: Set(Some("unused".into())),
+            ref_count: Set(1),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+        let file = file::ActiveModel {
+            name: Set("fenced.txt".into()),
+            folder_id: Set(None),
+            team_id: Set(None),
+            blob_id: Set(blob.id),
+            size: Set(0),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            created_by_username: Set(user.username.clone()),
+            mime_type: Set("text/plain".into()),
+            extension: Set("txt".into()),
+            compound_extension: Set(None),
+            file_category: Set(FileCategory::Document),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(Some(now)),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let task =
+            crate::services::task::trash::create_trash_purge_all_task_in_scope(&state, scope)
+                .await
+                .unwrap();
+        let (task, context) = claim_task_with_context(&state, task.id).await;
+        let lease = context.lease_guard().lease();
+        let txn = transaction::begin(state.writer_db()).await.unwrap();
+        fence_purge_on(&txn, scope.into(), lease).await.unwrap();
+        transaction::commit(txn).await.unwrap();
+        // Another personal scope is unaffected even when it shares this database/process.
+        let txn = transaction::begin(state.writer_db()).await.unwrap();
+        admit_mutation_on(&txn, WorkspaceStorageScope::Personal { user_id: other.id })
+            .await
+            .unwrap();
+        transaction::commit(txn).await.unwrap();
+        for (status, token, expires, expected) in [
+            (
+                BackgroundTaskStatus::Processing,
+                lease.processing_token + 1,
+                Utc::now() + chrono::Duration::minutes(1),
+                ApiErrorCode::TaskLeaseLost,
+            ),
+            (
+                BackgroundTaskStatus::Processing,
+                lease.processing_token,
+                Utc::now() - chrono::Duration::minutes(1),
+                ApiErrorCode::TaskLeaseLost,
+            ),
+            (
+                BackgroundTaskStatus::Canceling,
+                lease.processing_token,
+                Utc::now() + chrono::Duration::minutes(1),
+                ApiErrorCode::TaskCancellationRequested,
+            ),
+            (
+                BackgroundTaskStatus::Succeeded,
+                lease.processing_token,
+                Utc::now() + chrono::Duration::minutes(1),
+                ApiErrorCode::TaskLeaseLost,
+            ),
+            (
+                BackgroundTaskStatus::Failed,
+                lease.processing_token,
+                Utc::now() + chrono::Duration::minutes(1),
+                ApiErrorCode::TaskLeaseLost,
+            ),
+            (
+                BackgroundTaskStatus::Canceled,
+                lease.processing_token,
+                Utc::now() + chrono::Duration::minutes(1),
+                ApiErrorCode::TaskLeaseLost,
+            ),
+        ] {
+            let mut active: background_task::ActiveModel = task.clone().into();
+            active.status = Set(status);
+            active.processing_token = Set(token);
+            active.lease_expires_at = Set(Some(expires));
+            active.update(state.writer_db()).await.unwrap();
+            let txn = transaction::begin(state.writer_db()).await.unwrap();
+            let error = fence_purge_on(&txn, scope.into(), lease).await.unwrap_err();
+            assert_eq!(error.api_error_code(), expected);
+            txn.rollback().await.unwrap();
+            // Exercise the real deletion transaction with the old worker's cached file list.
+            let error = crate::services::files::file::batch_purge_in_resource_scope_silent(
+                &state,
+                scope.into(),
+                vec![file.clone()],
+                crate::services::files::trash::coordination::PurgeGuard::Task(lease),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.api_error_code(), expected);
+            assert!(
+                crate::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
+                    .await
+                    .is_ok()
+            );
+            let txn = transaction::begin(state.writer_db()).await.unwrap();
+            let admission = admit_mutation_on(&txn, scope).await;
+            assert_eq!(admission.is_ok(), status.is_terminal());
+            txn.rollback().await.unwrap();
+        }
+        // A successful restore after cancellation must survive the old worker's cached list.
+        crate::services::files::trash::restore_file(&state, file.id, user.id)
+            .await
+            .unwrap();
+        let error = crate::services::files::file::batch_purge_in_resource_scope_silent(
+            &state,
+            scope.into(),
+            vec![file.clone()],
+            crate::services::files::trash::coordination::PurgeGuard::Task(lease),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TaskLeaseLost);
+        assert!(
+            crate::db::repository::file_repo::find_by_id(state.writer_db(), file.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_none()
+        );
+        assert_eq!(
+            crate::db::repository::file_repo::find_blobs_by_ids(state.writer_db(), &[blob.id])
+                .await
+                .unwrap()[&blob.id]
+                .ref_count,
+            1
+        );
     }
 
     #[test]

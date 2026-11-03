@@ -233,7 +233,7 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         {
             tracing::error!(
                 task_id = task.id,
-                %error,
+                error_code = error.api_error_code().as_str(),
                 "failed to clean terminal folder-tree task state"
             );
         }
@@ -280,6 +280,6 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
     }
 
     fn wake_dispatcher(&self) {
-        self.state.wake_background_task_dispatcher();
+        self.state.task_wakeup().notify();
     }
 }

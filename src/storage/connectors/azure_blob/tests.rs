@@ -47,6 +47,29 @@ fn legacy_defaults_and_front_door_round_trip() {
 }
 
 #[test]
+fn origin_delivery_preserves_dormant_url_until_front_door_is_selected() {
+    let mut input = values();
+    input["download_delivery"] = json!("blob_origin");
+    input["download_base_url"] = json!("https://files.example.com/prefix");
+    let normalized = AzureBlobConnector
+        .validate_connector_config(&connection_config(AzureBlobConnector::ID, 1, input))
+        .unwrap();
+    assert_eq!(
+        normalized.values["download_base_url"],
+        "https://files.example.com/prefix"
+    );
+    let mut front_door = normalized;
+    front_door
+        .values
+        .insert("download_delivery".into(), json!("front_door_client_sas"));
+    assert!(
+        AzureBlobConnector
+            .validate_connector_config(&front_door)
+            .is_err()
+    );
+}
+
+#[test]
 fn rejects_unsupported_modes_and_missing_or_unsafe_delivery_urls() {
     for (mode, url) in [
         ("front_door_client_sas", Value::Null),

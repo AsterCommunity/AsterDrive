@@ -101,7 +101,7 @@ pub(crate) async fn request(
             },
         )
         .await;
-        state.wake_background_task_dispatcher();
+        state.task_wakeup().notify();
     }
     Ok(result)
 }

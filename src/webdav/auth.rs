@@ -328,8 +328,7 @@ mod tests {
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,
-            background_task_dispatch_wakeup:
-                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         }
     }

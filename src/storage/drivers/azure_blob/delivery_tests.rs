@@ -194,7 +194,8 @@ async fn default_delivery_keeps_origin_and_signs_response_options() {
     let driver = AzureBlobDriver::new(
         AzureBlobDriverConfig {
             download_delivery: AzureBlobDownloadDelivery::BlobOrigin,
-            download_base_url: None,
+            // The hidden Front Door field is retained when switching modes.
+            download_base_url: Some("https://files.example.com/prefix".into()),
             ..config()
         },
         AzureBlobStaticCredentials {

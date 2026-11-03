@@ -35,7 +35,11 @@ describe("trashService", () => {
 
 		expect(apiGet).toHaveBeenCalledWith("/trash", { params });
 		expect(apiPost).toHaveBeenCalledWith("/trash/file/12/restore");
-		expect(apiPost).toHaveBeenCalledWith("/trash/folder/34/restore");
+		expect(apiPost).toHaveBeenCalledWith(
+			"/trash/folder/34/restore",
+			undefined,
+			{ accept202: true },
+		);
 	});
 
 	it("uses the expected purge routes", () => {
@@ -65,6 +69,8 @@ describe("trashService", () => {
 		expect(apiPost).toHaveBeenNthCalledWith(
 			2,
 			"/teams/6/trash/folder/34/restore",
+			undefined,
+			{ accept202: true },
 		);
 		expect(apiDelete).toHaveBeenNthCalledWith(4, "/teams/6/trash/file/12");
 		expect(apiDelete).toHaveBeenNthCalledWith(5, "/teams/6/trash/folder/34");

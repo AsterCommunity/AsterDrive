@@ -514,6 +514,33 @@ async fn test_azure_front_door_config_create_read_edit_and_legacy_defaults() {
         let body: Value = test::read_body_json(resp).await;
         assert!(!body.to_string().contains("DO_NOT_ECHO"));
     }
+
+    // Switching back to Blob origin preserves the hidden URL without applying
+    // Front Door's origin-only restriction to an inactive delivery address.
+    config["values"]["download_delivery"] = serde_json::json!("blob_origin");
+    config["values"]["download_base_url"] = serde_json::json!("https://files.example.com/prefix");
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"connector_config":config}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["download_base_url"],
+        "https://files.example.com/prefix"
+    );
+    config["values"]["download_delivery"] = serde_json::json!("front_door_client_sas");
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"connector_config":config}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
 }
 
 #[actix_web::test]

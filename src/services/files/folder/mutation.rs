@@ -347,6 +347,7 @@ pub(crate) async fn lock_tree_for_deletion_on<C: ConnectionTrait>(
     traversal_limits: Option<super::FolderTreeTraversalLimits>,
     allow_locked_root: bool,
 ) -> Result<LockedFolderTreeDeletion> {
+    crate::services::files::trash::coordination::admit_mutation_on(db, scope).await?;
     let snapshot = folder_repo::find_by_id(db, folder_id).await?;
     ensure_folder_model_in_scope(&snapshot, scope)?;
     let folder = if allow_locked_root {

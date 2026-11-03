@@ -64,6 +64,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "batch_delete",
     request_body = BatchDeleteReq,
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -256,6 +257,7 @@ pub async fn archive_download_stream(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchDeleteReq,
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Team batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),

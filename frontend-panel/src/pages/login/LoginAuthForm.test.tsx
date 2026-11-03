@@ -53,6 +53,48 @@ function renderForm(
 }
 
 describe("LoginAuthForm", () => {
+	it("exposes field errors to the shared input invalid state", () => {
+		const view = renderForm({
+			mode: "register",
+			errors: {
+				identifier: "invalid user",
+				extra: "invalid email",
+				password: "invalid password",
+			},
+		});
+		expect(screen.getByLabelText("email_or_username")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByLabelText("email")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByLabelText("password")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(
+			screen.getByLabelText("email_or_username"),
+		).toHaveAccessibleDescription("invalid user");
+		expect(screen.getByLabelText("email")).toHaveAccessibleDescription(
+			"invalid email",
+		);
+		expect(screen.getByLabelText("password")).toHaveAccessibleDescription(
+			"invalid password",
+		);
+		view.rerender(<LoginAuthForm {...view.props} errors={{}} />);
+		expect(screen.getByLabelText("email_or_username")).not.toHaveAttribute(
+			"aria-describedby",
+		);
+		expect(screen.getByLabelText("email")).not.toHaveAttribute(
+			"aria-describedby",
+		);
+		expect(screen.getByLabelText("password")).not.toHaveAttribute(
+			"aria-describedby",
+		);
+	});
+
 	it("shows password login, recovery, and registration controls when enabled", () => {
 		const onForgotPassword = vi.fn();
 		const onResendActivationRequest = vi.fn();

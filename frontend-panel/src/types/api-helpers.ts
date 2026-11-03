@@ -126,6 +126,7 @@ export const ApiErrorCode = {
 	FileEtagMismatch: "file.etag_mismatch",
 	FileModifiedDuringWrite: "file.modified_during_write",
 	FolderNameConflict: "folder.name_conflict",
+	TrashPurgeInProgress: "trash.purge_in_progress",
 	LockNotOwner: "lock.not_owner",
 	ShareScopeDenied: "share.scope_denied",
 	RemoteStorageTargetBindingMismatch: "remote_storage_target.binding_mismatch",

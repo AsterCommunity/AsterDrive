@@ -18,7 +18,6 @@ use aster_forge_db::DbHandles;
 use aster_forge_mail::MailSender;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
-use tokio::sync::Notify;
 
 #[derive(Clone)]
 pub struct PrimaryAppState {
@@ -37,7 +36,7 @@ pub struct PrimaryAppState {
     /// 公开分享下载中途断连时的 download_count 回滚队列
     pub share_download_rollback: ShareDownloadRollbackQueue,
     /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
-    pub background_task_dispatch_wakeup: Arc<Notify>,
+    pub background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup,
     /// Remote storage protocol runtime, including reverse tunnel state.
     pub remote_protocol: Arc<RemoteProtocolRuntime>,
 }
@@ -99,16 +98,12 @@ pub trait RemoteProtocolRuntimeState: SharedRuntimeState {
 }
 
 pub trait TaskRuntimeState: SharedRuntimeState {
-    fn wake_background_task_dispatcher(&self);
+    fn task_wakeup(&self) -> &aster_forge_tasks::TaskWakeup;
 }
 
 pub trait FollowerRuntimeState: SharedRuntimeState {}
 
 impl PrimaryAppState {
-    pub fn new_background_task_dispatch_wakeup() -> Arc<Notify> {
-        Arc::new(Notify::new())
-    }
-
     pub fn new_remote_protocol() -> Arc<RemoteProtocolRuntime> {
         Arc::new(RemoteProtocolRuntime::new())
     }
@@ -253,8 +248,8 @@ impl RemoteProtocolRuntimeState for PrimaryAppState {
 }
 
 impl TaskRuntimeState for PrimaryAppState {
-    fn wake_background_task_dispatcher(&self) {
-        self.background_task_dispatch_wakeup.notify_one();
+    fn task_wakeup(&self) -> &aster_forge_tasks::TaskWakeup {
+        &self.background_task_dispatch_wakeup
     }
 }
 
@@ -402,9 +397,7 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        PrimaryAppState, SharedRuntimeState, StorageConnectorRuntimeState, TaskRuntimeState,
-    };
+    use super::{PrimaryAppState, SharedRuntimeState, StorageConnectorRuntimeState};
     use crate::config::{Config, RuntimeConfig};
     use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -454,8 +447,7 @@ mod tests {
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             share_download_rollback,
-            background_task_dispatch_wakeup:
-                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
         };
         state
@@ -499,17 +491,5 @@ mod tests {
             SharedRuntimeState::reader_db(&state).get_database_backend(),
             SharedRuntimeState::reader_db(&follower).get_database_backend()
         );
-    }
-
-    #[tokio::test]
-    async fn primary_state_wakes_background_task_dispatcher() {
-        let state = setup_state().await;
-        let notified = state.background_task_dispatch_wakeup.notified();
-
-        state.wake_background_task_dispatcher();
-
-        tokio::time::timeout(std::time::Duration::from_secs(1), notified)
-            .await
-            .expect("background dispatcher wakeup should notify waiters");
     }
 }

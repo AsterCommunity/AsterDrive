@@ -469,7 +469,7 @@ function StoragePolicyContent({
 								onStepChange={onCreateStepChange}
 							/>
 							<div>
-								<div className="relative overflow-hidden">
+								<div className="focus-ring-space relative overflow-hidden">
 									<div
 										key={`${stepAnimationRef.current.step}-${stepAnimationRef.current.direction}`}
 										data-testid="policy-step-panel"
