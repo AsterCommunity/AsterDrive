@@ -282,24 +282,15 @@ fn normalize_aws_request_for_oss(
         request,
         OSS_HEADER_RENAMES,
         |url| {
-            let decoded_path = percent_decode_str(url.path()).decode_utf8()?;
-            let decoded_path = decoded_path.trim_start_matches('/');
-            let object_key = if use_cname {
-                let prefix = format!("{bucket}/");
-                if decoded_path == bucket {
-                    String::new()
-                } else {
-                    decoded_path
-                        .strip_prefix(&prefix)
-                        .ok_or("OSS CNAME request path is missing the bucket prefix")?
-                        .to_string()
-                }
-            } else {
-                decoded_path.to_string()
-            };
             if use_cname {
-                url.set_path(&format!("/{object_key}"));
+                crate::storage::drivers::s3_vendor::normalize_cname_url(url, bucket)?;
             }
+            let decoded_path = percent_decode_str(url.path()).decode_utf8()?;
+            let object_key = match use_cname {
+                true => decoded_path.strip_prefix('/').unwrap_or(&decoded_path),
+                false => decoded_path.trim_start_matches('/'),
+            }
+            .to_string();
             normalize_query_encoding(url);
             key = Some(object_key);
             Ok(())

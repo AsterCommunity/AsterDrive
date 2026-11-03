@@ -44,8 +44,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_huawei_obs_helper",
-        "This connector uses native Huawei OBS signatures for normal requests, range reads, multipart operations, and presigned URLs. Generic S3 SigV4 policies remain a separate connector.",
-        "此连接器对普通请求、Range 读取、分片操作和预签名 URL 均使用华为 OBS 原生签名；通用 S3 SigV4 策略仍由独立连接器负责。",
+        "Connection tests validate native OBS requests and local CDN configuration. Uploads and backend operations use OBS; optional CDN delivery applies only to presigned downloads. Test CDN authentication and private-origin access separately.",
+        "连接测试验证 OBS 原生请求及本地 CDN 配置。上传和后端操作使用 OBS，可选 CDN 交付仅用于 presigned 下载；CDN 鉴权和私有回源需另行验收。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_obs_promote_from_s3_desc",
@@ -66,5 +66,65 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "policy_wizard_step_huawei_obs_connection_desc",
         "Set the OBS endpoint, bucket, region or custom-domain behavior, and access credentials.",
         "填写 OBS endpoint、bucket、区域或自定义域名行为及访问凭证。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_download_delivery",
+        "Download delivery mode",
+        "下载交付方式",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_download_delivery_desc",
+        "Choose OBS origin for native OBS downloads, or Huawei CDN Type A with SHA-256 for private CDN delivery. This only applies to presigned downloads; backend I/O and uploads still use OBS.",
+        "选择 OBS 源站直连（原生 OBS 签名），或华为云 CDN Type A / SHA-256 私有交付。仅对 presigned 下载生效，后端 I/O 和上传仍使用 OBS。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_download_origin",
+        "OBS origin (native OBS signature)",
+        "OBS 源站直连（原生 OBS 签名）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_download_cdn",
+        "Huawei CDN accelerated download (Type A + SHA-256)",
+        "华为云 CDN 加速下载（Type A + SHA-256）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_https_required_error",
+        "Huawei CDN domain must use HTTPS (https://).",
+        "华为云 CDN 域名必须使用 HTTPS（https://）。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_download_base_url_desc",
+        "Required HTTPS domain for Huawei CDN Type A / SHA-256 downloads, without a path prefix. Blob downloads and safe previews can use CDN; strict response-header requests use relay. Backend operations continue to use OBS.",
+        "华为云 CDN Type A / SHA-256 下载模式必填的 HTTPS 域名，不包含路径前缀。Blob 下载和安全预览可以使用 CDN，严格要求响应头的请求使用中继；后端操作继续使用 OBS。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_auth_validity_seconds",
+        "CDN authentication validity (seconds)",
+        "CDN 鉴权有效时长（秒）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_auth_validity_seconds_desc",
+        "Must match the URL authentication validity in the Huawei CDN console. Default 300 seconds, range 1–31536000; links are capped by this value and the caller's lifetime. This does not control CDN cache retention.",
+        "必须与华为云 CDN 控制台的鉴权 URL 有效时长一致，默认 300 秒，范围 1–31536000；链接有效期不超过该值及调用方请求时长，不控制 CDN 缓存保留时间。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_auth_param",
+        "CDN authentication parameter",
+        "CDN 鉴权参数名",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_auth_param_desc",
+        "Must match the Huawei CDN console, default auth_key. Use 1–100 ASCII letters, digits or underscores, starting with a letter.",
+        "必须与华为云 CDN 控制台一致，默认 auth_key。长度 1–100 位，以英文字母开头，仅允许英文字母、数字和下划线。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_auth_key",
+        "CDN authentication key",
+        "CDN 鉴权密钥",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "obs_cdn_auth_key_desc",
+        "Required for Huawei CDN delivery. Use the Type A primary or backup key from the Huawei CDN console: 6–32 ASCII letters or digits. Encrypted at rest, independently of OBS AK/SK. Enable SHA-256 and authentication for all files in the console.",
+        "选择华为云 CDN 交付时必填。使用华为云 CDN 控制台 Type A 的主 KEY 或备 KEY，6–32 位英文字母或数字；加密保存，与 OBS AK/SK 相互独立。控制台须选择 SHA-256 并对所有文件启用鉴权。",
     ),
 ];

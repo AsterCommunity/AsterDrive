@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use std::time::Duration;
 
 use crate::errors::{AsterError, Result};
+use crate::storage::drivers::huawei_obs::cdn::{
+    ObsDownloadDelivery, default_cdn_auth_param, default_cdn_auth_validity_seconds,
+};
 use crate::storage::drivers::huawei_obs::{
     HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
 };
@@ -137,6 +140,68 @@ aster_drive_storage::storage_connector_schema! {
             field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(false));
             field
         },
+        #[serde(default)]
+        pub download_delivery: ObsDownloadDelivery => {
+            let mut field = aster_drive_storage::storage_connector_select_field(
+                "download_delivery", StorageConnectorFieldScope::ConnectorConfig, true,
+                vec![
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "obs_origin", label_key: "obs_download_origin", description_key: None },
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "huawei_cdn_type_a_sha256", label_key: "obs_download_cdn", description_key: None },
+                ],
+            );
+            field.label_key = "obs_download_delivery".into();
+            field.help_key = Some("obs_download_delivery_desc".into());
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("obs_origin".into()));
+            field
+        },
+        #[serde(default)]
+        pub download_base_url: String => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+                label_key: "download_base_url", placeholder: Some("https://cdn.example.com"),
+                help_key: Some("obs_download_base_url_desc"), required_message_key: None,
+                invalid_protocol_message_key: Some("obs_cdn_https_required_error"),
+                allowed_endpoint_protocols: vec!["https:"],
+                allow_endpoint_without_protocol: false, trim_on_blur: false,
+            });
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false, scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("huawei_cdn_type_a_sha256".into()),
+            }];
+            field.required_when = field.visible_when.clone();
+            field
+        },
+        #[serde(default = "default_cdn_auth_validity_seconds")]
+        pub obs_cdn_auth_validity_seconds: u32 => {
+            let mut field = storage_connector_field("obs_cdn_auth_validity_seconds", StorageConnectorFieldScope::ConnectorConfig, StorageConnectorFieldKind::Number, false, false);
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(300));
+            field.validation.min_integer = Some(1);
+            field.validation.max_integer = Some(31_536_000);
+            field.help_key = Some("obs_cdn_auth_validity_seconds_desc".into());
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false, scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("huawei_cdn_type_a_sha256".into()),
+            }];
+            field.required_when = field.visible_when.clone();
+            field
+        },
+        #[serde(default = "default_cdn_auth_param")]
+        pub obs_cdn_auth_param: String => {
+            let mut field = storage_connector_field("obs_cdn_auth_param", StorageConnectorFieldScope::ConnectorConfig, StorageConnectorFieldKind::Text, false, false);
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(default_cdn_auth_param()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOnly;
+            field.validation.max_length = Some(100);
+            field.help_key = Some("obs_cdn_auth_param_desc".into());
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false, scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("huawei_cdn_type_a_sha256".into()),
+            }];
+            field.required_when = field.visible_when.clone();
+            field
+        },
         pub base_path: String => {
             let mut field = storage_connector_field(
                 "base_path", StorageConnectorFieldScope::ConnectorConfig,
@@ -162,7 +227,28 @@ aster_drive_storage::storage_connector_schema! {
                 "obs_secret_access_key", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
             ),
+            pub obs_cdn_auth_key: Option<HuaweiCdnAuthKey> => {
+                let mut field = storage_connector_field("obs_cdn_auth_key", StorageConnectorFieldScope::StaticCredential, StorageConnectorFieldKind::Secret, false, true);
+                field.help_key = Some("obs_cdn_auth_key_desc".into());
+                field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                    negate: false, scope: Some(StorageConnectorFieldScope::ConnectorConfig),
+                    field: "download_delivery".into(),
+                    value: StorageConnectorFieldDefaultValue::String("huawei_cdn_type_a_sha256".into()),
+                }];
+                field.required_when = field.visible_when.clone();
+                field
+            },
         }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct HuaweiCdnAuthKey(String);
+
+impl std::fmt::Debug for HuaweiCdnAuthKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
     }
 }
 
@@ -180,6 +266,13 @@ impl HuaweiObsConnector {
             base_path: config.base_path,
             region: config.obs_region,
             use_cname: config.obs_use_cname,
+            download_delivery: config.download_delivery,
+            cdn_domain: match config.download_base_url.as_str() {
+                "" => None,
+                domain => Some(domain.to_string()),
+            },
+            cdn_auth_validity_seconds: config.obs_cdn_auth_validity_seconds,
+            cdn_auth_param: config.obs_cdn_auth_param,
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
@@ -190,6 +283,7 @@ impl HuaweiObsConnector {
         HuaweiObsStaticCredentials {
             access_key: credentials.obs_access_key_id,
             secret_key: credentials.obs_secret_access_key,
+            cdn_auth_key: credentials.obs_cdn_auth_key.map(|key| key.0),
         }
     }
 
@@ -232,9 +326,10 @@ impl HuaweiObsConnector {
                 storage_native_processing: false,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![451],
+                related_issues: vec![451, 686],
             });
         descriptor.promotions.push(promote_from_s3_descriptor());
+        descriptor.capabilities.custom_download_base_url = true;
         descriptor
     }
 }
@@ -284,6 +379,9 @@ impl StorageConnector for HuaweiObsConnector {
         config.endpoint = endpoint.endpoint;
         config.bucket = endpoint.bucket;
         config.obs_region = endpoint.region;
+        HuaweiObsDriver::validate_connection_config(&Self::driver_config(config.clone()))
+            .map_err(|error| AsterError::validation_error(error.message()))?;
+        config.download_base_url = config.download_base_url.trim().to_string();
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,
@@ -303,7 +401,29 @@ impl StorageConnector for HuaweiObsConnector {
             &credential.obs_secret_access_key,
             "obs_secret_access_key",
             Self::ID,
+        )?;
+        match credential.obs_cdn_auth_key {
+            Some(key) if !key.0.is_empty() => {
+                crate::storage::drivers::huawei_obs::cdn::validate_cdn_auth_key(&key.0)
+                    .map_err(|error| AsterError::validation_error(error.message()))?;
+            }
+            Some(_) | None => {}
+        }
+        Ok(())
+    }
+
+    fn validate_connection_credential(
+        &self,
+        config: &aster_drive_storage::ConnectorConfigEnvelope,
+        credential: &StorageConnectorCredentialInput,
+    ) -> Result<()> {
+        let config = super::common::decode_normalized_connector_config(config)?;
+        let credential = super::common::decode_static_credential(credential, Self::ID)?;
+        HuaweiObsDriver::validate_config(
+            &Self::driver_config(config),
+            &Self::driver_credentials(credential),
         )
+        .map_err(|error| AsterError::validation_error(error.message()))
     }
 
     async fn build_driver_from_connection(

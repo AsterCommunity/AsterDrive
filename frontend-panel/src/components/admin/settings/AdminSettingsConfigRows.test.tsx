@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { type ReactNode, use } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -271,7 +278,7 @@ describe("AdminSettingsConfigRows", () => {
 		]);
 	});
 
-	it("moves system config descriptions behind a help trigger", async () => {
+	it("opens system config descriptions from a touch-style press", async () => {
 		const config = createConfig({
 			description: "Used by public links and notification emails.",
 			key: "public_site_url",
@@ -289,17 +296,85 @@ describe("AdminSettingsConfigRows", () => {
 
 		expect(
 			screen.queryByText("Used by public links and notification emails."),
-		).not.toBeInTheDocument();
+		).not.toBeVisible();
 
-		fireEvent.focus(
-			screen.getByRole("button", {
+		const trigger = screen.getByRole("button", {
+			name: "Show description for Public site URL",
+		});
+		fireEvent.pointerDown(trigger, { pointerType: "touch" });
+		fireEvent.pointerUp(trigger, { pointerType: "touch" });
+		fireEvent.click(trigger);
+
+		const description = await screen.findByText(
+			"Used by public links and notification emails.",
+		);
+		expect(description).toBeVisible();
+		expect(
+			screen.getByRole("dialog", {
 				name: "Show description for Public site URL",
 			}),
+		).toHaveAccessibleDescription(config.description);
+		expect(trigger).toHaveAttribute("aria-expanded", "true");
+		expect(
+			description.closest('[data-slot="popover-content"]'),
+		).toHaveAttribute("role", "dialog");
+
+		fireEvent.click(trigger);
+		await waitFor(() => expect(description).not.toBeVisible());
+		expect(trigger).toHaveAttribute("aria-expanded", "false");
+	});
+
+	it("opens descriptions on keyboard focus without moving focus", async () => {
+		const user = userEvent.setup();
+		const config = createConfig({
+			description: "Used by public links and notification emails.",
+		});
+		renderWithContext(<SystemConfigRow config={config} />, {
+			getSystemConfigLabel: () => "Public site URL",
+			t: (key, options) =>
+				key === "settings_config_description_help"
+					? `Show description for ${options?.label}`
+					: key,
+		});
+		const trigger = screen.getByRole("button", {
+			name: "Show description for Public site URL",
+		});
+
+		expect(trigger).toHaveAccessibleDescription(config.description);
+		await user.tab();
+		expect(trigger).toHaveFocus();
+		expect(await screen.findByRole("dialog")).toHaveAccessibleDescription(
+			config.description,
 		);
+		expect(trigger).toHaveFocus();
+		expect(trigger).toHaveAccessibleDescription(config.description);
+
+		await user.keyboard("{Escape}");
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(trigger).toHaveFocus();
+		expect(trigger).toHaveAccessibleDescription(config.description);
+
+		await user.tab();
+		await user.tab({ shift: true });
+		expect(await screen.findByRole("dialog")).toBeVisible();
+		await user.tab();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+	});
+
+	it("omits the description trigger when a config has no description", () => {
+		renderWithContext(<SystemConfigRow config={createConfig()} />, {
+			getSystemConfigLabel: () => "Public site URL",
+			t: (key, options) =>
+				key === "settings_config_description_help"
+					? `Show description for ${options?.label}`
+					: key,
+		});
 
 		expect(
-			await screen.findByText("Used by public links and notification emails."),
-		).toBeInTheDocument();
+			screen.queryByRole("button", {
+				name: "Show description for Public site URL",
+			}),
+		).not.toBeInTheDocument();
 	});
 
 	it("keeps the current scaled unit when a number field is cleared", () => {

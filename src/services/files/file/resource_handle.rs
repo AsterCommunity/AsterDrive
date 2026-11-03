@@ -1076,6 +1076,127 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn obs_cdn_blob_delivery_preserves_authorization_names_and_strict_fallback() {
+        use crate::storage::drivers::huawei_obs::{
+            HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials,
+        };
+        use std::time::Duration;
+        for mime in ["image/png", "text/html"] {
+            let driver = HuaweiObsDriver::new(
+                HuaweiObsDriverConfig {
+                    endpoint: "https://files.example.test".into(),
+                    region: "cn-north-4".into(),
+                    bucket: "archive-bucket".into(),
+                    base_path: "Tenant".into(),
+                    use_cname: true,
+                    download_delivery: crate::storage::drivers::huawei_obs::cdn::ObsDownloadDelivery::HuaweiCdnTypeASha256,
+                    cdn_domain: Some("https://cdn.example.test".into()),
+                    cdn_auth_validity_seconds: 300,
+                    cdn_auth_param: "auth_key".into(),
+                    connect_timeout: Duration::from_secs(5),
+                    read_timeout: Duration::from_secs(30),
+                    operation_timeout: Duration::from_secs(60),
+                },
+                HuaweiObsStaticCredentials {
+                    access_key: "AKIDEXAMPLE".into(),
+                    secret_key: "SECRETEXAMPLE".into(),
+                    cdn_auth_key: Some("CdnKey0123456789".into()),
+                },
+            )
+            .unwrap();
+            let policy = crate::storage::connectors::test_support::policy(
+                "asterdrive.storage.huawei_obs",
+                1,
+                serde_json::json!({ "endpoint":"https://files.example.test", "obs_use_cname":true, "obs_region":"cn-north-4", "bucket":"archive-bucket", "base_path":"Tenant", "download_delivery":"huawei_cdn_type_a_sha256", "download_base_url":"https://cdn.example.test", "obs_cdn_auth_validity_seconds":300, "object_storage_upload_strategy":"relay_stream", "object_storage_download_strategy":"presigned" }),
+                Default::default(),
+            );
+            let (state, file, _) =
+                build_resource_handle_state(driver, Some(policy), "renamed-file.png", mime).await;
+            let scope = WorkspaceStorageScope::Personal {
+                user_id: file.owner_user_id.unwrap(),
+            };
+            for (purpose, blob_cdn) in [
+                (FileResourcePurpose::Preview, mime == "image/png"),
+                (FileResourcePurpose::Download, true),
+                (FileResourcePurpose::ExternalViewer, false),
+            ] {
+                for mode in [
+                    FileResourceDeliveryMode::BlobUrl,
+                    FileResourceDeliveryMode::Text,
+                    FileResourceDeliveryMode::DirectUrl,
+                    FileResourceDeliveryMode::MediaStream,
+                    FileResourceDeliveryMode::IframeSession,
+                    FileResourceDeliveryMode::Manifest,
+                ] {
+                    let cdn = blob_cdn && mode == FileResourceDeliveryMode::BlobUrl;
+                    let handle = resolve_file_resource_handle(
+                        &state,
+                        scope,
+                        file.id,
+                        paths(),
+                        &request(purpose, mode, FileResourceRepresentation::Original),
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(handle.delivery.mode, mode);
+                    assert_eq!(handle.delivery.mime_type.as_deref(), Some(mime));
+                    if cdn {
+                        let url = url::Url::parse(&handle.request.url).unwrap();
+                        assert_eq!(url.host_str(), Some("cdn.example.test"));
+                        assert_eq!(url.path(), "/Tenant/objects/resource.bin");
+                        assert_eq!(url.query_pairs().count(), 1);
+                        assert!(url.query_pairs().all(|(key, _)| key == "auth_key"));
+                        assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+                        assert_eq!(
+                            handle.request.conditional_headers,
+                            FileResourceConditionalHeaders::Forbidden
+                        );
+                        assert!(handle.lifecycle.is_some());
+                    } else {
+                        let disposition = if purpose == FileResourcePurpose::Download {
+                            "attachment"
+                        } else {
+                            "inline"
+                        };
+                        assert_eq!(
+                            handle.request.url,
+                            with_download_query(&paths().download, disposition),
+                            "mime={mime}, purpose={purpose:?}, mode={mode:?}",
+                        );
+                        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+                        assert_eq!(
+                            handle.request.conditional_headers,
+                            FileResourceConditionalHeaders::Allowed
+                        );
+                        assert_eq!(
+                            handle.request.redirect_policy,
+                            FileResourceRedirectPolicy::SameOriginOnly
+                        );
+                        assert!(handle.lifecycle.is_none());
+                    }
+                }
+            }
+            assert!(
+                resolve_file_resource_handle(
+                    &state,
+                    WorkspaceStorageScope::Personal {
+                        user_id: file.owner_user_id.unwrap() + 1
+                    },
+                    file.id,
+                    paths(),
+                    &request(
+                        FileResourcePurpose::Download,
+                        FileResourceDeliveryMode::BlobUrl,
+                        FileResourceRepresentation::Original
+                    )
+                )
+                .await
+                .is_err()
+            );
+        }
+    }
+
     #[test]
     fn with_download_query_preserves_existing_query_and_fragment() {
         assert_eq!(
