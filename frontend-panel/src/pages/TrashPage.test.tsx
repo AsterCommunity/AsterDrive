@@ -9,10 +9,19 @@ import { useFileStore } from "@/stores/fileStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 
 const mockState = vi.hoisted(() => ({
-	formatBatchToast: vi.fn((_: unknown, operation: string) => ({
-		title: `toast:${operation}`,
-		variant: "success",
-	})),
+	formatBatchToast: vi.fn(
+		(
+			_: unknown,
+			operation: string,
+		): {
+			title: string;
+			variant: "success" | "error";
+			description?: string;
+		} => ({
+			title: `toast:${operation}`,
+			variant: "success",
+		}),
+	),
 	handleApiError: vi.fn(),
 	list: vi.fn(),
 	listeners: new Set<(event: unknown) => void>(),
@@ -330,6 +339,7 @@ vi.mock("@/components/ui/scroll-area", () => ({
 }));
 
 vi.mock("@/hooks/useApiError", () => ({
+	getApiErrorMessage: (error: Error) => error.message,
 	handleApiError: (...args: unknown[]) => mockState.handleApiError(...args),
 }));
 
@@ -571,6 +581,184 @@ describe("TrashPage", () => {
 			expect(mockState.restoreFile).toHaveBeenCalledWith(1);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("toast:restore");
+	});
+
+	it("preserves the server rejection reason for failed restores", async () => {
+		mockState.list.mockResolvedValue({
+			files: [fileItem],
+			files_total: 1,
+			folders: [],
+			folders_total: 0,
+			next_file_cursor: null,
+		});
+		mockState.restoreFile.mockRejectedValue(
+			new Error("Trash is being emptied"),
+		);
+		mockState.formatBatchToast.mockReturnValueOnce({
+			title: "Restore failed",
+			variant: "error",
+			description: "Trash is being emptied",
+		});
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "restore:report.pdf" }),
+		);
+		await waitFor(() =>
+			expect(mockState.formatBatchToast).toHaveBeenCalledWith(
+				expect.any(Function),
+				"restore",
+				{
+					succeeded: 0,
+					failed: 1,
+					errors: [
+						{
+							entity_type: "file",
+							entity_id: 1,
+							error: "Trash is being emptied",
+						},
+					],
+				},
+			),
+		);
+		expect(mockState.list).toHaveBeenCalledTimes(1);
+		expect(mockState.toastError).toHaveBeenCalledWith("Restore failed", {
+			description: "Trash is being emptied",
+		});
+		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("reports a queued folder restore as task creation and retains the trash item", async () => {
+		mockState.list.mockResolvedValue({
+			files: [],
+			files_total: 0,
+			folders: [folderItem(11, "queued", "2026-04-08T00:00:00Z")],
+			folders_total: 1,
+			next_file_cursor: null,
+		});
+		mockState.restoreFolder.mockResolvedValue({
+			id: 77,
+			display_name: "Restore folder tree",
+		});
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "restore:queued" }),
+		);
+		await waitFor(() =>
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"tasks:task_created_success",
+				{ description: "Restore folder tree" },
+			),
+		);
+		expect(mockState.formatBatchToast).not.toHaveBeenCalled();
+		expect(mockState.list).toHaveBeenCalledTimes(1);
+		expect(
+			screen.getByRole("button", { name: "restore:queued" }),
+		).toBeInTheDocument();
+	});
+
+	it("counts completed restores separately from queued folder tasks", async () => {
+		mockState.list.mockResolvedValue({
+			files: [fileItem],
+			files_total: 1,
+			folders: [folderItem(11, "queued", "2026-04-08T00:00:00Z")],
+			folders_total: 1,
+			next_file_cursor: null,
+		});
+		mockState.restoreFolder.mockResolvedValue({
+			id: 77,
+			display_name: "Restore folder tree",
+		});
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "select:queued" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "select:report.pdf" }));
+		fireEvent.click(screen.getByRole("button", { name: "restore-selected" }));
+		await waitFor(() =>
+			expect(mockState.formatBatchToast).toHaveBeenCalledWith(
+				expect.any(Function),
+				"restore",
+				{ succeeded: 1, failed: 0, errors: [] },
+			),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"tasks:task_created_success",
+			{ description: "Restore folder tree" },
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("toast:restore");
+		expect(mockState.toastSuccess).toHaveBeenCalledTimes(2);
+		expect(mockState.toastError).not.toHaveBeenCalled();
+		await waitFor(() => expect(mockState.list).toHaveBeenCalledTimes(2));
+	});
+
+	it("counts rejected restores separately from queued folder tasks", async () => {
+		mockState.list.mockResolvedValue({
+			files: [fileItem],
+			files_total: 1,
+			folders: [folderItem(11, "queued", "2026-04-08T00:00:00Z")],
+			folders_total: 1,
+			next_file_cursor: null,
+		});
+		mockState.restoreFile.mockRejectedValue(
+			new Error("Trash is being emptied"),
+		);
+		mockState.restoreFolder.mockResolvedValue({
+			id: 77,
+			display_name: "Restore folder tree",
+		});
+		mockState.formatBatchToast.mockReturnValueOnce({
+			title: "Restore failed",
+			variant: "error",
+			description: "Trash is being emptied",
+		});
+		render(
+			<MemoryRouter>
+				<TrashPage />
+			</MemoryRouter>,
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "select:queued" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "select:report.pdf" }));
+		fireEvent.click(screen.getByRole("button", { name: "restore-selected" }));
+		await waitFor(() =>
+			expect(mockState.formatBatchToast).toHaveBeenCalledWith(
+				expect.any(Function),
+				"restore",
+				{
+					succeeded: 0,
+					failed: 1,
+					errors: [
+						{
+							entity_type: "file",
+							entity_id: 1,
+							error: "Trash is being emptied",
+						},
+					],
+				},
+			),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledTimes(1);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith(
+			"tasks:task_created_success",
+			{ description: "Restore folder tree" },
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith("Restore failed", {
+			description: "Trash is being emptied",
+		});
+		expect(mockState.list).toHaveBeenCalledTimes(1);
 	});
 
 	it("asks for confirmation before purging a single item", async () => {

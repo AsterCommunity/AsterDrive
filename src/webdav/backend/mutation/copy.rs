@@ -14,7 +14,6 @@ use super::super::{
     AsterDavFs, AsterDavMutationError, AtomicTargetRevalidation, DavMutationConditions,
     DeletedResource, ResolvedNode, copy_visible_entity_properties_on, deltav_backend_to_fs_error,
     lock, map_ancestor_lock_error, map_atomic_lock_error, path_resolver, revalidate_atomic_target,
-    to_fs_error,
 };
 
 impl AsterDavFs {
@@ -46,8 +45,7 @@ impl AsterDavFs {
                     let properties =
                         revision_repo::find_properties_by_revision_ids(&txn, &[target.revision.id])
                             .await
-                            .map_err(to_fs_error)
-                            .map_err(AsterDavMutationError::FileSystem)?
+                            .map_err(super::super::map_product_mutation_error)?
                             .remove(&target.revision.id)
                             .unwrap_or_default();
                     let mut source_file = target.file;
@@ -70,8 +68,7 @@ impl AsterDavFs {
                     {
                         ResolvedNode::File(file) => file_repo::lock_by_id(&txn, file.id)
                             .await
-                            .map_err(to_fs_error)
-                            .map_err(AsterDavMutationError::FileSystem)?,
+                            .map_err(super::super::map_product_mutation_error)?,
                         _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
                     };
                     revalidate_atomic_target(
@@ -120,8 +117,7 @@ impl AsterDavFs {
                     true,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
+                .map_err(super::super::map_product_mutation_error)?,
             ),
             _ => None,
         };
@@ -166,8 +162,7 @@ impl AsterDavFs {
                         crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
                 }
                 (ResolvedNode::Folder(_), Some(locked)) => {
                     folder::apply_locked_tree_deletion_on(
@@ -177,8 +172,7 @@ impl AsterDavFs {
                         crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
                 }
                 _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
             }
@@ -204,8 +198,7 @@ impl AsterDavFs {
             crate::services::workspace::activity::ActivitySource::Webdav,
         )
         .await
-        .map_err(to_fs_error)
-        .map_err(AsterDavMutationError::FileSystem)?;
+        .map_err(super::super::map_product_mutation_error)?;
         if let Some(properties) = version_properties {
             for property in properties {
                 property_repo::upsert(
@@ -217,8 +210,7 @@ impl AsterDavFs {
                     property.xml_value.as_deref(),
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
             }
         } else {
             copy_visible_entity_properties_on(
@@ -237,8 +229,7 @@ impl AsterDavFs {
             crate::db::repository::revision_repo::RevisionReason::Copy,
         )
         .await
-        .map_err(to_fs_error)
-        .map_err(AsterDavMutationError::FileSystem)?;
+        .map_err(super::super::map_product_mutation_error)?;
         lock_mutation
             .rebind_destination_root_locks(destination, EntityType::File, copied.id)
             .await

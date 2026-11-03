@@ -14,7 +14,7 @@ use crate::webdav::handlers::resources::MUTATION_FOLDER_TREE_LIMITS;
 use super::super::{
     AsterDavFs, AsterDavMutationError, AtomicTargetRevalidation, DavMutationConditions,
     DeletedResource, ResolvedNode, lock, map_ancestor_lock_error, map_atomic_lock_error,
-    path_resolver, revalidate_atomic_target, to_fs_error,
+    path_resolver, revalidate_atomic_target,
 };
 
 impl AsterDavFs {
@@ -74,8 +74,7 @@ impl AsterDavFs {
                     true,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
+                .map_err(super::super::map_product_mutation_error)?,
             ),
             ResolvedNode::File(_) => None,
             ResolvedNode::Root => {
@@ -121,8 +120,7 @@ impl AsterDavFs {
                     true,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?,
+                .map_err(super::super::map_product_mutation_error)?,
             ),
             _ => None,
         };
@@ -168,8 +166,7 @@ impl AsterDavFs {
                         crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
                 }
                 (ResolvedNode::Folder(_), Some(locked)) => {
                     folder::apply_locked_tree_deletion_on(
@@ -179,8 +176,7 @@ impl AsterDavFs {
                         crate::services::workspace::activity::ActivitySource::Webdav,
                     )
                     .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
                 }
                 _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
             }
@@ -219,16 +215,14 @@ impl AsterDavFs {
                     .update(&txn)
                     .await
                     .map_err(crate::errors::AsterError::from)
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
                 let ctx = crate::services::workspace::activity::ActivityContext::actor(
                     &txn,
                     self.scope.actor_user_id(),
                     crate::services::workspace::activity::ActivitySource::Webdav,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
                 crate::services::workspace::activity::file_changed(
                     &txn,
                     &ctx,
@@ -237,8 +231,7 @@ impl AsterDavFs {
                     aster_drive_model::types::AuditAction::FileMove,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
                 (
                     EntityType::File,
                     moved.id,
@@ -265,16 +258,14 @@ impl AsterDavFs {
                     .update(&txn)
                     .await
                     .map_err(crate::errors::AsterError::from)
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
+                    .map_err(super::super::map_product_mutation_error)?;
                 let ctx = crate::services::workspace::activity::ActivityContext::actor(
                     &txn,
                     self.scope.actor_user_id(),
                     crate::services::workspace::activity::ActivitySource::Webdav,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
                 crate::services::workspace::activity::folder_changed(
                     &txn,
                     &ctx,
@@ -283,8 +274,7 @@ impl AsterDavFs {
                     aster_drive_model::types::AuditAction::FolderMove,
                 )
                 .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
+                .map_err(super::super::map_product_mutation_error)?;
                 (
                     EntityType::Folder,
                     moved.id,

@@ -25,7 +25,7 @@ import { Icon } from "@/components/ui/icon";
 import { ItemCheckbox } from "@/components/ui/item-checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { STORAGE_KEYS } from "@/config/app";
-import { handleApiError } from "@/hooks/useApiError";
+import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
@@ -291,7 +291,7 @@ export default function TrashPage() {
 							if (item.entity_type === "file") {
 								await trashService.restoreFile(item.id);
 							} else {
-								await trashService.restoreFolder(item.id);
+								return trashService.restoreFolder(item.id);
 							}
 							return;
 						}
@@ -304,20 +304,52 @@ export default function TrashPage() {
 					}),
 				);
 
-				const succeeded = results.filter(
-					(result) => result.status === "fulfilled",
+				const queuedTasks = results.flatMap((result) =>
+					result.status === "fulfilled" && result.value?.id
+						? [result.value]
+						: [],
+				);
+				const failed = results.filter(
+					(result) => result.status === "rejected",
 				).length;
-				const failed = results.length - succeeded;
-
-				const toastContent = formatBatchToast(t, operation, {
-					succeeded,
-					failed,
-					errors: [],
-				});
-				if (toastContent.variant === "success") {
-					toast.success(toastContent.title);
-				} else {
-					toast.error(toastContent.title);
+				const succeeded = results.length - failed - queuedTasks.length;
+				for (const task of queuedTasks) {
+					toast.success(t("tasks:task_created_success"), {
+						description: task.display_name,
+					});
+				}
+				if (succeeded + failed > 0) {
+					const toastContent = formatBatchToast(t, operation, {
+						succeeded,
+						failed,
+						errors: results.flatMap((result, index) => {
+							const item = targets[index];
+							return result.status === "rejected" && item
+								? [
+										{
+											entity_type: item.entity_type,
+											entity_id: item.id,
+											error: getApiErrorMessage(result.reason),
+										},
+									]
+								: [];
+						}),
+					});
+					if (toastContent.variant === "success") {
+						toast.success(
+							toastContent.title,
+							...(toastContent.description
+								? [{ description: toastContent.description }]
+								: []),
+						);
+					} else {
+						toast.error(
+							toastContent.title,
+							...(toastContent.description
+								? [{ description: toastContent.description }]
+								: []),
+						);
+					}
 				}
 
 				if (succeeded > 0) {

@@ -9871,3 +9871,137 @@ async fn test_webdav_activity_lock_null_creation_uses_webdav_source() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].source, "webdav");
 }
+
+async fn trash_purge_blocks_webdav_deletion(team_scope: bool) {
+    use aster_drive_model::{entities::background_task, types::BackgroundTaskStatus};
+    use sea_orm::sea_query::Expr;
+    let (app, state) = setup_with_webdav!(with_state);
+    let (token, _) = register_and_login!(app);
+    let base = if team_scope {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/v1/teams")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(serde_json::json!({"name":"WebDAV trash coordination"}))
+                .to_request(),
+        )
+        .await;
+        let body: serde_json::Value = test::read_body_json(response).await;
+        format!("/api/v1/teams/{}", body["data"]["id"].as_i64().unwrap())
+    } else {
+        "/api/v1".into()
+    };
+    let username = webdav_test_username("trash-purge");
+    let password = webdav_test_password("TRASH_PURGE");
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("{base}/webdav-accounts"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"username":username,"password":password}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let auth = basic_auth_header(&username, &password);
+    for (method, url, content) in [
+        ("PUT", "/webdav/kept.txt", "retained content"),
+        ("MKCOL", "/webdav/kept-folder/", ""),
+        ("PUT", "/webdav/kept-folder/child.txt", "retained child"),
+    ] {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::default()
+                .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+                .uri(url)
+                .insert_header(("Authorization", auth.as_str()))
+                .set_payload(content)
+                .to_request(),
+        )
+        .await;
+        assert!(response.status().is_success());
+    }
+    let response = test::call_service(
+        &app,
+        test::TestRequest::delete()
+            .uri(&format!("{base}/trash"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    let body: serde_json::Value = test::read_body_json(response).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+    for status in [
+        BackgroundTaskStatus::Pending,
+        BackgroundTaskStatus::Processing,
+        BackgroundTaskStatus::Retry,
+        BackgroundTaskStatus::Canceling,
+    ] {
+        background_task::Entity::update_many()
+            .col_expr(background_task::Column::Status, Expr::value(status))
+            .filter(background_task::Column::Id.eq(task_id))
+            .exec(state.writer_db())
+            .await
+            .unwrap();
+        for url in ["/webdav/kept.txt", "/webdav/kept-folder/"] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::delete()
+                    .uri(url)
+                    .insert_header(("Authorization", auth.as_str()))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), 409, "{status:?}: {url}");
+            let body = test::read_body(response).await;
+            assert!(
+                !String::from_utf8_lossy(&body).contains("\"code\""),
+                "WebDAV must retain protocol responses"
+            );
+        }
+        for url in ["/webdav/kept.txt", "/webdav/kept-folder/child.txt"] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(url)
+                    .insert_header(("Authorization", auth.as_str()))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), 200, "rejected DELETE must retain bytes");
+        }
+    }
+    background_task::Entity::update_many()
+        .col_expr(
+            background_task::Column::Status,
+            Expr::value(BackgroundTaskStatus::Canceled),
+        )
+        .filter(background_task::Column::Id.eq(task_id))
+        .exec(state.writer_db())
+        .await
+        .unwrap();
+    for url in ["/webdav/kept.txt", "/webdav/kept-folder/"] {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::delete()
+                .uri(url)
+                .insert_header(("Authorization", auth.as_str()))
+                .to_request(),
+        )
+        .await;
+        assert!(response.status().is_success());
+    }
+}
+
+#[actix_web::test]
+async fn test_personal_trash_purge_blocks_webdav_delete() {
+    trash_purge_blocks_webdav_deletion(false).await;
+}
+#[actix_web::test]
+async fn test_team_trash_purge_blocks_webdav_delete() {
+    trash_purge_blocks_webdav_deletion(true).await;
+}

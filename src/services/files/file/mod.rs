@@ -38,7 +38,8 @@ pub(crate) use content::{
 pub(crate) use deletion::{
     BatchPurgeSummary, batch_purge_in_resource_scope, batch_purge_in_resource_scope_silent,
     batch_purge_in_scope, cleanup_unreferenced_blob, cleanup_unreferenced_blob_with_driver,
-    delete_in_scope, delete_in_scope_on, ensure_blob_cleanup_if_unreferenced,
+    delete_in_scope, delete_in_scope_on, ensure_blob_cleanup_if_unreferenced, finish_purged_files,
+    purge_files_on,
 };
 pub use deletion::{batch_purge, delete, purge};
 pub use download::{DownloadOutcome, StreamedFile, download, download_raw};

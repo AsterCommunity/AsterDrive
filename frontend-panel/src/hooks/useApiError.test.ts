@@ -119,6 +119,16 @@ describe("handleApiError", () => {
 		);
 	});
 
+	it("translates the stable trash purge conflict code", async () => {
+		const { handleApiError } = await import("@/hooks/useApiError");
+		handleApiError(
+			new mockState.ApiError(ApiErrorCode.TrashPurgeInProgress, "Conflict"),
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith(
+			"translated:errors:trash_purge_in_progress",
+		);
+	});
+
 	it("falls back to the raw ApiError message when no translation exists", async () => {
 		mockState.exists.mockReturnValue(false);
 		const { handleApiError } = await import("@/hooks/useApiError");

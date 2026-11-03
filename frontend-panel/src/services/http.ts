@@ -116,6 +116,8 @@ export type ApiRequestConfig = Pick<
 > & {
 	/** Optional auth may refresh a session, but must never redirect a public page. */
 	optionalAuth?: boolean;
+	/** Receive successful 202 JSON data from endpoints that enqueue durable tasks. */
+	accept202?: boolean;
 };
 
 type ApiErrorDetails = {
@@ -381,9 +383,10 @@ async function unwrap<T>(
 		headers?: { [key: string]: unknown };
 		data: ApiResponse<T>;
 	}>,
+	accept202 = false,
 ): Promise<T> {
 	const { status, headers, data: resp } = await promise;
-	if (status === 202) {
+	if (status === 202 && !accept202) {
 		const retryAfter =
 			typeof headers?.["retry-after"] === "string"
 				? headers["retry-after"]
@@ -404,15 +407,15 @@ async function unwrap<T>(
 
 export const api = {
 	get: <T>(url: string, config?: ApiRequestConfig) =>
-		unwrap<T>(client.get(url, config)),
+		unwrap<T>(client.get(url, config), config?.accept202),
 	post: <T>(url: string, data?: unknown, config?: ApiRequestConfig) =>
-		unwrap<T>(client.post(url, data, config)),
+		unwrap<T>(client.post(url, data, config), config?.accept202),
 	put: <T>(url: string, data?: unknown, config?: ApiRequestConfig) =>
-		unwrap<T>(client.put(url, data, config)),
+		unwrap<T>(client.put(url, data, config), config?.accept202),
 	patch: <T>(url: string, data?: unknown, config?: ApiRequestConfig) =>
-		unwrap<T>(client.patch(url, data, config)),
+		unwrap<T>(client.patch(url, data, config), config?.accept202),
 	delete: <T>(url: string, config?: ApiRequestConfig) =>
-		unwrap<T>(client.delete(url, config)),
+		unwrap<T>(client.delete(url, config), config?.accept202),
 	download: (url: string, config?: ApiRequestConfig) =>
 		client.get<Blob>(url, {
 			...config,
