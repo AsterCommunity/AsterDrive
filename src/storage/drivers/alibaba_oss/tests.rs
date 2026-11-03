@@ -260,6 +260,49 @@ async fn public_presigned_url_uses_cname_without_bucket_wire_path() {
 }
 
 #[tokio::test]
+async fn cname_presigned_requests_preserve_encoded_keys_and_final_domain() {
+    let mut config = sample_config();
+    config.endpoint = "https://asterdrive-test.files.example.test:9443".to_string();
+    config.use_cname = true;
+    let driver = AlibabaOssDriver::new(config, sample_credentials()).unwrap();
+    let key = "目录/a b+%2F#?.txt";
+    let ttl = Duration::from_secs(300);
+    let download = driver
+        .resolve_download_url(key, ttl, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let upload = driver
+        .presigned_put_request(key, ttl)
+        .await
+        .unwrap()
+        .unwrap();
+    let part = driver
+        .presigned_upload_part_request(key, "upload+/%id", 7, ttl)
+        .await
+        .unwrap();
+    for request in [&download.url, &upload.url, &part.url] {
+        let url = Url::parse(request).unwrap();
+        assert_eq!(url.host_str(), Some("asterdrive-test.files.example.test"));
+        assert_eq!(url.port(), Some(9443));
+        assert_eq!(
+            percent_encoding::percent_decode_str(url.path())
+                .decode_utf8()
+                .unwrap(),
+            format!("/tenant/prefix/{key}")
+        );
+        assert!(url.query_pairs().any(|(key, _)| key == "x-oss-signature"));
+        assert!(!request.contains("X-Amz-"));
+    }
+    let part_url = Url::parse(&part.url).unwrap();
+    let query = part_url
+        .query_pairs()
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(query.get("uploadId").unwrap(), "upload+/%id");
+    assert_eq!(query.get("partNumber").unwrap(), "7");
+}
+
+#[tokio::test]
 async fn public_presigned_get_omits_unsupported_content_type_override() {
     let mut config = sample_config();
     config.server_side_endpoint = "https://oss-cn-hangzhou-internal.aliyuncs.com".to_string();
