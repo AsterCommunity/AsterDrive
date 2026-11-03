@@ -88,6 +88,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "华为云 CDN 加速下载（Type A + SHA-256）",
     ),
     aster_drive_storage::storage_connector_message!(
+        "obs_cdn_https_required_error",
+        "Huawei CDN domain must use HTTPS (https://).",
+        "华为云 CDN 域名必须使用 HTTPS（https://）。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "obs_download_base_url_desc",
         "Required HTTPS domain for Huawei CDN Type A / SHA-256 downloads, without a path prefix. Blob downloads and safe previews can use CDN; strict response-header requests use relay. Backend operations continue to use OBS.",
         "华为云 CDN Type A / SHA-256 下载模式必填的 HTTPS 域名，不包含路径前缀。Blob 下载和安全预览可以使用 CDN，严格要求响应头的请求使用中继；后端操作继续使用 OBS。",

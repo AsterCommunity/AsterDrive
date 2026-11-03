@@ -1836,6 +1836,22 @@ fn huawei_obs_cdn_declares_sha256_mode_and_validates_conditional_credentials() {
     let connector = connector(HuaweiObsConnector::ID);
     let descriptor = connector.descriptor();
     assert!(descriptor.capabilities.custom_download_base_url);
+    let domain = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_base_url")
+        .unwrap();
+    assert_eq!(domain.allowed_endpoint_protocols, ["https:"]);
+    let protocol_message_key = domain.invalid_protocol_message_key.as_deref().unwrap();
+    let localization = connector.localization().expect("Huawei OBS localization");
+    for (locale, provider) in [("en", "Huawei CDN"), ("zh-CN", "华为云 CDN")] {
+        let bundle =
+            localization.bundle(&aster_drive_model::types::LocaleTag::parse(locale).unwrap());
+        let message = bundle.messages.get(protocol_message_key).unwrap();
+        assert!(message.contains(provider));
+        assert!(message.contains("HTTPS"));
+        assert!(!message.contains("S3"));
+    }
     let delivery = descriptor
         .fields
         .iter()

@@ -161,7 +161,7 @@ aster_drive_storage::storage_connector_schema! {
                 kind: StorageConnectorFieldKind::Text, required: false, secret: false,
                 label_key: "download_base_url", placeholder: Some("https://cdn.example.com"),
                 help_key: Some("obs_download_base_url_desc"), required_message_key: None,
-                invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+                invalid_protocol_message_key: Some("obs_cdn_https_required_error"),
                 allowed_endpoint_protocols: vec!["https:"],
                 allow_endpoint_without_protocol: false, trim_on_blur: false,
             });
