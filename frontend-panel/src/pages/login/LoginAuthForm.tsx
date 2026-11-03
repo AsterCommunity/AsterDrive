@@ -213,11 +213,8 @@ export function LoginAuthForm({
 							? "username webauthn"
 							: "username"
 					}
-					className={cn(
-						"h-10",
-						errors.identifier &&
-							"border-destructive focus-visible:ring-destructive",
-					)}
+					aria-invalid={!!errors.identifier}
+					className="h-10"
 				/>
 				{errors.identifier ? (
 					<p className="text-xs text-destructive">{errors.identifier}</p>
@@ -236,11 +233,8 @@ export function LoginAuthForm({
 						onChange={(event) => onExtraFieldChange(event.target.value)}
 						required={requiresExtraField}
 						autoComplete={identifier.includes("@") ? "off" : "email"}
-						className={cn(
-							"h-10",
-							errors.extra &&
-								"border-destructive focus-visible:ring-destructive",
-						)}
+						aria-invalid={!!errors.extra}
+						className="h-10"
 					/>
 					{errors.extra ? (
 						<p className="text-xs text-destructive">{errors.extra}</p>
@@ -264,11 +258,8 @@ export function LoginAuthForm({
 							autoComplete={
 								mode === "login" ? "current-password" : "new-password"
 							}
-							className={cn(
-								"h-10 pr-10",
-								errors.password &&
-									"border-destructive focus-visible:ring-destructive",
-							)}
+							aria-invalid={!!errors.password}
+							className="h-10 pr-10"
 						/>
 						<button
 							type="button"

@@ -174,9 +174,7 @@ export function MfaChallengePanel({
 					autoFocus
 					inputMode={codeInputMode}
 					placeholder={codePlaceholder}
-					className={
-						error ? "border-destructive focus-visible:ring-destructive" : ""
-					}
+					aria-invalid={!!error}
 					onChange={(event) => handleCodeChange(event.target.value)}
 				/>
 				{error ? <p className="text-xs text-destructive">{error}</p> : null}

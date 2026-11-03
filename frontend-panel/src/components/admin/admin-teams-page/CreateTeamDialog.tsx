@@ -19,6 +19,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 export interface CreateTeamFormState {
 	name: string;
@@ -167,13 +168,13 @@ function CreateTeamDialogContent({
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="admin-team-description">{t("description")}</Label>
-							<textarea
+							<Textarea
 								id="admin-team-description"
 								aria-label={t("description")}
 								value={form.description}
 								disabled={submitting}
 								rows={4}
-								className="min-h-24 w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+								className="min-h-24"
 								onChange={(event) =>
 									onFieldChange("description", event.target.value)
 								}

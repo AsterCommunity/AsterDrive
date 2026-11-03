@@ -114,11 +114,8 @@ export default function ResetPasswordPage() {
 									}
 								}}
 								autoComplete="new-password"
-								className={
-									passwordError
-										? "pr-10 border-destructive focus-visible:ring-destructive"
-										: "pr-10"
-								}
+								aria-invalid={!!passwordError}
+								className="pr-10"
 							/>
 							<button
 								type="button"

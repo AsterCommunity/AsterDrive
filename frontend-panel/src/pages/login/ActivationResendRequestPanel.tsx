@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 
 type Translate = (key: string) => string;
 
@@ -55,10 +54,8 @@ export function ActivationResendRequestPanel({
 					}}
 					autoFocus
 					autoComplete="email"
-					className={cn(
-						"h-10",
-						emailError && "border-destructive focus-visible:ring-destructive",
-					)}
+					aria-invalid={!!emailError}
+					className="h-10"
 				/>
 				{emailError ? (
 					<p

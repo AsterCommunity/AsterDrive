@@ -11,7 +11,9 @@ import {
 	useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { textControlFocusClasses } from "@/components/ui/text-control-styles";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
+import { cn } from "@/lib/utils";
 import {
 	createEditorPalette,
 	ensurePrismLanguage,
@@ -381,7 +383,10 @@ export function CodePreviewEditor({
 							aria-label={t("code_editor")}
 							autoCapitalize="off"
 							autoCorrect="off"
-							className="code-preview-editor-input absolute inset-0 h-full w-full resize-none border-0 bg-transparent outline-none"
+							className={cn(
+								"code-preview-editor-input absolute inset-0 h-full w-full resize-none border-0 bg-transparent outline-none",
+								textControlFocusClasses,
+							)}
 							spellCheck={false}
 							wrap={wrap ? "soft" : "off"}
 							value={value}

@@ -53,6 +53,29 @@ function renderForm(
 }
 
 describe("LoginAuthForm", () => {
+	it("exposes field errors to the shared input invalid state", () => {
+		renderForm({
+			mode: "register",
+			errors: {
+				identifier: "invalid user",
+				extra: "invalid email",
+				password: "invalid password",
+			},
+		});
+		expect(screen.getByLabelText("email_or_username")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByLabelText("email")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+		expect(screen.getByLabelText("password")).toHaveAttribute(
+			"aria-invalid",
+			"true",
+		);
+	});
+
 	it("shows password login, recovery, and registration controls when enabled", () => {
 		const onForgotPassword = vi.fn();
 		const onResendActivationRequest = vi.fn();

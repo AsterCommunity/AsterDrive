@@ -167,3 +167,20 @@ describe("Input", () => {
 		expect(input).toHaveClass("h-8", "rounded-lg", "custom-input");
 	});
 });
+
+describe("Input focus and invalid indicators", () => {
+	it("uses inset indicators and lets the invalid state take precedence on focus", () => {
+		render(<Input aria-label="invalid-input" aria-invalid="true" />);
+		const input = screen.getByLabelText("invalid-input");
+		expect(input).toHaveClass(
+			"focus-visible:inset-ring-3",
+			"aria-invalid:inset-ring-3",
+			"aria-invalid:focus-visible:inset-ring-destructive/20",
+			"forced-colors:focus-visible:outline-solid",
+		);
+		expect(input).not.toHaveClass(
+			"focus-visible:ring-3",
+			"aria-invalid:ring-3",
+		);
+	});
+});

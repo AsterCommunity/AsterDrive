@@ -416,11 +416,6 @@ function InviteRegisterForm({
 					value={username}
 					onChange={(event) => onUsernameChange(event.target.value)}
 					autoComplete="username"
-					className={
-						usernameError
-							? "border-destructive focus-visible:ring-destructive"
-							: undefined
-					}
 					aria-invalid={!!usernameError}
 				/>
 				{usernameError ? (
@@ -438,11 +433,7 @@ function InviteRegisterForm({
 						value={password}
 						onChange={(event) => onPasswordChange(event.target.value)}
 						autoComplete="new-password"
-						className={
-							passwordError
-								? "border-destructive pr-10 focus-visible:ring-destructive"
-								: "pr-10"
-						}
+						className="pr-10"
 						aria-invalid={!!passwordError}
 					/>
 					<button

@@ -122,11 +122,8 @@ export function ExternalAuthRecoveryPanel({
 										onChange={(event) => onIdentifierChange(event.target.value)}
 										autoFocus
 										autoComplete="username"
-										className={cn(
-											"h-10",
-											identifierError &&
-												"border-destructive focus-visible:ring-destructive",
-										)}
+										aria-invalid={!!identifierError}
+										className="h-10"
 									/>
 									{identifierError ? (
 										<p className="text-xs text-destructive">
@@ -149,11 +146,8 @@ export function ExternalAuthRecoveryPanel({
 										value={password}
 										onChange={(event) => onPasswordChange(event.target.value)}
 										autoComplete="current-password"
-										className={cn(
-											"h-10",
-											passwordError &&
-												"border-destructive focus-visible:ring-destructive",
-										)}
+										aria-invalid={!!passwordError}
+										className="h-10"
 									/>
 									{passwordError ? (
 										<p className="text-xs text-destructive">{passwordError}</p>
@@ -203,11 +197,8 @@ export function ExternalAuthRecoveryPanel({
 											);
 										}}
 										autoComplete="email"
-										className={cn(
-											"h-10",
-											emailError &&
-												"border-destructive focus-visible:ring-destructive",
-										)}
+										aria-invalid={!!emailError}
+										className="h-10"
 									/>
 									{emailError ? (
 										<p className="text-xs text-destructive">{emailError}</p>
