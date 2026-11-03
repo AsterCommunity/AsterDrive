@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **腾讯 COS 私有 CDN 交付** — 显式支持 Type D / SHA-256 下载交付，使用独立加密的 CDN 密钥、受限的链接有效期及条件配置；已有 COS Q-Sign 仍为默认方式。Blob 下载与预览可走 CDN，需要精确响应头或附件名的请求保留同源中继。必须同时启用私有 COS 回源授权与覆盖全部路径的 CDN 鉴权，并分别验证缓存未命中和命中时的访问控制。
+- **腾讯 COS 私有 CDN 交付** — 显式支持 Type D / SHA-256 下载交付，使用独立加密的 CDN 密钥、受限的链接有效期及条件配置；明确区分默认源站、自定义源站 Q-Sign 和 CDN 三种交付；同一个下载地址仅在自定义源站与 CDN 模式显示并必填，默认源站忽略休眠地址。中继下载优先覆盖交付配置并保留其设置。Blob 下载与预览可走 CDN，需要精确响应头或附件名的请求保留同源中继。必须同时启用私有 COS 回源授权与覆盖全部路径的 CDN 鉴权，并分别验证缓存未命中和命中时的访问控制。
 - **腾讯 COS 自定义源站域名** — 可选 CNAME 模式支持绑定 bucket 的自定义 endpoint，用于对象读写、multipart、预签名链接、COS 数据万象和 CORS；按最终请求 Host 签名，不向 URL 追加 bucket。已有官方 endpoint 与独立下载交付地址保持原有行为。
 - **阿里云 OSS CDN 下载分发** — 显式选择 OSS 源站或阿里云 CDN Type A 交付，CDN 模式才展示域名、加密密钥及与控制台一致的有效时长，域名与密钥必填。已授权的 Blob 下载和安全预览使用有界有效期的 CDN 签名 URL；严格响应头请求及需隔离的内联预览使用中继。OSS V4、CNAME 上传、multipart 和后端 I/O 保持既有 endpoint；校验路径与配置并对 CDN 密钥进行 Debug 脱敏。中英文配置与验收指南分别说明链接有效期和缓存时间，真实阿里云 CNAME/CDN 验收仍由维护者执行。 (#685)
 - **CLI 实例选择与凭据输入** — 服务启动和运维命令统一支持 `--config-file` / `--data-dir`。Config 与 doctor 默认使用解析后的实例数据库，显式 CLI 参数与 CLI 环境变量可覆盖目标。未编译的 Prometheus / OTLP 导出器及其专属设置不会阻断离线操作或服务启动，doctor 检查实际生效的配置。敏感配置值和 enrollment token 支持隐藏终端、stdin 与私有文件输入。

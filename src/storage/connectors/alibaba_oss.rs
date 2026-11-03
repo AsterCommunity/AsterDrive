@@ -171,6 +171,7 @@ aster_drive_storage::storage_connector_schema! {
             field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false,
                 scope: None, field: "download_delivery".into(),
                 value: StorageConnectorFieldDefaultValue::String("alibaba_cdn_type_a".into()),
             }];
@@ -188,6 +189,7 @@ aster_drive_storage::storage_connector_schema! {
             field.validation.max_integer = Some(31_536_000);
             field.help_key = Some("oss_cdn_auth_validity_seconds_desc".into());
             field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false,
                 scope: None, field: "download_delivery".into(),
                 value: StorageConnectorFieldDefaultValue::String("alibaba_cdn_type_a".into()),
             }];
@@ -210,6 +212,7 @@ aster_drive_storage::storage_connector_schema! {
                 );
                 field.help_key = Some("oss_cdn_auth_key_desc".into());
                 field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                    negate: false,
                     scope: Some(StorageConnectorFieldScope::ConnectorConfig),
                     field: "download_delivery".into(),
                     value: StorageConnectorFieldDefaultValue::String("alibaba_cdn_type_a".into()),

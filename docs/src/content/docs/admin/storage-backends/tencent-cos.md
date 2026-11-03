@@ -200,7 +200,8 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 | Access Key | 腾讯云访问密钥 ID |
 | Secret Key | 腾讯云访问密钥 Secret |
 | Prefix / 基础路径 | `prod/` |
-| 下载交付地址（可选） | `https://cdn.example.com/assets` |
+| 下载交付方式 | 默认 COS 源站 / 自定义源站下载域 / 腾讯 CDN |
+| 下载交付地址 | 自定义源站与 CDN 模式显示并必填，例如 `https://files.example.com/assets` |
 | 上传方式 | 初次建议 `relay_stream` |
 | 下载方式 | 初次建议 `relay_stream` |
 
@@ -216,11 +217,23 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 
 仅用于 CDN 下载的域名仍填写下面的下载交付地址；CDN 域名不应当作完整对象 API endpoint。
 
-### 下载交付地址
+### 选择下载交付方式
 
-如果 bucket 已经通过自定义源站域、CDN 或部署方反向代理暴露相同对象 key，可以填写可选的 **下载交付地址**。该地址只用于启用直连下载后的浏览器请求；AsterDrive 会把基础路径和对象路径追加到地址的 path prefix，并针对最终域名生成 COS Q-Sign。后端读写、上传、清理、CORS 和 bucket 管理仍使用上面配置的 Endpoint。
+**下载方式优先于下载交付方式。** `relay_stream` 始终通过 AsterDrive 中继；此时保存的交付地址、CDN 密钥与有效期属于休眠配置。只有下载方式为 `presigned` 时，下面的交付选择才生效。
 
-下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。连接测试只证明所配置的 COS Endpoint 可用；启用前还要实际验证交付域能访问私有对象、Range 下载和响应头覆盖。
+| 下载交付方式 | 地址字段 | 用户侧请求 |
+| --- | --- | --- |
+| 默认 COS 源站 | 隐藏额外下载地址 | 使用存储 Endpoint（包括已配置的源站 CNAME），生成 COS Q-Sign |
+| 自定义源站下载域（COS Q-Sign） | 显示并必填 `download_base_url` | 把固定 path prefix、基础路径和对象 key 追加到下载域，再对最终 Host 与请求生成 COS Q-Sign |
+| 腾讯 CDN 加速下载（Type D + SHA-256） | 显示并必填同一个 `download_base_url`；另显示 CDN 密钥和有效期 | 使用独立 CDN 鉴权，详见下一节 |
+
+若独立域名或反向代理暴露相同对象 key，且能接受 COS Q-Sign，可选择 **自定义源站下载域**。它与存储 Endpoint 的 CNAME 开关独立：Endpoint 仍承担后端读写、上传、清理、CORS 和 bucket 管理，下载域只接管直连下载。不应把下载专用域名当作完整对象 API endpoint。
+
+下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。保存自定义源站或 CDN 模式时，缺少地址会被拒绝。切回默认源站会隐藏并保留地址，但该地址不会继续影响下载；再次选择自定义源站或 CDN 时可继续编辑使用。
+
+此前依赖“源站模式 + 可选下载地址”使用独立下载域的配置，应明确选择 **自定义源站下载域（COS Q-Sign）**；默认源站不再根据额外地址推断模式。源站 CNAME 仍在 Endpoint 及 CNAME 开关中配置。
+
+连接测试只证明存储 Endpoint 可用，不能证明独立下载域已支持私有对象、Range 和响应头覆盖。验收时分别检查：默认模式的 URL 使用 Endpoint；自定义模式使用下载域及 `q-signature`；CDN 模式使用 `sign` / `t`。三种模式的上传与 multipart 始终使用存储 Endpoint。
 
 ### 腾讯 CDN 私有下载鉴权
 

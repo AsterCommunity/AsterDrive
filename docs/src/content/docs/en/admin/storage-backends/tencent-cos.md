@@ -196,7 +196,8 @@ Common fields:
 | Access Key | Tencent Cloud secret ID |
 | Secret Key | Tencent Cloud secret key |
 | Prefix / base path | `prod/` |
-| Download delivery URL (optional) | `https://cdn.example.com/assets` |
+| Download delivery method | Default COS origin / Custom origin download domain / Tencent CDN |
+| Download delivery URL | Shown and required for custom-origin and CDN modes, for example `https://files.example.com/assets` |
 | Upload mode | Use `relay_stream` for the first setup |
 | Download mode | Use `relay_stream` for the first setup |
 
@@ -212,15 +213,23 @@ Tencent Cloud's [Domain option](https://cloud.tencent.com/document/product/436/5
 
 Keep CDN-only download domains in the delivery URL below rather than using them as full object API endpoints.
 
-### Download Delivery URL
+### Choose the Download Delivery Method
 
-If the bucket exposes the same object keys through a custom origin domain, CDN, or deployment-managed reverse proxy, you can set the optional **Download delivery URL**. It is used only for browser requests after direct download is enabled. AsterDrive appends the policy base path and object path to its path prefix and generates COS Q-Sign against the final host. Backend reads and writes, uploads, cleanup, CORS, and bucket administration continue to use the configured Endpoint above.
+**Download strategy takes priority over delivery mode.** `relay_stream` always uses AsterDrive relay; the saved delivery URL, CDN key, and validity remain dormant. These modes take effect only with `presigned` downloads.
 
-The delivery URL must be HTTPS with a DNS hostname. It may include a fixed path prefix, but it must not contain credentials, a non-default port, query, fragment, backslashes, or traversal segments. A successful connection test proves only that the configured COS Endpoint works; verify private-object access, Range downloads, and response-header overrides through the delivery domain before enabling it for users.
+| Delivery method | Address field | Browser request |
+| --- | --- | --- |
+| Default COS origin | Extra download URL is hidden | Uses the storage Endpoint, including a configured origin CNAME, with COS Q-Sign |
+| Custom origin download domain (COS Q-Sign) | Shows and requires `download_base_url` | Appends the fixed path prefix, policy base path, and object key, then generates COS Q-Sign for the final host and request |
+| Tencent CDN accelerated download (Type D + SHA-256) | Shows and requires the same `download_base_url`, plus CDN key and validity | Uses independent CDN authentication; see below |
 
-Before or after saving, click `Test Connection` once. When editing an existing policy, leaving Access Key or Secret Key blank lets the draft connection test reuse the credentials already saved for that policy. This lets you test endpoint, bucket, base path, upload mode, or COS CI switch changes without pasting the secret every time. New policies have no saved credentials to reuse, so required credentials still need to be filled in.
+Choose **Custom origin download domain** for a separate domain or reverse proxy that exposes the same object keys and accepts COS Q-Sign. This is independent of Endpoint CNAME addressing. Endpoint still owns backend I/O, uploads, cleanup, CORS, and bucket administration. Do not use a download-only domain as the full object API endpoint.
 
-When a connection test fails, the admin console shows a useful reason while hiding the Secret Key and other sensitive values.
+The delivery URL must use HTTPS and a DNS hostname. It may include a fixed path prefix, but no credentials, non-default port, query, fragment, backslashes, or traversal segments. Saving custom-origin or CDN delivery without an address is rejected. Switching to the default origin hides and preserves the address without using it for downloads; switching back allows reuse.
+
+Configurations that previously combined origin mode with an optional independent download URL must explicitly select **Custom origin download domain (COS Q-Sign)**. The default origin no longer infers delivery mode from that address. Configure origin CNAME using Endpoint and its CNAME switch.
+
+Connection tests prove storage Endpoint access only. Validate private objects, Range, and response overrides on the independent domain separately. Default-mode URLs should use Endpoint; custom-origin URLs use the separate domain with `q-signature`; CDN URLs use `sign` / `t`. Uploads and multipart always use the storage Endpoint in all three modes.
 
 ### Private downloads through Tencent CDN
 

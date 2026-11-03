@@ -8,8 +8,13 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "cos_download_origin",
-        "COS origin direct access",
-        "COS 源站直连",
+        "Default COS origin",
+        "默认 COS 源站",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cos_download_custom_origin",
+        "Custom origin download domain (COS Q-Sign)",
+        "自定义源站下载域（COS Q-Sign）",
     ),
     aster_drive_storage::storage_connector_message!(
         "cos_download_cdn",
@@ -18,13 +23,13 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "cos_download_delivery_desc",
-        "COS origin uses Q-Sign. CDN uses independent Type D + SHA-256 authentication (sign/t, decimal Unix seconds). Private COS origin authorization and CDN authentication for ALL paths must both be enabled. Exact response-header/attachment requests use server relay; Blob previews can use CDN. Connection tests verify the storage endpoint only.",
-        "源站模式使用 COS Q-Sign；CDN 使用独立 Type D + SHA-256 鉴权（sign/t、十进制 Unix 秒）。私有 COS 回源授权与覆盖全部路径的 CDN 鉴权必须同时开启。需要精确响应头或附件名的请求使用服务端中继，Blob 预览可走 CDN。连接测试仅验证存储 endpoint。",
+        "Choose the configured storage endpoint, a separate custom origin download domain using COS Q-Sign, or Tencent CDN Type D + SHA-256. Relay downloads override this selection and retain its settings. Connection tests verify only the storage endpoint; CDN needs private-origin authorization and authentication for all paths.",
+        "选择存储 endpoint、使用 COS Q-Sign 的独立自定义源站下载域，或腾讯 CDN Type D + SHA-256。中继下载优先覆盖此选择并保留配置。连接测试仅验证存储 endpoint；CDN 需要私有回源授权与全路径鉴权。",
     ),
     aster_drive_storage::storage_connector_message!(
         "cos_download_base_url_desc",
-        "Optional custom origin URL in COS mode; required CDN URL in CDN mode. Appends base path and object key; no query or fragment. This does not configure DNS, certificates, origin authorization or CDN access control.",
-        "源站模式可选填自定义源站地址；CDN 模式必须填写 CDN 地址。会追加基础路径和对象 key，不允许 query 或 fragment。此字段不会配置 DNS、证书、回源授权或 CDN 访问控制。",
+        "Required for custom origin and CDN delivery. Hidden and inactive for the default origin. Appends base path and object key; no query or fragment. This does not configure DNS, certificates, origin authorization or CDN access control.",
+        "自定义源站与 CDN 模式必填，默认源站模式下隐藏且不参与交付。会追加基础路径和对象 key，不允许 query 或 fragment。此字段不会配置 DNS、证书、回源授权或 CDN 访问控制。",
     ),
     aster_drive_storage::storage_connector_message!(
         "cdn_auth_validity_seconds",

@@ -152,6 +152,26 @@ function renderPanel({
 }
 
 describe("StorageConnectorFieldsPanel", () => {
+	it.each(["origin", "custom_origin", "cdn"])(
+		"conditionally renders the delivery address for %s",
+		(mode) => {
+			const conditions = [{ field: "mode", value: "origin", negate: true }];
+			renderPanel({
+				fields: [
+					field("mode", "text"),
+					field("text_field", "text", {
+						visible_when: conditions,
+						required_when: conditions,
+					}),
+				],
+				form: { ...emptyForm, connector_config_values: { mode } },
+			});
+			if (mode === "origin")
+				expect(screen.queryByLabelText("Text field")).toBeNull();
+			else expect(screen.getByLabelText("Text field")).toBeRequired();
+		},
+	);
+
 	it.each(["origin", "cdn"])(
 		"shows CDN connection and credential fields only in %s delivery mode",
 		(delivery) => {

@@ -38,6 +38,12 @@ Provider resumable 浏览器上传使用[后端协调契约](./browser-upload-co
 - capability matrix 展示 connector 的静态能力上限。策略选项、远端节点 transport 和部署网络仍可能收窄实际能力，provider 教程负责解释这些条件。
 - README、部署文档和教程中的 provider 名称是明确标注的非穷举示例，不作为 backend catalog；新增 connector 不要求替换所有上下文示例。
 
+## 条件比较与交付模式
+
+`StorageConnectorFieldCondition` 默认为等值比较；显式 `negate: true` 表示字段存在且不等于指定标量。缺失值不匹配否定条件。一个条件列表仍按 AND 求值，scope、禁止依赖敏感字段和循环依赖校验保持一致。后端默认规则和前端可见性、必填、选项及默认规则使用相同语义，不能在组件中硬编码 COS 模式。
+
+COS 的 `download_delivery` 明确区分 `cos_origin`、`custom_origin` 和 `tencent_cdn_type_d_sha256`。默认源站隐藏并忽略额外下载地址；另两种模式显示并要求同一个 `download_base_url`。CDN 密钥与有效期只在 CDN 模式展示。隐藏地址保持可恢复，下载策略 `relay_stream` 优先覆盖三种交付选择；它不是非法配置组合。
+
 ## 字段规范化规则
 
 字段规范化属于 backend use case 或 connector/driver-specific pure helper，不能散落在 handler 或前端组件里。

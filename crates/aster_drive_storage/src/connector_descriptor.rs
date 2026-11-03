@@ -183,7 +183,7 @@ pub enum StorageConnectorFieldDefaultValue {
     String(String),
 }
 
-/// One connector field equals one scalar value.
+/// One connector field equals (or explicitly differs from) one scalar value.
 ///
 /// Conditions deliberately stay small and inspectable. Multiple conditions on
 /// one rule are ANDed; connectors can declare multiple ordered rules when they
@@ -197,6 +197,10 @@ pub struct StorageConnectorFieldCondition {
     pub scope: Option<StorageConnectorFieldScope>,
     pub field: String,
     pub value: StorageConnectorFieldDefaultValue,
+    /// Require a present value different from `value`. Missing values never
+    /// match, including negated conditions.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub negate: bool,
 }
 
 /// Ordered connector-owned default selected from the current field values.
@@ -1723,7 +1727,9 @@ fn resolved_field_default<'a>(
         .iter()
         .find(|rule| {
             rule.conditions.iter().all(|condition| {
-                values.get(&condition.field) == Some(&default_value_to_json(&condition.value))
+                values.get(&condition.field).is_some_and(|value| {
+                    (value == &default_value_to_json(&condition.value)) != condition.negate
+                })
             })
         })
         .map(|rule| &rule.value)
@@ -3920,6 +3926,49 @@ mod tests {
     }
 
     #[test]
+    fn negated_default_condition_matches_present_unequal_values_only() {
+        let mut value = storage_connector_field(
+            "target",
+            StorageConnectorFieldScope::ConnectorConfig,
+            StorageConnectorFieldKind::Text,
+            false,
+            false,
+        );
+        value.default_rules = vec![super::StorageConnectorFieldDefaultRule {
+            conditions: vec![StorageConnectorFieldCondition {
+                scope: None,
+                field: "mode".into(),
+                value: StorageConnectorFieldDefaultValue::String("origin".into()),
+                negate: true,
+            }],
+            value: StorageConnectorFieldDefaultValue::String("custom".into()),
+        }];
+        for (mode, expected) in [
+            (None, None),
+            (Some("origin"), None),
+            (Some("custom_origin"), Some("custom")),
+            (Some("cdn"), Some("custom")),
+        ] {
+            let values = mode
+                .map(|m| BTreeMap::from([("mode".into(), serde_json::json!(m))]))
+                .unwrap_or_default();
+            assert_eq!(
+                super::resolved_field_default(&value, &values).map(super::default_value_to_json),
+                expected.map(serde_json::Value::from)
+            );
+        }
+        let encoded = serde_json::json!({"scope":null,"field":"mode","value":"origin"});
+        let condition: StorageConnectorFieldCondition = serde_json::from_value(encoded).unwrap();
+        assert!(!condition.negate);
+        assert!(
+            serde_json::to_value(condition)
+                .unwrap()
+                .get("negate")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn string_select_accepts_trimmed_custom_values_when_declared() {
         let mut tenant = storage_connector_select_field(
             "tenant",
@@ -4009,6 +4058,7 @@ mod tests {
         let mut invalid_conditional_default = valid.clone();
         invalid_conditional_default.default_rules = vec![StorageConnectorFieldDefaultRule {
             conditions: vec![StorageConnectorFieldCondition {
+                negate: false,
                 scope: None,
                 field: "other".to_string(),
                 value: StorageConnectorFieldDefaultValue::String("value".to_string()),
@@ -4121,6 +4171,7 @@ mod tests {
             false,
         );
         conditioned.visible_when = vec![StorageConnectorFieldCondition {
+            negate: false,
             scope: None,
             field: "missing".to_string(),
             value: StorageConnectorFieldDefaultValue::String("value".to_string()),
@@ -4144,6 +4195,7 @@ mod tests {
             );
             field.default_rules = vec![StorageConnectorFieldDefaultRule {
                 conditions: vec![StorageConnectorFieldCondition {
+                    negate: false,
                     scope: None,
                     field: dependency.to_string(),
                     value: StorageConnectorFieldDefaultValue::String("value".to_string()),
@@ -4174,6 +4226,7 @@ mod tests {
                 false,
             );
             field.visible_when = vec![StorageConnectorFieldCondition {
+                negate: false,
                 scope: None,
                 field: dependency.to_string(),
                 value: StorageConnectorFieldDefaultValue::String("value".to_string()),
@@ -4217,6 +4270,7 @@ mod tests {
             false,
         );
         dependent.visible_when = vec![StorageConnectorFieldCondition {
+            negate: false,
             scope: None,
             field: "mode".to_string(),
             value: StorageConnectorFieldDefaultValue::Integer(1),
@@ -4519,6 +4573,7 @@ mod tests {
             true,
         );
         key.visible_when = vec![StorageConnectorFieldCondition {
+            negate: false,
             scope: Some(StorageConnectorFieldScope::ConnectorConfig),
             field: "delivery".into(),
             value: StorageConnectorFieldDefaultValue::Boolean(true),
@@ -4552,6 +4607,7 @@ mod tests {
         assert!(cross_default.validate().is_err());
         let mut reversed = descriptor;
         reversed.fields[0].visible_when = vec![StorageConnectorFieldCondition {
+            negate: false,
             scope: Some(StorageConnectorFieldScope::StaticCredential),
             field: "cdn_key".into(),
             value: StorageConnectorFieldDefaultValue::String("secret".into()),

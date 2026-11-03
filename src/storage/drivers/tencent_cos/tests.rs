@@ -210,6 +210,7 @@ fn cos_reports_upload_part_limits() {
 async fn custom_download_base_url_builds_and_signs_the_final_host() {
     let mut config = sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
     config.download_base_url = Some("https://cdn.example.test/assets".to_string());
+    config.download_delivery = super::CosDownloadDelivery::CustomOrigin;
     let driver = TencentCosDriver::new(config, sample_credentials()).expect("COS driver");
 
     let request = driver
@@ -366,4 +367,50 @@ fn cname_native_processing_and_cors_use_bucket_bound_host() {
             .unwrap()
             .contains("q-url-param-list=cors")
     );
+}
+
+#[tokio::test]
+async fn default_origin_ignores_dormant_delivery_url_and_custom_origin_requires_one() {
+    let mut config = sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
+    config.download_base_url = Some("https://download.example.test/assets".into());
+    let driver = TencentCosDriver::new(config.clone(), sample_credentials()).unwrap();
+    let result = driver
+        .resolve_download_url("file.txt", Duration::from_secs(60), Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        Url::parse(&result.url).unwrap().host_str(),
+        Some("bucket-1250000000.cos.ap-guangzhou.myqcloud.com")
+    );
+    config.download_delivery = super::CosDownloadDelivery::CustomOrigin;
+    config.download_base_url = None;
+    assert!(TencentCosDriver::new(config.clone(), sample_credentials()).is_err());
+    config.download_base_url = Some("".into());
+    assert!(TencentCosDriver::new(config, sample_credentials()).is_err());
+}
+
+#[tokio::test]
+async fn custom_download_origin_keeps_upload_and_multipart_on_storage_endpoint() {
+    use aster_drive_storage::MultipartStorageDriver;
+    let mut config = sample_config("https://cos.ap-guangzhou.myqcloud.com", "bucket-1250000000");
+    config.download_delivery = super::CosDownloadDelivery::CustomOrigin;
+    config.download_base_url = Some("https://download.example.test/assets".into());
+    let driver = TencentCosDriver::new(config, sample_credentials()).unwrap();
+    for request in [
+        driver
+            .presigned_put_request("file", Duration::from_secs(60))
+            .await
+            .unwrap()
+            .unwrap(),
+        driver
+            .presigned_upload_part_request("file", "upload-id", 1, Duration::from_secs(60))
+            .await
+            .unwrap(),
+    ] {
+        assert_eq!(
+            Url::parse(&request.url).unwrap().host_str(),
+            Some("bucket-1250000000.cos.ap-guangzhou.myqcloud.com")
+        );
+    }
 }

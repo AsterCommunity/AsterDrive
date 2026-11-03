@@ -8783,7 +8783,7 @@ export interface components {
             upload_workflows: components["schemas"]["StorageConnectorUploadWorkflows"];
         };
         /**
-         * @description One connector field equals one scalar value.
+         * @description One connector field equals (or explicitly differs from) one scalar value.
          *
          *     Conditions deliberately stay small and inspectable. Multiple conditions on
          *     one rule are ANDed; connectors can declare multiple ordered rules when they
@@ -8791,6 +8791,11 @@ export interface components {
          */
         StorageConnectorFieldCondition: {
             field: string;
+            /**
+             * @description Require a present value different from `value`. Missing values never
+             *     match, including negated conditions.
+             */
+            negate?: boolean;
             scope?: components["schemas"]["StorageConnectorFieldScope"] | null;
             value: components["schemas"]["StorageConnectorFieldDefaultValue"];
         };
