@@ -2255,6 +2255,51 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
 }
 
 #[test]
+fn azure_connector_validates_custom_domain_and_endpoint_shapes() {
+    let azure = connector(AzureBlobConnector::ID);
+    let validate = |endpoint: &str| {
+        let mut config = azure_config(ObjectStorageUploadStrategy::RelayStream);
+        config.endpoint = endpoint.to_string();
+        azure.validate_connector_config(&super::test_support::connection_config(
+            AzureBlobConnector::ID,
+            1,
+            config,
+        ))
+    };
+
+    for endpoint in [
+        "https://files.contoso.example",
+        "https://files.contoso.example/base-path",
+        "http://127.0.0.1:10000/devstoreaccount1",
+    ] {
+        let normalized = validate(endpoint)
+            .unwrap_or_else(|error| panic!("valid Azure endpoint {endpoint:?}: {error:?}"));
+        let config: AzureBlobConnectorConfigV1 = serde_json::from_value(
+            serde_json::to_value(normalized.values).expect("normalized values should serialize"),
+        )
+        .expect("normalized values should decode");
+        assert_eq!(config.endpoint, endpoint.trim().trim_end_matches('/'));
+        assert_eq!(config.bucket, "archive");
+    }
+
+    for endpoint in [
+        "https://user:password@acct.blob.core.windows.net",
+        "https://acct.blob.core.windows.net?api-version=2023-11-03",
+        "https://acct.blob.core.windows.net#fragment",
+        "https://acct.blob.core.windows.net/../shared",
+        "https://acct.blob.core.windows.net/%2e%2e/shared",
+        "http://storage.internal:10000/devstoreaccount1",
+    ] {
+        let error = validate(endpoint)
+            .expect_err("invalid Azure endpoint shape must fail connector validation");
+        assert!(
+            error.message().contains("invalid Azure Blob endpoint URL"),
+            "unexpected endpoint error: {error}"
+        );
+    }
+}
+
+#[test]
 fn upload_transport_boundaries_preserve_chunk_and_direct_semantics() {
     let mut policy = policy(
         S3Connector::ID,

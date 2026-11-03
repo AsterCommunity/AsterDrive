@@ -178,7 +178,7 @@ impl StorageConnector for AzureBlobConnector {
                             ApiErrorCode::PolicyStorageBucketRequired
                         }
                         AzureBlobConfigError::MissingEndpoint
-                        | AzureBlobConfigError::InvalidEndpoint(_) => {
+                        | AzureBlobConfigError::InvalidEndpoint => {
                             ApiErrorCode::PolicyStorageEndpointInvalid
                         }
                     };

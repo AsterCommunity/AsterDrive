@@ -194,6 +194,30 @@ Azure Blob
 不要把 Azure Portal 首页 URL、container URL 或 SAS URL 填进 Endpoint。Endpoint 应该类似 `https://<account>.blob.core.windows.net`。Container 单独填到“Bucket / 容器”字段。
 :::
 
+## 自定义域名 endpoint
+
+Azure Blob 支持把自定义域名（例如 `https://files.contoso.example`）映射到 Blob endpoint。AsterDrive 允许直接把自定义域名填进 Endpoint，但 SAS 签名仍按 Storage account name 计算，不会改用自定义域名作为签名主体。
+
+适用边界：
+
+| 场景 | 是否适用 | 说明 |
+| --- | --- | --- |
+| 直接 CNAME 到 Blob endpoint | 是 | 需要按 Azure 官方步骤把子域名 CNAME 到 `<account>.blob.core.windows.net` |
+| 经 HTTPS 代理 / Front Door | 是 | Front Door/CDN 可提供 TLS 和自定义域名；缓存行为由独立 CDN 功能跟踪 |
+| 静态网站 endpoint | 否 | 静态网站 endpoint 不等价于 Blob API，不能用于私有文件读写 |
+| CDN 边缘缓存/鉴权 | 否 | 由 #689 独立跟踪，本项不承诺 CDN 缓存失效或边缘鉴权 |
+
+Endpoint 校验规则：
+
+- 必须是 `http://` 或 `https://` 绝对 URL
+- 不能包含用户名、密码、query、fragment
+- 不能包含控制字符或 `..` 路径穿越段
+- 只有 loopback 地址（例如本地 Azurite 的 `http://127.0.0.1:10000/<account>` 或 `http://localhost:10000/<account>`）允许 HTTP；其余 endpoint 必须使用 HTTPS
+
+:::caution[不要降低 HTTPS 要求]
+生产环境应使用 HTTPS endpoint。不要为了绕过证书或配置问题改回 HTTP。
+:::
+
 ## 5. 保存前先测试连接
 
 保存前或保存后，先用后台的连接测试确认：

@@ -195,6 +195,28 @@ Fill in:
 Do not paste the Azure Portal URL, container URL, or a SAS URL into Endpoint. Endpoint should look like `https://<account>.blob.core.windows.net`. The container is entered separately in the Bucket / Container field.
 :::
 
+## Custom-Domain Endpoint
+
+Azure Blob supports mapping a custom domain (for example `https://files.contoso.example`) to the Blob endpoint. AsterDrive accepts such custom domains in the Endpoint field, but SAS signatures are still computed with the Storage account name, not the custom host.
+
+| Scenario | Supported | Notes |
+| --- | --- | --- |
+| Direct CNAME to the Blob endpoint | Yes | Follow Azure's official steps to map a subdomain to `<account>.blob.core.windows.net` |
+| HTTPS proxy / Front Door | Yes | Front Door/CDN can provide TLS and custom domains; cache behavior is tracked separately |
+| Static website endpoint | No | The static website endpoint is not equivalent to the Blob API and cannot be used for private file operations |
+| CDN edge caching/auth | No | Tracked separately in #689; this page does not promise CDN cache invalidation or edge authentication |
+
+Endpoint validation rules:
+
+- Must be an absolute `http://` or `https://` URL
+- Must not contain username, password, query, or fragment
+- Must not contain control characters or `..` path traversal segments
+- Plain HTTP is accepted only for loopback hosts (for example local Azurite at `http://127.0.0.1:10000/<account>` or `http://localhost:10000/<account>`); every other endpoint must use HTTPS
+
+:::caution[Do not weaken HTTPS requirements]
+Use an HTTPS endpoint in production. Do not fall back to HTTP to bypass certificate or configuration issues.
+:::
+
 ## 5. Test the Connection Before Saving Production Routing
 
 Before or after saving, use the admin-console connection test to confirm:

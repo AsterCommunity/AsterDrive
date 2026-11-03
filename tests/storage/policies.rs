@@ -5644,6 +5644,146 @@ async fn test_policy_create_and_draft_test_reject_invalid_s3_region_before_stora
 }
 
 #[actix_web::test]
+async fn test_azure_blob_policy_rejects_invalid_endpoint_shapes_with_stable_code() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for endpoint in [
+        // userinfo / query / fragment / traversal / non-loopback HTTP all share the
+        // same stable code so admin forms can point at the endpoint field.
+        "https://user:password@acct.blob.core.windows.net",
+        "https://acct.blob.core.windows.net?sig=leak",
+        "https://acct.blob.core.windows.net#fragment",
+        "https://acct.blob.core.windows.net/../shared",
+        "http://storage.internal:10000/devstoreaccount1",
+    ] {
+        let invalid_connection = azure_blob_connection_json(endpoint, "archive");
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": format!("Invalid Azure Endpoint {endpoint}"),
+                "connection": invalid_connection.clone()
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            500,
+            "azure create should reject endpoint {endpoint}"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(
+            body["code"],
+            ApiErrorCode::PolicyStorageEndpointInvalid.as_str(),
+            "azure create should use the stable endpoint code for {endpoint}: {body}"
+        );
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies/test")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "connection": invalid_connection.clone()
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            500,
+            "azure draft test should reject endpoint {endpoint}"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(
+            body["code"],
+            ApiErrorCode::PolicyStorageEndpointInvalid.as_str(),
+            "azure draft test should use the stable endpoint code for {endpoint}: {body}"
+        );
+    }
+
+    // Valid custom-domain and loopback endpoints must keep flowing through the
+    // same create path, so the rejections above are endpoint-shape specific.
+    for endpoint in [
+        "https://files.contoso.example",
+        "http://127.0.0.1:10000/devstoreaccount1",
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": format!("Valid Azure Endpoint {endpoint}"),
+                "connection": azure_blob_connection_json(endpoint, "archive")
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            201,
+            "azure create should accept endpoint {endpoint}"
+        );
+    }
+
+    // Editing an existing policy into an invalid endpoint must fail with the
+    // same stable code instead of corrupting the saved policy.
+    let valid_connection =
+        azure_blob_connection_json("https://acct.blob.core.windows.net", "archive");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Azure Endpoint Edit Base",
+            "connection": valid_connection.clone()
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "azure setup create should succeed");
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().expect("policy id");
+
+    let mut invalid_connection = valid_connection.clone();
+    invalid_connection["connector_config"]["values"]["endpoint"] =
+        serde_json::json!("http://files.contoso.example");
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "connector_config": invalid_connection["connector_config"].clone()
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        500,
+        "azure update should reject plaintext HTTP"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyStorageEndpointInvalid.as_str(),
+        "azure update should use the stable endpoint code: {body}"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["endpoint"],
+        "https://acct.blob.core.windows.net",
+        "rejected update must not change the saved endpoint: {body}"
+    );
+}
+
+#[actix_web::test]
 async fn test_non_s3_object_storage_rejects_s3_region_for_create_update_and_draft() {
     let state = common::setup().await;
     let app = create_test_app!(state);
