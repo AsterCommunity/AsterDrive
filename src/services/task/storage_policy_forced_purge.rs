@@ -197,7 +197,13 @@ pub async fn create_storage_policy_forced_purge_task(
         Ok(task)
     })
     .await?;
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     super::get_task_in_scope(state, task_scope(&task)?, task.id).await
 }
 

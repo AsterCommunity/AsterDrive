@@ -85,7 +85,7 @@ pub(crate) async fn ensure_thumbnail_task(
             | BackgroundTaskStatus::Processing
             | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
-                state.wake_background_task_dispatcher();
+                state.task_wakeup().notify();
                 return Ok(());
             }
             BackgroundTaskStatus::Failed => {
@@ -104,7 +104,7 @@ pub(crate) async fn ensure_thumbnail_task(
         source_mime_type: source_mime_type.to_string(),
         processor,
     };
-    insert_typed_task_record(
+    let task = insert_typed_task_record(
         state,
         state.writer_db(),
         TypedTaskCreate::<ThumbnailGenerateTask>::new(display_name, payload)
@@ -112,7 +112,13 @@ pub(crate) async fn ensure_thumbnail_task(
     )
     .await?;
 
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
 
     Ok(())
 }
@@ -150,7 +156,7 @@ pub(crate) async fn ensure_image_preview_task(
             | BackgroundTaskStatus::Processing
             | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
-                state.wake_background_task_dispatcher();
+                state.task_wakeup().notify();
                 return Ok(());
             }
             BackgroundTaskStatus::Failed => {
@@ -169,7 +175,7 @@ pub(crate) async fn ensure_image_preview_task(
         source_mime_type: source_mime_type.to_string(),
         processor,
     };
-    insert_typed_task_record(
+    let task = insert_typed_task_record(
         state,
         state.writer_db(),
         TypedTaskCreate::<ImagePreviewGenerateTask>::new(display_name, payload)
@@ -177,7 +183,13 @@ pub(crate) async fn ensure_image_preview_task(
     )
     .await?;
 
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
 
     Ok(())
 }

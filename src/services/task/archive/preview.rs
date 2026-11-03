@@ -45,7 +45,7 @@ pub(crate) async fn ensure_archive_preview_task(
             | BackgroundTaskStatus::Processing
             | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
-                state.wake_background_task_dispatcher();
+                state.task_wakeup().notify();
                 return Ok(());
             }
             BackgroundTaskStatus::Failed => {

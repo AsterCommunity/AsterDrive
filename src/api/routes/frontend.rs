@@ -324,7 +324,7 @@ mod tests {
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             share_download_rollback,
-            background_task_dispatch_wakeup: PrimaryAppState::new_background_task_dispatch_wakeup(),
+            background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
             remote_protocol: PrimaryAppState::new_remote_protocol(),
         }
     }

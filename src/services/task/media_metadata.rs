@@ -60,7 +60,7 @@ pub(crate) async fn ensure_media_metadata_task(
             | BackgroundTaskStatus::Processing
             | BackgroundTaskStatus::Canceling
             | BackgroundTaskStatus::Retry => {
-                state.wake_background_task_dispatcher();
+                state.task_wakeup().notify();
                 return Ok(());
             }
             BackgroundTaskStatus::Failed => {
@@ -77,14 +77,20 @@ pub(crate) async fn ensure_media_metadata_task(
         source_mime_type: source_file.mime_type.clone(),
         media_kind: kind,
     };
-    insert_typed_task_record(
+    let task = insert_typed_task_record(
         state,
         state.writer_db(),
         TypedTaskCreate::<MediaMetadataExtractTask>::new(display_name, payload).progress(0, 4),
     )
     .await?;
 
-    state.wake_background_task_dispatcher();
+    tracing::debug!(
+        task_id = task.id,
+        kind = task.kind.as_str(),
+        event = "enqueue_committed",
+        "background task enqueue committed"
+    );
+    state.task_wakeup().notify();
     Ok(())
 }
 

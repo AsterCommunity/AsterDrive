@@ -357,8 +357,7 @@ async fn log_uses_owned_writer_and_flush_keeps_admission_open() {
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,
-        background_task_dispatch_wakeup:
-            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+        background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
 
@@ -518,8 +517,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,
-        background_task_dispatch_wakeup:
-            crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+        background_task_dispatch_wakeup: aster_forge_tasks::TaskWakeup::default(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
     };
     let calls = AtomicUsize::new(0);
