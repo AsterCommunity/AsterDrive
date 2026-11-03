@@ -197,7 +197,7 @@ pub struct StorageConnectorFieldCondition {
     pub scope: Option<StorageConnectorFieldScope>,
     pub field: String,
     pub value: StorageConnectorFieldDefaultValue,
-    /// Require a present value different from `value`. Missing values never
+    /// Require a present value different from `value`. Missing and null values never
     /// match, including negated conditions.
     #[serde(default, skip_serializing_if = "is_false")]
     pub negate: bool,
@@ -1727,9 +1727,12 @@ fn resolved_field_default<'a>(
         .iter()
         .find(|rule| {
             rule.conditions.iter().all(|condition| {
-                values.get(&condition.field).is_some_and(|value| {
-                    (value == &default_value_to_json(&condition.value)) != condition.negate
-                })
+                values
+                    .get(&condition.field)
+                    .filter(|value| !value.is_null())
+                    .is_some_and(|value| {
+                        (value == &default_value_to_json(&condition.value)) != condition.negate
+                    })
             })
         })
         .map(|rule| &rule.value)
@@ -3957,6 +3960,13 @@ mod tests {
                 expected.map(serde_json::Value::from)
             );
         }
+        assert!(
+            super::resolved_field_default(
+                &value,
+                &BTreeMap::from([("mode".into(), serde_json::Value::Null)])
+            )
+            .is_none()
+        );
         let encoded = serde_json::json!({"scope":null,"field":"mode","value":"origin"});
         let condition: StorageConnectorFieldCondition = serde_json::from_value(encoded).unwrap();
         assert!(!condition.negate);

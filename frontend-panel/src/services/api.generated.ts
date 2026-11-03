@@ -8792,7 +8792,7 @@ export interface components {
         StorageConnectorFieldCondition: {
             field: string;
             /**
-             * @description Require a present value different from `value`. Missing values never
+             * @description Require a present value different from `value`. Missing and null values never
              *     match, including negated conditions.
              */
             negate?: boolean;

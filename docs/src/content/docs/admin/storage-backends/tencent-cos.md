@@ -231,7 +231,7 @@ AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并�
 
 下载交付地址必须是带 DNS 主机名的 HTTPS URL，可以包含固定 path prefix，但不能包含账号密码、非默认端口、query、fragment、反斜杠或路径穿越段。保存自定义源站或 CDN 模式时，缺少地址会被拒绝。切回默认源站会隐藏并保留地址，但该地址不会继续影响下载；再次选择自定义源站或 CDN 时可继续编辑使用。
 
-此前依赖“源站模式 + 可选下载地址”使用独立下载域的配置，应明确选择 **自定义源站下载域（COS Q-Sign）**；默认源站不再根据额外地址推断模式。源站 CNAME 仍在 Endpoint 及 CNAME 开关中配置。
+升级时，数据迁移会把缺少 `download_delivery` 且下载地址非空的旧配置明确写为 **自定义源站下载域（COS Q-Sign）**，覆盖保存策略、远端目标及延迟清理快照。已显式选择的模式不被推断或覆盖；默认源站忽略休眠地址。源站 CNAME 仍在 Endpoint 及 CNAME 开关中配置。
 
 连接测试只证明存储 Endpoint 可用，不能证明独立下载域已支持私有对象、Range 和响应头覆盖。验收时分别检查：默认模式的 URL 使用 Endpoint；自定义模式使用下载域及 `q-signature`；CDN 模式使用 `sign` / `t`。三种模式的上传与 multipart 始终使用存储 Endpoint。
 

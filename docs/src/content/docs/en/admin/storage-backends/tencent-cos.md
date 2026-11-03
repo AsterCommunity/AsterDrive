@@ -227,7 +227,7 @@ Choose **Custom origin download domain** for a separate domain or reverse proxy 
 
 The delivery URL must use HTTPS and a DNS hostname. It may include a fixed path prefix, but no credentials, non-default port, query, fragment, backslashes, or traversal segments. Saving custom-origin or CDN delivery without an address is rejected. Switching to the default origin hides and preserves the address without using it for downloads; switching back allows reuse.
 
-Configurations that previously combined origin mode with an optional independent download URL must explicitly select **Custom origin download domain (COS Q-Sign)**. The default origin no longer infers delivery mode from that address. Configure origin CNAME using Endpoint and its CNAME switch.
+During upgrade, a data migration sets **Custom origin download domain (COS Q-Sign)** for old configurations with a nonempty download URL and no `download_delivery`, including saved policies, remote targets, and deferred cleanup snapshots. Explicit modes are preserved rather than inferred or overwritten; the default origin ignores dormant addresses. Configure origin CNAME using Endpoint and its CNAME switch.
 
 Connection tests prove storage Endpoint access only. Validate private objects, Range, and response overrides on the independent domain separately. Default-mode URLs should use Endpoint; custom-origin URLs use the separate domain with `q-signature`; CDN URLs use `sign` / `t`. Uploads and multipart always use the storage Endpoint in all three modes.
 

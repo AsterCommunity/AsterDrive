@@ -18,6 +18,7 @@ export function connectorFieldConditionsMatch(
 		)?.[condition.field];
 		return (
 			value !== undefined &&
+			value !== null &&
 			(value === condition.value) !== Boolean(condition.negate)
 		);
 	});

@@ -405,6 +405,16 @@ describe("negated connector conditions", () => {
 	const conditions = [{ field: "mode", value: "origin", negate: true }];
 	it("requires a present unequal value and preserves equality when negate is omitted", () => {
 		expect(connectorFieldConditionsMatch(conditions, {})).toBe(false);
+		expect(connectorFieldConditionsMatch(conditions, { mode: null })).toBe(
+			false,
+		);
+		const address = field("address", {
+			visible_when: conditions,
+			required_when: conditions,
+		});
+		expect(isConnectorFieldVisible(address, { mode: null })).toBe(false);
+		expect(isConnectorFieldRequired(address, { mode: null })).toBe(false);
+
 		expect(connectorFieldConditionsMatch(conditions, { mode: "origin" })).toBe(
 			false,
 		);
