@@ -8,7 +8,8 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        create_external_auth_providers(manager).await?;
+        // Bound stack use when this migration runs inside server startup.
+        Box::pin(create_external_auth_providers(manager)).await?;
         create_external_auth_identities(manager).await?;
         create_external_auth_login_flows(manager).await?;
         create_external_auth_email_verification_flows(manager).await?;

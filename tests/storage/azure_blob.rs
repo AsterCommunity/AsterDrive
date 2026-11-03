@@ -1,4 +1,4 @@
-//! Azure Blob 存储驱动集成测试（使用 testcontainers + Azurite）
+//! Azure Blob integration tests against containerized or loopback Azurite.
 
 use std::time::Duration;
 
@@ -12,7 +12,9 @@ use aster_drive_storage::{
 use base64::Engine as _;
 use chrono::Utc;
 use reqwest::StatusCode;
-use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
+use testcontainers::{
+    ContainerAsync, GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner,
+};
 use tokio::io::AsyncReadExt as _;
 
 const AZURITE_IMAGE: &str = "mcr.microsoft.com/azure-storage/azurite";
@@ -42,6 +44,8 @@ fn azure_driver(endpoint: &str, container: &str, base_path: &str) -> AzureBlobDr
             container: container.to_string(),
             base_path: base_path.to_string(),
             chunk_size: 5_242_880,
+            download_delivery: Default::default(),
+            download_base_url: None,
         },
         AzureBlobStaticCredentials {
             account_name: AZURITE_ACCOUNT.to_string(),
@@ -127,30 +131,71 @@ fn unique_container_name() -> String {
     format!("az{:024}", &uuid::Uuid::new_v4().simple().to_string()[..24])
 }
 
+struct AzuriteFixture {
+    endpoint: String,
+    container_name: String,
+    _container: Option<ContainerAsync<GenericImage>>,
+}
+
+impl AzuriteFixture {
+    async fn start() -> Self {
+        let (endpoint, container) = match std::env::var("ASTER_TEST_AZURITE_ENDPOINT") {
+            Ok(endpoint) => {
+                let url = url::Url::parse(&endpoint).expect("parse local Azurite endpoint");
+                assert!(
+                    url.scheme() == "http"
+                        && matches!(url.host_str(), Some("127.0.0.1" | "[::1]"))
+                        && url.username().is_empty()
+                        && !endpoint.split('/').nth(2).unwrap_or("").contains('@')
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+                        && url.path().trim_end_matches('/') == format!("/{AZURITE_ACCOUNT}"),
+                    "ASTER_TEST_AZURITE_ENDPOINT must be a loopback HTTP Azurite account URL"
+                );
+                (endpoint.trim_end_matches('/').to_string(), None)
+            }
+            Err(std::env::VarError::NotPresent) => {
+                let container = GenericImage::new(AZURITE_IMAGE, AZURITE_TAG)
+                    .with_exposed_port(IntoContainerPort::tcp(AZURITE_BLOB_PORT))
+                    .with_cmd(vec![
+                        "azurite-blob",
+                        "--blobHost",
+                        "0.0.0.0",
+                        "--blobPort",
+                        "10000",
+                    ])
+                    .start()
+                    .await
+                    .expect("failed to start azurite container");
+
+                let port = container
+                    .get_host_port_ipv4(IntoContainerPort::tcp(AZURITE_BLOB_PORT))
+                    .await
+                    .expect("resolve mapped azurite port");
+                (
+                    format!("http://127.0.0.1:{port}/{AZURITE_ACCOUNT}"),
+                    Some(container),
+                )
+            }
+            Err(error) => panic!("invalid ASTER_TEST_AZURITE_ENDPOINT: {error}"),
+        };
+        let container_name = unique_container_name();
+        wait_for_azurite_container(&endpoint, &container_name).await;
+        Self {
+            endpoint,
+            container_name,
+            _container: container,
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_azure_blob_driver_e2e_with_azurite() {
-    let container = GenericImage::new(AZURITE_IMAGE, AZURITE_TAG)
-        .with_exposed_port(IntoContainerPort::tcp(AZURITE_BLOB_PORT))
-        .with_cmd(vec![
-            "azurite-blob",
-            "--blobHost",
-            "0.0.0.0",
-            "--blobPort",
-            "10000",
-        ])
-        .start()
-        .await
-        .expect("failed to start azurite container");
+    let fixture = AzuriteFixture::start().await;
+    let endpoint = &fixture.endpoint;
+    let container_name = &fixture.container_name;
 
-    let port = container
-        .get_host_port_ipv4(IntoContainerPort::tcp(AZURITE_BLOB_PORT))
-        .await
-        .expect("resolve mapped azurite port");
-    let endpoint = format!("http://127.0.0.1:{port}/{AZURITE_ACCOUNT}");
-    let container_name = unique_container_name();
-    wait_for_azurite_container(&endpoint, &container_name).await;
-
-    let driver = azure_driver(&endpoint, &container_name, "itest/prefix");
+    let driver = azure_driver(endpoint, container_name, "itest/prefix");
     assert!(!driver.presigned_single_put_requires_etag());
 
     let data = b"hello azure blob";
@@ -398,29 +443,115 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
 }
 
 #[tokio::test]
+async fn test_azure_blob_download_sas_security_with_azurite() {
+    let fixture = AzuriteFixture::start().await;
+    let driver = azure_driver(&fixture.endpoint, &fixture.container_name, "sas/prefix");
+    let path = "中文 space/literal%2F+file.txt";
+    let body = b"private download";
+    driver.put(path, body).await.unwrap();
+    let disposition = "attachment; filename=download.txt";
+    let request = driver
+        .resolve_download_url(
+            path,
+            Duration::from_secs(300),
+            DirectDownloadOptions {
+                response_cache_control: Some("private, no-store".into()),
+                response_content_disposition: Some(disposition.into()),
+                response_content_type: Some("text/plain".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let client = reqwest::Client::new();
+    let response = client.get(&request.url).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    assert_eq!(response.headers()["content-disposition"], disposition);
+    assert_eq!(response.headers()["content-type"], "text/plain");
+    assert_eq!(response.bytes().await.unwrap().as_ref(), body);
+    let response = client.head(&request.url).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-length"], body.len().to_string());
+    let response = client
+        .get(&request.url)
+        .header("Range", "bytes=0-6")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(response.bytes().await.unwrap().as_ref(), b"private");
+
+    let signed_url = url::Url::parse(&request.url).unwrap();
+    for (name, value) in [
+        ("sig", "invalid"),
+        ("se", "2099-01-01T00:00:00Z"),
+        ("rscc", "public, max-age=86400"),
+        ("rscd", "inline"),
+        ("rsct", "text/html"),
+        ("sp", "rw"),
+    ] {
+        let mut tampered = signed_url.clone();
+        tampered.set_query(None);
+        for (key, original) in signed_url.query_pairs() {
+            tampered
+                .query_pairs_mut()
+                .append_pair(&key, if key == name { value } else { &original });
+        }
+        assert_eq!(
+            client.get(tampered).send().await.unwrap().status(),
+            StatusCode::FORBIDDEN,
+            "tampered {name} must not authorize a download"
+        );
+    }
+    let mut unsigned = signed_url.clone();
+    unsigned.set_query(None);
+    assert_eq!(
+        client.get(unsigned).send().await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .put(&request.url)
+            .header("x-ms-blob-type", "BlockBlob")
+            .body("overwrite")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(driver.get(path).await.unwrap(), body);
+
+    let expiring = driver
+        .resolve_download_url(
+            path,
+            Duration::from_secs(3),
+            DirectDownloadOptions::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        client.get(&expiring.url).send().await.unwrap().status(),
+        StatusCode::OK
+    );
+    let deadline = expiring.expires_at.unwrap();
+    while Utc::now() <= deadline + chrono::Duration::milliseconds(100) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        client.get(&expiring.url).send().await.unwrap().status(),
+        StatusCode::FORBIDDEN,
+        "the same previously successful URL must fail after expiry"
+    );
+}
+
+#[tokio::test]
 async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
-    let container = GenericImage::new(AZURITE_IMAGE, AZURITE_TAG)
-        .with_exposed_port(IntoContainerPort::tcp(AZURITE_BLOB_PORT))
-        .with_cmd(vec![
-            "azurite-blob",
-            "--blobHost",
-            "0.0.0.0",
-            "--blobPort",
-            "10000",
-        ])
-        .start()
-        .await
-        .expect("failed to start azurite container");
-
-    let port = container
-        .get_host_port_ipv4(IntoContainerPort::tcp(AZURITE_BLOB_PORT))
-        .await
-        .expect("resolve mapped azurite port");
-    let endpoint = format!("http://127.0.0.1:{port}/{AZURITE_ACCOUNT}");
-    let container_name = unique_container_name();
-    wait_for_azurite_container(&endpoint, &container_name).await;
-
-    let driver = azure_driver(&endpoint, &container_name, "boundaries");
+    let fixture = AzuriteFixture::start().await;
+    let driver = azure_driver(&fixture.endpoint, &fixture.container_name, "boundaries");
 
     driver
         .put_reader("empty.bin", Box::new(tokio::io::empty()), 0)

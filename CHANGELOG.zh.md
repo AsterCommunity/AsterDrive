@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 支持 Azure Blob 通过 Front Door Standard/Premium 和客户端 SAS 私有下载；下载入口独立配置并禁用缓存，上传及后端操作仍使用 Blob API。 (#689)
+
 - **腾讯 COS 私有 CDN 交付** — 显式支持 Type D / SHA-256 下载交付，使用独立加密的 CDN 密钥、受限的链接有效期及条件配置；明确区分默认源站、自定义源站 Q-Sign 和 CDN 三种交付；同一个下载地址仅在自定义源站与 CDN 模式显示并必填，默认源站忽略休眠地址。中继下载优先覆盖交付配置并保留其设置。可逆迁移为策略、远端目标及延迟清理快照中缺少显式模式的已发布自定义下载配置保留原行为。Blob 下载与预览可走 CDN，需要精确响应头或附件名的请求保留同源中继。必须同时启用私有 COS 回源授权与覆盖全部路径的 CDN 鉴权，并分别验证缓存未命中和命中时的访问控制。
 - **腾讯 COS 自定义源站域名** — 可选 CNAME 模式支持绑定 bucket 的自定义 endpoint，用于对象读写、multipart、预签名链接、COS 数据万象和 CORS；按最终请求 Host 签名，不向 URL 追加 bucket。已有官方 endpoint 与独立下载交付地址保持原有行为。
 - **阿里云 OSS CDN 下载分发** — 显式选择 OSS 源站或阿里云 CDN Type A 交付，CDN 模式才展示域名、加密密钥及与控制台一致的有效时长，域名与密钥必填。已授权的 Blob 下载和安全预览使用有界有效期的 CDN 签名 URL；严格响应头请求及需隔离的内联预览使用中继。OSS V4、CNAME 上传、multipart 和后端 I/O 保持既有 endpoint；校验路径与配置并对 CDN 密钥进行 Debug 脱敏。中英文配置与验收指南分别说明链接有效期和缓存时间，真实阿里云 CNAME/CDN 验收仍由维护者执行。 (#685)
@@ -28,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- 降低数据库迁移的栈占用，修复 Windows debug 构建在默认主线程栈下初始化新数据库时的栈溢出。
 - **数据库迁移预检** — 允许存在空的遗留存储凭据／应用配置表但不复制它们；非空遗留表和静态凭据仍返回专用升级提示，未知表继续拒绝迁移。
 
 ## [v0.7.0] - 2026-11-01

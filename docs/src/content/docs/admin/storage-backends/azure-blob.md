@@ -347,3 +347,24 @@ Azure Blob Test Group
 - 大文件分片上传通过
 - 生产环境使用 HTTPS endpoint
 - 已确认 Azure 存储容量、请求次数和出站流量费用边界
+
+## 通过 Front Door Standard/Premium 私有下载
+
+选择 `presigned` 下载策略和 `front_door_client_sas` 下载入口，再填写独立的 `download_base_url`，例如 `https://files.example.com`。旧策略默认使用 `blob_origin`。本功能支持客户端 service SAS、原样透传路径与 query、**关闭缓存**的 Front Door Standard/Premium。不支持规则引擎注入源站 SAS、匿名交付、静态网站 endpoint 或旧版 Azure CDN 产品。
+
+在 Azure Portal 中完成以下配置：
+
+1. Origin host name 和 Origin host header 都设为 Blob service 主机名。Origin path 留空，禁用路径改写。请求路径是 `/container/base_path/blob`；下载地址中不要再包含 container 或前缀。
+2. 客户端到 Front Door、Front Door 到 Blob 均使用 HTTPS 和有效证书，不要将回源请求重定向至其他主机。
+3. 完整透传 SAS query，包括 `sig`、`se`、`sp`、`rscc`、`rscd` 和 `rsct`。不要注入源站 SAS，不要删除或覆盖这些参数。
+4. **关闭下载 route 和 Rules Engine 的缓存，保留 Cache-Control。** AsterDrive 签署 `rscc=private, no-store`。仅将 query 加入 cache key 不能保证缓存命中时检查有效期，因此本功能不支持缓存命中交付。启用前先清除旧缓存。
+5. 保持 container 私有。Premium 可以通过 Blob Private Link 隔离源站；Standard 仍需客户端 SAS 和适当的网络限制。Private Link 不能替代用户 SAS。AsterDrive 自身仍需连接独立的 Blob API；使用私网时还需配置对应的 DNS、网络和防火墙。
+6. 浏览器跨域访问时，为 Blob CORS 配置应用 origin、GET/HEAD/OPTIONS 和 Range，并暴露 Content-Disposition、Content-Type、Content-Length、Content-Range、Accept-Ranges、ETag。Front Door 应透传 OPTIONS、Origin、预检请求头及 CORS 响应。
+
+只有浏览器下载交付地址发生变化。后端读写、上传、multipart、列表、复制、清理和连接测试仍使用 Blob Endpoint。连接测试成功不代表 Front Door 的 DNS、TLS、CORS 或缓存规则正确。下载入口出错时不会回退到匿名地址。
+
+AsterDrive 在现有权限检查后签发单个 blob 的只读 SAS，当前产品下载链接有效期为 5 分钟。文件名、内容类型和禁用缓存的响应头覆盖值都参与签名。GET、HEAD、Range 使用相同的只读授权。已签发 URL 在过期前仍是可用凭证：撤销分享不会立即使其失效。紧急撤销需要考虑 Azure 密钥轮换或访问规则的影响范围。边缘和源站日志、监控中应隐藏 SAS query，不要将签名 URL 粘贴到工单。
+
+生产启用前，用真实私有 container 和 Front Door 域名验收：有效 GET/HEAD/Range、中文文件名和 CORS OPTIONS；缺少、篡改或过期 SAS 必须拒绝。同一个已经成功下载的 URL，在过期后再次请求也必须拒绝。确认缓存状态为 CONFIG_NOCACHE 或 PRIVATE_NOSTORE，而非 HIT；检查 403/404 不泄露凭据，并确认上传、清理仍访问 Blob。没有 Azure 账号时，本地签名、API、请求捕获和浏览器测试不能替代这些云端验证。
+
+官方参考：[Storage 场景](https://learn.microsoft.com/en-us/azure/frontdoor/scenario-storage-blobs)、[配置集成](https://learn.microsoft.com/en-us/azure/frontdoor/integrate-storage-account)、[Front Door 缓存](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching)、[Service SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-service-sas)。

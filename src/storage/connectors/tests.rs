@@ -240,6 +240,8 @@ fn sftp_config() -> SftpConnectorConfigV1 {
 
 fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfigV1 {
     AzureBlobConnectorConfigV1 {
+        download_delivery: Default::default(),
+        download_base_url: None,
         endpoint: "https://account.blob.core.windows.net".to_string(),
         bucket: "archive".to_string(),
         base_path: "tenant-a".to_string(),

@@ -215,6 +215,50 @@ describe("StorageConnectorFieldsPanel", () => {
 		},
 	);
 
+	it("uses the descriptor to require the Front Door URL only in client SAS mode", () => {
+		const fields = [
+			field("download_delivery", "select", {
+				default_value: "blob_origin",
+				select: {
+					value_kind: "string",
+					options: [
+						{ value: "blob_origin", label_key: "Origin" },
+						{ value: "front_door_client_sas", label_key: "Front Door" },
+					],
+				},
+			}),
+			field("download_base_url", "text", {
+				visible_when: [
+					{ field: "download_delivery", value: "front_door_client_sas" },
+				],
+				required_when: [
+					{ field: "download_delivery", value: "front_door_client_sas" },
+				],
+			}),
+		];
+		const first = renderPanel({ fields });
+		expect(
+			screen.queryByLabelText("download_base_url"),
+		).not.toBeInTheDocument();
+		fireEvent.change(screen.getByRole("combobox"), {
+			target: { value: "front_door_client_sas" },
+		});
+		expect(first.onFieldChange).toHaveBeenCalledWith(
+			"connector_config_values",
+			{ download_delivery: "front_door_client_sas" },
+		);
+		first.unmount();
+		renderPanel({
+			fields,
+			form: {
+				...emptyForm,
+				connector_config_values: { download_delivery: "front_door_client_sas" },
+			},
+			showRequiredErrors: true,
+		});
+		expect(screen.getByLabelText(/download_base_url/)).toBeVisible();
+		expect(screen.getByText("download_base_url is required")).toBeVisible();
+	});
 	it("renders the COS CNAME descriptor switch and preserves the configured endpoint", () => {
 		const { onFieldChange } = renderPanel({
 			fields: [

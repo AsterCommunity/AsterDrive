@@ -197,6 +197,96 @@ test.describe
 			).toBeVisible();
 		});
 
+		test("configures Azure Front Door client SAS through create and edit", async ({
+			page,
+			request,
+		}) => {
+			await authenticate(page, request);
+			await page.route("**/api/v1/admin/policies/test", async (route) => {
+				await route.fulfill({
+					status: 200,
+					json: { code: "success", msg: "success", data: {} },
+				});
+			});
+			await gotoAdminPage(page, "/admin/policies", "Storage Policies");
+			await page.getByRole("button", { name: "New Policy" }).click();
+			await page
+				.getByTestId("storage-driver-options")
+				.getByRole("button", { name: /^Azure Blob\b/ })
+				.click();
+			await page.getByRole("button", { name: "Next", exact: true }).click();
+			await page.locator("#name").fill(uniqueName("azure-front-door"));
+			await page
+				.locator("#endpoint")
+				.fill("https://account.blob.core.windows.net");
+			await page.locator("#bucket").fill("archive");
+			await page
+				.getByLabel("Storage Account Name", { exact: true })
+				.fill("account");
+			await page
+				.getByLabel("Storage Account Key", { exact: true })
+				.fill("c2VjcmV0");
+			await expect(page.locator("#download_base_url")).toHaveCount(0);
+			await page.locator("#download_delivery").click();
+			await page
+				.getByRole("option", {
+					name: "Front Door Standard/Premium (client SAS, no cache)",
+					exact: true,
+				})
+				.click();
+			await expect(page.locator("#download_base_url")).toBeVisible();
+			await page.getByRole("button", { name: "Review", exact: true }).click();
+			await expect(page.locator("#download_base_url")).toBeVisible();
+			await page
+				.locator("#download_base_url")
+				.fill("https://files.example.com");
+			await page.locator("#object_storage_download_strategy").click();
+			await page
+				.getByRole("option", { name: "Presigned Redirect", exact: true })
+				.click();
+			await page.getByRole("button", { name: "Review", exact: true }).click();
+			const [created] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "POST" &&
+						response.url().endsWith("/api/v1/admin/policies"),
+				),
+				page.getByRole("button", { name: "Create", exact: true }).click(),
+			]);
+			expect(created.status()).toBe(201);
+			expect(
+				created.request().postDataJSON().connection.connector_config.values,
+			).toMatchObject({
+				endpoint: "https://account.blob.core.windows.net",
+				download_delivery: "front_door_client_sas",
+				download_base_url: "https://files.example.com",
+			});
+			expect(await created.text()).not.toContain("c2VjcmV0");
+			await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);
+			await expect(
+				page.getByLabel("Storage Account Key", { exact: true }),
+			).toHaveValue("");
+			await page
+				.locator("#download_base_url")
+				.fill("https://downloads.example.com");
+			const [updated] = await Promise.all([
+				page.waitForResponse(
+					(response) =>
+						response.request().method() === "PATCH" &&
+						response.url().includes("/api/v1/admin/policies/"),
+				),
+				page.getByRole("button", { name: "Save Changes" }).first().click(),
+			]);
+			expect(updated.ok()).toBe(true);
+			await page.reload();
+			await expect(page.locator("#download_base_url")).toHaveValue(
+				"https://downloads.example.com",
+			);
+			await expect(page.locator("#endpoint")).toHaveValue(
+				"https://account.blob.core.windows.net",
+			);
+		});
+
 		test("configures private Tencent CDN SHA-256 delivery and preserves encrypted credentials on edit", async ({
 			page,
 			request,

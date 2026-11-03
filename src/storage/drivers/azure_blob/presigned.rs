@@ -21,11 +21,17 @@ impl DirectDownloadStorageDriver for AzureBlobDriver {
         &self,
         path: &str,
         expires: Duration,
-        _options: DirectDownloadOptions,
+        options: DirectDownloadOptions,
     ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
-        Ok(Some(DirectDownloadRequest::temporary_url(
-            self.blob_url(path, "r", expires)?.to_string(),
-            expires,
+        let url = self.download_url(path, expires, options)?;
+        let expires_at = url
+            .query_pairs()
+            .find(|(name, _)| name == "se")
+            .and_then(|(_, value)| chrono::DateTime::parse_from_rfc3339(&value).ok())
+            .map(|value| value.with_timezone(&chrono::Utc));
+        Ok(Some(DirectDownloadRequest::preauthenticated_url(
+            url.to_string(),
+            expires_at,
         )))
     }
 }

@@ -1,5 +1,8 @@
 //! Azure Blob Storage driver.
 
+mod delivery;
+#[cfg(test)]
+mod delivery_tests;
 mod error;
 mod multipart;
 mod presigned;
@@ -20,6 +23,7 @@ use aster_drive_storage::{
     MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
 };
 use aster_forge_utils::net::is_loopback_host;
+pub use delivery::AzureBlobDownloadDelivery;
 use sha2::{Digest, Sha256};
 
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
@@ -36,7 +40,7 @@ pub struct NormalizedAzureBlobConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AzureBlobConfigError {
     MissingEndpoint,
-    InvalidEndpoint(String),
+    InvalidEndpoint,
     MissingContainer,
 }
 
@@ -47,9 +51,9 @@ impl AzureBlobConfigError {
                 StorageErrorKind::Misconfigured,
                 "endpoint is required for Azure Blob storage",
             ),
-            Self::InvalidEndpoint(endpoint) => crate::errors::storage_driver_error(
+            Self::InvalidEndpoint => crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                format!("invalid Azure Blob endpoint URL: '{endpoint}'"),
+                "invalid Azure Blob endpoint URL",
             ),
             Self::MissingContainer => crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
@@ -64,9 +68,9 @@ impl AzureBlobConfigError {
                 StorageErrorKind::Misconfigured,
                 "endpoint is required for Azure Blob storage",
             ),
-            Self::InvalidEndpoint(endpoint) => storage_driver_error(
+            Self::InvalidEndpoint => storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                format!("invalid Azure Blob endpoint URL: '{endpoint}'"),
+                "invalid Azure Blob endpoint URL",
             ),
             Self::MissingContainer => storage_driver_error(
                 StorageErrorKind::Misconfigured,
@@ -84,6 +88,8 @@ pub struct AzureBlobDriver {
     container: String,
     base_path: String,
     chunk_size: i64,
+    download_delivery: AzureBlobDownloadDelivery,
+    download_base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,12 +98,21 @@ pub struct AzureBlobDriverConfig {
     pub container: String,
     pub base_path: String,
     pub chunk_size: i64,
+    pub download_delivery: AzureBlobDownloadDelivery,
+    pub download_base_url: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AzureBlobStaticCredentials {
     pub account_name: String,
     pub account_key: String,
+}
+
+impl std::fmt::Debug for AzureBlobStaticCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AzureBlobStaticCredentials")
+            .finish_non_exhaustive()
+    }
 }
 
 impl AzureBlobDriver {
@@ -106,6 +121,7 @@ impl AzureBlobDriver {
         credentials: &AzureBlobStaticCredentials,
     ) -> Result<()> {
         Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
+        Self::validate_delivery_config(config)?;
         if credentials.account_name.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
@@ -135,6 +151,10 @@ impl AzureBlobDriver {
             container: normalized.container,
             base_path: config.base_path,
             chunk_size: effective_object_multipart_chunk_size(config.chunk_size),
+            download_delivery: config.download_delivery,
+            download_base_url: config
+                .download_base_url
+                .map(|url| url.trim().trim_end_matches('/').to_string()),
         })
     }
 
@@ -150,6 +170,10 @@ impl AzureBlobDriver {
         endpoint: &str,
         container: &str,
     ) -> std::result::Result<NormalizedAzureBlobConfig, AzureBlobConfigError> {
+        let invalid_endpoint = || AzureBlobConfigError::InvalidEndpoint;
+        if endpoint.contains('\\') || endpoint.chars().any(char::is_control) {
+            return Err(invalid_endpoint());
+        }
         let endpoint = endpoint.trim().trim_end_matches('/');
         let container = container.trim();
         if endpoint.is_empty() {
@@ -158,19 +182,44 @@ impl AzureBlobDriver {
         if container.is_empty() {
             return Err(AzureBlobConfigError::MissingContainer);
         }
-
-        let parsed: http::Uri = endpoint
-            .parse()
-            .map_err(|_| AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()))?;
-        let scheme = parsed
-            .scheme_str()
-            .ok_or_else(|| AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()))?;
-        if scheme != "http" && scheme != "https" {
-            return Err(AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()));
+        if container.contains(['/', '\\', '?', '#', '%'])
+            || container.chars().any(char::is_control)
+            || matches!(container, "." | "..")
+        {
+            return Err(invalid_endpoint());
         }
-        parsed
-            .authority()
-            .ok_or_else(|| AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()))?;
+        let url = Url::parse(endpoint).map_err(|_| invalid_endpoint())?;
+        let authority = endpoint
+            .split("://")
+            .nth(1)
+            .unwrap_or("")
+            .split('/')
+            .next()
+            .unwrap_or("");
+        if authority.contains('@')
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || is_static_website_host(url.host_str().unwrap_or(""))
+        {
+            return Err(invalid_endpoint());
+        }
+        delivery::validate_blob_path(url.path()).map_err(|_| invalid_endpoint())?;
+        if let Some((_, raw_path)) = endpoint
+            .split_once("://")
+            .and_then(|(_, rest)| rest.split_once('/'))
+        {
+            delivery::validate_blob_path(
+                &percent_encoding::percent_decode_str(raw_path).decode_utf8_lossy(),
+            )
+            .map_err(|_| invalid_endpoint())?;
+        }
+
+        let parsed: http::Uri = endpoint.parse().map_err(|_| invalid_endpoint())?;
+        let scheme = parsed.scheme_str().ok_or_else(invalid_endpoint)?;
+        if scheme != "http" && scheme != "https" {
+            return Err(invalid_endpoint());
+        }
+        parsed.authority().ok_or_else(invalid_endpoint)?;
 
         Ok(NormalizedAzureBlobConfig {
             endpoint: endpoint.to_string(),
@@ -191,7 +240,7 @@ impl AzureBlobDriver {
             "{}/{}?{}",
             self.endpoint,
             percent_encode_path_segment(&self.container),
-            self.service_sas_query(None, permissions, expires)?
+            self.service_sas_query(None, permissions, expires, &Default::default())?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -203,12 +252,13 @@ impl AzureBlobDriver {
 
     fn blob_url(&self, path: &str, permissions: &str, expires: Duration) -> Result<Url> {
         let key = self.full_key(path);
+        delivery::validate_blob_path(&key)?;
         Url::parse(&format!(
             "{}/{}/{}?{}",
             self.endpoint,
             percent_encode_path_segment(&self.container),
             percent_encode_blob_path(&key),
-            self.service_sas_query(Some(&key), permissions, expires)?
+            self.service_sas_query(Some(&key), permissions, expires, &Default::default())?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -374,17 +424,22 @@ impl AzureBlobDriver {
         blob_name: Option<&str>,
         permissions: &str,
         expires: Duration,
+        options: &aster_drive_storage::DirectDownloadOptions,
     ) -> Result<String> {
         use azure_core::credentials::Secret;
         use azure_core::hmac::hmac_sha256;
         use chrono::{SecondsFormat, Utc};
 
-        let starts_on = Utc::now() - chrono::Duration::minutes(5);
-        let expires_on = Utc::now()
-            + chrono::Duration::from_std(expires).map_err(|error| {
+        let now = Utc::now();
+        let starts_on = now - chrono::Duration::minutes(5);
+        let expires_on = chrono::Duration::from_std(expires)
+            .ok()
+            .and_then(|duration| now.checked_add_signed(duration))
+            .filter(|deadline| expires.as_secs() > 0 && deadline.timestamp() > now.timestamp())
+            .ok_or_else(|| {
                 storage_driver_error(
                     StorageErrorKind::Misconfigured,
-                    format!("invalid Azure Blob SAS expiry: {error}"),
+                    "invalid Azure Blob SAS expiry",
                 )
             })?;
         let signed_start = starts_on.to_rfc3339_opts(SecondsFormat::Secs, true);
@@ -401,31 +456,34 @@ impl AzureBlobDriver {
 
         // Service SAS string-to-sign for version 2020-12-06+.
         // Empty fields are significant and must remain as blank lines.
+        let response_cache_control = options.response_cache_control.as_deref().unwrap_or("");
+        let response_content_disposition = options
+            .response_content_disposition
+            .as_deref()
+            .unwrap_or("");
+        let response_content_type = options.response_content_type.as_deref().unwrap_or("");
         let string_to_sign = [
-            permissions,             // signed permissions
-            &signed_start,           // signed start
-            &signed_expiry,          // signed expiry
-            &canonicalized_resource, // canonicalized resource
-            "",                      // signed identifier
-            "",                      // signed IP
-            signed_protocol,         // signed protocol
-            AZURE_STORAGE_VERSION,   // signed version
-            signed_resource,         // signed resource
-            "",                      // signed snapshot time
-            "",                      // signed encryption scope
-            "",                      // rscc
-            "",                      // rscd
-            "",                      // rsce
-            "",                      // rscl
-            "",                      // rsct
+            permissions,                  // signed permissions
+            &signed_start,                // signed start
+            &signed_expiry,               // signed expiry
+            &canonicalized_resource,      // canonicalized resource
+            "",                           // signed identifier
+            "",                           // signed IP
+            signed_protocol,              // signed protocol
+            AZURE_STORAGE_VERSION,        // signed version
+            signed_resource,              // signed resource
+            "",                           // signed snapshot time
+            "",                           // signed encryption scope
+            response_cache_control,       // rscc
+            response_content_disposition, // rscd
+            "",                           // rsce
+            "",                           // rscl
+            response_content_type,        // rsct
         ]
         .join("\n");
         let signature = hmac_sha256(&string_to_sign, &Secret::new(self.account_key.clone()))
-            .map_err(|error| {
-                storage_driver_error(
-                    StorageErrorKind::Auth,
-                    format!("sign Azure Blob SAS failed: {error}"),
-                )
+            .map_err(|_| {
+                storage_driver_error(StorageErrorKind::Auth, "sign Azure Blob SAS failed")
             })?;
 
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());
@@ -437,6 +495,15 @@ impl AzureBlobDriver {
             .append_pair("sr", signed_resource)
             .append_pair("sp", permissions)
             .append_pair("sig", &signature);
+        for (name, value) in [
+            ("rscc", &options.response_cache_control),
+            ("rscd", &options.response_content_disposition),
+            ("rsct", &options.response_content_type),
+        ] {
+            if let Some(value) = value {
+                serializer.append_pair(name, value);
+            }
+        }
         Ok(serializer.finish())
     }
 
@@ -462,6 +529,10 @@ impl AzureBlobDriver {
             ),
         )
     }
+}
+
+fn is_static_website_host(host: &str) -> bool {
+    host.contains(".web.core.")
 }
 
 fn percent_encode_path_segment(value: &str) -> String {
@@ -491,6 +562,8 @@ mod tests {
             container: " photos ".to_string(),
             base_path: "base path".to_string(),
             chunk_size: 1,
+            download_delivery: Default::default(),
+            download_base_url: None,
         }
     }
 

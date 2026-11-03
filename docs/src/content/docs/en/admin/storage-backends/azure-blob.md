@@ -348,3 +348,24 @@ Do not directly change endpoint, container, or base path. Those fields determine
 - Large-file multipart upload works
 - Production uses an HTTPS endpoint
 - Azure storage capacity, request count, and egress cost boundaries are understood
+
+## Private downloads through Front Door Standard/Premium
+
+Choose `presigned` downloads, `front_door_client_sas` delivery and an independent `download_base_url`, e.g. `https://files.example.com`. Existing policies default to `blob_origin`. The supported contract is client service SAS, unchanged path/query and **caching disabled** on Front Door Standard/Premium. Rules-engine origin SAS injection, anonymous delivery, static website endpoints and legacy Azure CDN products are unsupported.
+
+Configure Azure as follows:
+
+1. Set Origin host name and Origin host header to the Blob service hostname. Leave Origin path empty and disable path rewrites. Requests use `/container/base_path/blob`; do not include the container or prefix in the download URL.
+2. Require HTTPS with valid certificates on both client-to-edge and edge-to-Blob connections. Do not redirect origin requests to other hosts.
+3. Forward the complete SAS query unchanged, including `sig`, `se`, `sp`, `rscc`, `rscd` and `rsct`. Do not inject an origin SAS or remove/override query parameters.
+4. **Disable caching on the download route and Rules Engine; preserve Cache-Control.** AsterDrive signs `rscc=private, no-store`. Including query strings in a cache key alone does not enforce expiration on cache hits, so cache-hit delivery is unsupported. Purge existing cached objects first.
+5. Keep the container private. Premium can isolate the Blob origin using Private Link; Standard requires client SAS and appropriate network restrictions. Private Link is not end-user authorization. AsterDrive still needs independent Blob API connectivity, including private DNS/network/firewall configuration where applicable.
+6. For cross-origin browser access, configure Blob CORS for the application origin, GET/HEAD/OPTIONS and Range, exposing Content-Disposition, Content-Type, Content-Length, Content-Range, Accept-Ranges and ETag. Forward OPTIONS, Origin and preflight headers through Front Door and preserve CORS responses.
+
+Only browser download delivery changes. Backend reads/writes, uploads, multipart, listing, copying, cleanup and connection tests keep using the Blob Endpoint. A successful connection test does not validate Front Door DNS, TLS, CORS or cache rules. Delivery errors never cause a fallback to an anonymous URL.
+
+After the existing permission checks, AsterDrive issues a read-only single-blob SAS. Product download links currently expire after five minutes. Filename, content type and no-store response overrides are signed. GET, HEAD and Range share read authorization. An issued URL remains a bearer credential until expiry: revoking a share does not immediately invalidate it. Emergency revocation requires Azure key rotation or access rules with their broader impact considered. Redact SAS query strings in edge/origin logs and monitoring; do not paste signed URLs into tickets.
+
+Before production use, verify a real private container and Front Door domain: valid GET/HEAD/Range, Unicode filenames and CORS OPTIONS; reject absent, tampered and expired SAS. Repeat a previously successful URL after expiry and verify rejection. Confirm CONFIG_NOCACHE or PRIVATE_NOSTORE rather than HIT, check 403/404 handling without credential leaks, and confirm upload/cleanup still target Blob. Local signature, API, request-capture and browser tests do not replace cloud validation when no Azure account is available.
+
+Official references: [Storage scenario](https://learn.microsoft.com/en-us/azure/frontdoor/scenario-storage-blobs), [integration](https://learn.microsoft.com/en-us/azure/frontdoor/integrate-storage-account), [Front Door caching](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-caching), [service SAS](https://learn.microsoft.com/en-us/rest/api/storageservices/create-service-sas).

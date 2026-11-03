@@ -449,6 +449,74 @@ fn azure_blob_connection_json(endpoint: impl Into<String>, container: impl Into<
 }
 
 #[actix_web::test]
+async fn test_azure_front_door_config_create_read_edit_and_legacy_defaults() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    let mut connection =
+        azure_blob_connection_json("https://acct.blob.core.windows.net", "archive");
+    connection["credential"]["values"]["azure_blob_account_key"] = serde_json::json!("c2VjcmV0");
+    let req = test::TestRequest::post().uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"Azure Front Door", "connection":connection, "max_file_size":0, "chunk_size":8388608})).to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["download_delivery"],
+        "blob_origin"
+    );
+    let id = body["data"]["id"].as_i64().unwrap();
+    let mut config = body["data"]["connector_config"].clone();
+    config["values"]["download_delivery"] = serde_json::json!("front_door_client_sas");
+    config["values"]["download_base_url"] = serde_json::json!(" https://files.example.com/ ");
+    config["values"]["object_storage_download_strategy"] = serde_json::json!("presigned");
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"connector_config":config}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/admin/policies/{id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["download_base_url"],
+        "https://files.example.com"
+    );
+    assert_eq!(
+        body["data"]["connector_config"]["values"]["endpoint"],
+        "https://acct.blob.core.windows.net"
+    );
+    assert!(!body["data"].to_string().contains("c2VjcmV0"));
+    for url in [
+        "https://files.example.com?sig=DO_NOT_ECHO",
+        "https://user:DO_NOT_ECHO@files.example.com",
+        "https://files.example.com/prefix",
+        "https://files.example.com\n",
+    ] {
+        config["values"]["download_base_url"] = serde_json::json!(url);
+        let req = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/policies/{id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"connector_config":config}))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+        let body: Value = test::read_body_json(resp).await;
+        assert!(!body.to_string().contains("DO_NOT_ECHO"));
+    }
+}
+
+#[actix_web::test]
 async fn test_policy_input_rejects_invalid_and_unavailable_connectors_as_bad_requests() {
     let state = common::setup().await;
     let app = create_test_app!(state);

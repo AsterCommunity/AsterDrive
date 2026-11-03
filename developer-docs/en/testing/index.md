@@ -143,6 +143,24 @@ If you suspect the test did not switch backends as expected, check these three t
 2. Is `ASTER_TEST_DATABASE_BACKEND` exported in the shell?
 3. Is Docker available locally, and can the corresponding image start successfully?
 
+## Azure Blob integration tests
+
+`tests/storage/azure_blob.rs` starts Azurite 3.35.0 through Docker by default; no Azure account is needed. Without Docker, start a disposable local Blob emulator through npm:
+
+```bash
+npx --yes --package=azurite@3.35.0 azurite-blob --blobHost 127.0.0.1 --blobPort 10000 --inMemoryPersistence
+```
+
+Keep it running, set `ASTER_TEST_AZURITE_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1` in another terminal, then run:
+
+```bash
+cargo nextest run --profile ci --test storage azure_blob::
+```
+
+In PowerShell, set the variable with `$env:ASTER_TEST_AZURITE_ENDPOINT='http://127.0.0.1:10000/devstoreaccount1'`. Only HTTP loopback IP addresses and the default development account path are accepted. Tests use the public Azurite development key and create an isolated container per test. Without nextest, use `cargo test --test storage azure_blob:: -- --test-threads=1`. Never point this at product data.
+
+Coverage includes Blob operations, upload boundaries, SAS response-header signatures, read-only permissions, tampering and expiry rejection. Azurite does not cover Front Door DNS, TLS, CORS, Private Link or caching and cannot replace real-provider acceptance.
+
 ## SFTP Integration Tests
 
 The SFTP driver has a dedicated integration test:

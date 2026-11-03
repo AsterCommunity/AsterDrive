@@ -982,6 +982,101 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn azure_front_door_handles_keep_authorization_filename_and_expiry() {
+        use crate::storage::drivers::azure_blob::{
+            AzureBlobDownloadDelivery, AzureBlobDriver, AzureBlobDriverConfig,
+            AzureBlobStaticCredentials,
+        };
+        let driver = AzureBlobDriver::new(
+            AzureBlobDriverConfig {
+                endpoint: "https://account.blob.core.windows.net".into(),
+                container: "archive".into(),
+                base_path: "tenant".into(),
+                chunk_size: 0,
+                download_delivery: AzureBlobDownloadDelivery::FrontDoorClientSas,
+                download_base_url: Some("https://files.example.com".into()),
+            },
+            AzureBlobStaticCredentials {
+                account_name: "account".into(),
+                account_key: "c2VjcmV0".into(),
+            },
+        )
+        .unwrap();
+        let policy = crate::storage::connectors::test_support::policy(
+            "asterdrive.storage.azure_blob",
+            1,
+            serde_json::json!({"endpoint":"https://account.blob.core.windows.net", "bucket":"archive", "base_path":"tenant", "download_delivery":"front_door_client_sas", "download_base_url":"https://files.example.com", "object_storage_upload_strategy":"relay_stream", "object_storage_download_strategy":"presigned"}),
+            Default::default(),
+        );
+        let (state, file, _) =
+            build_resource_handle_state(driver, Some(policy), "中文 report.png", "image/png").await;
+        let scope = WorkspaceStorageScope::Personal {
+            user_id: file.owner_user_id.unwrap(),
+        };
+        for purpose in [
+            FileResourcePurpose::Preview,
+            FileResourcePurpose::Download,
+            FileResourcePurpose::ExternalViewer,
+        ] {
+            let handle = resolve_file_resource_handle(
+                &state,
+                scope,
+                file.id,
+                paths(),
+                &request(
+                    purpose,
+                    FileResourceDeliveryMode::DirectUrl,
+                    FileResourceRepresentation::Original,
+                ),
+            )
+            .await
+            .unwrap();
+            let url = url::Url::parse(&handle.request.url).unwrap();
+            assert_eq!(url.host_str(), Some("files.example.com"));
+            assert_eq!(url.path(), "/archive/tenant/objects/resource%2Ebin");
+            let query = query_pairs(&handle.request.url);
+            assert_eq!(query["rscc"], "private, no-store");
+            assert_eq!(query["rsct"], "image/png");
+            assert!(query["rscd"].contains("filename*="));
+            assert_eq!(
+                query["rscd"].starts_with("attachment"),
+                purpose == FileResourcePurpose::Download
+            );
+            assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+            assert_eq!(
+                handle.request.conditional_headers,
+                FileResourceConditionalHeaders::Forbidden
+            );
+            assert_eq!(handle.identity.cache_key, paths().download);
+            assert_eq!(
+                handle
+                    .lifecycle
+                    .unwrap()
+                    .expires_at
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                query["se"]
+            );
+        }
+        assert!(
+            resolve_file_resource_handle(
+                &state,
+                WorkspaceStorageScope::Personal {
+                    user_id: file.owner_user_id.unwrap() + 1000
+                },
+                file.id,
+                paths(),
+                &request(
+                    FileResourcePurpose::Download,
+                    FileResourceDeliveryMode::DirectUrl,
+                    FileResourceRepresentation::Original
+                )
+            )
+            .await
+            .is_err()
+        );
+    }
+
     #[test]
     fn with_download_query_preserves_existing_query_and_fragment() {
         assert_eq!(

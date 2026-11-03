@@ -195,8 +195,8 @@
       "documentation": {
         "tutorial_slug": "azure-blob",
         "best_for": {
-          "en": "Azure Storage accounts and Blob containers",
-          "zh": "Azure Storage account 和 Blob container"
+          "en": "Azure Blob containers with native SAS and optional Front Door Standard/Premium delivery",
+          "zh": "Azure Blob 容器、原生 SAS 和可选 Front Door Standard/Premium 下载"
         }
       },
       "deployment_scope": "shared_across_primary_instances",
@@ -207,7 +207,7 @@
         "capacity": false,
         "list": true,
         "presigned_download": true,
-        "custom_download_base_url": false,
+        "custom_download_base_url": true,
         "storage_native_thumbnail": false,
         "storage_native_media_metadata": false,
         "remote_node_binding": false,

@@ -65,14 +65,16 @@ impl MigrationTrait for Migration {
         create_shares(manager).await?;
         create_contact_verification_tokens(manager).await?;
         create_mail_outbox(manager).await?;
-        create_background_tasks(manager).await?;
+        // These schema builders have large async states. Keep them out of
+        // the baseline poll frame on the default 1 MiB Windows main stack.
+        Box::pin(create_background_tasks(manager)).await?;
         create_wopi_sessions(manager).await?;
         create_user_profiles(manager).await?;
         create_auth_sessions(manager).await?;
         create_follower_enrollment_sessions(manager).await?;
         create_master_bindings(manager).await?;
         create_managed_ingress_profiles(manager).await?;
-        create_secondary_indexes(manager).await?;
+        Box::pin(create_secondary_indexes(manager)).await?;
         create_search_acceleration(manager).await?;
 
         Ok(())
@@ -2057,7 +2059,7 @@ async fn create_managed_ingress_profiles(manager: &SchemaManager<'_>) -> Result<
 }
 
 async fn create_secondary_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    create_simple_indexes(manager).await?;
+    Box::pin(create_simple_indexes(manager)).await?;
     create_mysql_prefix_indexes(manager).await?;
     create_live_name_unique_indexes(manager).await?;
     create_contact_verification_single_active_index(manager).await

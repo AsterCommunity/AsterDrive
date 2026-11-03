@@ -144,6 +144,24 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo nextest run --profile database --test op
 2. shell 里是否真的导出了 `ASTER_TEST_DATABASE_BACKEND`
 3. 本机 Docker 是否可用，以及对应镜像能否拉起
 
+## Azure Blob 集成测试
+
+`tests/storage/azure_blob.rs` 默认通过 Docker 启动 Azurite 3.35.0，不需要 Azure 账号。没有 Docker 时，也可通过 npm 启动一次性的本机 Blob 模拟器：
+
+```bash
+npx --yes --package=azurite@3.35.0 azurite-blob --blobHost 127.0.0.1 --blobPort 10000 --inMemoryPersistence
+```
+
+保持模拟器运行，在另一个终端设置 `ASTER_TEST_AZURITE_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1` 后执行：
+
+```bash
+cargo nextest run --profile ci --test storage azure_blob::
+```
+
+PowerShell 使用 `$env:ASTER_TEST_AZURITE_ENDPOINT='http://127.0.0.1:10000/devstoreaccount1'` 设置环境变量。地址仅允许 HTTP 回环 IP 和默认开发账号路径；测试使用公开的 Azurite 开发密钥，每个用例创建独立 container。未安装 nextest 时可用 `cargo test --test storage azure_blob:: -- --test-threads=1`。不要指向产品数据。
+
+用例覆盖普通 Blob 操作、上传边界及 SAS 的响应头签名、只读权限、篡改和过期拒绝。模拟器不覆盖 Front Door 的 DNS、TLS、CORS、Private Link 或缓存配置，不能替代真实云端验收。
+
 ## SFTP 集成测试
 
 SFTP 驱动有单独的集成测试：

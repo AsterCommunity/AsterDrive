@@ -106,8 +106,8 @@ const PRESENTATIONS: &[ConnectorDocumentationPresentation] = &[
     ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.azure_blob",
         tutorial_slug: "azure-blob",
-        best_for_en: "Azure Storage accounts and Blob containers",
-        best_for_zh: "Azure Storage account 和 Blob container",
+        best_for_en: "Azure Blob containers with native SAS and optional Front Door Standard/Premium delivery",
+        best_for_zh: "Azure Blob 容器、原生 SAS 和可选 Front Door Standard/Premium 下载",
     },
     ConnectorDocumentationPresentation {
         connector_id: "asterdrive.storage.tencent_cos",

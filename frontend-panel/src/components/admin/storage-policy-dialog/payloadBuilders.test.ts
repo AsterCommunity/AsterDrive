@@ -73,6 +73,42 @@ function form(overrides: Partial<PolicyFormData> = {}): PolicyFormData {
 }
 
 describe("storage policy payload builders", () => {
+	it("preserves independent Azure Front Door settings in create, edit and connection tests", () => {
+		const schema = {
+			...descriptor(),
+			connector_id: "asterdrive.storage.azure_blob",
+			config_schema_version: 1,
+			fields: [
+				field("endpoint", "connector_config"),
+				field("download_delivery", "connector_config", {
+					kind: "select",
+					default_value: "blob_origin",
+				}),
+				field("download_base_url", "connector_config", { trim_on_blur: true }),
+			],
+		} as StorageConnectorDescriptor;
+		const input = form({
+			connector_id: schema.connector_id,
+			credential_values: {},
+			connector_config_values: {
+				endpoint: "https://account.blob.core.windows.net",
+				download_delivery: "front_door_client_sas",
+				download_base_url: " https://files.example.com ",
+			},
+		});
+		for (const values of [
+			buildCreatePolicyPayload(input, schema).connection.connector_config
+				.values,
+			buildUpdatePolicyPayload(input, schema).connector_config.values,
+			buildPolicyTestPayload(input, schema).connection.connector_config.values,
+		]) {
+			expect(values).toEqual({
+				endpoint: "https://account.blob.core.windows.net",
+				download_delivery: "front_door_client_sas",
+				download_base_url: "https://files.example.com",
+			});
+		}
+	});
 	it("preserves COS CNAME mode and its endpoint across create, edit, and connection tests", () => {
 		const schema = {
 			...descriptor(),

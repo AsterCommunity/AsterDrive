@@ -3,7 +3,8 @@ use async_trait::async_trait;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
 use crate::storage::drivers::azure_blob::{
-    AzureBlobConfigError, AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials,
+    AzureBlobConfigError, AzureBlobDownloadDelivery, AzureBlobDriver, AzureBlobDriverConfig,
+    AzureBlobStaticCredentials,
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
@@ -24,6 +25,8 @@ use super::{
 };
 
 mod localization;
+#[cfg(test)]
+mod tests;
 
 pub struct AzureBlobConnector;
 
@@ -54,6 +57,38 @@ aster_drive_storage::storage_connector_schema! {
             );
             field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field
+        },
+        #[serde(default)]
+        pub download_delivery: AzureBlobDownloadDelivery => {
+            let mut field = aster_drive_storage::storage_connector_select_field(
+                "download_delivery", StorageConnectorFieldScope::ConnectorConfig, true,
+                vec![
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "blob_origin", label_key: "azure_blob_download_origin", description_key: None },
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "front_door_client_sas", label_key: "azure_blob_download_front_door", description_key: None },
+                ],
+            );
+            field.label_key = "azure_blob_download_delivery".into();
+            field.help_key = Some("azure_blob_download_delivery_hint".into());
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("blob_origin".into()));
+            field
+        },
+        #[serde(default)]
+        pub download_base_url: Option<String> => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+                label_key: "azure_blob_download_base_url", placeholder: Some("https://files.example.com"),
+                help_key: Some("azure_blob_download_base_url_hint"), required_message_key: None,
+                invalid_protocol_message_key: Some("azure_blob_download_protocol_error"), allowed_endpoint_protocols: vec!["https:"],
+                allow_endpoint_without_protocol: false, trim_on_blur: true,
+            });
+            field.required_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("front_door_client_sas".into()),
+                negate: false,
+            }];
+            field.visible_when = field.required_when.clone();
             field
         },
         pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
@@ -94,6 +129,8 @@ impl AzureBlobConnector {
             container: config.bucket,
             base_path: config.base_path,
             chunk_size,
+            download_delivery: config.download_delivery,
+            download_base_url: config.download_base_url,
         }
     }
 
@@ -107,31 +144,34 @@ impl AzureBlobConnector {
 
 impl AzureBlobConnector {
     fn descriptor_definition() -> StorageConnectorDescriptor {
-        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
-            label: "Azure Blob Storage",
-            description: "Azure Blob block blob storage policy",
-            ui: StorageConnectorUiDescriptorInput {
-                label_key: "driver_type_azure_blob",
-                description_key: "policy_wizard_azure_blob_storage_desc",
-                badge_rgb: StorageConnectorBadgeRgb::new(14, 165, 233),
-                helper_key: "policy_wizard_azure_blob_helper",
-                config_step_title_key: "policy_wizard_step_connection_title",
-                config_step_description_key: "policy_wizard_step_azure_blob_connection_desc",
-                edit_context_key: "policy_edit_context_azure_blob_desc",
-                base_path_empty_display: "core:root",
-                base_path_placeholder: "tenant/prefix",
-            },
-            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-            supports_initial_setup: true,
-            credential_mode: AzureBlobConnectorConfigV1::credential_mode(),
-            fields: AzureBlobConnectorConfigV1::descriptor_fields(),
-            presigned_part_etag_required: false,
-            storage_native_processing: false,
-            config_schema_version: 1,
-            credential_schema_version: Some(1),
-            related_issues: vec![328, 329],
-        })
+        let mut descriptor =
+            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
+                label: "Azure Blob Storage",
+                description: "Azure Blob block blob storage policy",
+                ui: StorageConnectorUiDescriptorInput {
+                    label_key: "driver_type_azure_blob",
+                    description_key: "policy_wizard_azure_blob_storage_desc",
+                    badge_rgb: StorageConnectorBadgeRgb::new(14, 165, 233),
+                    helper_key: "policy_wizard_azure_blob_helper",
+                    config_step_title_key: "policy_wizard_step_connection_title",
+                    config_step_description_key: "policy_wizard_step_azure_blob_connection_desc",
+                    edit_context_key: "policy_edit_context_azure_blob_desc",
+                    base_path_empty_display: "core:root",
+                    base_path_placeholder: "tenant/prefix",
+                },
+                deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+                supports_initial_setup: true,
+                credential_mode: AzureBlobConnectorConfigV1::credential_mode(),
+                fields: AzureBlobConnectorConfigV1::descriptor_fields(),
+                presigned_part_etag_required: false,
+                storage_native_processing: false,
+                config_schema_version: 1,
+                credential_schema_version: Some(1),
+                related_issues: vec![328, 329, 689],
+            });
+        descriptor.capabilities.custom_download_base_url = true;
+        descriptor
     }
 }
 
@@ -162,6 +202,18 @@ impl StorageConnector for AzureBlobConnector {
         &self,
         input: &aster_drive_storage::ConnectorConfigEnvelope,
     ) -> Result<aster_drive_storage::ConnectorConfigEnvelope> {
+        for name in ["endpoint", "download_base_url"] {
+            if input
+                .values
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| value.chars().any(char::is_control))
+            {
+                return Err(crate::errors::AsterError::validation_error(format!(
+                    "provider option field '{name}' must not contain control characters"
+                )));
+            }
+        }
         let normalized =
             aster_drive_storage::connector_descriptor::normalize_storage_connector_config(
                 &self.descriptor(),
@@ -178,7 +230,7 @@ impl StorageConnector for AzureBlobConnector {
                             ApiErrorCode::PolicyStorageBucketRequired
                         }
                         AzureBlobConfigError::MissingEndpoint
-                        | AzureBlobConfigError::InvalidEndpoint(_) => {
+                        | AzureBlobConfigError::InvalidEndpoint => {
                             ApiErrorCode::PolicyStorageEndpointInvalid
                         }
                     };
@@ -186,6 +238,12 @@ impl StorageConnector for AzureBlobConnector {
                 })?;
         config.endpoint = connection.endpoint;
         config.bucket = connection.container;
+        config.download_base_url = config
+            .download_base_url
+            .filter(|url| !url.trim().is_empty())
+            .map(|url| url.trim().trim_end_matches('/').to_string());
+        AzureBlobDriver::validate_delivery_config(&Self::driver_config(0, config.clone()))
+            .map_err(|error| crate::errors::AsterError::validation_error(error.message()))?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,

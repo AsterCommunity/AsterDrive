@@ -9,6 +9,7 @@ These documents explain domain boundaries that cross routes, services, repositor
 
 ## Storage and remote nodes
 
+- [Azure Blob Front Door downloads](./azure-blob-front-door-download.md): client SAS, independent Blob API routing, disabled caching and cloud acceptance boundaries.
 - [Remote storage target and policy ownership](../../zh-CN/design/remote-storage-target-policy-ownership.md): remote node, storage target, and remote policy ownership. **Chinese source; translation pending.**
 - [Storage descriptor and field normalization](./storage-descriptor-normalization-contract.md): backend-authoritative fields, capabilities, and normalization rules.
 - [Object naming and OneDrive direct downloads](./storage-object-naming-and-onedrive-direct-download.md): object keys, provider paths, and direct-download boundaries.

@@ -17,7 +17,7 @@ The two-layer concept of storage policies and policy groups itself lives in [Sto
 | S3 | `asterdrive.storage.s3` | Shared across Primary instances | S3-compatible object storage, external buckets, and large files | [S3](/en/admin/storage-backends/s3/) |
 | Alibaba Cloud OSS | `asterdrive.storage.alibaba_oss` | Shared across Primary instances | Alibaba Cloud OSS with native V4 signing, split endpoints, or CNAME | [Alibaba Cloud OSS](/en/admin/storage-backends/alibaba-oss/) |
 | SFTP | `asterdrive.storage.sftp` | Shared across Primary instances | SSH/SFTP file servers and server-side streaming | [SFTP](/en/admin/storage-backends/sftp/) |
-| Azure Blob | `asterdrive.storage.azure_blob` | Shared across Primary instances | Azure Storage accounts and Blob containers | [Azure Blob](/en/admin/storage-backends/azure-blob/) |
+| Azure Blob | `asterdrive.storage.azure_blob` | Shared across Primary instances | Azure Blob containers with native SAS and optional Front Door Standard/Premium delivery | [Azure Blob](/en/admin/storage-backends/azure-blob/) |
 | Huawei Cloud OBS | `asterdrive.storage.huawei_obs` | Shared across Primary instances | Huawei Cloud OBS with native OBS signing and regional or custom-domain endpoints | [Huawei Cloud OBS](/en/admin/storage-backends/huawei-obs/) |
 | Tencent COS | `asterdrive.storage.tencent_cos` | Shared across Primary instances | Tencent COS and per-policy COS CI processing | [Tencent COS](/en/admin/storage-backends/tencent-cos/) |
 | Remote | `asterdrive.storage.remote` | Shared across Primary instances | Objects stored by another AsterDrive follower node | [Remote](/en/admin/storage-backends/remote-follower/) |
