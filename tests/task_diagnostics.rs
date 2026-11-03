@@ -22,7 +22,10 @@ async fn claim_diagnostics_distinguish_quota_from_empty_queue_and_keep_transacti
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .to_request();
-    let response = test::call_service(&app, request).await;
+    let logs = CapturedLogs::default();
+    let response = logs
+        .capture_future(async { test::call_service(&app, request).await })
+        .await;
     assert_eq!(response.status(), 200);
     let response: Value = test::read_body_json(response).await;
     let task_id = response["data"]["id"].as_i64().unwrap();
@@ -49,7 +52,6 @@ async fn claim_diagnostics_distinguish_quota_from_empty_queue_and_keep_transacti
         .reload(state.writer_db())
         .await
         .unwrap();
-    let logs = CapturedLogs::default();
     logs.capture_future(async {
         let blocked = task::dispatch_due(&state).await.unwrap();
         assert_eq!(blocked.claimed, 0);
@@ -88,6 +90,8 @@ async fn claim_diagnostics_distinguish_quota_from_empty_queue_and_keep_transacti
     .await;
     let text = logs.text();
     for field in [
+        "record_inserted",
+        "enqueue_committed",
         "operation=\"background_task_claim\"",
         "transaction_id=",
         "caller_file=",
