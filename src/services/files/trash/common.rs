@@ -169,7 +169,7 @@ pub(super) async fn purge_folder_tree_in_resource_scope(
     scope: WorkspaceResourceScope,
     folder_id: i64,
 ) -> Result<()> {
-    purge_folder_forest_in_resource_scope(state, scope, &[folder_id], true)
+    purge_folder_forest_in_resource_scope(state, scope, &[folder_id], true, None)
         .await
         .map(|_| ())
 }
@@ -179,7 +179,7 @@ pub(super) async fn purge_folder_forest_in_scope(
     scope: WorkspaceStorageScope,
     folder_ids: &[i64],
 ) -> Result<()> {
-    purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids, true)
+    purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids, true, None)
         .await
         .map(|_| ())
 }
@@ -188,8 +188,9 @@ pub(super) async fn purge_folder_forest_in_scope_silent(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     folder_ids: &[i64],
+    lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<FolderPurgeSummary> {
-    purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids, false).await
+    purge_folder_forest_in_resource_scope(state, scope.into(), folder_ids, false, lease).await
 }
 
 #[derive(Debug, Default)]
@@ -229,6 +230,7 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
     scope: WorkspaceResourceScope,
     folder_ids: &[i64],
     emit_storage_event: bool,
+    lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<FolderPurgeSummary> {
     if folder_ids.is_empty() {
         return Ok(FolderPurgeSummary::default());
@@ -259,11 +261,15 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
     let file_count = all_files.len();
     let folder_count = all_folder_ids.len();
     let file_summary =
-        file_ops::batch_purge_in_resource_scope_silent(state, scope, all_files).await?;
-    property_repo::delete_all_for_entities(state.writer_db(), EntityType::Folder, &all_folder_ids)
-        .await?;
-    let deleted_shares =
-        share_repo::delete_by_folder_ids(state.writer_db(), &all_folder_ids).await?;
+        file_ops::batch_purge_in_resource_scope_silent(state, scope, all_files, lease).await?;
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    if let Some(lease) = lease {
+        super::coordination::fence_purge_on(&txn, scope, lease).await?;
+    }
+    property_repo::delete_all_for_entities(&txn, EntityType::Folder, &all_folder_ids).await?;
+    let deleted_shares = share_repo::delete_by_folder_ids(&txn, &all_folder_ids).await?;
+    folder_repo::delete_many(&txn, &all_folder_ids).await?;
+    aster_forge_db::transaction::commit(txn).await?;
     if deleted_shares > 0 {
         crate::services::share::invalidate_active_share_target_cache_for_resource_scope(
             state, scope,
@@ -272,7 +278,6 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
         crate::services::share::invalidate_all_share_token_record_cache(state).await;
     }
     crate::services::files::folder::invalidate_folder_path_chains(state, &all_folder_ids).await;
-    folder_repo::delete_many(state.writer_db(), &all_folder_ids).await?;
     if emit_storage_event {
         storage_change::publish(
             state,

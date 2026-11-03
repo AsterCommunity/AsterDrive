@@ -86,6 +86,7 @@ pub async fn list_trash(
     responses(
         (status = 200, description = "Restored"),
         (status = 202, description = "Folder restore queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
     ),
@@ -274,6 +275,7 @@ pub(crate) async fn team_list_trash(
     responses(
         (status = 200, description = "Restored"),
         (status = 202, description = "Team folder restore queued", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),

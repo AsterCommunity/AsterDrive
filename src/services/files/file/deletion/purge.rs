@@ -61,7 +61,7 @@ pub(crate) async fn batch_purge_in_resource_scope(
     files: Vec<file::Model>,
 ) -> Result<u32> {
     Ok(
-        batch_purge_in_resource_scope_internal(state, scope, files, true)
+        batch_purge_in_resource_scope_internal(state, scope, files, true, None)
             .await?
             .purged,
     )
@@ -71,8 +71,9 @@ pub(crate) async fn batch_purge_in_resource_scope_silent(
     state: &PrimaryAppState,
     scope: WorkspaceResourceScope,
     files: Vec<file::Model>,
+    lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<BatchPurgeSummary> {
-    batch_purge_in_resource_scope_internal(state, scope, files, false).await
+    batch_purge_in_resource_scope_internal(state, scope, files, false, lease).await
 }
 
 async fn batch_purge_in_resource_scope_internal(
@@ -80,6 +81,7 @@ async fn batch_purge_in_resource_scope_internal(
     scope: WorkspaceResourceScope,
     files: Vec<file::Model>,
     emit_storage_event: bool,
+    lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<BatchPurgeSummary> {
     if files.is_empty() {
         return Ok(BatchPurgeSummary::default());
@@ -101,6 +103,9 @@ async fn batch_purge_in_resource_scope_internal(
     let count = usize_to_u32(files.len(), "purged file count")?;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    if let Some(lease) = lease {
+        crate::services::files::trash::coordination::fence_purge_on(&txn, scope, lease).await?;
+    }
     storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
 
     let revision_refs = revision_repo::retire_histories(&txn, &file_ids).await?;

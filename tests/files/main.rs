@@ -18,6 +18,7 @@ mod services;
 mod tags;
 mod thumbnail;
 mod trash;
+mod trash_coordination;
 mod upload;
 
 mod activities;

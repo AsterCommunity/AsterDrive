@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trash restore concurrency** — Personal and team restores return `409 trash.purge_in_progress` while an empty-trash task is queued, running, retrying, or awaiting cancellation. Database coordination also covers queued folder restores and fences stale purge workers after lease takeover; terminal tasks release the restriction automatically. Restore failures display their specific reason, and queued folder restores explicitly receive accepted task data and display task creation separately from completed restores. (#704)
+
 - **Database migration preflight** — Empty legacy storage credential/application tables are accepted without being copied. Nonempty legacy tables and static credentials produce the dedicated upgrade guidance; unknown tables remain rejected.
 
 ## [v0.7.0] - 2026-11-01

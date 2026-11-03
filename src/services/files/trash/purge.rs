@@ -72,7 +72,7 @@ pub(crate) async fn purge_all_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
 ) -> Result<u32> {
-    let summary = purge_all_in_scope_silent(state, scope).await?;
+    let summary = purge_all_in_scope_silent(state, scope, None).await?;
     publish_purge_all_storage_change(state, scope, &summary);
     Ok(summary.purged)
 }
@@ -98,6 +98,7 @@ impl PurgeAllSummary {
 pub(crate) async fn purge_all_in_scope_silent(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
+    lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<PurgeAllSummary> {
     tracing::debug!(scope = ?scope, "purging all trash contents");
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
@@ -133,15 +134,24 @@ pub(crate) async fn purge_all_in_scope_silent(
             .last()
             .and_then(|folder| folder.deleted_at.map(|deleted_at| (deleted_at, folder.id)));
         let folder_ids: Vec<i64> = top_folders.into_iter().map(|folder| folder.id).collect();
-        match purge_folder_forest_in_scope_silent(state, scope, &folder_ids).await {
+        match purge_folder_forest_in_scope_silent(state, scope, &folder_ids, lease).await {
             Ok(folder_summary) => summary.add_folder_summary(folder_summary),
             Err(error) => {
+                if matches!(
+                    error.api_error_code(),
+                    crate::api::api_error_code::ApiErrorCode::TaskLeaseLost
+                        | crate::api::api_error_code::ApiErrorCode::TaskCancellationRequested
+                ) {
+                    return Err(error);
+                }
                 tracing::warn!(
                     folder_ids = ?folder_ids,
                     "batch purge top-level folders failed, falling back to per-folder purge: {error}"
                 );
                 for folder_id in folder_ids {
-                    match purge_folder_forest_in_scope_silent(state, scope, &[folder_id]).await {
+                    match purge_folder_forest_in_scope_silent(state, scope, &[folder_id], lease)
+                        .await
+                    {
                         Ok(folder_summary) => summary.add_folder_summary(folder_summary),
                         Err(error) => return Err(error),
                     }
@@ -179,7 +189,9 @@ pub(crate) async fn purge_all_in_scope_silent(
         let next_file_cursor = top_files
             .last()
             .and_then(|file| file.deleted_at.map(|deleted_at| (deleted_at, file.id)));
-        match file::batch_purge_in_resource_scope_silent(state, scope.into(), top_files).await {
+        match file::batch_purge_in_resource_scope_silent(state, scope.into(), top_files, lease)
+            .await
+        {
             Ok(file_summary) => {
                 summary.add_file_summary(file_summary);
                 file_cursor = next_file_cursor;

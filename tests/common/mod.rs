@@ -1706,6 +1706,38 @@ async fn setup_with_database_url_and_pool_size(
     }
 }
 
+/// Drive the worker until one task reaches a terminal state, retaining all dispatch counters.
+/// A single empty dispatch is not an idle proof: SKIP LOCKED may miss a due task while
+/// another lane or a just-finished request is releasing its transaction.
+pub async fn drain_task_to_terminal(
+    state: &PrimaryAppState,
+    task_id: i64,
+) -> aster_forge_tasks::DispatchStats {
+    let mut total = aster_forge_tasks::DispatchStats::default();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        total.add(
+            aster_drive::services::task::drain(state)
+                .await
+                .expect("task dispatch should succeed"),
+        );
+        let task = aster_drive::db::repository::background_task_repo::find_by_id(
+            state.writer_db(),
+            task_id,
+        )
+        .await
+        .expect("drained task should remain observable");
+        if task.status.is_terminal() {
+            return total;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "task did not terminate: {task:?}, dispatch: {total:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
 pub async fn flush_mail_outbox(state: &PrimaryAppState) {
     flush_mail_outbox_with(state.writer_db(), &state.runtime_config, &state.mail_sender).await;
 }

@@ -16,10 +16,7 @@ use crate::services::{
 };
 use aster_drive_model::entities::{file, folder};
 
-use super::common::{
-    parent_restore_target_unavailable, verify_file_in_trash_in_scope,
-    verify_folder_in_trash_in_scope,
-};
+use super::common::parent_restore_target_unavailable;
 
 async fn restore_file_in_scope(
     state: &impl StorageChangeRuntimeState,
@@ -27,19 +24,27 @@ async fn restore_file_in_scope(
     id: i64,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "restoring file from trash");
-    let file = verify_file_in_trash_in_scope(state, scope, id).await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    super::coordination::admit_restore_on(&txn, scope).await?;
+    let file = file_repo::find_by_id(&txn, id).await?;
+    storage::ensure_file_scope(&file, scope)?;
+    if file.deleted_at.is_none() {
+        return Err(crate::errors::AsterError::validation_error(
+            "file is not in trash",
+        ));
+    }
     let mut restored_parent_id = file.folder_id;
     let mut restore_to_root = false;
 
     if let Some(folder_id) = file.folder_id {
-        let parent = folder_repo::find_by_id(state.writer_db(), folder_id).await;
+        let parent = folder_repo::find_by_id(&txn, folder_id).await;
         if parent_restore_target_unavailable(&parent, scope)? {
             restored_parent_id = None;
             restore_to_root = true;
         }
     }
 
-    let txn = transaction::begin(state.writer_db()).await?;
     let current = file_repo::lock_by_id(&txn, id).await?;
     storage::ensure_file_scope(&current, scope)?;
     if current.deleted_at.is_none() {
@@ -99,28 +104,30 @@ async fn restore_folder_in_scope(
     traversal_limits: Option<folder_ops::FolderTreeTraversalLimits>,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id = id, "restoring folder from trash");
-    let folder = verify_folder_in_trash_in_scope(state, scope, id).await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    super::coordination::admit_restore_on(&txn, scope).await?;
+    let folder = folder_repo::find_by_id(&txn, id).await?;
+    storage::ensure_folder_scope(&folder, scope)?;
+    if folder.deleted_at.is_none() {
+        return Err(crate::errors::AsterError::validation_error(
+            "folder is not in trash",
+        ));
+    }
     let mut restored_parent_id = folder.parent_id;
     let mut restore_to_root = false;
-    let (files, folder_ids) = folder_ops::collect_folder_tree_in_scope(
-        state.writer_db(),
-        scope,
-        id,
-        true,
-        traversal_limits,
-    )
-    .await?;
+    let (files, folder_ids) =
+        folder_ops::collect_folder_tree_in_scope(&txn, scope, id, true, traversal_limits).await?;
     let child_folder_ids: Vec<i64> = folder_ids.into_iter().filter(|&fid| fid != id).collect();
 
     if let Some(parent_id) = folder.parent_id {
-        let parent = folder_repo::find_by_id(state.writer_db(), parent_id).await;
+        let parent = folder_repo::find_by_id(&txn, parent_id).await;
         if parent_restore_target_unavailable(&parent, scope)? {
             restore_to_root = true;
             restored_parent_id = None;
         }
     }
 
-    let txn = transaction::begin(state.writer_db()).await?;
     let root_before = folder.clone();
     let mut active: folder::ActiveModel = folder.into();
     let folder_name = active.name.clone().take().unwrap_or_default();

@@ -9,6 +9,7 @@
 	"precondition_failed": "The request precondition failed. Refresh and try again",
 	"master_binding_disabled": "The master binding is disabled. Check the remote node configuration",
 	"folder_not_found": "The folder does not exist or has been removed",
+	"trash_purge_in_progress": "Trash is being emptied. Wait for the task to finish before restoring items",
 	"folder_name_conflict": "A folder with the same name already exists here",
 	"lock_not_owner": "Only the lock owner or resource owner can perform this action",
 	"share_scope_denied": "This share does not allow access to that resource",

@@ -21,6 +21,47 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<background_t
         .ok_or_else(|| AsterError::record_not_found(format!("task #{id}")))
 }
 
+/// The caller must take the workspace namespace lock before this transaction's first
+/// consistent read, then hold it through admission and the product mutation/insert.
+/// This observes committed admissions even under MySQL REPEATABLE READ. Avoid locking
+/// task rows here: a rejected restore's asynchronous rollback can otherwise make the
+/// dispatcher's SKIP LOCKED claim skip the queued purge. Terminal transitions may race
+/// this read safely; activation/retry requires the same workspace lock.
+pub async fn find_active_by_kind_in_workspace<C: ConnectionTrait>(
+    db: &C,
+    kind: BackgroundTaskKind,
+    workspace_type: aster_drive_model::types::LockWorkspaceType,
+    workspace_id: i64,
+) -> Result<Option<background_task::Model>> {
+    use aster_drive_model::types::LockWorkspaceType;
+    let mut query = BackgroundTask::find()
+        .filter(background_task::Column::Kind.eq(kind))
+        .filter(background_task::Column::Status.is_in([
+            BackgroundTaskStatus::Pending,
+            BackgroundTaskStatus::Processing,
+            BackgroundTaskStatus::Retry,
+            BackgroundTaskStatus::Canceling,
+        ]));
+    query = match workspace_type {
+        LockWorkspaceType::Personal => query
+            .filter(background_task::Column::CreatorUserId.eq(workspace_id))
+            .filter(background_task::Column::TeamId.is_null()),
+        LockWorkspaceType::Team => query.filter(background_task::Column::TeamId.eq(workspace_id)),
+    };
+    query.one(db).await.map_err(AsterError::from)
+}
+
+pub async fn find_by_id_for_update<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<Option<background_task::Model>> {
+    BackgroundTask::find_by_id(id)
+        .lock_exclusive()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_by_dedupe_key<C: ConnectionTrait>(
     db: &C,
     dedupe_key: &str,
