@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { AdminNumberUnitInput } from "@/components/admin/AdminNumberUnitInput";
 import { useAdminSettingsCategoryContent } from "@/components/admin/settings/AdminSettingsCategoryContentContext";
 import {
@@ -132,6 +132,7 @@ function SettingDescriptionHelp({
 	label: string;
 }) {
 	const [open, setOpen] = useState(false);
+	const descriptionId = useId();
 
 	if (!description) {
 		return null;
@@ -142,6 +143,7 @@ function SettingDescriptionHelp({
 			<PopoverTrigger
 				type="button"
 				aria-label={label}
+				aria-describedby={descriptionId}
 				openOnHover
 				delay={0}
 				onFocus={(event) => {
@@ -154,13 +156,17 @@ function SettingDescriptionHelp({
 				<Icon name="Question" className="size-5" aria-hidden="true" />
 			</PopoverTrigger>
 			<PopoverContent
+				keepMounted
 				aria-label={label}
 				initialFocus={false}
 				side="top"
 				align="start"
 				className="w-fit max-w-[min(22rem,calc(100vw-2rem))]"
 			>
-				<PopoverDescription className="whitespace-normal break-words leading-5 text-popover-foreground">
+				<PopoverDescription
+					id={descriptionId}
+					className="whitespace-normal break-words leading-5 text-popover-foreground"
+				>
 					{description}
 				</PopoverDescription>
 			</PopoverContent>

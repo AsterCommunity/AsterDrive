@@ -15,6 +15,7 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
 
 function PopoverContent({
 	className,
+	keepMounted = false,
 	align = "center",
 	alignOffset = 0,
 	side = "bottom",
@@ -25,9 +26,10 @@ function PopoverContent({
 	Pick<
 		PopoverPrimitive.Positioner.Props,
 		"align" | "alignOffset" | "side" | "sideOffset"
-	>) {
+	> &
+	Pick<PopoverPrimitive.Portal.Props, "keepMounted">) {
 	return (
-		<PopoverPrimitive.Portal>
+		<PopoverPrimitive.Portal keepMounted={keepMounted}>
 			<PopoverPrimitive.Positioner
 				align={align}
 				alignOffset={alignOffset}
@@ -45,7 +47,6 @@ function PopoverContent({
 					{...props}
 				>
 					{children}
-					<PopoverPrimitive.Arrow className="z-(--z-popover) size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-[2px] border-border/70 border-r border-b bg-popover fill-popover data-[side=bottom]:top-1 data-[side=inline-end]:top-1/2! data-[side=inline-end]:-left-1 data-[side=inline-end]:-translate-y-1/2 data-[side=inline-start]:top-1/2! data-[side=inline-start]:-right-1 data-[side=inline-start]:-translate-y-1/2 data-[side=left]:top-1/2! data-[side=left]:-right-1 data-[side=left]:-translate-y-1/2 data-[side=right]:top-1/2! data-[side=right]:-left-1 data-[side=right]:-translate-y-1/2 data-[side=top]:-bottom-2.5" />
 				</PopoverPrimitive.Popup>
 			</PopoverPrimitive.Positioner>
 		</PopoverPrimitive.Portal>

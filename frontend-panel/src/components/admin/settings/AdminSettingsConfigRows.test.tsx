@@ -296,7 +296,7 @@ describe("AdminSettingsConfigRows", () => {
 
 		expect(
 			screen.queryByText("Used by public links and notification emails."),
-		).not.toBeInTheDocument();
+		).not.toBeVisible();
 
 		const trigger = screen.getByRole("button", {
 			name: "Show description for Public site URL",
@@ -340,16 +340,19 @@ describe("AdminSettingsConfigRows", () => {
 			name: "Show description for Public site URL",
 		});
 
+		expect(trigger).toHaveAccessibleDescription(config.description);
 		await user.tab();
 		expect(trigger).toHaveFocus();
 		expect(await screen.findByRole("dialog")).toHaveAccessibleDescription(
 			config.description,
 		);
 		expect(trigger).toHaveFocus();
+		expect(trigger).toHaveAccessibleDescription(config.description);
 
 		await user.keyboard("{Escape}");
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 		expect(trigger).toHaveFocus();
+		expect(trigger).toHaveAccessibleDescription(config.description);
 
 		await user.tab();
 		await user.tab({ shift: true });

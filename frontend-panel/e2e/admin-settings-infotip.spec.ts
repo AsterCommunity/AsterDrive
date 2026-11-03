@@ -26,11 +26,17 @@ test.describe("Admin settings description infotips", () => {
 		const popup = page.getByRole("dialog", {
 			name: "Show description for Public site URL",
 		});
+		await expect(trigger).toHaveAccessibleDescription(
+			PUBLIC_SITE_URL_DESCRIPTION,
+		);
 		await trigger.focus();
 		await page.keyboard.press("Shift+Tab");
 		await page.keyboard.press("Tab");
 
 		await expect(trigger).toBeFocused();
+		await expect(trigger).toHaveAccessibleDescription(
+			PUBLIC_SITE_URL_DESCRIPTION,
+		);
 		await expect(popup).toBeVisible();
 		await expect(popup).toHaveAccessibleDescription(
 			PUBLIC_SITE_URL_DESCRIPTION,
@@ -38,6 +44,9 @@ test.describe("Admin settings description infotips", () => {
 		await page.keyboard.press("Escape");
 		await expect(popup).toBeHidden();
 		await expect(trigger).toBeFocused();
+		await expect(trigger).toHaveAccessibleDescription(
+			PUBLIC_SITE_URL_DESCRIPTION,
+		);
 
 		await page.keyboard.press("Shift+Tab");
 		await page.keyboard.press("Tab");
