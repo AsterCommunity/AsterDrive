@@ -142,6 +142,24 @@ async fn original_handle(
             DownloadDisposition::Inline
         }
     };
+    // Keep both enums exhaustive so new variants require an explicit delivery decision.
+    let allow_provider_response_headers = match (request.purpose, request.delivery_mode) {
+        (
+            FileResourcePurpose::Preview | FileResourcePurpose::Download,
+            FileResourceDeliveryMode::BlobUrl,
+        ) => true,
+        (FileResourcePurpose::ExternalViewer, FileResourceDeliveryMode::BlobUrl) => false,
+        (
+            FileResourcePurpose::Preview
+            | FileResourcePurpose::Download
+            | FileResourcePurpose::ExternalViewer,
+            FileResourceDeliveryMode::Text
+            | FileResourceDeliveryMode::DirectUrl
+            | FileResourceDeliveryMode::MediaStream
+            | FileResourceDeliveryMode::IframeSession
+            | FileResourceDeliveryMode::Manifest,
+        ) => false,
+    };
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
     if let Some(direct) = super::download::resolve_download_delivery(
         state,
@@ -149,8 +167,7 @@ async fn original_handle(
         file,
         blob,
         disposition,
-        request.purpose != FileResourcePurpose::ExternalViewer
-            && request.delivery_mode == FileResourceDeliveryMode::BlobUrl,
+        allow_provider_response_headers,
     )
     .await?
     {
@@ -765,57 +782,64 @@ mod tests {
         let scope = WorkspaceStorageScope::Personal {
             user_id: file.owner_user_id.unwrap(),
         };
-        for (purpose, mode, cdn) in [
-            (
-                FileResourcePurpose::Preview,
-                FileResourceDeliveryMode::BlobUrl,
-                true,
-            ),
-            (
-                FileResourcePurpose::Preview,
-                FileResourceDeliveryMode::DirectUrl,
-                false,
-            ),
-            (
-                FileResourcePurpose::Download,
-                FileResourceDeliveryMode::BlobUrl,
-                true,
-            ),
-            (
-                FileResourcePurpose::Download,
-                FileResourceDeliveryMode::DirectUrl,
-                false,
-            ),
-            (
-                FileResourcePurpose::ExternalViewer,
-                FileResourceDeliveryMode::DirectUrl,
-                false,
-            ),
+        for (purpose, blob_cdn) in [
+            (FileResourcePurpose::Preview, true),
+            (FileResourcePurpose::Download, true),
+            (FileResourcePurpose::ExternalViewer, false),
         ] {
-            let handle = resolve_file_resource_handle(
-                &state,
-                scope,
-                file.id,
-                paths(),
-                &request(purpose, mode, FileResourceRepresentation::Original),
-            )
-            .await
-            .unwrap();
-            assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/png"));
-            if cdn {
-                let url = url::Url::parse(&handle.request.url).unwrap();
-                assert_eq!(url.path(), "/assets/tenant/objects/resource.bin");
-                assert_eq!(url.query_pairs().count(), 2);
-                assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
-                assert_eq!(
-                    handle.request.conditional_headers,
-                    FileResourceConditionalHeaders::Forbidden
-                );
-                assert!(handle.lifecycle.is_some());
-            } else {
-                assert!(handle.request.url.starts_with("/files/"));
-                assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
-                assert!(handle.lifecycle.is_none());
+            for mode in [
+                FileResourceDeliveryMode::BlobUrl,
+                FileResourceDeliveryMode::Text,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceDeliveryMode::MediaStream,
+                FileResourceDeliveryMode::IframeSession,
+                FileResourceDeliveryMode::Manifest,
+            ] {
+                let cdn = blob_cdn && mode == FileResourceDeliveryMode::BlobUrl;
+                let handle = resolve_file_resource_handle(
+                    &state,
+                    scope,
+                    file.id,
+                    paths(),
+                    &request(purpose, mode, FileResourceRepresentation::Original),
+                )
+                .await
+                .unwrap();
+                assert_eq!(handle.delivery.mode, mode);
+                assert_eq!(handle.delivery.mime_type.as_deref(), Some("image/png"));
+                if cdn {
+                    let url = url::Url::parse(&handle.request.url).unwrap();
+                    assert_eq!(url.host_str(), Some("cdn.example.test"));
+                    assert_eq!(url.path(), "/assets/tenant/objects/resource.bin");
+                    assert_eq!(url.query_pairs().count(), 2);
+                    assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+                    assert_eq!(
+                        handle.request.conditional_headers,
+                        FileResourceConditionalHeaders::Forbidden
+                    );
+                    assert!(handle.lifecycle.is_some());
+                } else {
+                    let disposition = if purpose == FileResourcePurpose::Download {
+                        "attachment"
+                    } else {
+                        "inline"
+                    };
+                    assert_eq!(
+                        handle.request.url,
+                        with_download_query(&paths().download, disposition),
+                        "purpose={purpose:?}, mode={mode:?}",
+                    );
+                    assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+                    assert_eq!(
+                        handle.request.conditional_headers,
+                        FileResourceConditionalHeaders::Allowed
+                    );
+                    assert_eq!(
+                        handle.request.redirect_policy,
+                        FileResourceRedirectPolicy::SameOriginOnly
+                    );
+                    assert!(handle.lifecycle.is_none());
+                }
             }
         }
         assert!(
@@ -877,64 +901,65 @@ mod tests {
             let scope = WorkspaceStorageScope::Personal {
                 user_id: file.owner_user_id.unwrap(),
             };
-            for (purpose, mode, cdn) in [
-                (
-                    FileResourcePurpose::Preview,
-                    FileResourceDeliveryMode::BlobUrl,
-                    mime == "image/png",
-                ),
-                (
-                    FileResourcePurpose::Download,
-                    FileResourceDeliveryMode::BlobUrl,
-                    true,
-                ),
-                (
-                    FileResourcePurpose::Preview,
-                    FileResourceDeliveryMode::DirectUrl,
-                    false,
-                ),
-                (
-                    FileResourcePurpose::Download,
-                    FileResourceDeliveryMode::DirectUrl,
-                    false,
-                ),
-                (
-                    FileResourcePurpose::ExternalViewer,
-                    FileResourceDeliveryMode::DirectUrl,
-                    false,
-                ),
-                (
-                    FileResourcePurpose::ExternalViewer,
-                    FileResourceDeliveryMode::BlobUrl,
-                    false,
-                ),
+            for (purpose, blob_cdn) in [
+                (FileResourcePurpose::Preview, mime == "image/png"),
+                (FileResourcePurpose::Download, true),
+                (FileResourcePurpose::ExternalViewer, false),
             ] {
-                let handle = resolve_file_resource_handle(
-                    &state,
-                    scope,
-                    file.id,
-                    paths(),
-                    &request(purpose, mode, FileResourceRepresentation::Original),
-                )
-                .await
-                .unwrap();
-                assert_eq!(handle.delivery.mime_type.as_deref(), Some(mime));
-                if cdn {
-                    let url = url::Url::parse(&handle.request.url).unwrap();
-                    assert_eq!(url.host_str(), Some("cdn.example.test"));
-                    assert_eq!(url.path(), "/Tenant/objects/resource.bin");
-                    assert_eq!(url.query_pairs().count(), 1);
-                    assert!(url.query_pairs().all(|(key, _)| key == "auth_key"));
-                    assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
-                    assert_eq!(
-                        handle.request.conditional_headers,
-                        FileResourceConditionalHeaders::Forbidden
-                    );
-                    assert!(handle.lifecycle.is_some());
-                } else {
-                    assert!(handle.request.url.starts_with("/files/"));
-                    assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
-                    assert!(handle.lifecycle.is_none());
+                for mode in [
+                    FileResourceDeliveryMode::BlobUrl,
+                    FileResourceDeliveryMode::Text,
+                    FileResourceDeliveryMode::DirectUrl,
+                    FileResourceDeliveryMode::MediaStream,
+                    FileResourceDeliveryMode::IframeSession,
+                    FileResourceDeliveryMode::Manifest,
+                ] {
+                    let cdn = blob_cdn && mode == FileResourceDeliveryMode::BlobUrl;
+                    let handle = resolve_file_resource_handle(
+                        &state,
+                        scope,
+                        file.id,
+                        paths(),
+                        &request(purpose, mode, FileResourceRepresentation::Original),
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(handle.delivery.mode, mode);
+                    assert_eq!(handle.delivery.mime_type.as_deref(), Some(mime));
+                    if cdn {
+                        let url = url::Url::parse(&handle.request.url).unwrap();
+                        assert_eq!(url.host_str(), Some("cdn.example.test"));
+                        assert_eq!(url.path(), "/Tenant/objects/resource.bin");
+                        assert_eq!(url.query_pairs().count(), 1);
+                        assert!(url.query_pairs().all(|(key, _)| key == "auth_key"));
+                        assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+                        assert_eq!(
+                            handle.request.conditional_headers,
+                            FileResourceConditionalHeaders::Forbidden
+                        );
+                        assert!(handle.lifecycle.is_some());
+                    } else {
+                        let disposition = if purpose == FileResourcePurpose::Download {
+                            "attachment"
+                        } else {
+                            "inline"
+                        };
+                        assert_eq!(
+                            handle.request.url,
+                            with_download_query(&paths().download, disposition),
+                            "mime={mime}, purpose={purpose:?}, mode={mode:?}",
+                        );
+                        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+                        assert_eq!(
+                            handle.request.conditional_headers,
+                            FileResourceConditionalHeaders::Allowed
+                        );
+                        assert_eq!(
+                            handle.request.redirect_policy,
+                            FileResourceRedirectPolicy::SameOriginOnly
+                        );
+                        assert!(handle.lifecycle.is_none());
+                    }
                 }
             }
             assert!(
