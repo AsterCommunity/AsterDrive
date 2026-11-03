@@ -46,6 +46,7 @@ pub(crate) async fn delete_in_scope_on<C: ConnectionTrait>(
     allow_locked: bool,
     source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
+    crate::services::files::trash::coordination::admit_mutation_on(db, scope).await?;
     let snapshot = file_repo::find_by_id(db, id).await?;
     crate::services::workspace::storage::ensure_active_file_scope(&snapshot, scope)?;
     let file = if allow_locked {

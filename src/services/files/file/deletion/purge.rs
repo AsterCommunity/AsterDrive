@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use aster_forge_db::transaction;
 use futures::{StreamExt, stream};
@@ -13,6 +13,8 @@ use crate::services::{
 };
 use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::{i64_to_i32, usize_to_u32};
+
+use crate::services::files::trash::coordination::PurgeGuard;
 
 use super::blob_cleanup::ensure_blob_cleanup_if_unreferenced;
 
@@ -61,7 +63,7 @@ pub(crate) async fn batch_purge_in_resource_scope(
     files: Vec<file::Model>,
 ) -> Result<u32> {
     Ok(
-        batch_purge_in_resource_scope_internal(state, scope, files, true)
+        batch_purge_in_resource_scope_internal(state, scope, files, true, PurgeGuard::Mutation)
             .await?
             .purged,
     )
@@ -71,50 +73,60 @@ pub(crate) async fn batch_purge_in_resource_scope_silent(
     state: &PrimaryAppState,
     scope: WorkspaceResourceScope,
     files: Vec<file::Model>,
+    guard: PurgeGuard,
 ) -> Result<BatchPurgeSummary> {
-    batch_purge_in_resource_scope_internal(state, scope, files, false).await
+    batch_purge_in_resource_scope_internal(state, scope, files, false, guard).await
 }
 
-async fn batch_purge_in_resource_scope_internal(
-    state: &PrimaryAppState,
+#[derive(Debug, Default)]
+pub(crate) struct PurgedFiles {
+    pub summary: BatchPurgeSummary,
+    blob_ids: Vec<i64>,
+    deleted_shares: u64,
+}
+
+/// Caller owns the workspace lock and admission/fence for this transaction.
+pub(crate) async fn purge_files_on<C: sea_orm::ConnectionTrait>(
+    txn: &C,
     scope: WorkspaceResourceScope,
     files: Vec<file::Model>,
-    emit_storage_event: bool,
-) -> Result<BatchPurgeSummary> {
+) -> Result<PurgedFiles> {
     if files.is_empty() {
-        return Ok(BatchPurgeSummary::default());
+        return Ok(PurgedFiles::default());
     }
-
-    let input_count = files.len();
-    tracing::debug!(
-        scope = ?scope,
-        file_count = input_count,
-        "purging files permanently"
-    );
-
     for file in &files {
         storage::ensure_file_resource_scope(file, scope)?;
     }
-
+    let trash_ids: BTreeSet<i64> = files
+        .iter()
+        .filter(|file| file.deleted_at.is_some())
+        .map(|file| file.id)
+        .collect();
+    let requested: Vec<i64> = files.iter().map(|file| file.id).collect();
+    // Re-read after serialization: duplicate purge callers must not retire/decrement twice.
+    let files: Vec<_> = file_repo::find_by_ids(txn, &requested)
+        .await?
+        .into_iter()
+        .filter(|file| !trash_ids.contains(&file.id) || file.deleted_at.is_some())
+        .collect();
+    for file in &files {
+        storage::ensure_file_resource_scope(file, scope)?;
+    }
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
-    let parent_ids: Vec<Option<i64>> = files.iter().map(|file| file.folder_id).collect();
     let count = usize_to_u32(files.len(), "purged file count")?;
+    storage::lock_storage_usage_for_resource_scope(txn, scope).await?;
 
-    let txn = transaction::begin(state.writer_db()).await?;
-    storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
-
-    let revision_refs = revision_repo::retire_histories(&txn, &file_ids).await?;
-    let version_blob_count = revision_refs.len();
+    let revision_refs = revision_repo::retire_histories(txn, &file_ids).await?;
 
     crate::db::repository::property_repo::delete_all_for_entities(
-        &txn,
+        txn,
         aster_drive_model::types::EntityType::File,
         &file_ids,
     )
     .await?;
 
-    let deleted_shares = share_repo::delete_by_file_ids(&txn, &file_ids).await?;
-    file_repo::delete_many(&txn, &file_ids).await?;
+    let deleted_shares = share_repo::delete_by_file_ids(txn, &file_ids).await?;
+    file_repo::delete_many(txn, &file_ids).await?;
 
     let mut blob_decrements = BTreeMap::<i64, i64>::new();
     for &(blob_id, _logical_size) in &revision_refs {
@@ -122,7 +134,7 @@ async fn batch_purge_in_resource_scope_internal(
     }
 
     let blob_ids: Vec<i64> = blob_decrements.keys().copied().collect();
-    let blobs_by_id = file_repo::find_blobs_by_ids(&txn, &blob_ids).await?;
+    let blobs_by_id = file_repo::find_blobs_by_ids(txn, &blob_ids).await?;
     let mut total_freed_bytes = 0i64;
     let mut ref_count_decrements = Vec::with_capacity(blob_decrements.len());
 
@@ -147,30 +159,32 @@ async fn batch_purge_in_resource_scope_internal(
             ));
         }
     }
-    file_repo::decrement_blob_ref_counts_by(&txn, &ref_count_decrements).await?;
+    file_repo::decrement_blob_ref_counts_by(txn, &ref_count_decrements).await?;
 
-    storage::update_storage_used_for_resource_scope(&txn, scope, -total_freed_bytes).await?;
+    storage::update_storage_used_for_resource_scope(txn, scope, -total_freed_bytes).await?;
 
-    transaction::commit(txn).await?;
-    if emit_storage_event {
-        storage_change::publish(
-            state,
-            storage_change::StorageChangeEvent::new_for_resource_scope(
-                storage_change::StorageChangeKind::FilePurged,
-                scope,
-                file_ids.clone(),
-                vec![],
-                parent_ids.clone(),
-            )
-            .with_storage_delta(-total_freed_bytes),
-        );
-    }
-    if deleted_shares > 0 {
+    Ok(PurgedFiles {
+        summary: BatchPurgeSummary {
+            purged: count,
+            file_ids,
+            freed_bytes: total_freed_bytes,
+        },
+        blob_ids,
+        deleted_shares,
+    })
+}
+
+/// Cache invalidation and physical cleanup run only after the owning transaction commits.
+pub(crate) async fn finish_purged_files(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+    purged: PurgedFiles,
+) -> BatchPurgeSummary {
+    if purged.deleted_shares > 0 {
         share::invalidate_active_share_target_cache_for_resource_scope(state, scope).await;
         share::invalidate_all_share_token_record_cache(state).await;
     }
-
-    stream::iter(blob_ids.iter().copied())
+    stream::iter(purged.blob_ids)
         .for_each_concurrent(BLOB_CLEANUP_CONCURRENCY, |blob_id| async move {
             if !ensure_blob_cleanup_if_unreferenced(state, blob_id).await {
                 tracing::warn!(
@@ -180,21 +194,38 @@ async fn batch_purge_in_resource_scope_internal(
             }
         })
         .await;
+    purged.summary
+}
 
-    tracing::debug!(
-        scope = ?scope,
-        file_count = input_count,
-        freed_bytes = total_freed_bytes,
-        version_blob_count,
-        deleted_shares,
-        cleanup_blob_count = blob_ids.len(),
-        "purged files permanently"
-    );
-    Ok(BatchPurgeSummary {
-        purged: count,
-        file_ids,
-        freed_bytes: total_freed_bytes,
-    })
+async fn batch_purge_in_resource_scope_internal(
+    state: &PrimaryAppState,
+    scope: WorkspaceResourceScope,
+    files: Vec<file::Model>,
+    emit_storage_event: bool,
+    guard: PurgeGuard,
+) -> Result<BatchPurgeSummary> {
+    if files.is_empty() {
+        return Ok(BatchPurgeSummary::default());
+    }
+    let parent_ids: Vec<Option<i64>> = files.iter().map(|file| file.folder_id).collect();
+    let txn = transaction::begin(state.writer_db()).await?;
+    guard.enforce_on(&txn, scope).await?;
+    let purged = purge_files_on(&txn, scope, files).await?;
+    transaction::commit(txn).await?;
+    if emit_storage_event && purged.summary.purged > 0 {
+        storage_change::publish(
+            state,
+            storage_change::StorageChangeEvent::new_for_resource_scope(
+                storage_change::StorageChangeKind::FilePurged,
+                scope,
+                purged.summary.file_ids.clone(),
+                vec![],
+                parent_ids,
+            )
+            .with_storage_delta(-purged.summary.freed_bytes),
+        );
+    }
+    Ok(finish_purged_files(state, scope, purged).await)
 }
 
 pub async fn batch_purge(

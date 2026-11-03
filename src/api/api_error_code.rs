@@ -178,6 +178,7 @@ define_api_error_codes! {
     FileEtagMismatch => "file.etag_mismatch",
     FileModifiedDuringWrite => "file.modified_during_write",
     FolderNameConflict => "folder.name_conflict",
+    TrashPurgeInProgress => "trash.purge_in_progress",
     LockNotOwner => "lock.not_owner",
     ShareScopeDenied => "share.scope_denied",
 

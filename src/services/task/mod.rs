@@ -238,8 +238,23 @@ async fn retry_task_record(
     let max_attempts = registry::max_attempts(state.runtime_config().as_ref(), task.kind);
 
     let now = Utc::now();
+    let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    match task.kind {
+        BackgroundTaskKind::TrashPurgeAll => {
+            crate::services::files::trash::coordination::lock_scope_on(
+                &txn,
+                task_scope(task)?.into(),
+            )
+            .await?;
+        }
+        BackgroundTaskKind::FolderTreeMutation => {
+            crate::services::files::trash::coordination::admit_mutation_on(&txn, task_scope(task)?)
+                .await?;
+        }
+        _ => {}
+    }
     if !background_task_repo::reset_for_manual_retry(
-        state.writer_db(),
+        &txn,
         task.id,
         now,
         max_attempts,
@@ -252,6 +267,7 @@ async fn retry_task_record(
             task.id
         )));
     }
+    aster_forge_db::transaction::commit(txn).await?;
     state.wake_background_task_dispatcher();
     Ok(())
 }

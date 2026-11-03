@@ -269,6 +269,48 @@ describe("http api helpers", () => {
 		await expect(api.get("/files")).rejects.toBeInstanceOf(ApiError);
 	});
 
+	it("receives accepted task data only when the endpoint opts in", async () => {
+		const task = {
+			id: 77,
+			kind: "folder_tree_mutation",
+			status: "pending",
+			display_name: "Restore folder tree",
+		};
+		mockState.client.post.mockResolvedValue({
+			status: 202,
+			data: { code: ApiErrorCode.Success, msg: "", data: task },
+		});
+		const { ApiPendingError, api } = await loadHttpModule();
+		await expect(
+			api.post("/trash/folder/1/restore", undefined, { accept202: true }),
+		).resolves.toEqual(task);
+		await expect(api.post("/trash/folder/1/restore")).rejects.toBeInstanceOf(
+			ApiPendingError,
+		);
+	});
+
+	it("validates error envelopes even when accepted task data is enabled", async () => {
+		mockState.client.post.mockResolvedValue({
+			status: 202,
+			data: { code: ApiErrorCode.Forbidden, msg: "forbidden", data: null },
+		});
+		const { ApiError, api } = await loadHttpModule();
+		await expect(
+			api.post("/trash/folder/1/restore", undefined, { accept202: true }),
+		).rejects.toBeInstanceOf(ApiError);
+	});
+
+	it("preserves completed responses when accepted task data is enabled", async () => {
+		mockState.client.post.mockResolvedValue({
+			status: 200,
+			data: { code: ApiErrorCode.Success, msg: "", data: {} },
+		});
+		const { api } = await loadHttpModule();
+		await expect(
+			api.post("/trash/folder/1/restore", undefined, { accept202: true }),
+		).resolves.toEqual({});
+	});
+
 	it("throws ApiPendingError for accepted processing responses", async () => {
 		mockState.client.get.mockResolvedValue({
 			status: 202,

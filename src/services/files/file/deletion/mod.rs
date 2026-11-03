@@ -10,7 +10,7 @@ pub(crate) use blob_cleanup::{
 };
 pub(crate) use purge::{
     BatchPurgeSummary, batch_purge_in_resource_scope, batch_purge_in_resource_scope_silent,
-    batch_purge_in_scope,
+    batch_purge_in_scope, finish_purged_files, purge_files_on,
 };
 pub use purge::{batch_purge, purge};
 pub use soft_delete::delete;

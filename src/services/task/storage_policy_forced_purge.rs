@@ -286,6 +286,7 @@ pub(super) async fn process_storage_policy_forced_purge_task(
                 state,
                 batch.scope,
                 batch.files,
+                crate::services::files::trash::coordination::PurgeGuard::Maintenance,
             )
             .await?;
             runtime.last_processed_file_id = last_file_id;
