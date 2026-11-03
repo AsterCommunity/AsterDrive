@@ -1893,7 +1893,7 @@ describe("AdminSettingsPage", () => {
 		expect(
 			screen.getByText("External sign-in email verification subject"),
 		).toBeInTheDocument();
-		fireEvent.focus(
+		fireEvent.click(
 			screen.getByRole("button", {
 				name: "Show description for External sign-in email verification subject",
 			}),
@@ -1906,7 +1906,7 @@ describe("AdminSettingsPage", () => {
 		expect(
 			screen.getByText("External sign-in email verification HTML body"),
 		).toBeInTheDocument();
-		fireEvent.focus(
+		fireEvent.click(
 			screen.getByRole("button", {
 				name: "Show description for External sign-in email verification HTML body",
 			}),
@@ -2146,7 +2146,7 @@ describe("AdminSettingsPage", () => {
 		await screen.findByDisplayValue("20");
 
 		expect(screen.getByText("Access token lifetime")).toBeInTheDocument();
-		fireEvent.focus(
+		fireEvent.click(
 			screen.getByRole("button", {
 				name: "Show description for Access token lifetime",
 			}),
@@ -2368,7 +2368,7 @@ describe("AdminSettingsPage", () => {
 		expect(
 			await screen.findByText("Enable media metadata"),
 		).toBeInTheDocument();
-		fireEvent.focus(
+		fireEvent.click(
 			screen.getByRole("button", {
 				name: "Show description for Enable media metadata",
 			}),

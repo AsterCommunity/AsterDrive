@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Touch-accessible settings descriptions** — Administrator setting help icons use hover-enabled popovers so complete descriptions remain available by desktop hover, keyboard focus, pointer click, and touch tap. Larger touch targets and accessible popup descriptions preserve the existing compact settings layout. (#713)
+
 - **Text control focus indicators** — Authentication animations and the storage-policy wizard preserve outer focus and error rings without changing field sizes or spacing. Shared form textareas align with input disabled and dark-mode styling, field errors expose accessible descriptions, and high-contrast mode retains a visible focus outline. (#706)
 
 - **Trash mutation concurrency** — Personal and team restores, moves to trash, and individual/bulk permanent deletions return `409 trash.purge_in_progress` while an empty-trash task is queued, running, retrying, or awaiting cancellation. Database coordination also covers queued folder deletes/restores and fences stale purge workers after lease takeover; terminal tasks release the restriction automatically. Mutations display their specific failure reason; folder purges atomically commit file/version, reference-count, quota and directory changes before physical cleanup; and queued folder restores explicitly receive accepted task data and display task creation separately from completed restores. (#704)

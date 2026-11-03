@@ -39,6 +39,12 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverTrigger,
+} from "@/components/ui/popover";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -46,12 +52,6 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { convertNumberUnitValueToBaseUnit } from "@/lib/numberUnit";
 import { normalizePublicSiteUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
@@ -136,24 +136,26 @@ function SettingDescriptionHelp({
 	}
 
 	return (
-		<TooltipProvider delay={0}>
-			<Tooltip>
-				<TooltipTrigger
-					type="button"
-					aria-label={label}
-					className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35"
-				>
-					<Icon name="Question" className="size-5" aria-hidden="true" />
-				</TooltipTrigger>
-				<TooltipContent
-					side="top"
-					align="start"
-					className="max-w-[min(22rem,calc(100vw-2rem))] whitespace-normal break-words leading-5"
-				>
+		<Popover>
+			<PopoverTrigger
+				type="button"
+				aria-label={label}
+				openOnHover
+				delay={0}
+				className="inline-flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35"
+			>
+				<Icon name="Question" className="size-5" aria-hidden="true" />
+			</PopoverTrigger>
+			<PopoverContent
+				side="top"
+				align="start"
+				className="w-fit max-w-[min(22rem,calc(100vw-2rem))]"
+			>
+				<PopoverDescription className="whitespace-normal break-words leading-5 text-popover-foreground">
 					{description}
-				</TooltipContent>
-			</Tooltip>
-		</TooltipProvider>
+				</PopoverDescription>
+			</PopoverContent>
+		</Popover>
 	);
 }
 
