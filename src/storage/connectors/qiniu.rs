@@ -140,7 +140,7 @@ aster_drive_storage::storage_connector_schema! {
                 label_key: "qiniu_download_base_url",
                 placeholder: Some("https://files.example.com/assets"),
                 help_key: Some("qiniu_download_base_url_desc"), required_message_key: None,
-                invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+                invalid_protocol_message_key: Some("qiniu_download_base_url_protocol_error"),
                 allowed_endpoint_protocols: vec!["https:"], allow_endpoint_without_protocol: false,
                 trim_on_blur: true,
             }),
@@ -374,6 +374,20 @@ impl StorageConnector for QiniuConnector {
             )?;
         }
         Ok(())
+    }
+
+    fn validate_connection_credential(
+        &self,
+        config: &aster_drive_storage::ConnectorConfigEnvelope,
+        credential: &StorageConnectorCredentialInput,
+    ) -> Result<()> {
+        let config = super::common::decode_normalized_connector_config(config)?;
+        let credential = super::common::decode_static_credential(credential, Self::ID)?;
+        QiniuDriver::validate_config(
+            &Self::driver_config(config),
+            &Self::driver_credentials(credential),
+        )
+        .map_err(|error| AsterError::validation_error(error.message()))
     }
 
     async fn build_driver_from_connection(

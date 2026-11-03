@@ -92,6 +92,11 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "下载交付地址",
     ),
     aster_drive_storage::storage_connector_message!(
+        "qiniu_download_base_url_protocol_error",
+        "Qiniu download delivery URL must use HTTPS.",
+        "七牛下载交付地址必须使用 HTTPS。",
+    ),
+    aster_drive_storage::storage_connector_message!(
         "qiniu_download_base_url_desc",
         "Optional HTTPS source or CDN domain bound to this Kodo space, with an optional path prefix. AsterDrive uses it only for browser downloads; reads, uploads, multipart operations, cleanup, and connection tests keep using the Kodo S3 endpoint. Configure DNS/CNAME and an HTTPS certificate first. Qiniu source domains do not include the S3 space name in the path.",
         "绑定到该 Kodo 空间的可选 HTTPS 源站或 CDN 域名，可带路径前缀。AsterDrive 仅将其用于浏览器下载；读写、分片上传、清理和连接测试仍使用 Kodo S3 endpoint。请先配置 DNS/CNAME 与 HTTPS 证书。七牛源站域名的路径中不包含 S3 空间名。",

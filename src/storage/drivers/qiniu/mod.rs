@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests;
 
-mod download;
+mod cdn;
 
 use std::{sync::Arc, time::Duration};
 
@@ -98,7 +98,7 @@ impl QiniuDriver {
         }
         validate_sigv4_region(&config.region).map_err(|_| Self::invalid_region_error())?;
         if let Some(download_base_url) = config.download_base_url.as_deref() {
-            download::validate_download_base_url(download_base_url)?;
+            cdn::validate_download_base_url(download_base_url)?;
         }
         match (config.download_base_url.is_some(), config.download_auth) {
             (false, QiniuDownloadAuthMode::Timestamp) => {
