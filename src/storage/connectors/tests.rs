@@ -325,6 +325,12 @@ fn obs_config(upload: ObjectStorageUploadStrategy) -> HuaweiObsConnectorConfigV1
         obs_region: "cn-north-4".to_string(),
         obs_use_cname: false,
         base_path: "tenant-a".to_string(),
+        download_base_url: None,
+        cdn_auth_type: "type_a".to_string(),
+        cdn_expire_time: 3600,
+        cdn_sign_arg: "sign".to_string(),
+        cdn_time_arg: "timestamp".to_string(),
+        cdn_signing_algorithm: "md5".to_string(),
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
     }
@@ -1752,7 +1758,7 @@ fn alibaba_oss_cdn_requires_type_a_key_and_matching_console_validity() {
 fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
     let connector = connector(HuaweiObsConnector::ID);
     let descriptor = connector.descriptor();
-    assert_eq!(descriptor.related_issues, vec![451]);
+    assert_eq!(descriptor.related_issues, vec![451, 686]);
     assert!(descriptor.promotions.iter().any(|promotion| {
         promotion.promotion_id.as_str() == "promote_from_s3"
             && promotion.source_connector_id.as_str() == S3Connector::ID
@@ -1785,6 +1791,7 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
         )
     }));
     assert!(descriptor.capabilities.presigned_download);
+    assert!(descriptor.capabilities.custom_download_base_url);
     assert!(descriptor.upload_workflows.presigned_upload);
     for field_name in [
         "endpoint",
@@ -1792,10 +1799,18 @@ fn huawei_obs_connector_declares_native_signature_and_addressing_contract() {
         "obs_region",
         "obs_use_cname",
         "base_path",
+        "download_base_url",
+        "cdn_auth_type",
+        "cdn_expire_time",
+        "cdn_sign_arg",
+        "cdn_time_arg",
+        "cdn_signing_algorithm",
         "object_storage_upload_strategy",
         "object_storage_download_strategy",
         "obs_access_key_id",
         "obs_secret_access_key",
+        "cdn_primary_key",
+        "cdn_backup_key",
     ] {
         assert!(
             descriptor

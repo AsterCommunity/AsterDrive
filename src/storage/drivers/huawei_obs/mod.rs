@@ -7,6 +7,7 @@
 //! Object listing uses OBS' native marker-based ListObjects contract rather
 //! than S3 ListObjectsV2.
 
+mod cdn;
 mod signing;
 #[cfg(test)]
 mod tests;
@@ -29,6 +30,12 @@ pub struct HuaweiObsDriverConfig {
     pub base_path: String,
     pub region: String,
     pub use_cname: bool,
+    pub download_base_url: Option<String>,
+    pub cdn_auth_type: String,
+    pub cdn_expire_time: u64,
+    pub cdn_sign_arg: String,
+    pub cdn_time_arg: String,
+    pub cdn_signing_algorithm: String,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
@@ -38,6 +45,8 @@ pub struct HuaweiObsDriverConfig {
 pub struct HuaweiObsStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
+    pub cdn_primary_key: Option<String>,
+    pub cdn_backup_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,9 +58,88 @@ pub struct NormalizedHuaweiObsEndpoint {
 
 pub struct HuaweiObsDriver {
     storage: S3CompatibleDriver,
+    download_base_url: Option<Url>,
+    cdn_auth_type: String,
+    cdn_expire_time: Duration,
+    cdn_sign_arg: String,
+    cdn_time_arg: String,
+    cdn_signing_algorithm: String,
+    cdn_primary_key: Option<String>,
+    cdn_backup_key: Option<String>,
+    base_path: String,
 }
 
 impl HuaweiObsDriver {
+    pub fn validate_download_config(
+        download_base_url: Option<&str>,
+        auth_type: &str,
+        expire_time: u64,
+        sign_arg: &str,
+        time_arg: &str,
+        signing_algorithm: &str,
+    ) -> Result<()> {
+        if download_base_url.is_none() {
+            return Ok(());
+        }
+        let auth_type = auth_type.trim();
+        if !matches!(
+            auth_type,
+            "type_a" | "type_b" | "type_c1" | "type_c2" | "public"
+        ) {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "Huawei CDN auth type must be type_a, type_b, type_c1, type_c2, or public",
+            ));
+        }
+        if auth_type == "public" {
+            return Ok(());
+        }
+        if sign_arg.trim().is_empty() || time_arg.trim().is_empty() {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "Huawei CDN auth parameter names are required",
+            ));
+        }
+        for (name, value) in [("sign_arg", sign_arg), ("time_arg", time_arg)] {
+            if !value
+                .trim()
+                .as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphabetic)
+                || !value
+                    .trim()
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!(
+                        "Huawei CDN {name} must start with a letter and contain only letters, digits, and underscores"
+                    ),
+                ));
+            }
+        }
+        if auth_type == "type_b" && !time_arg.trim().eq_ignore_ascii_case("timestamp") {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "Huawei CDN type_b uses the fixed timestamp parameter name",
+            ));
+        }
+        if !matches!(signing_algorithm.trim(), "md5" | "sha256") {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "Huawei CDN signing algorithm must be md5 or sha256",
+            ));
+        }
+        if expire_time == 0 {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "Huawei CDN expire_time must be greater than zero for authenticated downloads",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn normalize_endpoint(
         endpoint: &str,
         bucket: &str,
@@ -140,6 +228,14 @@ impl HuaweiObsDriver {
             &config.region,
             config.use_cname,
         )?;
+        Self::validate_download_config(
+            config.download_base_url.as_deref(),
+            &config.cdn_auth_type,
+            config.cdn_expire_time,
+            &config.cdn_sign_arg,
+            &config.cdn_time_arg,
+            &config.cdn_signing_algorithm,
+        )?;
         S3Driver::validate_config(
             &S3DriverConfig {
                 endpoint: normalized.endpoint,
@@ -175,7 +271,7 @@ impl HuaweiObsDriver {
                 S3DriverConfig {
                     endpoint: normalized.endpoint,
                     bucket: normalized.bucket,
-                    base_path: config.base_path,
+                    base_path: config.base_path.clone(),
                     region: sdk_region(&normalized.region),
                     path_style: false,
                     connect_timeout: config.connect_timeout,
@@ -199,7 +295,59 @@ impl HuaweiObsDriver {
                 upload_mode: MultipartUploadMode::NativeStreaming,
             },
         );
-        Ok(Self { storage })
+        let download_base_url = config
+            .download_base_url
+            .as_deref()
+            .map(Url::parse)
+            .transpose()
+            .map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Huawei CDN download URL is invalid",
+                )
+            })?;
+        for (name, key) in [
+            ("cdn_primary_key", credentials.cdn_primary_key.as_deref()),
+            ("cdn_backup_key", credentials.cdn_backup_key.as_deref()),
+        ] {
+            if let Some(key) = key {
+                validate_cdn_key(name, key)?;
+            }
+        }
+        if config.download_base_url.is_some() && config.cdn_auth_type.trim() != "public" {
+            let _ = Self::cdn_authentication_key(
+                credentials.cdn_primary_key.as_deref(),
+                credentials.cdn_backup_key.as_deref(),
+            )?;
+        }
+        Ok(Self {
+            storage,
+            download_base_url,
+            cdn_auth_type: config.cdn_auth_type,
+            cdn_expire_time: Duration::from_secs(config.cdn_expire_time),
+            cdn_sign_arg: config.cdn_sign_arg,
+            cdn_time_arg: config.cdn_time_arg,
+            cdn_signing_algorithm: config.cdn_signing_algorithm,
+            cdn_primary_key: credentials.cdn_primary_key,
+            cdn_backup_key: credentials.cdn_backup_key,
+            base_path: config.base_path,
+        })
+    }
+
+    fn cdn_authentication_key<'a>(
+        primary_key: Option<&'a str>,
+        backup_key: Option<&'a str>,
+    ) -> Result<&'a str> {
+        primary_key
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .or_else(|| backup_key.map(str::trim).filter(|key| !key.is_empty()))
+            .ok_or_else(|| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "Huawei CDN authenticated downloads require a primary or backup authentication key",
+                )
+            })
     }
 
     pub fn s3_driver(&self) -> Arc<S3Driver> {
@@ -223,6 +371,25 @@ impl aster_drive_storage::DirectDownloadStorageDriver for HuaweiObsDriver {
         expires: Duration,
         options: aster_drive_storage::DirectDownloadOptions,
     ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
+        if let Some(base_url) = &self.download_base_url {
+            let ttl = expires.min(self.cdn_expire_time);
+            let url = cdn::signed_download_url(
+                base_url,
+                &self.base_path,
+                path,
+                ttl,
+                &self.cdn_auth_type,
+                &self.cdn_sign_arg,
+                &self.cdn_time_arg,
+                &self.cdn_signing_algorithm,
+                self.cdn_primary_key.as_deref(),
+                self.cdn_backup_key.as_deref(),
+                &options,
+            )?;
+            return Ok(Some(
+                aster_drive_storage::DirectDownloadRequest::temporary_url(url, ttl),
+            ));
+        }
         self.storage
             .resolve_download_url(path, expires, options)
             .await
@@ -286,6 +453,18 @@ fn validate_bucket_name(bucket: &str) -> Result<()> {
         return Err(storage_driver_error(
             StorageErrorKind::Misconfigured,
             "Huawei OBS bucket must be 3-63 lowercase letters, digits, dots, or hyphens and start/end with a letter or digit",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_cdn_key(name: &str, key: &str) -> Result<()> {
+    let valid =
+        (6..=32).contains(&key.len()) && key.bytes().all(|byte| byte.is_ascii_alphanumeric());
+    if !valid {
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("{name} must be 6-32 ASCII letters or digits"),
         ));
     }
     Ok(())

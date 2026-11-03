@@ -67,4 +67,94 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
         "Set the OBS endpoint, bucket, region or custom-domain behavior, and access credentials.",
         "填写 OBS endpoint、bucket、区域或自定义域名行为及访问凭证。",
     ),
+    aster_drive_storage::storage_connector_message!(
+        "huawei_obs_cdn_download_desc",
+        "Optional HTTPS CDN or source domain used only for browser downloads. Reads, uploads, multipart operations, cleanup, and connection tests keep using the OBS endpoint. AsterDrive does not stamp an expiration into the delivered URL; Huawei CDN honors the configured anti-leech validity window.",
+        "仅用于浏览器下载的可选 HTTPS CDN 或源站域名。读写、分片上传、清理和连接测试仍使用 OBS endpoint。AsterDrive 不会在交付 URL 中内置过期时间；实际有效期由华为 CDN 配置的防盗链有效期决定。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_type",
+        "Download authentication",
+        "下载鉴权方式",
+    ),
+    aster_drive_storage::storage_connector_message!("cdn_auth_type_a", "Type A", "鉴权方式 A",),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_type_a_desc",
+        "Signed query string combining timestamp, random value, user id, and hash.",
+        "带时间戳、随机值、用户 ID 与哈希的签名查询串。",
+    ),
+    aster_drive_storage::storage_connector_message!("cdn_auth_type_b", "Type B", "鉴权方式 B",),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_type_b_desc",
+        "Timestamp and hash are inserted into the URL path.",
+        "时间戳与哈希嵌入 URL 路径。",
+    ),
+    aster_drive_storage::storage_connector_message!("cdn_auth_type_c1", "Type C1", "鉴权方式 C1",),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_type_c1_desc",
+        "Hash and hexadecimal timestamp are inserted into the URL path.",
+        "哈希与十六进制时间戳嵌入 URL 路径。",
+    ),
+    aster_drive_storage::storage_connector_message!("cdn_auth_type_c2", "Type C2", "鉴权方式 C2",),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_type_c2_desc",
+        "Hash and decimal timestamp are appended as query parameters.",
+        "哈希与十进制时间戳追加为查询参数。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_public",
+        "Public (explicit)",
+        "公开（显式）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_auth_public_desc",
+        "Append no download authentication. Configure only when the bound domain exposes public objects; AsterDrive does not silently make private objects public.",
+        "不追加下载鉴权。仅当绑定域名公开对象时配置；AsterDrive 不会静默将私有对象公开。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_expire_time",
+        "Anti-leech validity (seconds)",
+        "防盗链有效期（秒）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_sign_arg",
+        "Signature parameter name",
+        "签名参数名",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_time_arg",
+        "Timestamp parameter name",
+        "时间戳参数名",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_signing_algorithm",
+        "Signing algorithm",
+        "签名算法",
+    ),
+    aster_drive_storage::storage_connector_message!("cdn_signing_algorithm_md5", "MD5", "MD5",),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_signing_algorithm_md5_desc",
+        "Compute the anti-leech hash with MD5.",
+        "使用 MD5 计算防盗链哈希。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_signing_algorithm_sha256",
+        "SHA-256",
+        "SHA-256",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_signing_algorithm_sha256_desc",
+        "Compute the anti-leech hash with SHA-256.",
+        "使用 SHA-256 计算防盗链哈希。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_primary_key",
+        "CDN primary key",
+        "CDN 主密钥",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "cdn_backup_key",
+        "CDN backup key",
+        "CDN 备用密钥",
+    ),
 ];

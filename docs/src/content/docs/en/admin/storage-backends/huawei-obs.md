@@ -37,7 +37,54 @@ Custom-domain mode sends requests directly to the OBS-bound hostname. AsterDrive
 
 The **Use a custom domain (CNAME)** switch maps to connector field `obs_use_cname` and defaults to `false`. It follows the official Go SDK's [`WithCustomDomainName(bool)`](https://github.com/huaweicloud/huaweicloud-sdk-go-obs/blob/master/obs/conf.go) and Python SDK's `is_cname` option. The upgrade migration converts legacy `obs_addressing_mode=virtual_hosted` / `custom_domain` to `false` / `true` in policies, remote targets, and deleted-policy cleanup snapshots without changing existing object paths or signing semantics. Upgrade all nodes together; API clients must use the boolean field. Run the corresponding down migration before reverting to an older binary. Finish active OBS storage-migration tasks before upgrading and regenerate unexecuted migration preflight plans afterward.
 
-OBS supports CDN origins, but CNAME mode does not implement CDN download authentication. Separate delivery configuration and private-origin access are tracked in [#686](https://github.com/AsterCommunity/AsterDrive/issues/686).
+CNAME only governs AsterDrive-to-OBS access; it does not authenticate CDN downloads. CDN download delivery is configured separately below.
+
+## CDN download delivery and URL authentication
+
+When objects are delivered through a Huawei Cloud CDN acceleration domain, configure a separate download delivery base URL on the connector. **Uploads, cleanup, and the storage API keep using the OBS endpoint or custom domain; only download delivery URLs point at the CDN.** This keeps private OBS access separate from public CDN delivery.
+
+| Field | Meaning |
+| --- | --- |
+| Download base URL | CDN acceleration domain, such as `https://cdn.example.com`, optionally with a base path. Used for downloads only |
+| Authentication type | `type_a`, `type_b`, `type_c1`, `type_c2`, or `public`; default `type_a` |
+| Expiration cap | `cdn_expire_time`, 0–31536000 seconds. The issued URL's lifetime is the smaller of the requested lifetime and this cap |
+| Signature parameter | `cdn_sign_arg`, default `auth_key` |
+| Time parameter | `cdn_time_arg`, default `timestamp` |
+| Signing algorithm | `md5` (default) or `sha256` |
+| Primary key | `cdn_primary_key`, 6–32 letters and digits |
+| Backup key | `cdn_backup_key`, optional; access passes with either key |
+
+The four authentication types match Huawei Cloud CDN's four URL authentication methods and produce different URL shapes:
+
+- `type_a`: `/object?auth_key=timestamp-rand-0-hash&timestamp=timestamp`, where the timestamp is decimal Unix seconds;
+- `type_b`: `/YYYYMMDDHHMM/hash/object`, where the timestamp is UTC+8 minute precision;
+- `type_c1`: `/hash/hex-timestamp/object`, where the timestamp is hexadecimal Unix seconds;
+- `type_c2`: `/object?auth_key=hash&timestamp=timestamp`, where the timestamp is decimal Unix seconds.
+
+`public` produces no signature; the URL is `download_base_url + object path`.
+
+### Private-origin authorization does not protect user access
+
+If the OBS bucket is private, the CDN needs extra origin authorization (for example, allowing `CDNAccessPrivateOBS` and configuring origin authentication) so CDN PoPs can read objects. **That only authorizes "CDN to OBS"; it does not protect "user to CDN".** To restrict who can download, configure one of the URL authentication methods other than `public` and keep the CDN signing key secret.
+
+### Caching, ignored URL parameters, and already-issued URLs
+
+- Without "ignore URL parameters", the authentication query (`auth_key`, `timestamp`) becomes part of the cache key: each issued URL differs, so the CDN treats them as distinct cached objects and fetches from origin more often.
+- Configure "ignore specified parameters" on the CDN domain and exclude `auth_key` / `timestamp` (or your custom parameter names) from the cache key so the same object reuses cache entries. The CDN still validates authentication before serving from cache or origin.
+- An already-issued CDN URL remains valid until it expires even if AsterDrive permissions change. Revoking a share only stops future issuance; URLs already distributed may keep working on the CDN until their expiry.
+- While an edge node has a cached object, it may keep serving it even after the URL expires or the policy changes, until the cache entry expires or is refreshed.
+
+### Range, HEAD, CORS, and response headers
+
+CDN downloads go directly from the browser to the third-party acceleration domain:
+
+- video seeking and resumable transfers require the CDN domain to support Range and return `Accept-Ranges` / `Content-Range`;
+- if the frontend reads cross-origin (fetch-based download or playback), CORS must be configured on the CDN acceleration domain, not on the OBS bucket's CORS rules;
+- response headers such as `Content-Disposition`, `Content-Type`, and `ETag` are determined by the CDN and origin configuration; configure custom headers on the CDN domain.
+
+### Risks of public mode
+
+`public` mode produces no signature, effectively exposing everything under `download_base_url` to anyone with the URL. Use it only for intentionally public content when the OBS bucket allows CDN origins; otherwise use a keyed authentication method.
 
 ## 1. Prepare the OBS bucket and credentials
 

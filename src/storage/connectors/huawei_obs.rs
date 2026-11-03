@@ -13,8 +13,9 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
     StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
     StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
-    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
-    storage_connector_field, storage_connector_field_with_display,
+    StorageConnectorSelectOptionInput, StorageConnectorUiDescriptorInput,
+    object_storage_connector_descriptor, storage_connector_field,
+    storage_connector_field_with_display, storage_connector_select_field,
 };
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
@@ -29,6 +30,69 @@ mod localization;
 pub struct HuaweiObsConnector;
 
 const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
+
+fn cdn_auth_type_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_select_field(
+        "cdn_auth_type",
+        StorageConnectorFieldScope::ConnectorConfig,
+        true,
+        vec![
+            StorageConnectorSelectOptionInput {
+                value: "type_a",
+                label_key: "cdn_auth_type_a",
+                description_key: Some("cdn_auth_type_a_desc"),
+            },
+            StorageConnectorSelectOptionInput {
+                value: "type_b",
+                label_key: "cdn_auth_type_b",
+                description_key: Some("cdn_auth_type_b_desc"),
+            },
+            StorageConnectorSelectOptionInput {
+                value: "type_c1",
+                label_key: "cdn_auth_type_c1",
+                description_key: Some("cdn_auth_type_c1_desc"),
+            },
+            StorageConnectorSelectOptionInput {
+                value: "type_c2",
+                label_key: "cdn_auth_type_c2",
+                description_key: Some("cdn_auth_type_c2_desc"),
+            },
+            StorageConnectorSelectOptionInput {
+                value: "public",
+                label_key: "cdn_auth_public",
+                description_key: Some("cdn_auth_public_desc"),
+            },
+        ],
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+        "type_a".to_string(),
+    ));
+    field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOnly;
+    field
+}
+
+fn cdn_signing_algorithm_field() -> aster_drive_storage::StorageConnectorFieldDescriptor {
+    let mut field = storage_connector_select_field(
+        "cdn_signing_algorithm",
+        StorageConnectorFieldScope::ConnectorConfig,
+        true,
+        vec![
+            StorageConnectorSelectOptionInput {
+                value: "md5",
+                label_key: "cdn_signing_algorithm_md5",
+                description_key: Some("cdn_signing_algorithm_md5_desc"),
+            },
+            StorageConnectorSelectOptionInput {
+                value: "sha256",
+                label_key: "cdn_signing_algorithm_sha256",
+                description_key: Some("cdn_signing_algorithm_sha256_desc"),
+            },
+        ],
+    );
+    field.default_value = Some(StorageConnectorFieldDefaultValue::String("md5".to_string()));
+    field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOnly;
+    field
+}
 
 fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
     super::s3::s3_compatible_promotion_descriptor(super::s3::S3CompatiblePromotionDescriptorInput {
@@ -146,6 +210,54 @@ aster_drive_storage::storage_connector_schema! {
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub download_base_url: Option<String> => storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
+            kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+            label_key: "download_base_url", placeholder: Some("https://cdn.example.com/assets"),
+            help_key: Some("huawei_obs_cdn_download_desc"), required_message_key: None,
+            invalid_protocol_message_key: Some("s3_endpoint_protocol_required_error"),
+            allowed_endpoint_protocols: vec!["https:"], allow_endpoint_without_protocol: false,
+            trim_on_blur: true,
+        }),
+        #[serde(default)]
+        pub cdn_auth_type: String => cdn_auth_type_field(),
+        #[serde(default)]
+        pub cdn_expire_time: u64 => {
+            let mut field = storage_connector_field(
+                "cdn_expire_time", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Number, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(3600));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOnly;
+            field.validation.min_integer = Some(0);
+            field.validation.max_integer = Some(31_536_000);
+            field
+        },
+        #[serde(default)]
+        pub cdn_sign_arg: String => {
+            let mut field = storage_connector_field(
+                "cdn_sign_arg", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("auth_key".to_string()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOnly;
+            field.validation.max_length = Some(64);
+            field
+        },
+        #[serde(default)]
+        pub cdn_time_arg: String => {
+            let mut field = storage_connector_field(
+                "cdn_time_arg", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Text, false, false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("timestamp".to_string()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOnly;
+            field.validation.max_length = Some(64);
+            field
+        },
+        #[serde(default)]
+        pub cdn_signing_algorithm: String => cdn_signing_algorithm_field(),
         pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
             "object_storage_upload_strategy", StorageTransferDirection::Upload,
         ),
@@ -161,6 +273,16 @@ aster_drive_storage::storage_connector_schema! {
             pub obs_secret_access_key: String => storage_connector_field(
                 "obs_secret_access_key", StorageConnectorFieldScope::StaticCredential,
                 StorageConnectorFieldKind::Secret, true, true,
+            ),
+            #[serde(default)]
+            pub cdn_primary_key: Option<String> => storage_connector_field(
+                "cdn_primary_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Secret, false, true,
+            ),
+            #[serde(default)]
+            pub cdn_backup_key: Option<String> => storage_connector_field(
+                "cdn_backup_key", StorageConnectorFieldScope::StaticCredential,
+                StorageConnectorFieldKind::Secret, false, true,
             ),
         }
     }
@@ -180,6 +302,12 @@ impl HuaweiObsConnector {
             base_path: config.base_path,
             region: config.obs_region,
             use_cname: config.obs_use_cname,
+            download_base_url: config.download_base_url,
+            cdn_auth_type: config.cdn_auth_type,
+            cdn_expire_time: config.cdn_expire_time,
+            cdn_sign_arg: config.cdn_sign_arg,
+            cdn_time_arg: config.cdn_time_arg,
+            cdn_signing_algorithm: config.cdn_signing_algorithm,
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(30),
             operation_timeout: Duration::from_secs(3_600),
@@ -190,6 +318,8 @@ impl HuaweiObsConnector {
         HuaweiObsStaticCredentials {
             access_key: credentials.obs_access_key_id,
             secret_key: credentials.obs_secret_access_key,
+            cdn_primary_key: credentials.cdn_primary_key,
+            cdn_backup_key: credentials.cdn_backup_key,
         }
     }
 
@@ -232,8 +362,9 @@ impl HuaweiObsConnector {
                 storage_native_processing: false,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![451],
+                related_issues: vec![451, 686],
             });
+        descriptor.capabilities.custom_download_base_url = true;
         descriptor.promotions.push(promote_from_s3_descriptor());
         descriptor
     }
@@ -284,6 +415,21 @@ impl StorageConnector for HuaweiObsConnector {
         config.endpoint = endpoint.endpoint;
         config.bucket = endpoint.bucket;
         config.obs_region = endpoint.region;
+        config.download_base_url = config
+            .download_base_url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(super::common::normalize_download_base_url)
+            .transpose()?;
+        HuaweiObsDriver::validate_download_config(
+            config.download_base_url.as_deref(),
+            &config.cdn_auth_type,
+            config.cdn_expire_time,
+            &config.cdn_sign_arg,
+            &config.cdn_time_arg,
+            &config.cdn_signing_algorithm,
+        )
+        .map_err(AsterError::from)?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,
@@ -303,7 +449,22 @@ impl StorageConnector for HuaweiObsConnector {
             &credential.obs_secret_access_key,
             "obs_secret_access_key",
             Self::ID,
-        )
+        )?;
+        for (name, value) in [
+            ("cdn_primary_key", credential.cdn_primary_key.as_deref()),
+            ("cdn_backup_key", credential.cdn_backup_key.as_deref()),
+        ] {
+            if let Some(value) = value {
+                let valid = (6..=32).contains(&value.len())
+                    && value.bytes().all(|byte| byte.is_ascii_alphanumeric());
+                if !valid {
+                    return Err(AsterError::validation_error(format!(
+                        "{name} must be 6-32 ASCII letters or digits"
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn build_driver_from_connection(

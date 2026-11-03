@@ -11,6 +11,12 @@ fn config(endpoint: &str, use_cname: bool) -> HuaweiObsDriverConfig {
         base_path: "tenant-a".to_string(),
         region: "cn-north-4".to_string(),
         use_cname,
+        download_base_url: None,
+        cdn_auth_type: "type_a".to_string(),
+        cdn_expire_time: 3600,
+        cdn_sign_arg: "sign".to_string(),
+        cdn_time_arg: "timestamp".to_string(),
+        cdn_signing_algorithm: "md5".to_string(),
         connect_timeout: Duration::from_secs(5),
         read_timeout: Duration::from_secs(30),
         operation_timeout: Duration::from_secs(3_600),
@@ -21,6 +27,8 @@ fn credentials() -> HuaweiObsStaticCredentials {
     HuaweiObsStaticCredentials {
         access_key: "access-key".to_string(),
         secret_key: "secret-key".to_string(),
+        cdn_primary_key: None,
+        cdn_backup_key: None,
     }
 }
 
