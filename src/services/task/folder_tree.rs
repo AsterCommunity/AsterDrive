@@ -130,11 +130,7 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
 ) -> Result<TaskInfo> {
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let txn = transaction::begin(state.writer_db()).await?;
-    if operation == FolderTreeMutationOperation::Restore {
-        crate::services::files::trash::coordination::admit_restore_on(&txn, scope).await?;
-    } else {
-        crate::services::files::trash::coordination::lock_scope_on(&txn, scope.into()).await?;
-    }
+    crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
     let root = folder_repo::find_by_id(&txn, folder_id).await?;
     ensure_root_scope(&root, scope)?;
     ensure_operation_state(&root, operation)?;
@@ -166,11 +162,7 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
             barrier.wait().await;
         }
         let txn = transaction::begin(state.writer_db()).await?;
-        if operation == FolderTreeMutationOperation::Restore {
-            crate::services::files::trash::coordination::admit_restore_on(&txn, scope).await?;
-        } else {
-            crate::services::files::trash::coordination::lock_scope_on(&txn, scope.into()).await?;
-        }
+        crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
         background_task_repo::clear_unsuccessful_dedupe_key(&txn, task.id, dedupe_key.as_str())
             .await?;
         task = match background_task_repo::find_by_dedupe_key(&txn, dedupe_key.as_str()).await? {
@@ -479,9 +471,7 @@ async fn finalize_operation(
     let now = Utc::now();
     let marker = operation_lock_marker(task.id);
     let result = transaction::with_transaction(state.writer_db(), async |txn| {
-        if payload.operation == FolderTreeMutationOperation::Restore {
-            crate::services::files::trash::coordination::admit_restore_on(txn, scope).await?;
-        }
+        crate::services::files::trash::coordination::admit_mutation_on(txn, scope).await?;
         let root = folder_repo::find_by_id(txn, payload.folder_id).await?;
         ensure_root_scope(&root, scope)?;
         enforce_task_root_lock(txn, &root, &lock_tokens).await?;
@@ -996,14 +986,17 @@ mod tests {
         task_id: i64,
     ) -> (background_task::Model, TaskExecutionContext) {
         let claimed_at = Utc::now();
+        let previous = background_task_repo::find_by_id(state.writer_db(), task_id)
+            .await
+            .unwrap();
         assert!(
             background_task_repo::try_claim(
                 state.writer_db(),
                 task_id,
-                0,
+                previous.processing_token,
                 claimed_at,
                 claimed_at - chrono::Duration::minutes(10),
-                1,
+                previous.processing_token + 1,
                 claimed_at + chrono::Duration::minutes(1),
             )
             .await
@@ -1076,7 +1069,7 @@ mod tests {
             .await
             .unwrap();
         let txn = transaction::begin(state.writer_db()).await.unwrap();
-        let error = crate::services::files::trash::coordination::admit_restore_on(&txn, scope)
+        let error = crate::services::files::trash::coordination::admit_mutation_on(&txn, scope)
             .await
             .unwrap_err();
         assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
@@ -1084,9 +1077,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn trash_purge_blocks_queued_delete_admission_finalization_and_retry() {
+        use crate::api::api_error_code::ApiErrorCode;
+        let state = build_test_state().await;
+        let (user, root) = insert_test_user_and_root(&state, "purge-delete", None).await;
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let delete = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .unwrap();
+        let (delete_task, context) = claim_task_with_context(&state, delete.id).await;
+        let purge =
+            crate::services::task::trash::create_trash_purge_all_task_in_scope(&state, scope)
+                .await
+                .unwrap();
+        let error = super::create_folder_tree_mutation_task_in_scope(
+            &state,
+            scope,
+            root.id,
+            FolderTreeMutationOperation::Delete,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        let error = super::process_folder_tree_mutation_task(&state, &delete_task, context)
+            .await
+            .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        assert!(
+            folder_repo::find_by_id(state.writer_db(), root.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_none()
+        );
+        let mut failed: background_task::ActiveModel = delete_task.into();
+        failed.status = Set(BackgroundTaskStatus::Failed);
+        failed.failure_can_retry = Set(Some(true));
+        failed.update(state.writer_db()).await.unwrap();
+        let error = super::super::retry_task_in_scope(&state, scope, delete.id)
+            .await
+            .unwrap_err();
+        assert_eq!(error.api_error_code(), ApiErrorCode::TrashPurgeInProgress);
+        let mut canceled: background_task::ActiveModel =
+            background_task_repo::find_by_id(state.writer_db(), purge.id)
+                .await
+                .unwrap()
+                .into();
+        canceled.status = Set(BackgroundTaskStatus::Canceled);
+        canceled.update(state.writer_db()).await.unwrap();
+        super::super::retry_task_in_scope(&state, scope, delete.id)
+            .await
+            .unwrap();
+        let (task, context) = claim_task_with_context(&state, delete.id).await;
+        super::process_folder_tree_mutation_task(&state, &task, context)
+            .await
+            .unwrap();
+        assert!(
+            folder_repo::find_by_id(state.writer_db(), root.id)
+                .await
+                .unwrap()
+                .deleted_at
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
     async fn trash_purge_fences_takeover_expiry_cancellation_and_terminal_workers() {
         use crate::api::api_error_code::ApiErrorCode;
-        use crate::services::files::trash::coordination::{admit_restore_on, fence_purge_on};
+        use crate::services::files::trash::coordination::{admit_mutation_on, fence_purge_on};
         use aster_forge_db::transaction;
         let state = build_test_state().await;
         let (user, _) = insert_test_user_and_root(&state, "purge-fence", Some(Utc::now())).await;
@@ -1147,7 +1210,7 @@ mod tests {
         transaction::commit(txn).await.unwrap();
         // Another personal scope is unaffected even when it shares this database/process.
         let txn = transaction::begin(state.writer_db()).await.unwrap();
-        admit_restore_on(&txn, WorkspaceStorageScope::Personal { user_id: other.id })
+        admit_mutation_on(&txn, WorkspaceStorageScope::Personal { user_id: other.id })
             .await
             .unwrap();
         transaction::commit(txn).await.unwrap();
@@ -1203,7 +1266,7 @@ mod tests {
                 &state,
                 scope.into(),
                 vec![file.clone()],
-                Some(lease),
+                crate::services::files::trash::coordination::PurgeGuard::Task(lease),
             )
             .await
             .unwrap_err();
@@ -1214,7 +1277,7 @@ mod tests {
                     .is_ok()
             );
             let txn = transaction::begin(state.writer_db()).await.unwrap();
-            let admission = admit_restore_on(&txn, scope).await;
+            let admission = admit_mutation_on(&txn, scope).await;
             assert_eq!(admission.is_ok(), status.is_terminal());
             txn.rollback().await.unwrap();
         }
@@ -1226,7 +1289,7 @@ mod tests {
             &state,
             scope.into(),
             vec![file.clone()],
-            Some(lease),
+            crate::services::files::trash::coordination::PurgeGuard::Task(lease),
         )
         .await
         .unwrap_err();

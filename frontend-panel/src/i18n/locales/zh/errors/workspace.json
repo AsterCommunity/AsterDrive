@@ -9,7 +9,7 @@
 	"precondition_failed": "当前操作前置条件不满足，请刷新后重试",
 	"master_binding_disabled": "当前主从绑定已被禁用，请检查远程节点配置",
 	"folder_not_found": "文件夹不存在或已被删除",
-	"trash_purge_in_progress": "回收站正在清空，任务结束后才能还原，请稍后重试",
+	"trash_purge_in_progress": "回收站正在清空，暂时不能还原、移入回收站或永久删除，请等待任务结束",
 	"folder_name_conflict": "当前位置已存在同名文件夹",
 	"lock_not_owner": "只有锁定者或资源所有者才能执行这个操作",
 	"share_scope_denied": "当前分享范围不允许访问这个资源",

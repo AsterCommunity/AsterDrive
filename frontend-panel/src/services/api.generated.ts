@@ -19287,6 +19287,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     batch_move: {
@@ -20040,6 +20047,13 @@ export interface operations {
             };
             /** @description File not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21507,6 +21521,13 @@ export interface operations {
             };
             /** @description Folder not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -25612,6 +25633,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     batch_move_team: {
@@ -26483,6 +26511,13 @@ export interface operations {
             };
             /** @description File not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -28135,6 +28170,13 @@ export interface operations {
             };
             /** @description Folder not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -29927,6 +29969,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     restore_team_trash_item: {
@@ -30383,6 +30432,13 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Trash purge is pending or active (trash.purge_in_progress) */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

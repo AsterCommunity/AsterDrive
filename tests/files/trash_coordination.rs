@@ -841,3 +841,550 @@ async fn manual_purge_retry_and_restore_are_serialized() {
         }
     }
 }
+
+async fn deletion_lifecycle(team: bool) {
+    use aster_drive_model::entities::file_blob;
+    let state = common::setup_with_pool_size(4).await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let owner = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let team_id = if team {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/v1/teams")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(serde_json::json!({"name":"Deletion coordination"}))
+                .to_request(),
+        )
+        .await;
+        let body: Value = test::read_body_json(response).await;
+        Some(body["data"]["id"].as_i64().unwrap())
+    } else {
+        None
+    };
+    let base = team_id.map_or("/api/v1".into(), |id| format!("/api/v1/teams/{id}"));
+    let now = Utc::now();
+    let mut folders = Vec::new();
+    for (name, deleted) in [
+        ("active", false),
+        ("queued-delete", false),
+        ("trashed", true),
+    ] {
+        let root = folder::ActiveModel {
+            name: Set(name.into()),
+            parent_id: Set(None),
+            team_id: Set(team_id),
+            owner_user_id: Set(if team { None } else { Some(owner.id) }),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(deleted.then_some(now)),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+        folders.push(root);
+    }
+    let mut parent = folders[1].id;
+    for depth in 0..130 {
+        let mut child: folder::ActiveModel = folders[1].clone().into();
+        child.id = sea_orm::NotSet;
+        child.parent_id = Set(Some(parent));
+        child.name = Set(format!("child-{depth}"));
+        parent = child.insert(state.writer_db()).await.unwrap().id;
+    }
+    let mut files = Vec::new();
+    for (name, deleted) in [("active.txt", false), ("trashed.txt", true)] {
+        let (status, body) = common::upload_via_server_session(
+            &app,
+            &token,
+            &format!("{base}/files"),
+            name,
+            "text/plain",
+            b"deletion protection",
+        )
+        .await;
+        assert_eq!(status, 201);
+        let id = body["data"]["id"].as_i64().unwrap();
+        if deleted {
+            assert_eq!(
+                request!(app, token, delete, format!("{base}/files/{id}"))
+                    .await
+                    .status(),
+                200
+            );
+        }
+        files.push(file_repo::find_by_id(state.writer_db(), id).await.unwrap());
+    }
+    let blobs_before = file_blob::Entity::find()
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    let response = request!(app, token, delete, format!("{base}/trash")).await;
+    let body: Value = test::read_body_json(response).await;
+    let task_id = body["data"]["id"].as_i64().unwrap();
+    for status in [
+        BackgroundTaskStatus::Pending,
+        BackgroundTaskStatus::Processing,
+        BackgroundTaskStatus::Retry,
+        BackgroundTaskStatus::Canceling,
+    ] {
+        set_status(&state, task_id, status).await;
+        for url in [
+            format!("{base}/files/{}", files[0].id),
+            format!("{base}/folders/{}", folders[0].id),
+            format!("{base}/folders/{}", folders[1].id),
+            format!("{base}/trash/file/{}", files[1].id),
+            format!("{base}/trash/folder/{}", folders[2].id),
+        ] {
+            let response = request!(app, token, delete, url).await;
+            assert_eq!(response.status(), 409, "{status:?}");
+            let body: Value = test::read_body_json(response).await;
+            assert_eq!(body["code"], "trash.purge_in_progress");
+        }
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("{base}/batch/delete"))
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(
+                    serde_json::json!({"file_ids":[files[0].id], "folder_ids":[folders[0].id]}),
+                )
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 409, "batch {status:?}");
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["code"], "trash.purge_in_progress");
+        // The trash UI submits bulk permanent deletes as concurrent single-item requests.
+        let (file_response, folder_response) = tokio::join!(
+            request!(
+                app,
+                token,
+                delete,
+                format!("{base}/trash/file/{}", files[1].id)
+            ),
+            request!(
+                app,
+                token,
+                delete,
+                format!("{base}/trash/folder/{}", folders[2].id)
+            ),
+        );
+        assert_eq!(file_response.status(), 409);
+        assert_eq!(folder_response.status(), 409);
+        for before in &files {
+            assert_eq!(
+                file_repo::find_by_id(state.writer_db(), before.id)
+                    .await
+                    .unwrap(),
+                *before
+            );
+        }
+        for before in &folders {
+            assert_eq!(
+                folder_repo::find_by_id(state.writer_db(), before.id)
+                    .await
+                    .unwrap(),
+                *before
+            );
+        }
+        assert_eq!(
+            file_blob::Entity::find()
+                .all(state.writer_db())
+                .await
+                .unwrap(),
+            blobs_before
+        );
+        assert_eq!(
+            background_task::Entity::find()
+                .all(state.writer_db())
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "rejected large deletion cannot enqueue work"
+        );
+    }
+    // Both classes of deletion become available again for every terminal state.
+    for status in [
+        BackgroundTaskStatus::Succeeded,
+        BackgroundTaskStatus::Failed,
+        BackgroundTaskStatus::Canceled,
+    ] {
+        set_status(&state, task_id, status).await;
+        assert_eq!(
+            request!(app, token, delete, format!("{base}/files/{}", files[0].id))
+                .await
+                .status(),
+            200
+        );
+        assert_eq!(
+            request!(
+                app,
+                token,
+                delete,
+                format!("{base}/folders/{}", folders[0].id)
+            )
+            .await
+            .status(),
+            200
+        );
+        assert_eq!(
+            request!(
+                app,
+                token,
+                post,
+                format!("{base}/trash/file/{}/restore", files[0].id)
+            )
+            .await
+            .status(),
+            200
+        );
+        assert_eq!(
+            request!(
+                app,
+                token,
+                post,
+                format!("{base}/trash/folder/{}/restore", folders[0].id)
+            )
+            .await
+            .status(),
+            200
+        );
+    }
+    assert_eq!(
+        request!(
+            app,
+            token,
+            delete,
+            format!("{base}/trash/file/{}", files[1].id)
+        )
+        .await
+        .status(),
+        200
+    );
+    assert_eq!(
+        request!(
+            app,
+            token,
+            delete,
+            format!("{base}/trash/folder/{}", folders[2].id)
+        )
+        .await
+        .status(),
+        200
+    );
+}
+
+#[actix_web::test]
+async fn personal_trash_blocks_soft_and_permanent_deletion() {
+    deletion_lifecycle(false).await;
+}
+#[actix_web::test]
+async fn team_trash_blocks_soft_and_permanent_deletion() {
+    deletion_lifecycle(true).await;
+}
+
+#[actix_web::test]
+async fn mysql_prior_snapshot_cannot_hide_a_committed_purge_admission() {
+    use aster_drive::db::repository::{background_task_repo, lock_namespace_repo};
+    use aster_drive_model::types::{BackgroundTaskKind, LockWorkspaceType};
+    use sea_orm::TransactionTrait;
+    let state = common::setup_with_pool_size(4).await;
+    if state.writer_db().get_database_backend() != sea_orm::DbBackend::MySql {
+        return;
+    }
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    let txn = state.writer_db().begin().await.unwrap();
+    // A protocol adapter can resolve its resource before reaching the shared delete service.
+    assert!(
+        background_task::Entity::find()
+            .all(&txn)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let response = request!(app, token, delete, "/api/v1/trash".to_string()).await;
+    assert_eq!(response.status(), 200);
+    lock_namespace_repo::ensure_and_lock(&txn, LockWorkspaceType::Personal, user.id)
+        .await
+        .unwrap();
+    assert!(
+        background_task_repo::find_active_by_kind_in_workspace(
+            &txn,
+            BackgroundTaskKind::TrashPurgeAll,
+            LockWorkspaceType::Personal,
+            user.id
+        )
+        .await
+        .unwrap()
+        .is_some()
+    );
+    txn.rollback().await.unwrap();
+}
+
+#[actix_web::test]
+async fn permanent_folder_delete_rolls_back_files_versions_blobs_and_quota() {
+    use aster_drive_model::entities::{file_blob, file_revision, file_revision_history};
+    use sea_orm::{ConnectionTrait, DbBackend};
+    let state = common::setup().await;
+    let mut events = state.storage_change_bus.subscribe();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"name":"Atomic permanent deletion"}))
+            .to_request(),
+    )
+    .await;
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+    let (status, body) = common::upload_via_server_session(
+        &app,
+        &token,
+        &format!("/api/v1/files?folder_id={folder_id}"),
+        "retained.txt",
+        "text/plain",
+        b"must survive failed folder purge",
+    )
+    .await;
+    assert_eq!(status, 201);
+    let file_id = body["data"]["id"].as_i64().unwrap();
+    assert_eq!(
+        request!(app, token, delete, format!("/api/v1/folders/{folder_id}"))
+            .await
+            .status(),
+        200
+    );
+    let before_file = file_repo::find_by_id(state.writer_db(), file_id)
+        .await
+        .unwrap();
+    let before_folder = folder_repo::find_by_id(state.writer_db(), folder_id)
+        .await
+        .unwrap();
+    let before_blobs = file_blob::Entity::find()
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    let before_revisions = file_revision::Entity::find()
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    let before_histories = file_revision_history::Entity::find()
+        .all(state.writer_db())
+        .await
+        .unwrap();
+    let before_user = user_repo::find_by_username(state.writer_db(), "testuser")
+        .await
+        .unwrap()
+        .unwrap();
+    while events.try_recv().is_ok() {}
+    let trigger = match state.writer_db().get_database_backend() {
+        DbBackend::Sqlite => {
+            "CREATE TRIGGER fail_folder_purge BEFORE DELETE ON folders BEGIN SELECT RAISE(ABORT, 'injected folder purge failure'); END"
+        }
+        DbBackend::Postgres => {
+            "CREATE FUNCTION fail_folder_purge_fn() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected folder purge failure'; END $$; CREATE TRIGGER fail_folder_purge BEFORE DELETE ON folders FOR EACH ROW EXECUTE FUNCTION fail_folder_purge_fn();"
+        }
+        DbBackend::MySql => {
+            "CREATE TRIGGER fail_folder_purge BEFORE DELETE ON folders FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected folder purge failure'"
+        }
+        backend => panic!("unsupported test backend: {backend:?}"),
+    };
+    state.writer_db().execute_unprepared(trigger).await.unwrap();
+    let response = request!(
+        app,
+        token,
+        delete,
+        format!("/api/v1/trash/folder/{folder_id}")
+    )
+    .await;
+    assert_eq!(response.status(), 500);
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), file_id)
+            .await
+            .unwrap(),
+        before_file
+    );
+    assert_eq!(
+        folder_repo::find_by_id(state.writer_db(), folder_id)
+            .await
+            .unwrap(),
+        before_folder
+    );
+    assert_eq!(
+        file_blob::Entity::find()
+            .all(state.writer_db())
+            .await
+            .unwrap(),
+        before_blobs
+    );
+    assert_eq!(
+        file_revision::Entity::find()
+            .all(state.writer_db())
+            .await
+            .unwrap(),
+        before_revisions
+    );
+    assert_eq!(
+        file_revision_history::Entity::find()
+            .all(state.writer_db())
+            .await
+            .unwrap(),
+        before_histories
+    );
+    assert_eq!(
+        user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .unwrap()
+            .unwrap()
+            .storage_used,
+        before_user.storage_used
+    );
+    assert!(
+        events.try_recv().is_err(),
+        "rolled back deletion must not publish changes"
+    );
+    assert_eq!(
+        request!(
+            app,
+            token,
+            post,
+            format!("/api/v1/trash/folder/{folder_id}/restore")
+        )
+        .await
+        .status(),
+        200
+    );
+    let response = request!(app, token, get, format!("/api/v1/files/{file_id}/download")).await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        test::read_body(response).await.as_ref(),
+        b"must survive failed folder purge"
+    );
+}
+
+async fn deletion_enqueue_race(team: bool, permanent: bool) {
+    let state = common::setup_with_pool_size(4).await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let base = if team {
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/v1/teams")
+                .insert_header(("Cookie", common::access_cookie_header(&token)))
+                .insert_header(common::csrf_header_for(&token))
+                .set_json(serde_json::json!({"name":"Concurrent deletion"}))
+                .to_request(),
+        )
+        .await;
+        let body: Value = test::read_body_json(response).await;
+        format!("/api/v1/teams/{}", body["data"]["id"].as_i64().unwrap())
+    } else {
+        "/api/v1".into()
+    };
+    for iteration in 0..4 {
+        let (status, body) = common::upload_via_server_session(
+            &app,
+            &token,
+            &format!("{base}/files"),
+            &format!("delete-race-{iteration}.txt"),
+            "text/plain",
+            b"one quota decrement",
+        )
+        .await;
+        assert_eq!(status, 201);
+        let id = body["data"]["id"].as_i64().unwrap();
+        if permanent {
+            assert_eq!(
+                request!(app, token, delete, format!("{base}/files/{id}"))
+                    .await
+                    .status(),
+                200
+            );
+        }
+        let url = if permanent {
+            format!("{base}/trash/file/{id}")
+        } else {
+            format!("{base}/files/{id}")
+        };
+        let deletion = request!(app, token, delete, url);
+        let empty = request!(app, token, delete, format!("{base}/trash"));
+        let (deleted, queued) = if iteration % 2 == 0 {
+            tokio::join!(deletion, empty)
+        } else {
+            let (queued, deleted) = tokio::join!(empty, deletion);
+            (deleted, queued)
+        };
+        assert!(matches!(deleted.status().as_u16(), 200 | 409));
+        assert_eq!(queued.status(), 200);
+        let rejected = deleted.status() == 409;
+        let body: Value = test::read_body_json(queued).await;
+        let stats =
+            common::drain_task_to_terminal(&state, body["data"]["id"].as_i64().unwrap()).await;
+        assert_eq!(stats.failed, 0, "{stats:?}");
+        let after = file_repo::find_by_id(state.writer_db(), id).await;
+        if !permanent && rejected {
+            assert!(
+                after.unwrap().deleted_at.is_none(),
+                "a rejected soft delete must stay outside this purge"
+            );
+        } else {
+            assert!(
+                after.is_err(),
+                "accepted/previously trashed resource must be removed once"
+            );
+        }
+        if !team {
+            let owner = user_repo::find_by_username(state.writer_db(), "testuser")
+                .await
+                .unwrap()
+                .unwrap();
+            let active_bytes: i64 = file::Entity::find()
+                .filter(file::Column::DeletedAt.is_null())
+                .all(state.writer_db())
+                .await
+                .unwrap()
+                .iter()
+                .map(|file| file.size)
+                .sum();
+            assert_eq!(owner.storage_used, active_bytes);
+        }
+    }
+}
+
+#[actix_web::test]
+async fn personal_soft_delete_enqueue_race() {
+    deletion_enqueue_race(false, false).await;
+}
+#[actix_web::test]
+async fn team_soft_delete_enqueue_race() {
+    deletion_enqueue_race(true, false).await;
+}
+#[actix_web::test]
+async fn personal_permanent_delete_enqueue_race() {
+    deletion_enqueue_race(false, true).await;
+}
+#[actix_web::test]
+async fn team_permanent_delete_enqueue_race() {
+    deletion_enqueue_race(true, true).await;
+}

@@ -146,6 +146,7 @@ pub async fn restore(
         ("id" = i64, Path, description = "Entity ID"),
     ),
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Permanently deleted"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -339,6 +340,7 @@ pub(crate) async fn team_restore(
         ("id" = i64, Path, description = "Entity ID"),
     ),
     responses(
+        (status = 409, description = "Trash purge is pending or active (trash.purge_in_progress)"),
         (status = 200, description = "Permanently deleted"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),

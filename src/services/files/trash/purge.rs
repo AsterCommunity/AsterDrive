@@ -189,8 +189,16 @@ pub(crate) async fn purge_all_in_scope_silent(
         let next_file_cursor = top_files
             .last()
             .and_then(|file| file.deleted_at.map(|deleted_at| (deleted_at, file.id)));
-        match file::batch_purge_in_resource_scope_silent(state, scope.into(), top_files, lease)
-            .await
+        match file::batch_purge_in_resource_scope_silent(
+            state,
+            scope.into(),
+            top_files,
+            lease.map_or(
+                super::coordination::PurgeGuard::Maintenance,
+                super::coordination::PurgeGuard::Task,
+            ),
+        )
+        .await
         {
             Ok(file_summary) => {
                 summary.add_file_summary(file_summary);

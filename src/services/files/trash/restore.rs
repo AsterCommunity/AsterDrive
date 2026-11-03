@@ -26,7 +26,7 @@ async fn restore_file_in_scope(
     tracing::debug!(scope = ?scope, file_id = id, "restoring file from trash");
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let txn = transaction::begin(state.writer_db()).await?;
-    super::coordination::admit_restore_on(&txn, scope).await?;
+    super::coordination::admit_mutation_on(&txn, scope).await?;
     let file = file_repo::find_by_id(&txn, id).await?;
     storage::ensure_file_scope(&file, scope)?;
     if file.deleted_at.is_none() {
@@ -106,7 +106,7 @@ async fn restore_folder_in_scope(
     tracing::debug!(scope = ?scope, folder_id = id, "restoring folder from trash");
     storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let txn = transaction::begin(state.writer_db()).await?;
-    super::coordination::admit_restore_on(&txn, scope).await?;
+    super::coordination::admit_mutation_on(&txn, scope).await?;
     let folder = folder_repo::find_by_id(&txn, id).await?;
     storage::ensure_folder_scope(&folder, scope)?;
     if folder.deleted_at.is_none() {

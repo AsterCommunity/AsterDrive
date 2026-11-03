@@ -21,12 +21,10 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<background_t
         .ok_or_else(|| AsterError::record_not_found(format!("task #{id}")))
 }
 
-/// The caller must take the workspace namespace lock before this transaction's first
-/// consistent read, then hold it through admission and the product mutation/insert.
-/// This observes committed admissions even under MySQL REPEATABLE READ. Avoid locking
-/// task rows here: a rejected restore's asynchronous rollback can otherwise make the
-/// dispatcher's SKIP LOCKED claim skip the queued purge. Terminal transitions may race
-/// this read safely; activation/retry requires the same workspace lock.
+/// The caller holds the workspace namespace lock through admission and mutation.
+/// A current shared read also sees admissions committed after a protocol adapter's
+/// earlier MySQL REPEATABLE READ snapshot. Dispatchers may skip locked rows briefly;
+/// worker polling must continue until the transaction releases them.
 pub async fn find_active_by_kind_in_workspace<C: ConnectionTrait>(
     db: &C,
     kind: BackgroundTaskKind,
@@ -48,7 +46,7 @@ pub async fn find_active_by_kind_in_workspace<C: ConnectionTrait>(
             .filter(background_task::Column::TeamId.is_null()),
         LockWorkspaceType::Team => query.filter(background_task::Column::TeamId.eq(workspace_id)),
     };
-    query.one(db).await.map_err(AsterError::from)
+    query.lock_shared().one(db).await.map_err(AsterError::from)
 }
 
 pub async fn find_by_id_for_update<C: ConnectionTrait>(

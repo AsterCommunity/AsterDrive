@@ -248,14 +248,8 @@ async fn retry_task_record(
             .await?;
         }
         BackgroundTaskKind::FolderTreeMutation => {
-            let payload = spec::decode_payload_as::<spec::FolderTreeMutationTask>(task)?;
-            if payload.operation == types::FolderTreeMutationOperation::Restore {
-                crate::services::files::trash::coordination::admit_restore_on(
-                    &txn,
-                    task_scope(task)?,
-                )
+            crate::services::files::trash::coordination::admit_mutation_on(&txn, task_scope(task)?)
                 .await?;
-            }
         }
         _ => {}
     }

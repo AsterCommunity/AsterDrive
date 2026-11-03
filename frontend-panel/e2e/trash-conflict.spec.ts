@@ -40,7 +40,7 @@ test("shows the localized purge conflict and allows retry after it clears", asyn
 	await page.getByRole("button", { name: "Restore Selected" }).click();
 	await expect(
 		page.getByText(
-			"Trash is being emptied. Wait for the task to finish before restoring items",
+			"Trash is being emptied. Wait for the task to finish before restoring, moving items to trash, or permanently deleting them",
 			{ exact: false },
 		),
 	).toBeVisible();
