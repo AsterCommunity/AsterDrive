@@ -240,13 +240,6 @@ src/i18n/locales/{zh,en}/
 - 侧栏内的树、导航、设置列表等内容块要与统一边距对齐，避免根节点/表格内容紧贴左右边界
 - 侧栏树节点、设置表格、管理表格等若出现左右贴边或根节点/首行未撑满整行，优先检查并复用上述常量，不要单页手搓额外 padding
 
-### Base UI Tooltip 与触屏信息
-
-- Base UI `Tooltip` 只适合鼠标 hover 或键盘 focus-visible 可获得的补充标签，触屏点击不会打开；不要用它承载用户完成任务所必需的说明
-- “信息图标 + 说明正文”使用 `Popover`，并在 trigger 上启用 `openOnHover`，同时覆盖桌面 hover、键盘、点击与触屏 tap
-- 说明正文使用 `PopoverDescription` 或等价的可访问关联，图标 trigger 保留明确的 `aria-label`，触摸目标不能只等于小图标的视觉尺寸
-- 普通操作按钮的重复标签仍可使用 `Tooltip`，不要为了触屏 infotip 修改全局 Tooltip 行为
-
 ### 弹窗与详情生命周期
 
 - open=false 表示开始退出，不等于展示资源已经销毁。关闭立即取消请求或使迟到结果失效，数据和标题由内容组件持有到退出完成再卸载。

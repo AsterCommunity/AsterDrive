@@ -18,6 +18,34 @@ async function openSiteSettings(page: Page, request: APIRequestContext) {
 }
 
 test.describe("Admin settings description infotips", () => {
+	test("opens on keyboard focus and dismisses with Escape or Tab", async ({
+		page,
+		request,
+	}) => {
+		const trigger = await openSiteSettings(page, request);
+		const popup = page.getByRole("dialog", {
+			name: "Show description for Public site URL",
+		});
+		await trigger.focus();
+		await page.keyboard.press("Shift+Tab");
+		await page.keyboard.press("Tab");
+
+		await expect(trigger).toBeFocused();
+		await expect(popup).toBeVisible();
+		await expect(popup).toHaveAccessibleDescription(
+			PUBLIC_SITE_URL_DESCRIPTION,
+		);
+		await page.keyboard.press("Escape");
+		await expect(popup).toBeHidden();
+		await expect(trigger).toBeFocused();
+
+		await page.keyboard.press("Shift+Tab");
+		await page.keyboard.press("Tab");
+		await expect(popup).toBeVisible();
+		await page.keyboard.press("Tab");
+		await expect(popup).toBeHidden();
+	});
+
 	test("keeps desktop hover access to the complete description", async ({
 		page,
 		request,
@@ -28,6 +56,22 @@ test.describe("Admin settings description infotips", () => {
 
 		await expect(page.getByText(PUBLIC_SITE_URL_DESCRIPTION)).toBeVisible();
 		await expect(trigger).toHaveAttribute("aria-expanded", "true");
+	});
+
+	test("keeps pointer click toggling after hover", async ({
+		page,
+		request,
+	}) => {
+		const trigger = await openSiteSettings(page, request);
+		const popup = page.getByRole("dialog", {
+			name: "Show description for Public site URL",
+		});
+		await trigger.hover();
+		await expect(popup).toBeVisible();
+		await trigger.click();
+		await expect(popup).toBeVisible();
+		await trigger.click();
+		await expect(popup).toBeHidden();
 	});
 });
 

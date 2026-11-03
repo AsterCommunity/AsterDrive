@@ -131,22 +131,31 @@ function SettingDescriptionHelp({
 	description?: string;
 	label: string;
 }) {
+	const [open, setOpen] = useState(false);
+
 	if (!description) {
 		return null;
 	}
 
 	return (
-		<Popover>
+		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
 				type="button"
 				aria-label={label}
 				openOnHover
 				delay={0}
+				onFocus={(event) => {
+					if (event.currentTarget.matches(":focus-visible")) {
+						setOpen(true);
+					}
+				}}
 				className="inline-flex size-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/35"
 			>
 				<Icon name="Question" className="size-5" aria-hidden="true" />
 			</PopoverTrigger>
 			<PopoverContent
+				aria-label={label}
+				initialFocus={false}
 				side="top"
 				align="start"
 				className="w-fit max-w-[min(22rem,calc(100vw-2rem))]"
