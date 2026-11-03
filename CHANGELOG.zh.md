@@ -36,7 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- 降低数据库迁移的栈占用，修复 Windows debug 构建在默认主线程栈下初始化新数据库时的栈溢出。
 - **OSS CNAME 对象键编码** — 移除 SDK 的 bucket 路径时保留对象键编码，包括 `%2F` 等字面百分号转义，确保普通请求和预签名请求访问预期对象。
 
 - **触屏可访问的设置说明** — 管理设置的说明问号改用支持 hover 的 Popover，完整说明可通过桌面 hover、键盘聚焦、指针点击和触屏轻点获取；扩大触摸目标并关联无障碍说明，同时保持紧凑的设置布局。（#713）

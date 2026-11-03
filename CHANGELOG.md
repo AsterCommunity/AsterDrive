@@ -36,7 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Reduce migration stack use so Windows debug builds can initialize a fresh database with the default main-thread stack.
 - **OSS CNAME object-key encoding** — Removing the SDK bucket path preserves encoded object keys, including literal percent escapes such as `%2F`, so ordinary and presigned requests address the intended object.
 
 - **Touch-accessible settings descriptions** — Administrator setting help icons use hover-enabled popovers so complete descriptions remain available by desktop hover, keyboard focus, pointer click, and touch tap. Larger touch targets and accessible popup descriptions preserve the existing compact settings layout. (#713)
