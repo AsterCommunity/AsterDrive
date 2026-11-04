@@ -5606,6 +5606,23 @@ export interface components {
          * @enum {string}
          */
         BrowserOpenMode: "single_click" | "double_click";
+        BrowserUploadAuthorization: {
+            scheme: string;
+            token: string;
+        };
+        /** @description Finite, provider-owned receipt rules consumed by the common browser executor. */
+        BrowserUploadCompletion: {
+            name: string;
+            /** @enum {string} */
+            source: "response_header";
+        } | {
+            /** @enum {string} */
+            source: "fixed";
+            token: string;
+        } | {
+            /** @enum {string} */
+            source: "provider_reconciled";
+        };
         BrowserUploadInstruction: {
             request: components["schemas"]["BrowserUploadRequest"];
             request_id: string;
@@ -5645,7 +5662,9 @@ export interface components {
         };
         /** @description A capability URL, never an administrator credential. Do not log this value. */
         BrowserUploadRequest: {
+            authorization?: components["schemas"]["BrowserUploadAuthorization"] | null;
             body?: components["schemas"]["BrowserUploadRange"] | null;
+            completion?: components["schemas"]["BrowserUploadCompletion"] | null;
             headers: {
                 [key: string]: string;
             };
@@ -7888,7 +7907,7 @@ export interface components {
          * @enum {string}
          */
         PrefViewMode: "list" | "grid";
-        /** @description Request complete presigned PUT descriptors for multipart upload parts. */
+        /** @description Request browser descriptors for signed or provider-native numbered parts. */
         PresignPartsReq: {
             part_numbers: number[];
         };
@@ -19799,7 +19818,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned requests for each part */
+            /** @description Browser requests for signed or native numbered parts */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19809,11 +19828,15 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             [key: string]: {
-                                /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
-                                headers?: {
+                                authorization?: components["schemas"]["BrowserUploadAuthorization"] | null;
+                                body?: components["schemas"]["BrowserUploadRange"] | null;
+                                completion?: components["schemas"]["BrowserUploadCompletion"] | null;
+                                headers: {
                                     [key: string]: string;
                                 };
-                                /** @description 完整签名请求的目标 URL。 */
+                                method: components["schemas"]["BrowserUploadMethod"];
+                                /** @description Only these response headers may be reported to the driver. */
+                                response_headers: string[];
                                 url: string;
                             };
                         };
@@ -26227,7 +26250,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned requests */
+            /** @description Browser requests for signed or native numbered parts */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -26237,11 +26260,15 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             [key: string]: {
-                                /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
-                                headers?: {
+                                authorization?: components["schemas"]["BrowserUploadAuthorization"] | null;
+                                body?: components["schemas"]["BrowserUploadRange"] | null;
+                                completion?: components["schemas"]["BrowserUploadCompletion"] | null;
+                                headers: {
                                     [key: string]: string;
                                 };
-                                /** @description 完整签名请求的目标 URL。 */
+                                method: components["schemas"]["BrowserUploadMethod"];
+                                /** @description Only these response headers may be reported to the driver. */
+                                response_headers: string[];
                                 url: string;
                             };
                         };

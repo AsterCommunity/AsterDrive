@@ -8,82 +8,122 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_qiniu_storage_desc",
-        "Store files in Qiniu Cloud Kodo through its S3-compatible API.",
-        "通过七牛云 Kodo 的 S3 兼容 API 存储文件。",
+        "Store files through native Kodo upload, management and private download APIs.",
+        "使用 Kodo 原生上传、管理和私有下载 API 存储文件。"
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_qiniu_helper",
-        "Enter an official Kodo S3 service or S3-space endpoint, matching signing region, and Qiniu S3 space name. AsterDrive selects the addressing style.",
-        "填写官方 Kodo S3 服务或 S3 空间 endpoint、匹配的签名区域和七牛 S3 空间名；寻址方式由 AsterDrive 自动选择。",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "policy_qiniu_promote_from_s3_desc",
-        "This generic S3 policy already uses an official HTTPS Qiniu Kodo endpoint and explicit SigV4 region. Switch the draft or promote the saved policy in place without copying objects.",
-        "这个通用 S3 策略已经使用七牛云 Kodo 官方 HTTPS endpoint 和显式 SigV4 区域。可以切换草稿，或将已保存策略就地提升，无需复制对象。",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "policy_qiniu_promote_from_s3_confirm",
-        "The Qiniu S3 space name, base path, endpoint, and signing region remain bound to the same object namespace. Addressing becomes connector-owned.",
-        "七牛 S3 空间名、基础路径、endpoint 和签名区域继续绑定同一对象 namespace；寻址方式改由 connector 管理。",
+        "Use the native bucket name and a bound HTTPS origin domain. Upload and management endpoints are discovered separately.",
+        "填写原生空间名与已绑定的 HTTPS 源站域名；上传和管理服务入口分别自动发现。"
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_wizard_step_qiniu_connection_desc",
-        "Set an official Qiniu Kodo S3 endpoint, S3 space name, matching SigV4 region, optional prefix, and AccessKey credentials.",
-        "填写七牛云 Kodo S3 官方 endpoint、S3 空间名、匹配的 SigV4 区域、可选前缀和 AccessKey 凭据。",
+        "Configure native bucket, origin domain, optional CDN delivery, prefix and AccessKey credentials.",
+        "配置原生空间名、源站域名、可选 CDN 交付、对象前缀和 AccessKey 凭据。"
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_edit_context_qiniu_desc",
-        "Qiniu Kodo S3-compatible object storage configuration.",
-        "七牛云 Kodo S3 兼容对象存储配置。",
+        "Native Kodo storage; existing object keys and prefixes stay unchanged.",
+        "Kodo 原生存储；保留已有对象 key 和前缀。"
     ),
     aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_endpoint",
-        "Kodo S3 endpoint",
-        "Kodo S3 endpoint",
+        "qiniu_native_bucket",
+        "Native Kodo bucket name",
+        "Kodo 原生空间名"
     ),
     aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_endpoint_desc",
-        "An official endpoint for the matching region, such as https://s3.cn-east-1.qiniucs.com or https://<S3-space-name>.s3.cn-east-1.qiniucs.com. AsterDrive normalizes both forms and selects the addressing style automatically.",
-        "与区域匹配的官方 endpoint，例如 https://s3.cn-east-1.qiniucs.com 或 https://<S3-空间名>.s3.cn-east-1.qiniucs.com。AsterDrive 会规范化两种形式并自动选择寻址方式。",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_endpoint_protocol_error",
-        "Kodo S3 endpoint must use HTTPS.",
-        "Kodo S3 endpoint 必须使用 HTTPS。",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_bucket",
-        "Qiniu S3 space name",
-        "七牛 S3 空间名",
-    ),
-    aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_bucket_desc",
-        "The globally unique S3 space name shown in the Kodo console or returned by Get Service. It can differ from the ordinary Kodo space name.",
-        "在 Kodo 控制台中显示或由 Get Service 返回的全局唯一 S3 空间名；它可能不同于普通 Kodo 空间名称。",
+        "qiniu_native_bucket_desc",
+        "Use the ordinary bucket name, not the S3 space alias. Legacy policies are verified and converted online at startup.",
+        "填写普通空间名称，不是 S3 空间别名。旧策略在启动升级时联网验证并自动转换。"
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_bucket_required",
-        "Qiniu S3 space name is required.",
-        "七牛 S3 空间名不能为空。",
+        "Native Kodo bucket name is required.",
+        "Kodo 原生空间名不能为空。"
     ),
     aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_region",
-        "Kodo SigV4 signing region",
-        "Kodo SigV4 签名区域",
+        "qiniu_download_origin",
+        "Kodo origin download domain",
+        "Kodo 源站下载域名"
     ),
     aster_drive_storage::storage_connector_message!(
-        "qiniu_s3_region_desc",
-        "The Region ID embedded in the official Kodo S3 service endpoint, such as cn-east-1. It must match the endpoint host.",
-        "官方 Kodo S3 服务 endpoint 中的 Region ID，例如 cn-east-1；必须与 endpoint 主机名匹配。",
+        "qiniu_download_origin_desc",
+        "Bound HTTPS Kodo origin domain used for internal GET/Range reads. Download domains do not provide upload services.",
+        "已绑定 HTTPS 的 Kodo 源站域名，供内部 GET/Range 读取。下载域名不承担上传服务。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_delivery",
+        "Private download delivery",
+        "私有下载交付"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_delivery_origin",
+        "Kodo origin",
+        "Kodo 源站"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_delivery_cdn",
+        "Qiniu CDN with private-bucket authentication",
+        "七牛 CDN（私有空间鉴权）"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cdn_domain",
+        "Qiniu CDN domain",
+        "七牛 CDN 域名"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cdn_domain_desc",
+        "Enable private-bucket origin authentication in Qiniu CDN. Native e/token links sign the attachment filename; CDN controls MIME and caching. Test authentication on cache HIT and MISS.",
+        "在七牛 CDN 开启私有空间回源鉴权，使用原生 e/token 链接并签署附件文件名；MIME 和缓存头由 CDN 决定。分别验收缓存 HIT/MISS 鉴权。"
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_access_key",
         "Qiniu AccessKey",
-        "七牛云 AccessKey",
+        "七牛云 AccessKey"
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_secret_key",
         "Qiniu SecretKey",
-        "七牛云 SecretKey",
+        "七牛云 SecretKey"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy",
+        "Native resumable upload",
+        "原生可续传上传"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy_server_relay",
+        "Stream through server",
+        "服务端流式代理"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "provider_resumable_upload_strategy_frontend_direct",
+        "Browser direct resumable",
+        "浏览器原生可续传直传"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_https_required",
+        "Use an HTTPS origin without a path or query.",
+        "请填写不含路径和查询参数的 HTTPS 源站地址。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_upload_relay_desc",
+        "Stream file bytes through the server with bounded buffers and native resumable parts.",
+        "通过服务器有界缓冲流式转发，使用原生可续传分片。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_upload_direct_desc",
+        "Upload concurrent native parts from the browser using short-lived object-scoped credentials; configure CORS.",
+        "浏览器使用对象级短期凭证并发上传原生分片；需要配置 CORS。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_validity_seconds",
+        "Download signature validity (seconds)",
+        "下载签名有效期（秒）"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_download_auth_validity_seconds_desc",
+        "1–3600 seconds, default 180. Applies to server-side origin reads and private origin/CDN URLs. The effective expiry is the minimum of the requested lifetime, this setting and the target limit; default Kodo source domains are capped at 300 seconds. Existing transfers are not cut off by this signing lifetime.",
+        "1–3600 秒，默认 180 秒。用于服务端源站读取和源站/CDN 私有链接。实际有效期取调用方要求、本设置和入口限制的最小值；默认 Kodo 源站最多 300 秒。此签名有效期不会截断已建立的传输。"
     ),
 ];

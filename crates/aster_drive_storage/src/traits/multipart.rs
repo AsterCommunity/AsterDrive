@@ -15,6 +15,7 @@ use crate::traits::extensions::checked_upload_size;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::time::Duration;
+
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 const DEFAULT_MULTIPART_READER_BUFFER_SIZE: usize = 64 * 1024;
@@ -91,7 +92,36 @@ pub trait MultipartStorageDriver: Send + Sync {
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<PresignedUploadRequest>;
+    ) -> Result<PresignedUploadRequest> {
+        let _ = (path, upload_id, part_number, expires);
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
+            "this multipart provider does not use presigned PUT",
+        ))
+    }
+
+    async fn browser_part_request(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        expires: Duration,
+    ) -> Result<crate::BrowserUploadRequest> {
+        let request = self
+            .presigned_upload_part_request(path, upload_id, part_number, expires)
+            .await?;
+        Ok(crate::BrowserUploadRequest {
+            url: request.url,
+            method: crate::BrowserUploadMethod::Put,
+            headers: request.headers,
+            authorization: None,
+            body: None,
+            response_headers: vec!["etag".into()],
+            completion: Some(crate::BrowserUploadCompletion::ResponseHeader {
+                name: "etag".into(),
+            }),
+        })
+    }
 
     /// 完成 multipart upload（parts: Vec<(part_number, etag)>）
     async fn complete_multipart_upload(

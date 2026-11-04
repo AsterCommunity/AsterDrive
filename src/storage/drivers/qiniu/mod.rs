@@ -1,48 +1,78 @@
-//! Qiniu Kodo S3-compatible storage driver.
-//!
-//! Qiniu's S3-compatible API uses the standard S3 data plane and AWS SigV4.
-//! Provider-specific QBox, UpToken, and form-upload protocols deliberately do
-//! not cross this boundary.
-
+//! Kodo native wire contracts: qiniu/go-sdk f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e.
+//! See auth/credentials.go and storagev2/internal/api-specs/ at that revision.
+mod auth;
+mod download;
+mod http;
+mod multipart;
+mod objects;
+pub(crate) mod resumable;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+pub(crate) mod upgrade;
+mod upload;
 
-use std::{sync::Arc, time::Duration};
-
-use aster_drive_storage::Result;
-use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
-use aster_drive_storage::traits::extensions::{
-    DirectDownloadStorageDriver, PresignedUploadStorageDriver,
-};
-use aster_drive_storage::{MultipartStorageCapabilities, MultipartUploadMode};
-
-use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
-use super::s3_compatible::{
-    S3CompatibleDriver, delegate_s3_compatible_multipart_driver,
-    delegate_s3_compatible_storage_driver,
-};
-use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket, validate_sigv4_region};
-
-pub struct QiniuDriver {
-    storage: S3CompatibleDriver,
-}
+use aster_drive_storage::{Result, StorageErrorKind, storage_driver_error};
+pub use download::{QiniuDownloadDelivery, default_download_auth_validity_seconds};
+use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QiniuDriverConfig {
-    pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
-    pub region: String,
-    pub path_style: bool,
+    pub download_origin: String,
+    pub download_delivery: QiniuDownloadDelivery,
+    pub download_base_url: Option<String>,
+    pub download_auth_validity_seconds: u32,
     pub connect_timeout: Duration,
     pub read_timeout: Duration,
     pub operation_timeout: Duration,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct QiniuStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
+}
+impl std::fmt::Debug for QiniuStaticCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QiniuStaticCredentials")
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone)]
+pub struct QiniuDriver {
+    config: QiniuDriverConfig,
+    credentials: QiniuStaticCredentials,
+    /// Reused for bounded control exchanges: discovery, metadata, management,
+    /// multipart lifecycle operations and the small migration identity probe.
+    /// operation_timeout covers connection, headers and the entire response body.
+    control_client: reqwest::Client,
+    /// Reused for GET/Range bodies without a whole-transfer deadline. reqwest's
+    /// read timeout bounds waiting for headers and idle reads of the response.
+    download_client: reqwest::Client,
+    /// Reused for form/part uploads. reqwest's read_timeout would also limit time
+    /// spent uploading before response headers arrive, so send_upload implements
+    /// progress-aware idle detection and bounds the small acknowledgement instead.
+    upload_client: reqwest::Client,
+    region_query: Url,
+    endpoints: std::sync::Arc<Mutex<Option<Endpoints>>>,
+}
+struct Endpoints {
+    upload: Url,
+    management: Url,
+    list: Url,
+    expires_at: Instant,
+}
+#[derive(Serialize, Deserialize)]
+struct MultipartSession {
+    upload_id: String,
+    expires_at: i64,
+    key: String,
+    bucket: String,
 }
 
 impl QiniuDriver {
@@ -50,125 +80,103 @@ impl QiniuDriver {
         config: &QiniuDriverConfig,
         credentials: &QiniuStaticCredentials,
     ) -> Result<()> {
-        let normalized = normalize_s3_endpoint_and_bucket(&config.endpoint, &config.bucket)
-            .map_err(Self::rewrap_s3_config_error)?;
-        if normalized.endpoint.is_empty() {
-            return Err(storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "Qiniu S3 endpoint cannot be empty",
+        if config.bucket.trim().is_empty()
+            || config.bucket.contains([':', '/', '\\'])
+            || config.bucket.chars().any(char::is_control)
+        {
+            return Err(invalid(
+                "confirm the native Kodo bucket name; a legacy S3 space name is not a native bucket mapping",
             ));
         }
-        validate_sigv4_region(&config.region).map_err(|_| Self::invalid_region_error())?;
-        S3Driver::validate_config(
-            &Self::s3_config(config),
-            &S3StaticCredentials {
-                access_key: credentials.access_key.clone(),
-                secret_key: credentials.secret_key.clone(),
-            },
-        )
+        validate_key(config.base_path.trim_matches('/'), true)?;
+        download::validate_domain(&config.download_origin)?;
+        if !(1..=3600).contains(&config.download_auth_validity_seconds) {
+            return Err(invalid(
+                "Kodo download authentication validity must be between 1 and 3600 seconds",
+            ));
+        }
+        match config.download_delivery {
+            QiniuDownloadDelivery::Origin => {}
+            QiniuDownloadDelivery::QiniuCdn => {
+                download::validate_domain(config.download_base_url.as_deref().unwrap_or_default())?;
+            }
+        }
+        if credentials.access_key.trim().is_empty()
+            || credentials.secret_key.trim().is_empty()
+            || credentials.access_key.contains([':', '\r', '\n'])
+        {
+            return Err(storage_driver_error(
+                StorageErrorKind::Auth,
+                "Qiniu AccessKey and SecretKey are required",
+            ));
+        }
+        Ok(())
     }
-
-    pub fn new(config: QiniuDriverConfig, credentials: QiniuStaticCredentials) -> Result<Self> {
+    pub fn new(mut config: QiniuDriverConfig, credentials: QiniuStaticCredentials) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
-        let path_style = config.path_style;
-        let s3_driver = S3Driver::new(
-            Self::s3_config(&config),
-            S3StaticCredentials {
-                access_key: credentials.access_key,
-                secret_key: credentials.secret_key,
-            },
-            if path_style {
-                S3DriverOptions::path_style()
-            } else {
-                S3DriverOptions::virtual_hosted_style()
-            },
-            |builder| {
-                builder
-                    .request_checksum_calculation(
-                        aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
-                    )
-                    .response_checksum_validation(
-                        aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
-                    )
-            },
-        )?;
-
+        config.base_path = config.base_path.trim_matches('/').to_string();
+        // DriverRegistry caches this driver by policy; reqwest clones share each
+        // client's connection pool. Build these clients once, never per request.
+        // All also reject redirects so signed URLs/UpTokens cannot follow them.
+        let http_client_builder = || {
+            reqwest::Client::builder()
+                .connect_timeout(config.connect_timeout)
+                .redirect(reqwest::redirect::Policy::none())
+        };
+        let control_client = http_client_builder()
+            .read_timeout(config.read_timeout)
+            .timeout(config.operation_timeout)
+            .build()
+            .map_err(http::transport_error)?;
+        // Downloads need an idle-read limit, not a total deadline on the body.
+        // Uploads cannot use reqwest's header-read timer while sending the body;
+        // their progress-aware watchdog lives in send_upload.
+        let download_client = http_client_builder()
+            .read_timeout(config.read_timeout)
+            .build()
+            .map_err(http::transport_error)?;
+        let upload_client = http_client_builder()
+            .build()
+            .map_err(http::transport_error)?;
         Ok(Self {
-            storage: S3CompatibleDriver::from_s3_driver_with_multipart_capabilities(
-                Arc::new(s3_driver),
-                MultipartStorageCapabilities {
-                    // Qiniu Kodo Multipart Upload v2: non-final parts are
-                    // 1 MiB..1 GiB and each upload has at most 10,000 parts.
-                    // https://developer.qiniu.com/kodo/7458/multipartupload
-                    min_part_size: 1024 * 1024,
-                    max_part_size: Some(1024 * 1024 * 1024),
-                    max_parts: 10_000,
-                    max_object_size: None,
-                    upload_mode: MultipartUploadMode::NativeStreaming,
-                },
-            ),
+            config,
+            credentials,
+            control_client,
+            download_client,
+            upload_client,
+            region_query: Url::parse("https://uc.qbox.me/v4/query")
+                .map_err(|_| invalid("invalid region query URL"))?,
+            endpoints: std::sync::Arc::new(Mutex::new(None)),
         })
     }
-
-    pub fn s3_driver(&self) -> Arc<S3Driver> {
-        self.storage.s3_driver()
+    fn key(&self, path: &str) -> Result<String> {
+        validate_key(path, false)?;
+        Ok(aster_drive_storage::object_key::join_key_prefix(
+            &self.config.base_path,
+            path,
+        ))
     }
-
-    fn s3_config(config: &QiniuDriverConfig) -> S3DriverConfig {
-        S3DriverConfig {
-            endpoint: config.endpoint.clone(),
-            bucket: config.bucket.clone(),
-            base_path: config.base_path.clone(),
-            region: config.region.clone(),
-            path_style: config.path_style,
-            connect_timeout: config.connect_timeout,
-            read_timeout: config.read_timeout,
-            operation_timeout: config.operation_timeout,
-        }
-    }
-
-    fn rewrap_s3_config_error(error: S3ConfigError) -> aster_drive_storage::StorageError {
-        let message = match error {
-            S3ConfigError::MissingBucket => "Qiniu S3 space name is required".to_string(),
-            S3ConfigError::InvalidEndpoint(message) => {
-                message.replace("S3 endpoint", "Qiniu S3 endpoint")
-            }
-        };
-        storage_driver_error(StorageErrorKind::Misconfigured, message)
-    }
-
-    fn invalid_region_error() -> aster_drive_storage::StorageError {
-        storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            "Qiniu S3 region must be 1-128 printable ASCII characters without whitespace or '/'",
-        )
+    fn entry(&self, path: &str) -> Result<String> {
+        Ok(auth::encode(format!(
+            "{}:{}",
+            self.config.bucket,
+            self.key(path)?
+        )))
     }
 }
-
-#[async_trait::async_trait]
-impl DirectDownloadStorageDriver for QiniuDriver {
-    async fn resolve_download_url(
-        &self,
-        path: &str,
-        expires: Duration,
-        options: aster_drive_storage::DirectDownloadOptions,
-    ) -> Result<Option<aster_drive_storage::DirectDownloadRequest>> {
-        self.storage
-            .resolve_download_url(path, expires, options)
-            .await
-    }
+fn invalid(message: &'static str) -> aster_drive_storage::StorageError {
+    storage_driver_error(StorageErrorKind::Misconfigured, message)
 }
-
-#[async_trait::async_trait]
-impl PresignedUploadStorageDriver for QiniuDriver {
-    async fn presigned_put_request(
-        &self,
-        path: &str,
-        expires: Duration,
-    ) -> Result<Option<aster_drive_storage::PresignedUploadRequest>> {
-        self.storage.presigned_put_request(path, expires).await
+fn validate_key(key: &str, allow_empty: bool) -> Result<()> {
+    if (!allow_empty && key.is_empty())
+        || key.starts_with('/')
+        || key.contains('\\')
+        || key.chars().any(char::is_control)
+        || key.split('/').any(|s| matches!(s, "." | ".."))
+    {
+        return Err(invalid(
+            "Kodo keys must be relative with no dot segments, backslashes or control characters",
+        ));
     }
+    Ok(())
 }
-
-delegate_s3_compatible_storage_driver!(QiniuDriver, storage);
-delegate_s3_compatible_multipart_driver!(QiniuDriver, storage);

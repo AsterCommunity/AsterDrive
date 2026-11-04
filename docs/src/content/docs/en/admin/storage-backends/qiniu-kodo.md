@@ -1,71 +1,81 @@
 ---
 title: "Qiniu Kodo"
-description: "Configure Qiniu Cloud Kodo through its S3-compatible API."
+description: "Native Kodo resumable uploads, private origin reads and Qiniu CDN delivery."
 ---
 
-The Qiniu Kodo connector uses the **Kodo S3-compatible API** and AWS SigV4. AsterDrive continues to own files, versions, quotas, trash, and object cleanup; Kodo stores object content only.
+The Qiniu connector uses native Kodo APIs and replaces the old S3 wrapper. AsterDrive owns file records, permissions, quota, Blob/version publication and cleanup. The generic S3 connector remains available for S3-compatible storage.
 
-It does not use QBox, UpToken, native form uploads, or Qiniu-native multipart REST. Do not enter a native upload domain or token in this form.
+## Configuration
 
-## Before you start
-
-Create AccessKey / SecretKey credentials for a dedicated Kodo space and grant only `s3:GetObject` (which also covers `GetObject` and `HeadObject`), `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:AbortMultipartUpload`, and `s3:ListMultipartUploadParts`. Scope permissions to the target space and allowed `base_path`; runtime requests do not require `s3:GetBucketLocation`. Record the space's **Qiniu S3 space name**, official S3 endpoint, and Region ID. If the ordinary Kodo space name is globally unique, it is also the S3 space name. Otherwise, Qiniu generates a separate globally unique S3 space name. Obtain this value from the Kodo console's space overview or [`Get Service`](https://developer.qiniu.com/kodo/manual/4087/compatible-s3-api#service-operation).
-
-`s3:ListBucket` is a bucket-level operation: bind it to the bucket ARN and constrain visible keys with `s3:prefix`. Bind object and multipart operations to the object ARN. This [`Bucket Policy`](https://developer.qiniu.com/kodo/6317/BucketPolicy) example uses the S3 space name `example-space` and `tenant-a` as `base_path`:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::example-space"],
-      "Condition": {
-        "StringLike": {
-          "s3:prefix": ["tenant-a/*"]
-        }
-      }
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:AbortMultipartUpload",
-        "s3:ListMultipartUploadParts"
-      ],
-      "Resource": ["arn:aws:s3:::example-space/tenant-a/*"]
-    }
-  ]
-}
-```
-
-Replace the example space name and prefix with the policy's actual values. For an empty `base_path`, use `*` in the list condition and `arn:aws:s3:::example-space/*` for object resources. Do not attach `s3:ListBucket` to an object ARN or object actions to the bucket ARN; Kodo rejects policies whose Action and Resource levels do not match.
-
-Only HTTPS is accepted. Both official service-level `https://s3.<region>.qiniucs.com` and S3-space-level `https://<S3-space-name>.s3.<region>.qiniucs.com` inputs are accepted. Make `<region>` match the SigV4 region field and the space name in a space-level host match the Qiniu S3 space-name field. Both forms are normalized to the service endpoint used by the AWS SDK, while the connector selects addressing automatically and prevents the space name from being added twice. Custom CNAMEs, non-standard ports, and URLs containing a path, query, or fragment remain configuration errors. Use the generic S3 connector for other S3-compatible services.
-
-Start with `relay_stream` for both upload and download. Enable `presigned` only after server-side reads and writes are proven. Browser-direct use requires a Kodo endpoint reachable by users and CORS allowing the AsterDrive site origin, `GET`, `HEAD`, `PUT`, and the headers needed for Range requests.
-
-## Create a policy
-
-Open `Admin -> Storage Policies -> New Policy`, choose **Qiniu Kodo**, then provide:
+Use the ordinary **native bucket name**, not the potentially different S3 space alias. Configure a bound HTTPS origin domain and least-privilege AK/SK credentials for upload, stat, list, copy, delete and private reads. Upload and management endpoints are discovered independently; a download CNAME is not an upload endpoint. Custom upload acceleration is not configured by this connector and has separate provider activation and ingress charges.
 
 | Field | Meaning |
 | --- | --- |
-| Kodo S3 endpoint | Official service-level endpoint such as `https://s3.cn-east-1.qiniucs.com`, or S3-space-level endpoint such as `https://example-space.s3.cn-east-1.qiniucs.com`; both forms are normalized automatically. |
-| Qiniu S3 space name | Globally unique name returned by the console or `Get Service`; it may differ from the ordinary Kodo space name. |
-| Base path | Optional object prefix; empty uses the S3 space root. |
-| Kodo SigV4 signing region | Region ID embedded in the endpoint host, such as `cn-east-1`; the two values must match. |
-| AccessKey / SecretKey | Static credentials dedicated to this policy; SecretKey is never returned with the policy. |
+| `bucket` | Native Kodo bucket name confirmed in the console |
+| `base_path` | Object-key prefix; retain it when taking over existing AD objects |
+| `download_origin` | Bound HTTPS origin, without path, query or fragment |
+| `download_auth_validity_seconds` | 1–3600 seconds, default 180; bounds internal origin reads and private delivery, with a 300-second cap on default Kodo source domains |
+| `provider_resumable_upload_strategy` | `server_relay` streams through AD; `frontend_direct` uploads native parts from the browser |
+| `object_storage_download_strategy` | `relay_stream` proxies through AD; `presigned` issues a native private delivery URL |
+| `download_delivery` | `origin` or `qiniu_cdn` |
+| `download_base_url` | HTTPS CDN origin, required only for CDN delivery |
+| AK/SK | Encrypted static credentials; blank secret edits retain saved values |
 
-Run the draft connection test before saving and the saved-policy test afterwards. Tests write and delete a temporary object, so credentials need write and delete permissions for the target prefix.
+Origin/CDN domains and the configured bucket/prefix must identify the same objects. Connection tests verify a unique temporary object's upload, stat, HEAD, GET, Range and deletion. They do not establish browser CORS or CDN acceptance.
 
-## Acceptance and troubleshooting
+## Upload and recovery
 
-Bind a test user or team through a policy group and verify small upload, multipart upload, download, Range preview, deletion, and object cleanup. After enabling presigned mode, verify browser PUT, GET/HEAD, Range, and CORS behavior from a real browser.
+- **Server relay** streams browser content through AD to Kodo. Policy chunk size and single-request limits select a single upload or recoverable numbered parts.
+- **Browser direct** sends concurrent native parts directly to Kodo, with retry and recovery. AK/SK never enter the browser.
 
-For failures, check endpoint reachability, the S3 space name, endpoint/region agreement, credentials, permissions, and server time in that order. The connector handles addressing automatically. Never paste SecretKey values or complete signed URLs into logs, error reports, or tickets.
+Single form uploads support up to 1 GiB. Numbered uploads have at most 10,000 parts, nonfinal parts of at least 1 MiB, and a 1 GiB per-part maximum. Kodo sessions expire after seven days; AD sessions may expire sooner.
 
-Create a target policy and migrate existing blobs only when the S3 space name, base path, or actual storage target changes. For the same space and base path, correcting the matching endpoint or region does not change object keys and needs no migration; fix mismatched configuration in place.
+Browser networking must reach Kodo upload domains. Allow the AD origin in upload CORS for PUT, Authorization and Content-Type. Download consumers may need GET/HEAD/Range and exposed response headers. Server connectivity does not prove browser CORS.
+
+## Private delivery
+
+| Download strategy and delivery | Behavior |
+| --- | --- |
+| Server relay | AD reads and streams from the configured origin; dormant CDN settings do not participate |
+| Private URL + origin | AD authorizes, then redirects with 302 to a private origin URL; Range is supported |
+| Private URL + CDN | AD authorizes, then redirects with 302 to a private CDN URL; Range is supported |
+
+Both origin and CDN use native provider MIME/cache headers. Attachments retain the current AD filename without rewriting Kodo objects. MIME/cache overrides or Range do not trigger automatic relay. HTML/SVG inline isolation, conditional validation and AD-generated thumbnails retain their own same-origin handling.
+
+Signature validity is 1–3600 seconds, default 180, bounded by the requested lifetime and target limits. Default Kodo source domains have a 300-second cap. Internal reads and thumbnails share these bounds. Expiry does not terminate established transfers or erase browser-cached content.
+
+Enable private-bucket origin authentication in Qiniu CDN. AD uses native private URLs without a separate timestamp hotlink-protection scheme. Verify valid, unsigned, tampered and expired requests on cache HIT/MISS, plus key rotation and browser CORS as needed. Configure CDN MIME/cache policy in the Qiniu console. Signed URLs are short-lived bearer credentials: do not publish or modify them, and do not assume immediate revocation when AD permissions change.
+
+## Upgrade from V1
+
+1. Drain old-version writes and finish/cancel legacy Kodo uploads and multipart cleanup. Old S3 sessions cannot resume through native APIs. Upgrade Primary/Follower together.
+2. Keep the existing instance credential-encryption key and start the new application. Startup verifies native bucket/default HTTPS origin online, then converts settings together while preserving IDs, object keys and prefixes.
+3. Probe at most 16 candidate buckets concurrently. Exactly one match permits conversion despite unrelated candidates failing permission/network checks. Failure to establish a unique match, enumeration or probe write/cleanup failures, or concurrent edits stop startup with original settings retained. Resolve the condition and retry. Each connection has a five-minute verification limit.
+4. Successful conversion is irreversible, without a legacy configuration backup or automatic rollback. Use application startup for online conversion; schema-only migration is insufficient.
+5. Verify existing downloads, previews and Range before new writes. Configure CDN separately. Subsequent normal restarts do not repeat conversion.
+
+Upgrade credentials need bucket enumeration, region discovery and temporary probe read/write/delete. Executable cleanup tasks missing encrypted credential snapshots must finish/cancel on the old version first.
+
+Existing AD files retain their objects. Objects uploaded independently through the Kodo console are not automatically imported.
+
+See the [native Kodo developer contract](https://github.com/AsterCommunity/AsterDrive/blob/master/developer-docs/en/design/qiniu-connector-contract.md) for protocol, streaming resource and migration validation details.
+
+## Acceptance
+
+Native cloud tests use `ASTER_TEST_QINIU_KODO_BUCKET`, `ASTER_TEST_QINIU_KODO_ORIGIN`, `ASTER_TEST_QINIU_KODO_ACCESS_KEY`, and `ASTER_TEST_QINIU_KODO_SECRET_KEY`. Optional `ASTER_TEST_QINIU_KODO_BASE_PATH` retains the existing prefix; optional `ASTER_TEST_QINIU_KODO_EXISTING_KEY` probes an existing relative key using read-only stat/Range.
+
+```bash
+cargo nextest run --profile ci --test storage native_kodo_cloud_acceptance
+```
+
+Missing credentials explicitly skip cloud acceptance. Only randomly named test-owned objects are deleted. Real browser uploads/CORS, CDN HIT/MISS expiry/key rotation and cross-browser recovery require separate acceptance. Publish only anonymized request categories/status/results, never credentials or full signed URLs.
+
+## References
+
+- [Download settings and response overrides](https://developer.qiniu.com/kodo/1659/download-setting)
+- [Go SDK pinned revision](https://github.com/qiniu/go-sdk/tree/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e)
+- [Multipart v2](https://developer.qiniu.com/kodo/7458/multipartupload)
+- [Upload tokens](https://developer.qiniu.com/kodo/1208/upload-token)
+- [Private downloads](https://developer.qiniu.com/kodo/1656/download-private)
+- [CDN origin authentication](https://developer.qiniu.com/fusion/3930/back-to-the-source-authentication)
+- [Authentication compatibility](https://developer.qiniu.com/fusion/13361/fusion-api-error-codes)

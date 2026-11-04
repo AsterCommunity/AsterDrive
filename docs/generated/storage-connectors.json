@@ -517,8 +517,8 @@
       "documentation": {
         "tutorial_slug": "qiniu-kodo",
         "best_for": {
-          "en": "Qiniu Cloud Kodo S3 spaces with official endpoint diagnostics",
-          "zh": "带官方 endpoint 诊断的七牛云 Kodo S3 空间"
+          "en": "Native Kodo resumable uploads and private origin/CDN delivery",
+          "zh": "七牛云 Kodo 原生可续传上传与私有源站/CDN 交付"
         }
       },
       "deployment_scope": "shared_across_primary_instances",
@@ -529,11 +529,11 @@
         "capacity": false,
         "list": true,
         "presigned_download": true,
-        "custom_download_base_url": false,
+        "custom_download_base_url": true,
         "storage_native_thumbnail": false,
         "storage_native_media_metadata": false,
         "remote_node_binding": false,
-        "object_storage_transfer_strategy": true,
+        "object_storage_transfer_strategy": false,
         "object_naming": "opaque_uuid"
       },
       "upload_workflows": {
@@ -545,18 +545,32 @@
         "stream_upload": true,
         "object_multipart_upload": true,
         "object_multipart_upload_capabilities": {
-          "min_part_size": 5242880,
+          "min_part_size": 1048576,
           "policy_limited_part_size": true,
           "relay_part_upload": true,
           "presigned_part_upload": true,
-          "presigned_part_etag_required": true,
+          "presigned_part_etag_required": false,
           "explicit_complete_required": true,
           "abort_supported": true,
           "list_parts_supported": true
         },
-        "provider_resumable_upload": false,
-        "presigned_upload": true,
-        "frontend_direct_provider_resumable_upload": false
+        "provider_resumable_upload": true,
+        "presigned_upload": false,
+        "frontend_direct_provider_resumable_upload": true,
+        "provider_resumable_upload_capabilities": {
+          "browser_upload_protocol": null,
+          "provider": "qiniu_kodo",
+          "session_label": "multipart_v2",
+          "min_fragment_size": 1048576,
+          "default_fragment_size": 8388608,
+          "max_fragment_size": 1073741824,
+          "fragment_alignment": 1,
+          "max_simple_upload_size": 1073741824,
+          "frontend_direct_upload": true,
+          "implicit_completion": false,
+          "abort_supported": true,
+          "status_query_supported": true
+        }
       }
     }
   ]

@@ -574,6 +574,8 @@ impl aster_drive_storage::BrowserUploadDriver for GoogleSessionProbe {
             }
         }
         let request = (offset < context.total_size).then(|| BrowserUploadRequest {
+            authorization: None,
+            completion: None,
             url: context.upload_url.into(),
             method: BrowserUploadMethod::Patch,
             headers: std::collections::BTreeMap::from([("X-Test-Protocol".into(), "seven".into())]),
