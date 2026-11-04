@@ -146,13 +146,40 @@ export function buildUploadPath(workspace: Workspace, path: string) {
 }
 
 export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
-	const executeBrowserUpload = (
-		instruction: BrowserUploadInstruction,
+	const executeBrowserRequest = (
+		request: BrowserUploadRequest,
 		file: Blob,
+		limits: {
+			responseBodyLimit: number;
+			timeout:
+				| { kind: "provider_step"; milliseconds: number }
+				| { kind: "numbered_part" };
+		},
 		options: ProviderResumableUploadOptions = {},
 	): Promise<BrowserUploadObservation> =>
 		new Promise((resolve, reject) => {
-			const request = instruction.request;
+			const { responseBodyLimit, timeout } = limits;
+			// Provider steps have an explicitly bounded reconciliation window.
+			// Numbered parts retain the original unlimited transfer lifetime.
+			let timeoutMs: number;
+			switch (timeout.kind) {
+				case "provider_step":
+					timeoutMs = timeout.milliseconds;
+					if (
+						!Number.isSafeInteger(timeoutMs) ||
+						timeoutMs <= 0 ||
+						timeoutMs > 60000
+					) {
+						reject(
+							new UploadRequestError("invalid browser upload instruction"),
+						);
+						return;
+					}
+					break;
+				case "numbered_part":
+					timeoutMs = 0;
+					break;
+			}
 			const range = request.body;
 			const url = new URL(request.url, location.href);
 			const forbiddenHeader = (name: string) =>
@@ -167,12 +194,9 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				url.hash ||
 				!["GET", "PUT", "POST", "PATCH", "DELETE"].includes(request.method) ||
 				!Number.isSafeInteger(file.size) ||
-				!Number.isSafeInteger(instruction.response_body_limit) ||
-				instruction.response_body_limit <= 0 ||
-				instruction.response_body_limit > 65536 ||
-				!Number.isSafeInteger(instruction.timeout_ms) ||
-				instruction.timeout_ms <= 0 ||
-				instruction.timeout_ms > 60000 ||
+				!Number.isSafeInteger(responseBodyLimit) ||
+				responseBodyLimit <= 0 ||
+				responseBodyLimit > 65536 ||
 				Object.keys(request.headers).some(forbiddenHeader) ||
 				request.response_headers.some(forbiddenHeader) ||
 				(range &&
@@ -189,7 +213,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			const xhr = new XMLHttpRequest();
 			xhr.open(request.method, url.href);
 			xhr.withCredentials = false;
-			xhr.timeout = instruction.timeout_ms;
+			xhr.timeout = timeoutMs;
 			for (const [name, value] of Object.entries(request.headers))
 				xhr.setRequestHeader(name, value);
 			if (request.authorization) {
@@ -219,11 +243,10 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				const bytes = new TextEncoder().encode(
 					networkFailure ? "" : xhr.responseText,
 				);
-				const truncated =
-					oversized || bytes.length > instruction.response_body_limit;
+				const truncated = oversized || bytes.length > responseBodyLimit;
 				const body = truncated
 					? new TextDecoder().decode(
-							bytes.slice(0, Math.max(0, instruction.response_body_limit - 3)),
+							bytes.slice(0, Math.max(0, responseBodyLimit - 3)),
 						)
 					: networkFailure
 						? ""
@@ -239,7 +262,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			xhr.onerror = () => observe(true);
 			xhr.ontimeout = () => observe(true);
 			xhr.onprogress = (event) => {
-				if (event.loaded > instruction.response_body_limit) {
+				if (event.loaded > responseBodyLimit) {
 					observe(true, true);
 					xhr.abort();
 				}
@@ -598,7 +621,23 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			}
 		},
 
-		executeBrowserUpload,
+		executeBrowserUpload: (
+			instruction: BrowserUploadInstruction,
+			file: Blob,
+			options: ProviderResumableUploadOptions = {},
+		): Promise<BrowserUploadObservation> =>
+			executeBrowserRequest(
+				instruction.request,
+				file,
+				{
+					responseBodyLimit: instruction.response_body_limit,
+					timeout: {
+						kind: "provider_step",
+						milliseconds: instruction.timeout_ms,
+					},
+				},
+				options,
+			),
 		uploadPartRequest: async (
 			request: BrowserUploadRequest,
 			file: Blob,
@@ -620,14 +659,10 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 					"Invalid multipart response header contract",
 					{ retryable: false },
 				);
-			const observation = await executeBrowserUpload(
-				{
-					request_id: "numbered-part",
-					request: { ...request, body: { start: 0, end: file.size } },
-					response_body_limit: 65536,
-					timeout_ms: 60000,
-				},
+			const observation = await executeBrowserRequest(
+				{ ...request, body: { start: 0, end: file.size } },
 				file,
+				{ responseBodyLimit: 65536, timeout: { kind: "numbered_part" } },
 				{ ...options, onProgress },
 			);
 			if (

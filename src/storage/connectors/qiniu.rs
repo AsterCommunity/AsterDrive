@@ -27,8 +27,7 @@ use super::{
 };
 
 mod localization;
-mod upgrade;
-pub(crate) use upgrade::convert as convert_legacy_configs;
+pub(crate) mod upgrade;
 
 pub struct QiniuConnector;
 

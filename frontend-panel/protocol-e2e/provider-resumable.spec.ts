@@ -290,6 +290,10 @@ test("one numbered executor handles signed PUT receipts and provider-reconciled 
 			"/src/services/uploadService.ts"
 		);
 		const service = createUploadService({ kind: "personal" });
+		const timeouts: number[] = [];
+		const options = {
+			onCreateXhr: (xhr: XMLHttpRequest) => timeouts.push(xhr.timeout),
+		};
 		const base = {
 			url: `${origin}/native-part`,
 			method: "PUT" as const,
@@ -307,10 +311,14 @@ test("one numbered executor handles signed PUT receipts and provider-reconciled 
 				completion: { source: "provider_reconciled" },
 			},
 			new Blob(["part"]),
+			undefined,
+			options,
 		);
 		const fixed = await service.uploadPartRequest(
 			{ ...base, completion: { source: "fixed", token: "block-id" } },
 			new Blob(["part"]),
+			undefined,
+			options,
 		);
 		const header = await service.uploadPartRequest(
 			{
@@ -319,10 +327,15 @@ test("one numbered executor handles signed PUT receipts and provider-reconciled 
 				completion: { source: "response_header", name: "etag" },
 			},
 			new Blob(["part"]),
+			undefined,
+			options,
 		);
-		return [reconciled, fixed, header];
+		return { receipts: [reconciled, fixed, header], timeouts };
 	}, origin);
-	expect(results).toEqual(["", "block-id", "part-receipt"]);
+	expect(results).toEqual({
+		receipts: ["", "block-id", "part-receipt"],
+		timeouts: [0, 0, 0],
+	});
 	expect(seen.filter((request) => request.method === "PUT")).toHaveLength(3);
 	expect(
 		seen

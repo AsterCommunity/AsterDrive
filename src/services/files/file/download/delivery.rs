@@ -21,7 +21,7 @@ pub(crate) async fn resolve_download_delivery(
     file: &file::Model,
     blob: &file_blob::Model,
     disposition: DownloadDisposition,
-    options: DirectDownloadOptions,
+    allow_provider_response_headers: bool,
 ) -> Result<Option<DirectDownloadRequest>> {
     if blob.is_virtual_empty()
         || (disposition == DownloadDisposition::Inline && requires_inline_sandbox(&file.mime_type))
@@ -55,7 +55,7 @@ pub(crate) async fn resolve_download_delivery(
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(disposition.header_value(&file.name)),
                 response_content_type: Some(file.mime_type.clone()),
-                ..options
+                allow_provider_response_headers,
             },
         )
         .await

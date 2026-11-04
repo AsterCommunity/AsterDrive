@@ -19,7 +19,7 @@ mod local;
 mod localization;
 mod models;
 mod onedrive;
-mod qiniu;
+pub(crate) mod qiniu;
 mod remote;
 mod s3;
 mod sftp;
@@ -70,7 +70,6 @@ pub(crate) use models::{
 pub(crate) use onedrive::OneDriveAccountMode;
 pub(crate) use onedrive::OneDriveConnector;
 use qiniu::QiniuConnector;
-pub(crate) use qiniu::convert_legacy_configs as convert_qiniu_legacy_configs;
 use remote::RemoteConnector;
 use s3::S3Connector;
 use sftp::SftpConnector;

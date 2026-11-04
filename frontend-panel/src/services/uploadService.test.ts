@@ -1161,6 +1161,77 @@ describe("common numbered-part execution", () => {
 			expect(xhr.withCredentials).toBe(false);
 		},
 	);
+	it.each([
+		[{ source: "response_header" as const, name: "etag" }, '"part-etag"'],
+		[{ source: "fixed" as const, token: "block-identity" }, "block-identity"],
+		[{ source: "provider_reconciled" as const }, ""],
+	])(
+		"allows a progressing numbered part to finish after 80 seconds (%j)",
+		async (completion, receipt) => {
+			vi.useFakeTimers();
+			const send = vi
+				.spyOn(MockXMLHttpRequest.prototype, "send")
+				.mockImplementation(function (this: MockXMLHttpRequest, body) {
+					this.sentBody = body;
+					if (this.timeout > 0)
+						setTimeout(() => this.ontimeout?.(), this.timeout);
+					setTimeout(
+						() =>
+							this.upload.onprogress?.({
+								lengthComputable: true,
+								loaded: 2,
+								total: 4,
+							}),
+						65000,
+					);
+					setTimeout(() => {
+						this.status = 200;
+						this.responseHeaders = { etag: '"part-etag"' };
+						this.onload?.();
+					}, 80000);
+				});
+			try {
+				const { uploadService } = await import("@/services/uploadService");
+				const progress = vi.fn();
+				let settled = false;
+				const result = uploadService
+					.uploadPartRequest(request(completion), new Blob(["part"]), progress)
+					.then(
+						(value) => {
+							settled = true;
+							return { value };
+						},
+						(error) => {
+							settled = true;
+							return { error };
+						},
+					);
+				await vi.advanceTimersByTimeAsync(70000);
+				expect(progress).toHaveBeenCalledWith(2, 4);
+				expect(settled).toBe(false);
+				await vi.advanceTimersByTimeAsync(10000);
+				await expect(result).resolves.toEqual({ value: receipt });
+			} finally {
+				send.mockRestore();
+				vi.clearAllTimers();
+				vi.useRealTimers();
+			}
+		},
+	);
+	it("cancels an unbounded numbered transfer before sending any file bytes", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.uploadPartRequest(
+			request({ source: "fixed", token: "block" }),
+			new Blob(["part"]),
+			undefined,
+			{ onCreateXhr: (xhr) => xhr.abort() },
+		);
+		await expect(pending).rejects.toMatchObject({
+			isAborted: true,
+			retryable: false,
+		});
+		expect(MockXMLHttpRequest.instances[0].sentBody).toBeUndefined();
+	});
 	it("rejects a missing completion contract before creating a network request", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 		await expect(

@@ -46,30 +46,19 @@ fn signs_independent_official_download_vector_and_redacts_credentials() {
 }
 
 #[test]
-fn private_response_override_url_matches_pinned_official_go_sdk_vector() {
-    // qiniu/go-sdk@f278ca5c storage.MakePrivateURLv2WithQuery, generated
-    // independently with auth.New and net/url.Values using the public test keys.
+fn private_attachment_url_matches_independent_signature_vector() {
+    // Independent Python stdlib HMAC-SHA1 vector using the public test keys.
     let result = driver()
         .private_url(
             "https://origin.example.test",
             "中文/a %2F.txt",
             1451491200,
-            &[
-                (
-                    "response-cache-control",
-                    "private, max-age=0, must-revalidate",
-                ),
-                (
-                    "response-content-disposition",
-                    "attachment; filename*=UTF-8''%E4%B8%AD%20%2B%25.txt",
-                ),
-                ("response-content-type", "text/plain; charset=utf-8"),
-            ],
+            &[("attname", "中文 +%*.txt")],
         )
         .unwrap();
     assert_eq!(
         result,
-        "https://origin.example.test/tenant/%E4%B8%AD%E6%96%87/a%20%252F.txt?response-cache-control=private%2C+max-age%3D0%2C+must-revalidate&response-content-disposition=attachment%3B+filename%2A%3DUTF-8%27%27%25E4%25B8%25AD%2520%252B%2525.txt&response-content-type=text%2Fplain%3B+charset%3Dutf-8&e=1451491200&token=MY_ACCESS_KEY:a1bkRzKFT7IdAGuXLArj5Awp7uA="
+        "https://origin.example.test/tenant/%E4%B8%AD%E6%96%87/a%20%252F.txt?attname=%E4%B8%AD%E6%96%87+%2B%25%2A.txt&e=1451491200&token=MY_ACCESS_KEY:OvAlZtly9lQfN03U-JNPIZ8RHg0="
     );
 }
 
@@ -153,129 +142,79 @@ async fn private_urls_preserve_final_host_key_encoding_and_exact_expiry() {
             )
             .await
             .unwrap()
-            .is_none()
+            .is_some()
     );
 }
 
 #[tokio::test]
-async fn origin_download_authenticates_exact_response_overrides() {
-    let driver = driver();
-    let disposition =
-        "attachment; filename=\"download.txt\"; filename*=UTF-8''%E4%B8%AD%E6%96%87%20%2B%25.txt";
-    let result = driver
-        .resolve_download_url(
-            "objects/old-uuid",
-            Duration::from_secs(60),
-            DirectDownloadOptions {
-                download_name: Some("中文 +%.txt".into()),
-                require_download_name_match: true,
-                response_content_disposition: Some(disposition.into()),
-                response_content_type: Some("text/plain; charset=utf-8".into()),
-                response_cache_control: Some("private, max-age=0, must-revalidate".into()),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap()
-        .expect("native origin supports signed response overrides");
-    let url = Url::parse(&result.url).unwrap();
-    let query: BTreeMap<_, _> = url.query_pairs().collect();
-    assert_eq!(query["response-content-disposition"], disposition);
-    assert_eq!(query["response-content-type"], "text/plain; charset=utf-8");
-    assert_eq!(
-        query["response-cache-control"],
-        "private, max-age=0, must-revalidate"
-    );
-    assert_eq!(query.len(), 5);
-    assert_eq!(
-        query["e"].parse::<i64>().unwrap(),
-        result.expires_at.unwrap().timestamp()
-    );
-    let unsigned = result.url.split("&token=").next().unwrap();
-    assert_eq!(query["token"], driver.sign(unsigned.as_bytes()).unwrap());
-    assert_ne!(
-        query["token"],
-        driver
-            .sign(unsigned.replace("text%2Fplain", "text%2Fhtml").as_bytes())
-            .unwrap()
-    );
-    assert!(
-        !query.contains_key("attname"),
-        "explicit disposition must preserve inline versus attachment"
-    );
-}
-
-#[tokio::test]
-async fn delivery_response_contract_matrix_and_header_injection_boundaries() {
+async fn native_downloads_use_provider_headers_and_signed_current_attachment_names() {
     for delivery in [
         QiniuDownloadDelivery::Origin,
         QiniuDownloadDelivery::QiniuCdn,
     ] {
-        for attachment in [false, true] {
+        let mut driver = driver();
+        driver.config.download_delivery = delivery;
+        driver.config.download_base_url = Some("https://cdn.example.test".into());
+        for (disposition, attachment) in [
+            (Some("attachment; filename=old.txt"), true),
+            (Some(" ATTACHMENT ; filename=old.txt"), true),
+            (Some("inline; filename=old.txt"), false),
+            (None, true),
+        ] {
             for relaxed in [false, true] {
-                for range in [false, true] {
-                    let mut driver = driver();
-                    driver.config.download_delivery = delivery;
-                    driver.config.download_base_url = Some("https://cdn.example.test".into());
-                    let result = driver
-                        .resolve_download_url(
-                            "old-uuid",
-                            Duration::from_secs(60),
-                            DirectDownloadOptions {
-                                allow_provider_response_headers: relaxed,
-                                may_use_range: range,
-                                download_name: Some("改名 +%&?=#.png".into()),
-                                require_download_name_match: true,
-                                response_content_disposition: Some(
-                                    if attachment {
-                                        "attachment; filename=\"renamed.png\""
-                                    } else {
-                                        "inline; filename=\"renamed.png\""
-                                    }
-                                    .into(),
-                                ),
-                                response_content_type: Some("image/png".into()),
-                                response_cache_control: Some(
-                                    "private, max-age=0, must-revalidate".into(),
-                                ),
-                            },
-                        )
-                        .await
-                        .unwrap();
-                    let overrides = delivery == QiniuDownloadDelivery::Origin && !range;
-                    let expected = relaxed
-                        || overrides
-                        || (delivery == QiniuDownloadDelivery::QiniuCdn && attachment);
-                    assert_eq!(
-                        result.is_some(),
-                        expected,
-                        "delivery={delivery:?}, attachment={attachment}, relaxed={relaxed}, range={range}"
+                let request = driver
+                    .resolve_download_url(
+                        "objects/old-uuid",
+                        Duration::from_secs(60),
+                        DirectDownloadOptions {
+                            allow_provider_response_headers: relaxed,
+                            download_name: Some("改名 +%&?=#*.png".into()),
+                            require_download_name_match: true,
+                            response_content_disposition: disposition.map(str::to_string),
+                            response_content_type: Some("image/png".into()),
+                            response_cache_control: Some(
+                                "private, max-age=0, must-revalidate".into(),
+                            ),
+                        },
+                    )
+                    .await
+                    .unwrap()
+                    .expect("native headers must not trigger relay");
+                let url = Url::parse(&request.url).unwrap();
+                let query: BTreeMap<_, _> = url.query_pairs().collect();
+                assert!(!query.keys().any(|key| key.starts_with("response-")));
+                assert_eq!(query.contains_key("attname"), attachment);
+                if attachment {
+                    assert_eq!(query["attname"], "改名 +%&?=#*.png");
+                }
+                assert_eq!(
+                    query["e"].parse::<i64>().unwrap(),
+                    request.expires_at.unwrap().timestamp()
+                );
+                let unsigned = request.url.split("&token=").next().unwrap();
+                assert_eq!(query["token"], driver.sign(unsigned.as_bytes()).unwrap());
+                if attachment {
+                    assert_ne!(
+                        query["token"],
+                        driver
+                            .sign(unsigned.replace("attname=", "attname=other").as_bytes())
+                            .unwrap()
                     );
-                    if let Some(result) = result {
-                        let url = Url::parse(&result.url).unwrap();
-                        let query: BTreeMap<_, _> = url.query_pairs().collect();
-                        assert_eq!(query.contains_key("response-content-type"), overrides);
-                        assert_eq!(query.contains_key("attname"), attachment && !overrides);
-                        if attachment && !overrides {
-                            assert_eq!(query["attname"], "改名 +%&?=#.png");
-                        }
-                        let unsigned = result.url.split("&token=").next().unwrap();
-                        assert_eq!(query["token"], driver.sign(unsigned.as_bytes()).unwrap());
-                    }
                 }
             }
         }
     }
-    for value in ["text/plain\r\nInjected: yes", "x\0y"] {
-        for field in 0..4 {
-            let mut options = DirectDownloadOptions::default();
-            match field {
-                0 => options.response_content_type = Some(value.into()),
-                1 => options.response_cache_control = Some(value.into()),
-                2 => options.response_content_disposition = Some(value.into()),
-                3 => options.download_name = Some(value.into()),
-                _ => unreachable!(),
-            }
+    for invalid in ["x\r\nInjected: yes", "x\0y"] {
+        for options in [
+            DirectDownloadOptions {
+                download_name: Some(invalid.into()),
+                ..Default::default()
+            },
+            DirectDownloadOptions {
+                response_content_disposition: Some(invalid.into()),
+                ..Default::default()
+            },
+        ] {
             assert!(
                 driver()
                     .resolve_download_url("object", Duration::from_secs(60), options)
@@ -284,20 +223,6 @@ async fn delivery_response_contract_matrix_and_header_injection_boundaries() {
             );
         }
     }
-    assert!(
-        driver()
-            .resolve_download_url(
-                "object",
-                Duration::from_secs(60),
-                DirectDownloadOptions {
-                    require_download_name_match: true,
-                    ..Default::default()
-                }
-            )
-            .await
-            .unwrap()
-            .is_none()
-    );
 }
 
 #[derive(Default)]

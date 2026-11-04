@@ -24,9 +24,6 @@ pub struct DirectDownloadOptions {
     /// Strict response/attachment routes leave this false and use relay when
     /// a delivery provider cannot authenticate the requested overrides.
     pub allow_provider_response_headers: bool,
-    /// The consumer may receive a partial (206) response. Providers whose
-    /// response overrides only apply to full GETs must keep strict reads relayed.
-    pub may_use_range: bool,
     /// Current user-visible file name. Providers whose temporary URL fixes the
     /// response filename can use this to decide whether direct delivery is safe.
     pub download_name: Option<String>,

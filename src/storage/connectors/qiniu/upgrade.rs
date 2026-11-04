@@ -196,43 +196,55 @@ async fn convert_with(
                         ));
                     }
                 }
-                let credential = if let Some(ciphertext) = snapshot {
-                    Credential {
+                let credential = match snapshot {
+                    Some(ciphertext) => Credential {
                         table: "background_tasks",
                         id_column: "id",
                         id,
                         ciphertext,
-                    }
-                } else {
-                    let (credential_table, id_column) = if table == "storage_policies" {
-                        ("storage_policy_connector_credentials", "policy_id")
-                    } else {
-                        ("remote_storage_target_credentials", "target_id")
-                    };
-                    let row = db
-                        .query_one(
-                            &Query::select()
-                                .columns([
-                                    Alias::new("ciphertext"),
-                                    Alias::new("connector_id"),
-                                    Alias::new("schema_version"),
-                                ])
-                                .from(Alias::new(credential_table))
-                                .and_where(Expr::col(Alias::new(id_column)).eq(id))
-                                .to_owned(),
-                        )
-                        .await?
-                        .ok_or_else(|| failure(table, id, "missing encrypted credentials"))?;
-                    if row.try_get_by_index::<String>(1)? != CONNECTOR
-                        || row.try_get_by_index::<i32>(2)? != 1
-                    {
-                        return Err(failure(table, id, "credential identity mismatch"));
-                    }
-                    Credential {
-                        table: credential_table,
-                        id_column,
-                        id,
-                        ciphertext: row.try_get_by_index(0)?,
+                    },
+                    None => {
+                        let (credential_table, id_column) = match table {
+                            "storage_policies" => {
+                                ("storage_policy_connector_credentials", "policy_id")
+                            }
+                            "remote_storage_targets" => {
+                                ("remote_storage_target_credentials", "target_id")
+                            }
+                            "background_tasks" => {
+                                return Err(failure(
+                                    table,
+                                    id,
+                                    "missing cleanup credential snapshot",
+                                ));
+                            }
+                            _ => return Err(failure(table, id, "unknown upgrade owner")),
+                        };
+                        let row = db
+                            .query_one(
+                                &Query::select()
+                                    .columns([
+                                        Alias::new("ciphertext"),
+                                        Alias::new("connector_id"),
+                                        Alias::new("schema_version"),
+                                    ])
+                                    .from(Alias::new(credential_table))
+                                    .and_where(Expr::col(Alias::new(id_column)).eq(id))
+                                    .to_owned(),
+                            )
+                            .await?
+                            .ok_or_else(|| failure(table, id, "missing encrypted credentials"))?;
+                        if row.try_get_by_index::<String>(1)? != CONNECTOR
+                            || row.try_get_by_index::<i32>(2)? != 1
+                        {
+                            return Err(failure(table, id, "credential identity mismatch"));
+                        }
+                        Credential {
+                            table: credential_table,
+                            id_column,
+                            id,
+                            ciphertext: row.try_get_by_index(0)?,
+                        }
                     }
                 };
                 let plaintext=crate::services::storage_policy::credential::crypto::decrypt_connector_credential(key,policy_id,CONNECTOR,1,&credential.ciphertext).map_err(|_|failure(table,id,"cannot decrypt stored credentials"))?;
@@ -624,6 +636,101 @@ mod tests {
             "native rows must not access the network on later restarts"
         );
     }
+    #[tokio::test]
+    async fn cleanup_without_snapshot_never_uses_colliding_remote_target_credentials() {
+        for colliding_target in [true, false] {
+            let db = db().await;
+            let original_policy = insert(&db, "storage_policies", 1, "prepared-before-error").await;
+            let native_target = if colliding_target {
+                insert(&db, "remote_storage_targets", 8, "unrelated-target").await;
+                let native = json!({"format_version":1,"connector_id":CONNECTOR,"schema_version":2,"values":{"bucket":"native-target","base_path":"existing/prefix","download_origin":"https://source.example.test","download_delivery":"origin","provider_resumable_upload_strategy":"server_relay","object_storage_download_strategy":"relay_stream"}}).to_string();
+                db.execute(
+                    &Query::update()
+                        .table(Alias::new("remote_storage_targets"))
+                        .value(Alias::new("connector_config"), native.clone())
+                        .and_where(Expr::col(Alias::new("id")).eq(8))
+                        .to_owned(),
+                )
+                .await
+                .unwrap();
+                Some(native)
+            } else {
+                None
+            };
+            let original_target_credential = read_string(
+                &db,
+                "remote_storage_target_credentials",
+                "ciphertext",
+                "target_id",
+                8,
+            )
+            .await
+            .unwrap();
+            let payload = json!({"policy":{"id":8,"connector_id":CONNECTOR,"storage_config":json!({"connector":old("deleted-policy-alias")}).to_string()},"temp_keys":["owned-object"],"multipart_uploads":[]}).to_string();
+            db.execute(
+                &Query::insert()
+                    .into_table(Alias::new("background_tasks"))
+                    .columns([
+                        Alias::new("id"),
+                        Alias::new("kind"),
+                        Alias::new("status"),
+                        Alias::new("payload_json"),
+                    ])
+                    .values_panic([
+                        8.into(),
+                        "storage_policy_temp_cleanup".into(),
+                        "pending".into(),
+                        payload.clone().into(),
+                    ])
+                    .to_owned(),
+            )
+            .await
+            .unwrap();
+            let resolver = resolver(None);
+            let error = convert_with(&db, KEY, &resolver).await.unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("missing cleanup credential snapshot")
+            );
+            assert_eq!(
+                resolver.calls.load(Ordering::SeqCst),
+                1,
+                "only the earlier valid policy may contact the provider"
+            );
+            assert_eq!(
+                read_string(&db, "storage_policies", "storage_config", "id", 1)
+                    .await
+                    .unwrap(),
+                Some(original_policy)
+            );
+            assert_eq!(
+                read_string(&db, "remote_storage_targets", "connector_config", "id", 8)
+                    .await
+                    .unwrap(),
+                native_target
+            );
+            assert_eq!(
+                read_string(&db, "background_tasks", "payload_json", "id", 8)
+                    .await
+                    .unwrap(),
+                Some(payload)
+            );
+            assert_eq!(
+                read_string(
+                    &db,
+                    "remote_storage_target_credentials",
+                    "ciphertext",
+                    "target_id",
+                    8
+                )
+                .await
+                .unwrap(),
+                original_target_credential
+            );
+        }
+    }
+
     #[tokio::test]
     async fn provider_failure_does_not_discard_any_original_configuration() {
         let db = db().await;

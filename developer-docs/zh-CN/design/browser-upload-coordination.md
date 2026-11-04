@@ -71,4 +71,4 @@ Capability URL、私有协议状态和观察结果不得记录到日志、错误
 
 ## 原生编号分片请求
 
-Kodo 原生可续传协议使用并发编号分片与显式完成。它进入 provider resumable planner，再通过 `numbered_parts()` 协商复用编号分片调度，不进入顺序浏览器状态机。所有编号分片统一返回 `BrowserUploadRequest`；后端将签名 PUT 或原生授权转换为相同请求，前端不按 presigned/native 分支。`completion` 明确指定响应头、固定 token 或后端权威查询，外部客户端须同步新 schema。可选的 `BrowserUploadAuthorization` 仅承载 driver 签发的短期对象级上传能力；普通 headers 仍禁止携带 Authorization。执行器省略 cookie/CSRF、验证凭据和 header 上限，不记录 secret。原生回执和大小由后端在完成时查询，前端不解析供应商 JSON。
+Kodo 原生可续传协议使用并发编号分片与显式完成。它进入 provider resumable planner，再通过 `numbered_parts()` 协商复用编号分片调度，不进入顺序浏览器状态机。所有编号分片统一返回 `BrowserUploadRequest`；后端将签名 PUT 或原生授权转换为相同请求，前端不按 presigned/native 分支。`completion` 明确指定响应头、固定 token 或后端权威查询，外部客户端须同步新 schema。可选的 `BrowserUploadAuthorization` 仅承载 driver 签发的短期对象级上传能力；普通 headers 仍禁止携带 Authorization。执行器省略 cookie/CSRF、验证凭据和 header 上限，不记录 secret。原生回执和大小由后端在完成时查询，前端不解析供应商 JSON。共享 XHR 执行器使用显式超时策略：provider-step 指令仍限制为 1–60000ms；编号分片不设整片硬超时，避免慢速大分片重复失败，进度与取消保持可用。

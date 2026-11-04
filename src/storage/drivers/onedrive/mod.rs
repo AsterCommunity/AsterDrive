@@ -1505,7 +1505,6 @@ mod tests {
                                 download_name: Some("video.mp4".to_string()),
                                 require_download_name_match,
                                 allow_provider_response_headers,
-                                may_use_range: false,
                                 response_content_disposition: Some(
                                     "attachment; filename=video.mp4".into(),
                                 ),

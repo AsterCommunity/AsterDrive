@@ -167,13 +167,7 @@ async fn original_handle(
         file,
         blob,
         disposition,
-        aster_drive_storage::DirectDownloadOptions {
-            allow_provider_response_headers,
-            // Non-Blob consumers can hand the URL to a browser/media client
-            // which requests ranges without another delivery negotiation.
-            may_use_range: request.delivery_mode != FileResourceDeliveryMode::BlobUrl,
-            ..Default::default()
-        },
+        allow_provider_response_headers,
     )
     .await?
     {
@@ -814,14 +808,7 @@ mod tests {
                         .unwrap();
                         let attachment = purpose == FileResourcePurpose::Download;
                         let sandbox = !attachment && mime != "image/png";
-                        let blob_consumer = mode == FileResourceDeliveryMode::BlobUrl
-                            && purpose != FileResourcePurpose::ExternalViewer;
-                        let origin_full_get = delivery == QiniuDownloadDelivery::Origin
-                            && mode == FileResourceDeliveryMode::BlobUrl;
-                        let native_attachment =
-                            delivery == QiniuDownloadDelivery::QiniuCdn && attachment;
-                        let direct =
-                            !sandbox && (blob_consumer || origin_full_get || native_attachment);
+                        let direct = !sandbox;
                         if direct {
                             let query = query_pairs(&handle.request.url);
                             assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
@@ -830,11 +817,9 @@ mod tests {
                                 FileResourceConditionalHeaders::Forbidden
                             );
                             assert!(handle.lifecycle.is_some());
-                            assert_eq!(
-                                query.contains_key("response-content-type"),
-                                origin_full_get
-                            );
-                            if attachment && !origin_full_get {
+                            assert!(!query.contains_key("response-content-type"));
+                            assert!(!query.contains_key("response-cache-control"));
+                            if attachment {
                                 assert_eq!(query["attname"], file.name);
                             }
                         } else {
@@ -852,14 +837,24 @@ mod tests {
                         }
                     }
                 }
-                {
+                for range in [
+                    None,
+                    Some(
+                        crate::services::files::file::download::range::ResolvedDownloadRange::new(
+                            0,
+                            4,
+                            u64::try_from(file.size).unwrap(),
+                        )
+                        .unwrap(),
+                    ),
+                ] {
                     let outcome = build_download_outcome_with_disposition_and_range(
                         &state,
                         &file,
                         &blob,
                         super::DownloadDisposition::Attachment,
                         None,
-                        None,
+                        range,
                         "revision",
                     )
                     .await

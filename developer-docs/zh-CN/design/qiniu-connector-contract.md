@@ -25,7 +25,7 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 - multipart v2：init、streamed part PUT、listParts、complete JSON 和 abort；编号 1..10000，非末片至少 1 MiB，单片最多 1 GiB，供应商会话 7 天。
 - 管理：原生 stat、list（有界分页/visitor）、copy、delete；不存在和错误明确映射。
 - 私有源站：原生 `e/token` GET、HEAD、Range。Range 被忽略或 Content-Range 不一致时拒绝返回假成功。
-- 下载：最终 Host/编码路径/截止时间一起签名；token 最后，`expires_at` 与 e 一致；TTL 拒绝零和超限。完整源站 GET 的 response-* 覆盖在 e/token 之前参与签名；严格 Range 和可能发起 Range 的资源消费回退 relay。CDN 附件统一通过签名内 attname 保证当前文件名并接受 CDN 原生 MIME/缓存头，不提供响应模式开关；inline 沙箱不放宽。
+- 下载：最终 Host/编码路径/截止时间一起签名；token 最后，`expires_at` 与 e 一致；TTL 拒绝零和超限。源站与 CDN 统一接受供应商原生 MIME/缓存头，附件通过签名内 attname 保持当前逻辑文件名。普通 GET 和 Range 均可直连，不因响应头覆盖要求回退中继；不提供此类开关。HTML/SVG inline 沙箱与公共条件验证合同保持。
 
 流式上传使用固定 64 KiB ReaderStream 缓冲，逻辑分片不会分配同等大小的 Vec，也不先落临时文件。ExactSizeReader 在最后一个声明字节前探测额外数据，避免静默截断。流式 multipart 的失败/取消尝试 abort；取消通过 per-upload guard 安排清理并记录失败。进程终止或初始化响应丢失无法保证立即清理，保留供应商过期保障。不得将其描述为同步必达清理。
 
@@ -43,7 +43,7 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 
 保留策略 ID、对象 key、base_path、行为和加密 credential V1。原生空间与 download_origin 联网自动填入；可查询默认源站，不强制管理员新绑自定义域。CDN 交付是独立配置选择，不能从任意域名列表自动猜测。后续 V2 启动无升级网络请求。
 
-对象清理快照使用其原 policy ID/AAD 和加密凭据一起转换；保留 temp key 和任务身份。不可转换的旧 S3 multipart 会话须先完成/取消，已完成/取消快照保留历史。迁移成功后不可逆，不提供旧配置备份或自动恢复路径；无 Kodo 数据时 down 无配置可逆转。不得修改已发布 migration。
+对象清理快照使用其原 policy ID/AAD 和加密凭据一起转换；缺少凭据快照时明确停止升级，不查询其他 owner 的凭据表，也不提交此前准备的配置转换，须在旧版本完成/取消对应任务后重试；保留 temp key 和任务身份。不可转换的旧 S3 multipart 会话须先完成/取消，已完成/取消快照保留历史。迁移成功后不可逆，不提供旧配置备份或自动恢复路径；无 Kodo 数据时 down 无配置可逆转。不得修改已发布 migration。
 
 ## 安全与验证
 
@@ -51,4 +51,4 @@ AK/SK、token、完整 URL 和 provider 原始错误体不得进入日志/Debug/
 
 验证覆盖签名独立向量、原生请求、stat/list/copy/delete、GET/HEAD/Range、大小不符、重试/恢复、取消/过期、失败清理、有界流、schema/凭据、SQLite migration 原子失败与不可逆边界、远端配置确认、前端执行器与既有 provider 回归。OpenAPI、前端 SDK 和 storage docs 通过正式流程生成。真实云测试缺少输入时明确跳过，不能将 mock 或编译通过当成供应商验收。
 
-下载响应覆盖依据为 [七牛下载设置](https://developer.qiniu.com/kodo/1659/download-setting) 和固定 revision Go SDK `storage/bucket.go::MakePrivateURLv2WithQuery`。原生源站完整 GET 实测三项 response-* 覆盖生效，206/HEAD 未应用；当前 CDN 实测 response-* 未应用、attname 生效。这些结果限定当前测试域名与配置，不把它描述为所有 CDN 配置的能力。交付配置通过 descriptor 展示/校验，远端 target 复用同一配置；前端不识别 provider。`DirectDownloadOptions.may_use_range` 由下载编排和资源消费者声明，驱动据此避免承诺 206 不支持的响应头。
+原生附件参数依据为 [七牛下载设置](https://developer.qiniu.com/kodo/1659/download-setting)。源站和当前 CDN 实测 attname 在完整 GET/206 中生效；早期探测确认 response-* 的行为因入口和状态码不同，因此正式交付不使用这些覆盖参数或相关回退分支。签名向量独立核对最终编码 URL。

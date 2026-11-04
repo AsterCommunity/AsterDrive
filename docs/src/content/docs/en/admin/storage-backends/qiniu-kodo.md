@@ -25,41 +25,40 @@ Origin/CDN domains and the configured bucket/prefix must identify the same objec
 
 ## Upload and recovery
 
-Kodo enters the provider resumable planner like OneDrive and Google Drive, but implements numbered concurrent parts and explicit completion rather than sequential ranges with implicit commit. It reuses AD's multipart scheduling, authoritative size checks and cleanup without pretending UpToken requests are S3 presigned PUT.
+- **Server relay** streams browser content through AD to Kodo. Policy chunk size and single-request limits select a single upload or recoverable numbered parts.
+- **Browser direct** sends concurrent native parts directly to Kodo, with retry and recovery. AK/SK never enter the browser.
 
-Server-side small uploads use native form POST. Larger streams use multipart v2. Both consume AsyncRead with fixed 64 KiB read buffers; logical part size does not allocate a part-sized buffer or require a temporary file. Failed/canceled multipart streams attempt abort. Provider expiry remains the fallback for process exit or lost initialization responses.
+Single form uploads support up to 1 GiB. Numbered uploads have at most 10,000 parts, nonfinal parts of at least 1 MiB, and a 1 GiB per-part maximum. Kodo sessions expire after seven days; AD sessions may expire sooner.
 
-Browser uploads receive only an object-scoped short-lived UpToken. Parts can run concurrently and be retried/recovered; the backend lists actual sizes and ETags before merging. Non-final parts are at least 1 MiB, parts are at most 1 GiB, and an upload has at most 10,000 parts. Native sessions expire after seven days; AD may expire them earlier. File/Blob/version, quota and audit publication follows verified provider completion.
-
-Allow the AD origin in upload CORS for PUT, Authorization and Content-Type. Configure GET/HEAD/Range and exposed response headers for download consumers. Server connectivity does not prove browser CORS.
+Browser networking must reach Kodo upload domains. Allow the AD origin in upload CORS for PUT, Authorization and Content-Type. Download consumers may need GET/HEAD/Range and exposed response headers. Server connectivity does not prove browser CORS.
 
 ## Private delivery
 
-Native private URLs sign the final origin/CDN URL with `e` and a final `token` query parameter. Do not replace the signed host/path or append parameters. Unicode, spaces and literal percent signs are encoded; URL expiry and `expires_at` agree.
+| Download strategy and delivery | Behavior |
+| --- | --- |
+| Server relay | AD reads and streams from the configured origin; dormant CDN settings do not participate |
+| Private URL + origin | AD authorizes, then redirects with 302 to a private origin URL; Range is supported |
+| Private URL + CDN | AD authorizes, then redirects with 302 to a private CDN URL; Range is supported |
 
-Signature validity is a policy field like COS/OBS CDN validity. The effective lifetime is the minimum of caller demand, policy setting and target limits. Default `*.kodo-*.qiniucs.com` source domains are capped at 300 seconds; the policy default is 180. Custom origin/CDN delivery uses the policy bound without extending the caller lifetime. Internal streamed GET, HEAD, Range and thumbnails share this rule; this signing TTL does not terminate established streams. Existing V2 settings without the field default to 180 seconds.
+Both origin and CDN use native provider MIME/cache headers. Attachments retain the current AD filename without rewriting Kodo objects. MIME/cache overrides or Range do not trigger automatic relay. HTML/SVG inline isolation, conditional validation and AD-generated thumbnails retain their own same-origin handling.
 
-For Qiniu CDN, enable private-bucket origin authentication. This implementation uses native `e/token`, not the separate timestamp hotlink-protection scheme; the provider documents incompatible combinations. Verify unsigned, invalid, tampered-path/time and expired requests on both cache HIT and MISS. Authentication-result caches and content caches are different controls.
+Signature validity is 1–3600 seconds, default 180, bounded by the requested lifetime and target limits. Default Kodo source domains have a 300-second cap. Internal reads and thumbnails share these bounds. Expiry does not terminate established transfers or erase browser-cached content.
 
-`relay_stream` overrides delivery while retaining dormant CDN settings. Origin delivery falls back to relay when exact response requirements cannot be met; CDN attachments accept native MIME/cache headers; HTML/SVG isolation still applies. Issued URLs are bearer credentials and cannot be assumed immediately revoked when AD permissions change.
-
-Full origin GETs support native `response-content-disposition`, `response-content-type` and `response-cache-control`. AD encodes the current logical filename, MIME and cache requirements before signing the full query with `e/token`. With presigned delivery enabled, a browser download can receive a 302 from AD's authorized endpoint and follow the signed origin URL. Qiniu only guarantees overrides for successful full GETs: strict Range reads and non-Blob consumers that may independently request ranges retain relay delivery.
-
-CDN attachment downloads always use native responses: AD signs the current filename as `attname` together with `e/token`, while CDN supplies MIME and Cache-Control. There is no separate response-mode setting. Renames do not rewrite provider objects. Browser downloads authorize through AD before a 302 to CDN; authorized Blob downloads/previews can also use CDN directly. Inline HTML/SVG isolation and other strict preview requirements remain. Manage CDN MIME/cache policy in the Qiniu console and verify Content-Disposition (including Unicode names) and Range. Never append or change `attname` after signing. Signature expiry governs authenticated network access; it does not erase content already cached by a browser.
+Enable private-bucket origin authentication in Qiniu CDN. AD uses native private URLs without a separate timestamp hotlink-protection scheme. Verify valid, unsigned, tampered and expired requests on cache HIT/MISS, plus key rotation and browser CORS as needed. Configure CDN MIME/cache policy in the Qiniu console. Signed URLs are short-lived bearer credentials: do not publish or modify them, and do not assume immediate revocation when AD permissions change.
 
 ## Upgrade from V1
 
-1. Stop/drain old-version writes and finish/cancel legacy uploads. S3 uploadIds cannot become native sessions. Upgrade Primary/Follower together.
-2. Start the application with the existing instance credential-encryption key. Startup decrypts stored AK/SK, enumerates visible native buckets and obtains the default HTTPS source from region `io_src`. A unique random small object in the old S3 namespace verifies exactly one native mapping; it stays under the existing prefix and is removed afterwards. User objects are untouched.
-3. After every identity and probe cleanup is verified, one transaction replaces V1 configurations, retaining policy IDs, keys, prefixes, behavior and encrypted credentials while filling the verified native bucket/source. Runtime then uses native protocols only.
-4. No backup table is created. Old S3 fields are discarded only after successful verification. Network/permission failures, ambiguous mappings, cleanup failures or concurrent edits stop conversion with original configurations intact; resolve the condition and restart. There is no unconditional blanking or manual re-entry requirement.
-5. Verify existing files, preview and Range before new writes. CDN domains remain an explicit delivery choice, not a guess from source discovery.
+1. Drain old-version writes and finish/cancel legacy Kodo uploads and multipart cleanup. Old S3 sessions cannot resume through native APIs. Upgrade Primary/Follower together.
+2. Keep the existing instance credential-encryption key and start the new application. Startup verifies native bucket/default HTTPS origin online, then converts settings together while preserving IDs, object keys and prefixes.
+3. Verification, permission/network, cleanup or concurrent-edit failures stop startup with original settings retained. Resolve the condition and retry. Each connection has a five-minute verification limit.
+4. Successful conversion is irreversible, without a legacy configuration backup or automatic rollback. Use application startup for online conversion; schema-only migration is insufficient.
+5. Verify existing downloads, previews and Range before new writes. Configure CDN separately. Subsequent normal restarts do not repeat conversion.
 
-Upgrade credentials need native bucket enumeration, region/source discovery, old S3 probe write/read/delete and native private reads. Temporarily add missing permissions to restricted subaccounts. Each connection verification has a five-minute deadline. Subsequent restarts with V2 configs do not repeat the probe.
+Upgrade credentials need bucket enumeration, region discovery and temporary probe read/write/delete. Executable cleanup tasks missing encrypted credential snapshots must finish/cancel on the old version first.
 
-Object-only deferred cleanup snapshots are converted with their encrypted snapshot credentials, preserving temp keys. Executable cleanup with old S3 multipart IDs must finish/cancel first. Completed/canceled records stay historical. Schema-only migrations refuse unverified V1 configurations: first run application startup with the instance encryption key. Converted settings are irreversible; migration down cannot restore old S3 configuration.
+Existing AD files retain their objects. Objects uploaded independently through the Kodo console are not automatically imported.
 
-Taking over existing AD objects preserves their database references. Objects uploaded independently through the Kodo console are not automatically imported into AD's file/permission/quota records.
+See the [native Kodo developer contract](https://github.com/AsterCommunity/AsterDrive/blob/master/developer-docs/en/design/qiniu-connector-contract.md) for protocol, streaming resource and migration validation details.
 
 ## Acceptance
 

@@ -84,42 +84,64 @@ async fn native_kodo_cloud_acceptance_and_read_only_existing_object_takeover() {
         .unwrap()
         .unwrap();
     let client = reqwest::Client::new();
-    let disposition =
-        "attachment; filename=\"renamed.txt\"; filename*=UTF-8''%E4%B8%AD%E6%96%87%20%2B%25.txt";
-    let overridden = driver
+    let attachment_name = "中文 +%.txt";
+    let attachment = driver
         .resolve_download_url(
             &object,
             Duration::from_secs(60),
             DirectDownloadOptions {
-                download_name: Some("中文 +%.txt".into()),
-                response_content_disposition: Some(disposition.into()),
-                response_content_type: Some("text/plain; charset=utf-8".into()),
+                download_name: Some(attachment_name.into()),
+                response_content_disposition: Some("attachment".into()),
+                response_content_type: Some("application/x-requested-override".into()),
                 response_cache_control: Some("private, max-age=0, must-revalidate".into()),
                 ..Default::default()
             },
         )
         .await
         .unwrap()
-        .expect("native origin supports full-GET response overrides");
-    let response = client
-        .get(&overridden.url)
-        .send()
-        .await
-        .unwrap_or_else(|_| panic!("origin response override transport failed; URL redacted"));
-    assert_eq!(response.status(), reqwest::StatusCode::OK);
-    assert_eq!(response.headers()["content-disposition"], disposition);
-    assert_eq!(
-        response.headers()["content-type"],
-        "text/plain; charset=utf-8"
-    );
-    assert_eq!(
-        response.headers()["cache-control"],
-        "private, max-age=0, must-revalidate"
-    );
-    assert_eq!(
-        response.bytes().await.unwrap().as_ref(),
-        b"hello native Kodo"
-    );
+        .unwrap();
+    for range in [false, true] {
+        let mut request = client.get(&attachment.url);
+        if range {
+            request = request.header("range", "bytes=0-4");
+        }
+        let response = request
+            .send()
+            .await
+            .unwrap_or_else(|_| panic!("native attachment transport failed; signed URL redacted"));
+        assert_eq!(
+            response.status(),
+            if range {
+                reqwest::StatusCode::PARTIAL_CONTENT
+            } else {
+                reqwest::StatusCode::OK
+            }
+        );
+        let disposition =
+            std::str::from_utf8(response.headers()["content-disposition"].as_bytes()).unwrap();
+        assert!(disposition.starts_with("attachment;"));
+        let encoded = disposition
+            .split(';')
+            .find_map(|item| item.trim().strip_prefix("filename*="))
+            .unwrap()
+            .trim_matches('"');
+        let (charset, encoded) = encoded.split_once("''").unwrap();
+        assert!(charset.eq_ignore_ascii_case("utf-8"));
+        assert_eq!(
+            percent_encoding::percent_decode_str(encoded)
+                .decode_utf8()
+                .unwrap(),
+            attachment_name
+        );
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            if range {
+                b"hello".as_slice()
+            } else {
+                b"hello native Kodo".as_slice()
+            }
+        );
+    }
     assert!(
         client
             .head(&request.url)
