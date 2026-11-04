@@ -478,13 +478,22 @@ pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
     offset: u64,
+    target_type: Option<aster_drive_model::types::EntityType>,
+    user_id: Option<i64>,
     sort_by: AdminShareSortBy,
     sort_order: SortOrder,
 ) -> Result<OffsetPage<ShareInfo>> {
     load_offset_page(limit, offset, 100, |limit, offset| async move {
-        let (items, total) =
-            share_repo::find_paginated(state.reader_db(), limit, offset, sort_by, sort_order)
-                .await?;
+        let (items, total) = share_repo::find_paginated(
+            state.reader_db(),
+            limit,
+            offset,
+            target_type,
+            user_id,
+            sort_by,
+            sort_order,
+        )
+        .await?;
         let items = share_infos_from_models(state, items).await?;
         Ok((items, total))
     })
@@ -569,12 +578,48 @@ async fn share_infos_from_models(
     let users =
         account::user_summaries_by_ids(state, &user_ids, profile::AvatarAudience::AdminUser)
             .await?;
+    let mut file_ids = Vec::new();
+    let mut folder_ids = Vec::new();
+    for share in &shares {
+        match share_target_for_share(share)?.r#type {
+            aster_drive_model::types::EntityType::File => {
+                if let Some(id) = share.file_id {
+                    file_ids.push(id);
+                }
+            }
+            aster_drive_model::types::EntityType::Folder => {
+                if let Some(id) = share.folder_id {
+                    folder_ids.push(id);
+                }
+            }
+        }
+    }
+    let files = file_repo::find_by_ids(state.reader_db(), &file_ids).await?;
+    let folders = folder_repo::find_by_ids(state.reader_db(), &folder_ids).await?;
+    let file_names: HashMap<_, _> = files
+        .into_iter()
+        .filter(|file| file.deleted_at.is_none())
+        .map(|file| (file.id, file.name))
+        .collect();
+    let folder_names: HashMap<_, _> = folders
+        .into_iter()
+        .filter(|folder| folder.deleted_at.is_none())
+        .map(|folder| (folder.id, folder.name))
+        .collect();
 
     shares
         .into_iter()
         .map(|share| {
             let user = users.get(&share.user_id).cloned();
-            share_info_from_model(share, user)
+            let target_name = share
+                .file_id
+                .and_then(|id| file_names.get(&id).cloned())
+                .or_else(|| {
+                    share
+                        .folder_id
+                        .and_then(|id| folder_names.get(&id).cloned())
+                });
+            share_info_from_model(share, user, target_name)
         })
         .collect()
 }
@@ -586,5 +631,5 @@ async fn share_info_from_model_with_user(
     let user =
         account::user_summary_by_id(state, share.user_id, profile::AvatarAudience::AdminUser)
             .await?;
-    share_info_from_model(share, user)
+    share_info_from_model(share, user, None)
 }

@@ -517,6 +517,8 @@ impl AdminRemoteNodeListQuery {
     derive(IntoParams, ToSchema)
 )]
 pub struct AdminShareListQuery {
+    pub target_type: Option<aster_drive_model::types::EntityType>,
+    pub user_id: Option<i64>,
     pub sort_by: Option<AdminShareSortBy>,
     pub sort_order: Option<SortOrder>,
 }

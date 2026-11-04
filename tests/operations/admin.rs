@@ -2517,13 +2517,38 @@ async fn test_admin_shares_support_explicit_sorting() {
         assert_eq!(resp.status(), 201);
     }
 
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "name": "Shared folder" }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/api/v1/shares")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "target": { "type": "folder", "id": folder_id } }))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+
     let body: Value = admin_get_json!(
         app,
         token,
         "/api/v1/admin/shares?sort_by=max_downloads&sort_order=asc&limit=10"
     );
     let shares = body["data"]["items"].as_array().unwrap();
-    assert_eq!(json_i64_values(shares, "max_downloads"), vec![1, 2, 3]);
+    assert_eq!(json_i64_values(shares, "max_downloads"), vec![0, 1, 2, 3]);
 
     let body: Value = admin_get_json!(
         app,
@@ -2531,7 +2556,27 @@ async fn test_admin_shares_support_explicit_sorting() {
         "/api/v1/admin/shares?sort_by=max_downloads&sort_order=desc&limit=10"
     );
     let shares = body["data"]["items"].as_array().unwrap();
-    assert_eq!(json_i64_values(shares, "max_downloads"), vec![3, 2, 1]);
+    assert_eq!(json_i64_values(shares, "max_downloads"), vec![3, 2, 1, 0]);
+
+    let user_id = shares[0]["user"]["id"].as_i64().unwrap();
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        &format!("/api/v1/admin/shares?target_type=file&user_id={user_id}&limit=2")
+    );
+    let filtered = body["data"]["items"].as_array().unwrap();
+    assert_eq!(body["data"]["total"], 3);
+    assert_eq!(filtered.len(), 2);
+    assert!(filtered.iter().all(|share| share["target"]["type"] == "file"));
+    assert!(filtered.iter().all(|share| share["target_name"].as_str().is_some()));
+
+    let body: Value = admin_get_json!(
+        app,
+        token,
+        &format!("/api/v1/admin/shares?target_type=folder&user_id={user_id}&limit=10")
+    );
+    assert_eq!(body["data"]["total"], 1);
+    assert_eq!(body["data"]["items"][0]["target_name"], "Shared folder");
 }
 
 #[actix_web::test]

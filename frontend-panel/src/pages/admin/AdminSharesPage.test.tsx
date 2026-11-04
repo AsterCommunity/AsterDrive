@@ -93,6 +93,14 @@ vi.mock("@/components/admin/AdminOffsetPagination", () => ({
 	),
 }));
 
+vi.mock("@/components/admin/AdminUserFilter", () => ({
+	AdminUserFilter: ({ onChange }: { onChange: (value?: number) => void }) => (
+		<button type="button" onClick={() => onChange(9)}>
+			Choose user
+		</button>
+	),
+}));
+
 vi.mock("@/components/common/AdminTableList", () => ({
 	AdminTableList: ({
 		items,
@@ -386,6 +394,29 @@ describe("AdminSharesPage", () => {
 		expect(screen.getByText("1 / 1")).toBeInTheDocument();
 		expect(screen.getAllByText("date:2026-03-28T00:00:00Z")).toHaveLength(3);
 		expect(screen.getByTestId("location-search").textContent).toBe("");
+	});
+
+	it("filters by user and shows the target name or unavailable placeholder", async () => {
+		mockState.list.mockResolvedValue({
+			items: [
+				createShare({ target_name: "report.txt" }),
+				createShare({ id: 12, target_name: null }),
+			],
+			total: 2,
+		});
+		renderPage();
+		await screen.findByText("report.txt");
+		expect(screen.getByText("share_target_unavailable")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		fireEvent.click(screen.getByRole("button", { name: "Choose user" }));
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenLastCalledWith(
+				expect.objectContaining({ user_id: 9, offset: 0 }),
+			),
+		);
+		expect(screen.getByTestId("location-search").textContent).toContain(
+			"userId=9",
+		);
 	});
 
 	it("deletes a share after confirmation and updates the list", async () => {

@@ -634,6 +634,8 @@ export const adminShareService = {
 				offset: params?.offset,
 				sort_by: params?.sort_by,
 				sort_order: params?.sort_order,
+				target_type: params?.target_type,
+				user_id: params?.user_id,
 			}),
 		),
 

@@ -33,6 +33,8 @@ pub async fn list_all_shares(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
+        query.target_type,
+        query.user_id,
         query.sort_by(),
         query.sort_order(),
     )

@@ -601,6 +601,14 @@ test.describe
 			await gotoAdminPage(page, "/admin/shares", "Shares");
 			const shareRow = tableRowByCellText(page, shareToken);
 			await expect(shareRow).toBeVisible({ timeout: 30_000 });
+			await expect(shareRow).toContainText(sharedFile.name);
+			await page.goto("/admin/shares?targetType=folder");
+			await expect(
+				page.getByRole("heading", { name: "Shares", exact: true }),
+			).toBeVisible();
+			await expect(tableRowByCellText(page, shareToken)).toHaveCount(0);
+			await page.goto("/admin/shares?targetType=file");
+			await expect(shareRow).toBeVisible({ timeout: 30_000 });
 			await shareRow.getByRole("button").last().click();
 			const deleteDialog = page.getByRole("alertdialog");
 			await expect(deleteDialog).toBeVisible();

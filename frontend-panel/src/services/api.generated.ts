@@ -5100,6 +5100,9 @@ export interface components {
         AdminShareListQuery: {
             sort_by?: components["schemas"]["AdminShareSortBy"] | null;
             sort_order?: components["schemas"]["SortOrder"] | null;
+            target_type?: components["schemas"]["EntityType"] | null;
+            /** Format: int64 */
+            user_id?: number | null;
         };
         /** @enum {string} */
         AdminShareSortBy: "id" | "token" | "user_id" | "download_count" | "max_downloads" | "expires_at" | "created_at" | "updated_at";
@@ -7416,6 +7419,7 @@ export interface components {
                 /** Format: int64 */
                 max_downloads: number;
                 target: components["schemas"]["ShareTarget"];
+                target_name?: string | null;
                 /** Format: int64 */
                 team_id?: number | null;
                 token: string;
@@ -8410,6 +8414,7 @@ export interface components {
             /** Format: int64 */
             max_downloads: number;
             target: components["schemas"]["ShareTarget"];
+            target_name?: string | null;
             /** Format: int64 */
             team_id?: number | null;
             token: string;
@@ -14972,6 +14977,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
+                target_type?: components["schemas"]["EntityType"] | null;
+                user_id?: number | null;
                 sort_by?: components["schemas"]["AdminShareSortBy"] | null;
                 sort_order?: components["schemas"]["SortOrder"] | null;
             };
@@ -23715,6 +23722,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;
@@ -23855,6 +23863,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;
@@ -28899,6 +28908,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;
@@ -29067,6 +29077,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;

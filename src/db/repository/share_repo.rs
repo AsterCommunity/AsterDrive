@@ -153,12 +153,28 @@ pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
     offset: u64,
+    target_type: Option<aster_drive_model::types::EntityType>,
+    user_id: Option<i64>,
     sort_by: AdminShareSortBy,
     sort_order: SortOrder,
 ) -> Result<(Vec<share::Model>, u64)> {
+    let mut query = Share::find();
+    if let Some(target_type) = target_type {
+        query = match target_type {
+            aster_drive_model::types::EntityType::File => {
+                query.filter(share::Column::FileId.is_not_null())
+            }
+            aster_drive_model::types::EntityType::Folder => {
+                query.filter(share::Column::FolderId.is_not_null())
+            }
+        };
+    }
+    if let Some(user_id) = user_id {
+        query = query.filter(share::Column::UserId.eq(user_id));
+    }
     fetch_offset_page(
         db,
-        apply_admin_share_sort(Share::find(), sort_by, sort_order),
+        apply_admin_share_sort(query, sort_by, sort_order),
         limit,
         offset,
     )
