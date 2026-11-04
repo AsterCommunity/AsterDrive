@@ -223,19 +223,49 @@ vi.mock("@/components/ui/button", () => ({
 	),
 }));
 
-vi.mock("@/components/ui/select", () => ({
-	Select: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-	SelectContent: ({ children }: { children: React.ReactNode }) => (
-		<>{children}</>
-	),
-	SelectItem: ({ children }: { children: React.ReactNode }) => (
-		<option>{children}</option>
-	),
-	SelectTrigger: ({ children }: { children: React.ReactNode }) => (
-		<>{children}</>
-	),
-	SelectValue: () => null,
-}));
+vi.mock("@/components/ui/select", () => {
+	const { createContext, useContext } =
+		require("react") as typeof import("react");
+	const SelectContext = createContext<((value: string) => void) | undefined>(
+		undefined,
+	);
+	return {
+		Select: ({
+			children,
+			onValueChange,
+		}: {
+			children: React.ReactNode;
+			onValueChange?: (value: string) => void;
+		}) => (
+			<SelectContext.Provider value={onValueChange}>
+				{children}
+			</SelectContext.Provider>
+		),
+		SelectContent: ({ children }: { children: React.ReactNode }) => (
+			<>{children}</>
+		),
+		SelectItem: ({
+			children,
+			value,
+		}: {
+			children: React.ReactNode;
+			value: string;
+		}) => {
+			const onValueChange = useContext(SelectContext);
+			return (
+				<button type="button" onClick={() => onValueChange?.(value)}>
+					{children}
+				</button>
+			);
+		},
+		SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+			<>{children}</>
+		),
+		SelectValue: ({ children }: { children: React.ReactNode }) => (
+			<>{children}</>
+		),
+	};
+});
 
 vi.mock("@/components/ui/tooltip", () => ({
 	Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -416,6 +446,42 @@ describe("AdminSharesPage", () => {
 		);
 		expect(screen.getByTestId("location-search").textContent).toContain(
 			"userId=9",
+		);
+	});
+
+	it("replays type and user filters, changes type, and clears both filters", async () => {
+		mockState.list.mockResolvedValue({ items: [createShare()], total: 1 });
+		renderPage("/admin/shares?targetType=folder&userId=9&offset=20");
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenCalledWith(
+				expect.objectContaining({
+					target_type: "folder",
+					user_id: 9,
+					offset: 20,
+				}),
+			),
+		);
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		fireEvent.click(screen.getByRole("button", { name: "core:file" }));
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenLastCalledWith(
+				expect.objectContaining({ target_type: "file", user_id: 9, offset: 0 }),
+			),
+		);
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"targetType=file",
+		);
+		fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenLastCalledWith(
+				expect.objectContaining({ target_type: undefined, user_id: undefined }),
+			),
+		);
+		expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+			"targetType=",
+		);
+		expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+			"userId=",
 		);
 	});
 
