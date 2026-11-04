@@ -1385,6 +1385,100 @@ async fn test_postgres_migrations_keep_bounded_backfills_with_single_connection_
         .expect("single-connection PostgreSQL migration pool should close");
 }
 
+async fn assert_production_migrator_upgrades_existing_database(database_url: String) {
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("connect to upgrade fixture");
+    aster_drive_migration::Migrator::up(&database, None)
+        .await
+        .unwrap();
+    CurrentMigrator::down(&database, Some(1)).await.unwrap();
+    let before = aster_drive_migration::inspect_migration_history(&database)
+        .await
+        .unwrap();
+    assert_eq!(before.pending_current.len(), 1);
+    aster_drive_migration::Migrator::up(&database, None)
+        .await
+        .unwrap();
+    let after = aster_drive_migration::inspect_migration_history(&database)
+        .await
+        .unwrap();
+    assert!(after.pending_current.is_empty());
+    assert_eq!(
+        after.applied,
+        aster_drive_migration::current_migration_names()
+    );
+}
+
+#[tokio::test]
+async fn production_migrator_upgrades_postgres() {
+    assert_production_migrator_upgrades_existing_database(
+        common::postgres_empty_test_database_url().await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn production_migrator_upgrades_mysql() {
+    assert_production_migrator_upgrades_existing_database(
+        common::mysql_empty_test_database_url().await,
+    )
+    .await;
+}
+
+async fn assert_production_migrator_releases_lock_after_failure(database_url: String) {
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("connect to failed migration fixture");
+    database
+        .execute_unprepared("CREATE TABLE users (id INTEGER)")
+        .await
+        .unwrap();
+    let failure = aster_drive_migration::Migrator::up(&database, None)
+        .await
+        .unwrap_err();
+    assert!(failure.to_string().contains("migration"));
+    database
+        .execute_unprepared("DROP TABLE users")
+        .await
+        .unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        aster_drive_migration::Migrator::up(&database, None),
+    )
+    .await
+    .expect("migration lock must be released after failure")
+    .expect("migration should succeed after removing the invalid table");
+}
+
+#[tokio::test]
+async fn production_migrator_releases_postgres_lock_after_failure() {
+    assert_production_migrator_releases_lock_after_failure(
+        common::postgres_empty_test_database_url().await,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn production_migrator_releases_mysql_lock_after_failure() {
+    assert_production_migrator_releases_lock_after_failure(
+        common::mysql_empty_test_database_url().await,
+    )
+    .await;
+}
+
 async fn assert_remote_node_telemetry_rename_round_trip(database_url: String, backend: DbBackend) {
     let config = aster_drive::config::DatabaseConfig {
         url: database_url.into(),

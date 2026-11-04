@@ -862,6 +862,7 @@ dependencies = [
  "aster_forge_db",
  "aster_forge_db_migration",
  "aster_forge_file_classification",
+ "futures",
  "sea-orm-migration",
  "serde",
  "serde_json",

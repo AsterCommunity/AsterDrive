@@ -98,6 +98,75 @@ fn build_details_are_available_without_operations_or_instance_configuration() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }
 
+#[tokio::test]
+async fn fresh_sqlite_starts_and_restarts_with_complete_migration_history() {
+    use aster_forge_test::process::{TestProcess, available_loopback_port};
+    use std::time::Duration;
+
+    let dir = aster_forge_utils::raii::TempDirGuard::new(
+        std::env::temp_dir().join(format!("aster-migration-start-{}", uuid::Uuid::new_v4())),
+        "migration startup fixture",
+    );
+    std::fs::create_dir_all(dir.path()).unwrap();
+    let data = dir.path().join("instance");
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .unwrap();
+    for attempt in 0..2 {
+        let port = available_loopback_port();
+        let mut command = command();
+        command
+            .arg("--data-dir")
+            .arg(&data)
+            .args(["serve", "all"])
+            .env("ASTER__SERVER__HOST", "127.0.0.1")
+            .env("ASTER__SERVER__PORT", port.to_string())
+            .env("ASTER__SERVER__WORKERS", "1")
+            .env("ASTER__DATABASE__POOL_SIZE", "2")
+            .env("ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES", "true");
+        let mut process = TestProcess::spawn("migration-startup", &mut command);
+        tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                process.assert_running();
+                if client
+                    .get(format!("http://127.0.0.1:{port}/health/ready"))
+                    .send()
+                    .await
+                    .is_ok_and(|response| response.status().is_success())
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "startup {attempt} failed: {error}\n{}",
+                process.diagnostics()
+            )
+        });
+        process.terminate();
+
+        let database_path = data.join("asterdrive.db");
+        let mut options =
+            sea_orm::ConnectOptions::new(format!("sqlite://{}?mode=ro", database_path.display()));
+        options.max_connections(1);
+        let db = sea_orm::Database::connect(options).await.unwrap();
+        let history = aster_drive_migration::inspect_migration_history(&db)
+            .await
+            .unwrap();
+        assert_eq!(
+            history.applied,
+            aster_drive_migration::current_migration_names()
+        );
+        assert!(history.pending_current.is_empty());
+        db.close().await.unwrap();
+    }
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn service_roles_start_and_worker_does_not_expose_product_routes() {
