@@ -157,7 +157,11 @@ impl Migrator {
     pub async fn up(database: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         match steps {
             Some(step_count) => {
-                <CurrentMigrator as MigratorTrait>::up(database, Some(step_count)).await
+                let database = database.clone();
+                run_migration_worker(move || async move {
+                    <CurrentMigrator as MigratorTrait>::up(&database, Some(step_count)).await
+                })
+                .await
             }
             None => apply_database_migrations(database).await,
         }
@@ -778,6 +782,52 @@ fn migration_state_error(message: String) -> DbErr {
 mod tests {
     use super::*;
     use sea_orm_migration::SchemaManager;
+
+    #[tokio::test]
+    async fn step_limited_migrations_apply_only_requested_steps() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        Migrator::up(&db, Some(1)).await.unwrap();
+        let history = inspect_migration_history(&db).await.unwrap();
+        assert_eq!(history.applied, current_migration_names()[..1]);
+        assert_eq!(
+            history.pending_current.len(),
+            current_migration_names().len() - 1
+        );
+
+        Migrator::up(&db, Some(1)).await.unwrap();
+        let history = inspect_migration_history(&db).await.unwrap();
+        assert_eq!(history.applied, current_migration_names()[..2]);
+    }
+
+    #[tokio::test]
+    async fn step_limited_migrations_require_a_runtime_for_the_worker() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let error = std::thread::spawn(move || {
+            futures::executor::block_on(Migrator::up(&db, Some(1))).unwrap_err()
+        })
+        .join()
+        .unwrap();
+        assert!(error.to_string().contains("requires a Tokio runtime"));
+    }
+
+    #[tokio::test]
+    async fn step_limited_migration_propagates_database_failure() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.execute_unprepared("CREATE TABLE users (id INTEGER)")
+            .await
+            .unwrap();
+        let error = Migrator::up(&db, Some(1)).await.unwrap_err();
+        assert!(
+            error.to_string().contains("no such column: username"),
+            "unexpected error: {error}"
+        );
+    }
 
     #[test]
     fn worker_reports_missing_runtime() {

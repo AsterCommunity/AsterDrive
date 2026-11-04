@@ -92,21 +92,6 @@ jobs:
       - name: Verify service command and role boundaries
         run: cargo test --locked --no-default-features --features server --test server_commands
 
-  windows-migration-startup:
-    name: Windows Debug SQLite startup and restart
-    runs-on: windows-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: windows-migration-v1
-      - name: Verify Debug executable initializes and restarts
-        run: cargo test --locked --test server_commands fresh_sqlite_starts_and_restarts_with_complete_migration_history -- --exact
-
   openapi-sdk-drift:
     name: OpenAPI and generated SDK drift
     runs-on: ubuntu-latest

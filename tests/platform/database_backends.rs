@@ -1449,7 +1449,10 @@ async fn assert_production_migrator_releases_lock_after_failure(database_url: St
     let failure = aster_drive_migration::Migrator::up(&database, None)
         .await
         .unwrap_err();
-    assert!(failure.to_string().contains("migration"));
+    assert!(
+        failure.to_string().contains("unknown migration versions"),
+        "unexpected failure: {failure}"
+    );
     database
         .execute_unprepared("DROP TABLE users")
         .await
