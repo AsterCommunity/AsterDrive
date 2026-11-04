@@ -854,6 +854,19 @@ describe("AdminFilesPage", () => {
 		expect(screen.getByTestId("location-search")).toHaveTextContent(
 			"sizeMin=2097152",
 		);
+		fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+		expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("2048");
+		fireEvent.change(screen.getByPlaceholderText("admin_size_min"), {
+			target: { value: "" },
+		});
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+				expect.objectContaining({ size_min: undefined }),
+			);
+			expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+				"sizeMin=",
+			);
+		});
 	});
 
 	it("links current and historical blob references to stable logical targets", async () => {
