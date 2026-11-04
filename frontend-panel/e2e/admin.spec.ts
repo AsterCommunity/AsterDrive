@@ -602,6 +602,23 @@ test.describe
 			const shareRow = tableRowByCellText(page, shareToken);
 			await expect(shareRow).toBeVisible({ timeout: 30_000 });
 			await expect(shareRow).toContainText(sharedFile.name);
+			await page.getByRole("button", { name: "Filters" }).click();
+			await page.getByRole("button", { name: "All users" }).click();
+			await page
+				.getByPlaceholder("Search username or email")
+				.fill("admin@example.com");
+			await page
+				.getByRole("button", { name: "admin (admin@example.com)" })
+				.click();
+			await expect(page).toHaveURL(/\/admin\/shares\?userId=\d+/);
+			await expect(shareRow).toBeVisible();
+			const filteredUrl = page.url();
+			await page.goto(filteredUrl);
+			await expect(shareRow).toBeVisible({ timeout: 30_000 });
+			await page.getByRole("button", { name: "Filters 1" }).click();
+			await expect(
+				page.getByRole("button", { name: "admin (admin@example.com)" }),
+			).toBeVisible();
 			await page.goto("/admin/shares?targetType=folder");
 			await expect(
 				page.getByRole("heading", { name: "Shares", exact: true }),

@@ -77,9 +77,11 @@ export function AdminUserFilter({ value, onChange }: AdminUserFilterProps) {
 					/>
 				}
 			>
-				{selected
+				{selected && selected.id === value
 					? `${selected.username} (${selected.email})`
-					: t("filter_user")}
+					: value == null
+						? t("filter_user")
+						: `#${value}`}
 			</PopoverTrigger>
 			<PopoverContent className="w-72">
 				<Input
