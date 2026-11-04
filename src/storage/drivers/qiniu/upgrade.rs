@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use url::Url;
 
+// Bound simultaneous region queries and nonce reads without serializing every
+// bucket in large/shared accounts. The outer per-connection upgrade deadline
+// still bounds the full scan, and dropping it cancels these owned futures.
+const MAX_CONCURRENT_CANDIDATE_PROBES: usize = 16;
+
 #[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LegacyConfig {
@@ -193,7 +198,7 @@ impl UpgradeDiscovery for OfficialDiscovery {
             .append_pair("bucket", bucket);
         let response: Query = http::decode(
             self.signer
-                .client
+                .control_client
                 .get(query)
                 .send()
                 .await
@@ -257,21 +262,67 @@ async fn verify_namespace(
         driver: source.clone(),
         key: Some(key.clone()),
     };
-    let result=async {
-        source.put(&key,&nonce).await.map_err(|_|invalid("legacy Kodo identity probe upload failed; old configuration retained"))?;
-        let mut matches=Vec::new();
-        for bucket in candidates {
-            let Some(origin)=discovery.source(&bucket,&old.s3_region).await? else{continue;};
-            match discovery.contains(&bucket,&origin,&old.base_path,&key,&nonce).await {
-                Ok(true)=>matches.push(NativeLocation{bucket,download_origin:origin}),
-                Ok(false)=>{},
-                Err(error) if error.kind()==StorageErrorKind::NotFound=>{},
-                Err(error)=>return Err(error),
+    let result = async {
+        use futures::{StreamExt, stream};
+        source.put(&key, &nonce).await.map_err(|_| {
+            invalid("legacy Kodo identity probe upload failed; old configuration retained")
+        })?;
+        // Never return at the first match: later candidates must still be checked
+        // to reject ambiguous mappings. An unrelated failure is only diagnostic.
+        let mut probes = stream::iter(candidates)
+            .map(|bucket| {
+                let key = &key;
+                let nonce = &nonce;
+                async move {
+                    let Some(origin) = discovery.source(&bucket, &old.s3_region).await? else {
+                        return Ok(None);
+                    };
+                    match discovery
+                        .contains(&bucket, &origin, &old.base_path, key, nonce)
+                        .await
+                    {
+                        Ok(true) => Ok(Some(NativeLocation {
+                            bucket,
+                            download_origin: origin,
+                        })),
+                        Ok(false) => Ok(None),
+                        Err(error) if error.kind() == StorageErrorKind::NotFound => Ok(None),
+                        Err(error) => Err(error),
+                    }
+                }
+            })
+            .buffer_unordered(MAX_CONCURRENT_CANDIDATE_PROBES);
+        let mut matches = Vec::new();
+        let mut first_error = None;
+        while let Some(result) = probes.next().await {
+            match result {
+                Ok(Some(location)) => matches.push(location),
+                Ok(None) => {}
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
             }
         }
-        if matches.len()!=1{return Err(storage_driver_error(StorageErrorKind::Precondition,"Kodo upgrade could not confirm exactly one native bucket for the legacy S3 namespace"));}
-        matches.pop().ok_or_else(||invalid("Kodo identity resolution failed"))
-    }.await;
+        // Only a positive nonce match proves identity. An unrelated candidate's
+        // failure neither invalidates that proof nor excuses ambiguous matches.
+        if matches.is_empty()
+            && let Some(error) = first_error
+        {
+            return Err(error);
+        }
+        if matches.len() != 1 {
+            return Err(storage_driver_error(
+                StorageErrorKind::Precondition,
+                "Kodo upgrade could not confirm exactly one native bucket for the legacy S3 namespace",
+            ));
+        }
+        matches
+            .pop()
+            .ok_or_else(|| invalid("Kodo identity resolution failed"))
+    }
+    .await;
+    // Configuration may only be converted once the probe is removed, even when
+    // identification failed. Keep the drop guard armed if explicit cleanup fails.
     source
         .delete(&key)
         .await
@@ -304,6 +355,8 @@ fn discovery_driver(
 impl QiniuDriver {
     async fn read_upgrade_probe(&self, path: &str, expected: &[u8]) -> Result<bool> {
         use futures::StreamExt;
+        // This tiny bounded GET is control traffic: a total timeout is intentional,
+        // unlike normal object downloads which can keep streaming indefinitely.
         let url = self.private_url(
             &self.config.download_origin,
             path,
@@ -311,7 +364,7 @@ impl QiniuDriver {
             &[],
         )?;
         let response = http::checked(
-            self.client
+            self.control_client
                 .get(url)
                 .header("accept-encoding", "identity")
                 .send()
@@ -491,6 +544,103 @@ mod tests {
             outage: false,
         };
         assert!(verify_namespace(&old(), source, &discovery).await.is_err());
+    }
+    struct CandidateDiscovery {
+        source: Arc<Source>,
+        matching: Vec<String>,
+        query_failures: Vec<String>,
+        read_failures: Vec<String>,
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl UpgradeDiscovery for CandidateDiscovery {
+        async fn buckets(&self) -> Result<Vec<String>> {
+            Ok((0..48).map(|n| format!("bucket-{n:02}")).collect())
+        }
+        async fn source(&self, bucket: &str, _: &str) -> Result<Option<String>> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            if self.query_failures.iter().any(|name| name == bucket) {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Permission,
+                    "query denied",
+                ));
+            }
+            Ok(Some(format!("https://{bucket}.provider.test")))
+        }
+        async fn contains(
+            &self,
+            bucket: &str,
+            _: &str,
+            _: &str,
+            key: &str,
+            nonce: &[u8],
+        ) -> Result<bool> {
+            assert_eq!(self.source.get(key).await?, nonce);
+            if self.read_failures.iter().any(|name| name == bucket) {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Transient,
+                    "read failed",
+                ));
+            }
+            Ok(self.matching.iter().any(|name| name == bucket))
+        }
+    }
+    #[tokio::test]
+    async fn candidate_errors_do_not_hide_unique_nonce_match_and_probes_are_bounded_parallel() {
+        for query_failure in [false, true] {
+            let source = Arc::new(Source::default());
+            let failures = vec!["bucket-00".into(), "bucket-47".into()];
+            let discovery = CandidateDiscovery {
+                source: source.clone(),
+                matching: vec!["bucket-24".into()],
+                query_failures: if query_failure {
+                    failures.clone()
+                } else {
+                    vec![]
+                },
+                read_failures: if query_failure { vec![] } else { failures },
+                active: AtomicUsize::new(0),
+                peak: AtomicUsize::new(0),
+            };
+            let result = verify_namespace(&old(), source.clone(), &discovery)
+                .await
+                .unwrap();
+            assert_eq!(result.bucket, "bucket-24");
+            let peak = discovery.peak.load(Ordering::SeqCst);
+            assert!((2..=16).contains(&peak), "unexpected concurrency: {peak}");
+            assert_eq!(source.deletes.load(Ordering::SeqCst), 1);
+            assert!(source.objects.lock().unwrap().is_empty());
+        }
+    }
+    #[tokio::test]
+    async fn candidate_errors_propagate_without_match_and_never_allow_ambiguous_match() {
+        for matching in [vec![], vec!["bucket-23".into(), "bucket-24".into()]] {
+            let source = Arc::new(Source::default());
+            let expected = if matching.is_empty() {
+                StorageErrorKind::Permission
+            } else {
+                StorageErrorKind::Precondition
+            };
+            let discovery = CandidateDiscovery {
+                source: source.clone(),
+                matching,
+                query_failures: vec!["bucket-00".into()],
+                read_failures: vec![],
+                active: AtomicUsize::new(0),
+                peak: AtomicUsize::new(0),
+            };
+            let error = verify_namespace(&old(), source.clone(), &discovery)
+                .await
+                .err()
+                .unwrap();
+            assert_eq!(error.kind(), expected);
+            assert_eq!(source.deletes.load(Ordering::SeqCst), 1);
+            assert!(source.objects.lock().unwrap().is_empty());
+        }
     }
     fn credentials() -> QiniuStaticCredentials {
         QiniuStaticCredentials {

@@ -101,7 +101,7 @@ impl QiniuDriver {
             .multipart_url(&session.key, Some(&session.upload_id))
             .await?;
         Ok((
-            self.client
+            self.control_client
                 .request(method, url)
                 .header("authorization", format!("UpToken {token}")),
             session,
@@ -208,21 +208,17 @@ impl QiniuDriver {
         let request = self
             .native_part_request(path, id, number, Duration::from_secs(3600))
             .await?;
-        let mut builder = self.client.put(&request.url).header("content-length", size);
+        let mut builder = self
+            .upload_client
+            .put(&request.url)
+            .header("content-length", size);
         if let Some(auth) = request.authorization {
             builder = builder.header("authorization", format!("{} {}", auth.scheme, auth.token));
         }
         for (name, value) in request.headers {
             builder = builder.header(name, value);
         }
-        let result: PartResult = http::decode(
-            builder
-                .body(body)
-                .send()
-                .await
-                .map_err(http::transport_error)?,
-        )
-        .await?;
+        let result: PartResult = self.send_upload(builder.body(body)).await?;
         if result.etag.is_empty() {
             return Err(invalid("Kodo upload part returned no ETag"));
         }
@@ -252,7 +248,7 @@ impl MultipartStorageDriver for QiniuDriver {
         let token = self.upload_token(&key, chrono::Utc::now().timestamp() + 3600, None, false)?;
         let url = self.multipart_url(&key, None).await?;
         let response: Initiated = http::decode(
-            self.client
+            self.control_client
                 .post(url)
                 .header("authorization", format!("UpToken {token}"))
                 .send()

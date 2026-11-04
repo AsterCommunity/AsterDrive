@@ -47,7 +47,17 @@ impl std::fmt::Debug for QiniuStaticCredentials {
 pub struct QiniuDriver {
     config: QiniuDriverConfig,
     credentials: QiniuStaticCredentials,
-    client: reqwest::Client,
+    /// Reused for bounded control exchanges: discovery, metadata, management,
+    /// multipart lifecycle operations and the small migration identity probe.
+    /// operation_timeout covers connection, headers and the entire response body.
+    control_client: reqwest::Client,
+    /// Reused for GET/Range bodies without a whole-transfer deadline. reqwest's
+    /// read timeout bounds waiting for headers and idle reads of the response.
+    download_client: reqwest::Client,
+    /// Reused for form/part uploads. reqwest's read_timeout would also limit time
+    /// spent uploading before response headers arrive, so send_upload implements
+    /// progress-aware idle detection and bounds the small acknowledgement instead.
+    upload_client: reqwest::Client,
     region_query: Url,
     endpoints: std::sync::Arc<Mutex<Option<Endpoints>>>,
 }
@@ -105,17 +115,35 @@ impl QiniuDriver {
     pub fn new(mut config: QiniuDriverConfig, credentials: QiniuStaticCredentials) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
         config.base_path = config.base_path.trim_matches('/').to_string();
-        let client = reqwest::Client::builder()
-            .connect_timeout(config.connect_timeout)
+        // DriverRegistry caches this driver by policy; reqwest clones share each
+        // client's connection pool. Build these clients once, never per request.
+        // All also reject redirects so signed URLs/UpTokens cannot follow them.
+        let http_client_builder = || {
+            reqwest::Client::builder()
+                .connect_timeout(config.connect_timeout)
+                .redirect(reqwest::redirect::Policy::none())
+        };
+        let control_client = http_client_builder()
             .read_timeout(config.read_timeout)
             .timeout(config.operation_timeout)
-            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(http::transport_error)?;
+        // Downloads need an idle-read limit, not a total deadline on the body.
+        // Uploads cannot use reqwest's header-read timer while sending the body;
+        // their progress-aware watchdog lives in send_upload.
+        let download_client = http_client_builder()
+            .read_timeout(config.read_timeout)
+            .build()
+            .map_err(http::transport_error)?;
+        let upload_client = http_client_builder()
             .build()
             .map_err(http::transport_error)?;
         Ok(Self {
             config,
             credentials,
-            client,
+            control_client,
+            download_client,
+            upload_client,
             region_query: Url::parse("https://uc.qbox.me/v4/query")
                 .map_err(|_| invalid("invalid region query URL"))?,
             endpoints: std::sync::Arc::new(Mutex::new(None)),

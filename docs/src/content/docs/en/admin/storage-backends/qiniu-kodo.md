@@ -50,7 +50,7 @@ Enable private-bucket origin authentication in Qiniu CDN. AD uses native private
 
 1. Drain old-version writes and finish/cancel legacy Kodo uploads and multipart cleanup. Old S3 sessions cannot resume through native APIs. Upgrade Primary/Follower together.
 2. Keep the existing instance credential-encryption key and start the new application. Startup verifies native bucket/default HTTPS origin online, then converts settings together while preserving IDs, object keys and prefixes.
-3. Verification, permission/network, cleanup or concurrent-edit failures stop startup with original settings retained. Resolve the condition and retry. Each connection has a five-minute verification limit.
+3. Probe at most 16 candidate buckets concurrently. Exactly one match permits conversion despite unrelated candidates failing permission/network checks. Failure to establish a unique match, enumeration or probe write/cleanup failures, or concurrent edits stop startup with original settings retained. Resolve the condition and retry. Each connection has a five-minute verification limit.
 4. Successful conversion is irreversible, without a legacy configuration backup or automatic rollback. Use application startup for online conversion; schema-only migration is insufficient.
 5. Verify existing downloads, previews and Range before new writes. Configure CDN separately. Subsequent normal restarts do not repeat conversion.
 

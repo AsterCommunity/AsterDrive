@@ -1,8 +1,4 @@
-use super::{
-    QiniuDriver,
-    http::{self, ServiceKind},
-    invalid,
-};
+use super::{QiniuDriver, http::ServiceKind, invalid};
 use aster_drive_storage::{
     ExactSizeReader, MultipartStorageDriver, Result, StorageErrorKind, StreamUploadDriver,
     checked_upload_size, storage_driver_error,
@@ -146,15 +142,9 @@ impl QiniuDriver {
             .text("key", key.clone())
             .text("token", token)
             .part("file", file);
-        let result: Uploaded = http::decode(
-            self.client
-                .post(url)
-                .multipart(form)
-                .send()
-                .await
-                .map_err(http::transport_error)?,
-        )
-        .await?;
+        let result: Uploaded = self
+            .send_upload(self.upload_client.post(url).multipart(form))
+            .await?;
         if result.key != key || result.hash.is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Precondition,

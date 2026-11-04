@@ -710,7 +710,7 @@ async fn provider_expiry_window_error_is_not_reported_as_account_permission_fail
     let server = spawn().await;
     let driver = server.driver().await;
     let response = driver
-        .client
+        .control_client
         .get(format!("{}/expiry-window", server.base))
         .send()
         .await
@@ -903,7 +903,7 @@ async fn errors_keep_provider_status_and_request_id_without_secret_echoes() {
         (503, StorageErrorKind::Transient),
     ] {
         let response = driver
-            .client
+            .control_client
             .get(format!("{}/error/{code}", server.base))
             .send()
             .await
@@ -1431,4 +1431,153 @@ async fn provider_control_responses_are_bounded_and_request_ids_are_sanitized() 
     let driver = http_fixture_driver(&peer.base).await;
     assert_eq!(driver.get("object").await.unwrap(), b"ok");
     peer.stop().await;
+}
+
+#[tokio::test]
+async fn data_transfers_outlive_control_deadline_but_keep_idle_read_timeout() {
+    use futures::stream;
+    async fn handler(req: HttpRequest, body: web::Bytes) -> HttpResponse {
+        if req.path().starts_with("/stat/") {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            return HttpResponse::Ok().json(json!({"fsize":8}));
+        }
+        if req.headers().contains_key("x-stall-headers") {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        if req.headers().contains_key("x-stall-body") {
+            return HttpResponse::Ok().streaming(stream::once(async {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                Ok::<_, std::io::Error>(web::Bytes::from_static(b"{}"))
+            }));
+        }
+        if req.method() == "POST" {
+            assert!(!body.is_empty());
+            return HttpResponse::Ok().json(json!({"key":"tenant/object","hash":"hash"}));
+        }
+        if req.method() == "PUT" {
+            assert_eq!(body.as_ref(), &[b'x'; 8]);
+            return HttpResponse::Ok().json(json!({"etag":"part-1"}));
+        }
+        let delay = if req.path().ends_with("idle") {
+            3000
+        } else {
+            50
+        };
+        let chunks = stream::unfold(0, move |index| async move {
+            if index == 8 {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            Some((
+                Ok::<_, std::io::Error>(web::Bytes::from_static(b"x")),
+                index + 1,
+            ))
+        });
+        if req.headers().contains_key("range") {
+            HttpResponse::PartialContent()
+                .insert_header(("content-range", "bytes 0-7/8"))
+                .streaming(chunks)
+        } else {
+            HttpResponse::Ok().streaming(chunks)
+        }
+    }
+    fn slow_reader(delay_ms: u64) -> Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync> {
+        let chunks = stream::unfold(0, move |index| async move {
+            if index == 8 {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            Some((
+                Ok::<_, std::io::Error>(web::Bytes::from_static(b"x")),
+                index + 1,
+            ))
+        });
+        Box::new(tokio_util::io::StreamReader::new(Box::pin(chunks)))
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let server = HttpServer::new(|| App::new().default_service(web::to(handler)))
+        .workers(1)
+        .listen(listener)
+        .unwrap()
+        .run();
+    let handle = server.handle();
+    tokio::spawn(server);
+    let mut settings = config();
+    settings.operation_timeout = Duration::from_millis(200);
+    settings.read_timeout = Duration::from_millis(250);
+    let mut driver = QiniuDriver::new(settings, driver().credentials).unwrap();
+    driver.config.download_origin = base.clone();
+    *driver.endpoints.lock().await = Some(Endpoints {
+        upload: Url::parse(&base).unwrap(),
+        management: Url::parse(&base).unwrap(),
+        list: Url::parse(&base).unwrap(),
+        expires_at: Instant::now() + Duration::from_secs(60),
+    });
+    let mut output = Vec::new();
+    driver
+        .get_stream("object")
+        .await
+        .unwrap()
+        .read_to_end(&mut output)
+        .await
+        .unwrap();
+    assert_eq!(output, b"xxxxxxxx");
+    output.clear();
+    driver
+        .get_range("object", 0, Some(8))
+        .await
+        .unwrap()
+        .read_to_end(&mut output)
+        .await
+        .unwrap();
+    assert_eq!(output, b"xxxxxxxx");
+    driver
+        .put_reader("object", slow_reader(50), 8)
+        .await
+        .unwrap();
+    let session = serde_json::to_string(&MultipartSession {
+        upload_id: "session".into(),
+        expires_at: chrono::Utc::now().timestamp() + 3600,
+        key: "tenant/object".into(),
+        bucket: "archive".into(),
+    })
+    .unwrap();
+    driver
+        .upload_multipart_part_reader("object", &session, 1, slow_reader(50), 8)
+        .await
+        .unwrap();
+    // Lack of upload progress, a missing acknowledgement and a stalled JSON
+    // response must still terminate after the idle budget, not hang forever.
+    let error = driver
+        .put_reader("object", slow_reader(500), 8)
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::Transient);
+    assert!(error.to_string().contains("stalled"));
+    for header in ["x-stall-headers", "x-stall-body"] {
+        let error = driver
+            .send_upload::<serde_json::Value>(
+                driver
+                    .upload_client
+                    .post(&base)
+                    .header(header, "1")
+                    .body("probe"),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Transient);
+    }
+    let error = driver.metadata("object").await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::Transient);
+    assert!(error.to_string().contains("timed out"));
+    // An established download must still fail when no body bytes arrive.
+    let idle = driver.get_stream("idle").await;
+    match idle {
+        Ok(mut reader) => {
+            assert!(reader.read_to_end(&mut Vec::new()).await.is_err());
+        }
+        Err(error) => assert_eq!(error.kind(), StorageErrorKind::Transient),
+    }
+    handle.stop(false).await;
 }

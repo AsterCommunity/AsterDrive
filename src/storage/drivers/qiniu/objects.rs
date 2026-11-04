@@ -30,7 +30,7 @@ impl QiniuDriver {
             &[],
         )?;
         let response = http::checked(
-            self.client
+            self.control_client
                 .head(url)
                 .header("accept-encoding", "identity")
                 .send()
@@ -60,7 +60,10 @@ impl QiniuDriver {
             self.source_read_deadline()?,
             &[],
         )?;
-        let mut request = self.client.get(url).header("accept-encoding", "identity");
+        let mut request = self
+            .download_client
+            .get(url)
+            .header("accept-encoding", "identity");
         if let Some(range) = &range {
             request = request.header("range", range);
         }

@@ -36,8 +36,14 @@ impl QiniuDriver {
             url.query_pairs_mut()
                 .append_pair("ak", &self.credentials.access_key)
                 .append_pair("bucket", &self.config.bucket);
-            let response: RegionResponse =
-                decode(self.client.get(url).send().await.map_err(transport_error)?).await?;
+            let response: RegionResponse = decode(
+                self.control_client
+                    .get(url)
+                    .send()
+                    .await
+                    .map_err(transport_error)?,
+            )
+            .await?;
             let region = response
                 .hosts
                 .into_iter()
@@ -68,18 +74,89 @@ impl QiniuDriver {
     }
     pub(super) async fn management(&self, method: Method, url: Url) -> Result<Response> {
         let mut request = self
-            .client
+            .control_client
             .request(method, url)
             .build()
             .map_err(transport_error)?;
         self.sign_management(&mut request)?;
         checked(
-            self.client
+            self.control_client
                 .execute(request)
                 .await
                 .map_err(transport_error)?,
         )
         .await
+    }
+}
+// Preserve size hints and error chains while observing when the HTTP transport
+// consumes upload bytes. No buffering or background task is introduced here.
+struct UploadProgressBody {
+    body: reqwest::Body,
+    progress: std::sync::Arc<tokio::sync::Notify>,
+}
+impl http_body::Body for UploadProgressBody {
+    type Data = bytes::Bytes;
+    type Error = reqwest::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>>
+    {
+        let frame = std::pin::Pin::new(&mut self.body).poll_frame(cx);
+        if matches!(
+            &frame,
+            std::task::Poll::Ready(Some(Ok(_))) | std::task::Poll::Ready(None)
+        ) {
+            self.progress.notify_one();
+        }
+        frame
+    }
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.body.size_hint()
+    }
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+}
+impl QiniuDriver {
+    /// Bound inactivity while sending a body, then bound the small provider reply.
+    /// reqwest's read_timeout starts before upload completion and cannot express
+    /// this policy: a continuously progressing upload may legitimately take hours.
+    pub(super) async fn send_upload<T: DeserializeOwned>(
+        &self,
+        builder: reqwest::RequestBuilder,
+    ) -> Result<T> {
+        let mut request = builder.build().map_err(transport_error)?;
+        let progress = std::sync::Arc::new(tokio::sync::Notify::new());
+        if let Some(body) = request.body_mut().take() {
+            *request.body_mut() = Some(reqwest::Body::wrap(UploadProgressBody {
+                body,
+                progress: progress.clone(),
+            }));
+        }
+        let response = self.upload_client.execute(request);
+        tokio::pin!(response);
+        let response = loop {
+            tokio::select! {
+                biased;
+                result = &mut response => break result.map_err(transport_error)?,
+                _ = progress.notified() => {},
+                _ = tokio::time::sleep(self.config.read_timeout) => {
+                    return Err(storage_driver_error(StorageErrorKind::Transient, "Kodo upload stalled"));
+                }
+            }
+        };
+        // Acknowledgements are bounded control payloads, not object streams. This
+        // also times out a peer that sends headers and then stalls its JSON body.
+        tokio::time::timeout(self.config.read_timeout, decode(response))
+            .await
+            .map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Transient,
+                    "Kodo upload response timed out",
+                )
+            })?
     }
 }
 pub(super) fn transport_error(error: reqwest::Error) -> StorageError {

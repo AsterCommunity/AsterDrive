@@ -31,7 +31,7 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 
 下载签名有效期由 descriptor 数字字段 `download_auth_validity_seconds` 提供，范围 1..3600 秒，默认 180；缺字段的旧 V2 使用 serde 默认。有效 TTL 为 caller/config/provider 三者最小值，默认 Kodo 源站 `*.kodo-*.qiniucs.com` 另有 300 秒上限。服务端流式 GET、HEAD、Range、缩略图读取也消费此配置；直链的 e 和 expires_at 使用同一个真实截止时间。精确匹配供应商“expires 与 server time 相差过大”的 403 时映射为 Misconfigured 并提供固定脱敏原因，不把它当成账号 Permission，也不透传任意 provider body。
 
-区域发现按 AK/bucket 调用官方 v4/query，并在 driver 实例内按 TTL 缓存上传/RS/RSF 服务；无全局产品状态。下载源站、CDN、上传与管理服务不混用。HTTP client 禁止重定向，避免将凭据带到意外目标。
+区域发现按 AK/bucket 调用官方 v4/query，并在 driver 实例内按 TTL 缓存上传/RS/RSF 服务；无全局产品状态。下载源站、CDN、上传与管理服务不混用。HTTP client 禁止重定向，避免将凭据带到意外目标。driver 按策略缓存，control_client、download_client 和 upload_client 各自持有可复用连接池，克隆 driver 继续共享池。GET/Range 无整次传输时限并保留 reqwest 空闲读取超时；表单/分片上传不使用会在等待响应头时截断慢上传的 reqwest read_timeout，而按请求体消费进度重置空闲计时，并对小型完成回执设置响应时限。三类 client 均保留连接超时；区域发现、HEAD、stat/list/copy/delete、分片初始化/查询/完成/取消及升级探测继续受控制请求总超时限制。
 
 ## 配置和升级
 
@@ -39,7 +39,7 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 
 升级由 `src/storage/connectors/qiniu/upgrade.rs` 在启动加载凭据/监听端口前编排，driver 的 migration-only resolver 核对外部协议。已有实例加密主密钥用于解密 policy、remote target 和对象清理快照的凭据；`/buckets?shared=rd` 列举候选，`/v4/query` 的 `s3.region_alias` 缩小区域，`io_src.domains` 提供默认 HTTPS 源站。旧 S3 空间的随机 16 字节探测对象必须从唯一原生空间读到相同 nonce，不能按名字或已有文件大小猜测。探测对象有唯一 key、位于原 prefix，始终尝试清理；用户内容不读写。
 
-网络验证在数据库事务外完成，所有结果准备好后以原配置/凭据的 compare-and-swap 一次提交。无默认源站的候选空间不参与匹配；区域查询的网络、鉴权及解析错误仍传播。任何连接失败、歧义、探测清理失败或并发修改均保留原始配置并中止启动；5 分钟单连接时限。成功后直接丢弃旧 S3 字段，不创建备份表，也不保留运行时双协议。schema migration 只接受已验证 V2，schema-only 工具不得清空 V1 字段。
+网络验证在数据库事务外完成，所有结果准备好后以原配置/凭据的 compare-and-swap 一次提交。候选空间以最多 16 个并发探测，无默认源站的空间不参与匹配；单个候选的查询或读取错误会暂存，恰好一个空间读到随机 nonce 时不受其他候选错误影响。零匹配且存在候选错误时返回首个观测到的错误；零匹配、多个匹配、空间列举失败、探测写入/清理失败或并发修改均保留原始配置并中止启动；5 分钟单连接时限。成功后直接丢弃旧 S3 字段，不创建备份表，也不保留运行时双协议。schema migration 只接受已验证 V2，schema-only 工具不得清空 V1 字段。
 
 保留策略 ID、对象 key、base_path、行为和加密 credential V1。原生空间与 download_origin 联网自动填入；可查询默认源站，不强制管理员新绑自定义域。CDN 交付是独立配置选择，不能从任意域名列表自动猜测。后续 V2 启动无升级网络请求。
 
