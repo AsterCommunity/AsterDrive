@@ -165,30 +165,19 @@ impl OssSigner {
                 .insert("x-oss-security-token", token.to_string());
         }
 
-        let date = now.format("%Y%m%d").to_string();
-        let scope = credential_scope(&date, &self.region);
         let url = Url::parse(request.uri())?;
-        let canonical_request = canonical_request(
+        let authorization = authorization_header(
             request.method(),
             &self.bucket,
-            key,
+            &key,
             url.query().unwrap_or_default(),
             &collect_signed_headers(request),
-        );
-        let string_to_sign = string_to_sign(&datetime, &scope, &canonical_request);
-        let signature = signature(
-            credentials.secret_access_key(),
-            &date,
             &self.region,
-            &string_to_sign,
+            credentials.access_key_id(),
+            credentials.secret_access_key(),
+            now,
         )?;
-        request.headers_mut().insert(
-            "authorization",
-            format!(
-                "{OSS_SIGN_ALGORITHM} Credential={}/{scope},Signature={signature}",
-                credentials.access_key_id()
-            ),
-        );
+        request.headers_mut().insert("authorization", authorization);
         Ok(())
     }
 
@@ -252,6 +241,70 @@ impl OssSigner {
         request.set_uri(url.as_str())?;
         Ok(())
     }
+}
+
+pub(super) fn signed_bucket_request_headers(
+    method: &str,
+    bucket: &str,
+    region: &str,
+    access_key: &str,
+    secret_key: &str,
+    content_type: Option<&str>,
+    content_md5: Option<&str>,
+    now: DateTime<Utc>,
+) -> std::result::Result<Vec<(String, String)>, BoxError> {
+    let mut headers = vec![
+        (
+            "x-oss-date".to_string(),
+            now.format("%Y%m%dT%H%M%SZ").to_string(),
+        ),
+        (
+            "x-oss-content-sha256".to_string(),
+            OSS_UNSIGNED_PAYLOAD.to_string(),
+        ),
+    ];
+    if let Some(value) = content_type {
+        headers.push(("content-type".to_string(), value.to_string()));
+    }
+    if let Some(value) = content_md5 {
+        headers.push(("content-md5".to_string(), value.to_string()));
+    }
+    let signed = headers
+        .iter()
+        .map(|(name, value)| (name.clone(), vec![value.clone()]))
+        .collect();
+    headers.push((
+        "authorization".to_string(),
+        authorization_header(
+            method, bucket, "", "cors", &signed, region, access_key, secret_key, now,
+        )?,
+    ));
+    Ok(headers)
+}
+
+fn authorization_header(
+    method: &str,
+    bucket: &str,
+    key: &str,
+    query: &str,
+    headers: &BTreeMap<String, Vec<String>>,
+    region: &str,
+    access_key: &str,
+    secret_key: &str,
+    now: DateTime<Utc>,
+) -> std::result::Result<String, BoxError> {
+    let date = now.format("%Y%m%d").to_string();
+    let scope = credential_scope(&date, region);
+    let canonical = canonical_request(method, bucket, key, query, headers);
+    let signed = string_to_sign(
+        &now.format("%Y%m%dT%H%M%SZ").to_string(),
+        &scope,
+        &canonical,
+    );
+    let signature = signature(secret_key, &date, region, &signed)?;
+    Ok(format!(
+        "{OSS_SIGN_ALGORITHM} Credential={access_key}/{scope},Signature={signature}"
+    ))
 }
 
 fn normalize_aws_request_for_oss(

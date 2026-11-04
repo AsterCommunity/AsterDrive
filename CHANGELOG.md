@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Alibaba Cloud OSS bucket CORS action** — Administrators can explicitly configure CORS from draft or saved OSS policies using current bucket settings and retained credentials. The action reads and merges bucket rules, skips equivalent writes, preserves unrelated rules, and reports the scope and result. Origin validation, XML limits, permission diagnostics, and source/CDN acceptance boundaries are documented. (#731)
+
 - **Task queue diagnostics** — Targeted local logs correlate enqueue commits, wakeups, consumer/lane identity, shared quota locking, selection, CAS, handler lifecycle and real transaction callsites. Empty polling stays at TRACE and diagnostics omit task payloads and raw errors.
 
 - **Huawei OBS private CDN delivery** — Optional Huawei CDN Type A / SHA-256 downloads use an independent encrypted key, configurable authentication parameter and bounded validity matching the CDN console. Authorized Blob downloads and safe previews can use CDN; exact names, strict response headers and isolated inline requests retain relay. OBS-origin mode remains the default, and uploads, multipart, cleanup and backend I/O retain native OBS endpoints and signing. Chinese and English setup guides separate CNAME, private-origin authorization, client authentication, caching and real-provider acceptance. (#686)

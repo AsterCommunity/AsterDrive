@@ -363,6 +363,30 @@ fn tencent_cos_action_connection() -> Value {
     })
 }
 
+fn alibaba_oss_action_connection() -> Value {
+    serde_json::json!({
+        "connector_config": {
+            "format_version": 1,
+            "connector_id": "asterdrive.storage.alibaba_oss",
+            "schema_version": 1,
+            "values": {
+                "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
+                "oss_region": "cn-hangzhou",
+                "bucket": "sample-bucket",
+                "base_path": ""
+            }
+        },
+        "behavior": {},
+        "credential": {
+            "mode": "static",
+            "values": {
+                "aliyun_oss_access_key_id": "AKIDEXAMPLE",
+                "aliyun_oss_access_key_secret": "SECRETEXAMPLE"
+            }
+        }
+    })
+}
+
 fn connection_json(connection: aster_drive::storage::StoragePolicyConnectionInput) -> Value {
     serde_json::to_value(connection).expect("typed storage connector connection should serialize")
 }
@@ -792,6 +816,22 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert_eq!(alibaba_oss["ui"]["icon"]["content_type"], "image/svg+xml");
     assert_eq!(alibaba_oss["ui"]["icon"]["revision"], "1");
+    let oss_cors = alibaba_oss["actions"]
+        .as_array()
+        .expect("OSS actions")
+        .iter()
+        .find(|action| action["action_id"] == "configure_alibaba_oss_cors")
+        .expect("OSS CORS action");
+    assert_eq!(oss_cors["requires_confirmation"], true);
+    assert_eq!(oss_cors["mutates_remote_state"], true);
+    assert!(oss_cors["fields"].is_null());
+    assert_eq!(
+        oss_cors["endpoints"],
+        serde_json::json!([
+            "execute_draft_storage_policy_action",
+            "execute_saved_storage_policy_action"
+        ])
+    );
     assert_eq!(
         alibaba_oss["upload_workflows"]["object_multipart_upload"],
         true
@@ -5330,6 +5370,39 @@ async fn test_connector_action_endpoints_reject_unknown_actions_with_stable_code
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], ApiErrorCode::PolicyActionUnsupported.as_str());
+}
+
+#[actix_web::test]
+async fn test_alibaba_oss_cors_action_rejects_invalid_values_and_missing_site_before_network() {
+    let state = common::setup().await;
+    assert!(site_url::public_site_urls(state.runtime_config()).is_empty());
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    for (values, expected_code) in [
+        (
+            serde_json::json!({"unexpected": true}),
+            ApiErrorCode::PolicyActionParameterInvalid,
+        ),
+        (
+            serde_json::json!({}),
+            ApiErrorCode::PolicyActionParameterRequired,
+        ),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies/action")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "action_id": "configure_alibaba_oss_cors",
+                "values": values,
+                "connection": alibaba_oss_action_connection()
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], expected_code.as_str());
+    }
 }
 
 #[actix_web::test]

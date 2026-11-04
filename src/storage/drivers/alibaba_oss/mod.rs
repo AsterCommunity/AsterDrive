@@ -5,6 +5,7 @@
 //! presigned URL 始终由 public endpoint client 生成。
 
 pub mod cdn;
+pub(crate) mod cors;
 mod signing;
 #[cfg(test)]
 mod tests;
@@ -33,6 +34,7 @@ pub struct AlibabaOssDriver {
     storage: S3CompatibleDriver,
     public_driver: Arc<S3Driver>,
     download_delivery: DownloadDelivery,
+    cors: cors::OssCorsClient,
 }
 
 enum DownloadDelivery {
@@ -186,6 +188,9 @@ impl AlibabaOssDriver {
         credentials: AlibabaOssStaticCredentials,
     ) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
+        let cors = cors::OssCorsClient::new(&config, &credentials).map_err(|error| {
+            storage_driver_error(StorageErrorKind::Misconfigured, error.to_string())
+        })?;
 
         let public_driver = Arc::new(build_oss_s3_driver(
             &config.endpoint,
@@ -224,7 +229,15 @@ impl AlibabaOssDriver {
             storage: S3CompatibleDriver::from_s3_driver(backend_driver),
             public_driver,
             download_delivery,
+            cors,
         })
+    }
+
+    pub(crate) async fn configure_asterdrive_cors(
+        &self,
+        origins: &[String],
+    ) -> crate::errors::Result<cors::OssCorsApplyResult> {
+        self.cors.configure(origins).await
     }
 
     pub fn backend_s3_driver(&self) -> Arc<S3Driver> {
