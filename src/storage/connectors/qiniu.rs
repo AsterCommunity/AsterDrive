@@ -416,3 +416,168 @@ impl StorageConnector for QiniuConnector {
         Ok(config.object_storage_download_strategy == ObjectStorageDownloadStrategy::Presigned)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::drivers::qiniu::tests::http_fixture_driver;
+
+    #[tokio::test]
+    async fn connection_probe_verifies_content_and_always_attempts_cleanup() {
+        // Probe keys are random; the fixture echoes the form key so this checks
+        // the real upload/stat/HEAD/GET/Range/delete protocol, not a fake driver.
+        use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
+        use std::sync::{Arc, Mutex};
+        for failure in ["none", "stat", "head", "get", "range", "delete", "upload"] {
+            let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}", listener.local_addr().unwrap());
+            let captured = requests.clone();
+            let server=HttpServer::new(move||{
+                let captured=captured.clone();
+                App::new().default_service(web::to(move|req:HttpRequest,body:web::Bytes|{
+                    let captured=captured.clone();async move {
+                        let method=req.method().as_str();let path=req.path();captured.lock().unwrap().push(format!("{method} {path}"));
+                        match (method,path) {
+                            ("POST","/")=> {
+                                if failure=="upload" {return HttpResponse::ServiceUnavailable().finish();}
+                                let raw=String::from_utf8_lossy(&body);let start=raw.find("name=\"key\"").unwrap();let tail=&raw[start..];let value=&tail[tail.find("\r\n\r\n").unwrap()+4..];let key=value.split("\r\n").next().unwrap();
+                                HttpResponse::Ok().json(serde_json::json!({"key":key,"hash":"hash"}))
+                            }
+                            ("GET",path) if path.starts_with("/stat/")=>HttpResponse::Ok().json(serde_json::json!({"fsize":if failure=="stat" {3}else{2},"mimeType":"application/octet-stream"})),
+                            ("POST",path) if path.starts_with("/delete/")=>match failure {"delete"=>HttpResponse::Forbidden().finish(),_=>HttpResponse::Ok().finish()},
+                            ("HEAD",_)=>HttpResponse::Ok().body(if failure=="head" {"bad"}else{"ok"}),
+                            ("GET",_) if req.headers().contains_key("range")=>HttpResponse::PartialContent().insert_header(("content-range","bytes 1-1/2")).body(if failure=="range" {"x"}else{"k"}),
+                            ("GET",_)=>HttpResponse::Ok().body(if failure=="get" {"no"}else{"ok"}),
+                            _=>HttpResponse::NotFound().finish(),
+                        }
+                    }
+                }))
+            }).workers(1).listen(listener).unwrap().run();
+            let handle = server.handle();
+            tokio::spawn(server);
+            let result = QiniuConnector::probe(&http_fixture_driver(&base).await).await;
+            assert_eq!(
+                result.is_ok(),
+                failure == "none",
+                "{failure}: {result:?}, requests={:?}",
+                requests.lock().unwrap()
+            );
+            {
+                let recorded = requests.lock().unwrap();
+                assert!(recorded.last().unwrap().starts_with("POST /delete/"));
+                if failure == "none" {
+                    assert_eq!(recorded.len(), 6);
+                }
+            }
+            handle.stop(true).await;
+        }
+    }
+    #[tokio::test]
+    async fn runtime_and_cleanup_factories_use_encrypted_credentials_and_survive_row_deletion() {
+        use crate::storage::connectors::{
+            StorageConnectorContext, StoragePolicyCleanupSnapshots, test_support,
+        };
+        use aster_drive_storage::ConnectorId;
+        use sea_orm::ActiveModelTrait;
+        let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
+        test_support::migrate_current_storage_test_schema(&db).await;
+        let policy=test_support::insertable_policy(test_support::policy(QiniuConnector::ID,2,serde_json::json!({"bucket":"archive","base_path":"tenant","download_origin":"https://origin.example.test","download_delivery":"origin","provider_resumable_upload_strategy":"server_relay","object_storage_download_strategy":"presigned"}),Default::default())).insert(&db).await.unwrap();
+        let mut config = crate::config::Config::default();
+        config.auth.storage_credential_secret_key = "native-qiniu-cleanup-test-master-key".into();
+        let registry = crate::storage::DriverRegistry::noop().unwrap();
+        let runtime = crate::config::RuntimeConfig::new();
+        assert!(
+            QiniuConnector
+                .build_runtime_driver(&registry, &policy)
+                .is_err()
+        );
+        super::super::persist_connector_credential_payload(
+            &db,
+            &config.auth.storage_credential_secret_key,
+            policy.id,
+            &ConnectorId::declared(QiniuConnector::ID),
+            1,
+            &serde_json::json!({"qiniu_access_key":"AK","qiniu_secret_key":"SK"}),
+        )
+        .await
+        .unwrap();
+        registry
+            .reload_storage_policy_credentials(&db, &config)
+            .await
+            .unwrap();
+        let runtime_driver = registry.get_driver(&policy).unwrap();
+        assert!(runtime_driver.extensions().multipart.is_some());
+        assert!(runtime_driver.extensions().provider_resumable.is_some());
+        let context = StorageConnectorContext::new(&db, &config, &runtime, &registry, None);
+        let snapshot = QiniuConnector
+            .cleanup_snapshot_for_policy(&context, &policy)
+            .await
+            .unwrap()
+            .unwrap();
+        crate::db::repository::storage_policy_connector_credential_repo::delete_by_policy(
+            &db, policy.id,
+        )
+        .await
+        .unwrap();
+        let driver = QiniuConnector
+            .build_cleanup_driver(
+                &context,
+                &policy,
+                StoragePolicyCleanupSnapshots {
+                    driver_snapshot: Some(&snapshot),
+                },
+            )
+            .await
+            .unwrap();
+        let signed = driver
+            .extensions()
+            .direct_download
+            .unwrap()
+            .resolve_download_url("owned", Duration::from_secs(60), Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            signed
+                .url
+                .starts_with("https://origin.example.test/tenant/owned?")
+        );
+        assert!(
+            QiniuConnector
+                .build_cleanup_driver(
+                    &context,
+                    &policy,
+                    StoragePolicyCleanupSnapshots {
+                        driver_snapshot: None
+                    }
+                )
+                .await
+                .is_err()
+        );
+        let mut wrong = policy.clone();
+        wrong.id += 1;
+        assert!(
+            QiniuConnector
+                .build_cleanup_driver(
+                    &context,
+                    &wrong,
+                    StoragePolicyCleanupSnapshots {
+                        driver_snapshot: Some(&snapshot)
+                    }
+                )
+                .await
+                .is_err()
+        );
+        for credential in [
+            serde_json::json!({"qiniu_access_key":"","qiniu_secret_key":"SK"}),
+            serde_json::json!({"qiniu_access_key":"AK","qiniu_secret_key":""}),
+        ] {
+            assert!(
+                QiniuConnector
+                    .validate_credential_input(&StorageConnectorCredentialInput::Static(credential))
+                    .is_err()
+            );
+        }
+    }
+}

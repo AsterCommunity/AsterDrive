@@ -39,7 +39,7 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 
 升级由 `src/storage/connectors/qiniu/upgrade.rs` 在启动加载凭据/监听端口前编排，driver 的 migration-only resolver 核对外部协议。已有实例加密主密钥用于解密 policy、remote target 和对象清理快照的凭据；`/buckets?shared=rd` 列举候选，`/v4/query` 的 `s3.region_alias` 缩小区域，`io_src.domains` 提供默认 HTTPS 源站。旧 S3 空间的随机 16 字节探测对象必须从唯一原生空间读到相同 nonce，不能按名字或已有文件大小猜测。探测对象有唯一 key、位于原 prefix，始终尝试清理；用户内容不读写。
 
-网络验证在数据库事务外完成，所有结果准备好后以原配置/凭据的 compare-and-swap 一次提交。任何连接失败、歧义、探测清理失败或并发修改均保留原始配置并中止启动；5 分钟单连接时限。成功后直接丢弃旧 S3 字段，不创建备份表，也不保留运行时双协议。schema migration 只接受已验证 V2，schema-only 工具不得清空 V1 字段。
+网络验证在数据库事务外完成，所有结果准备好后以原配置/凭据的 compare-and-swap 一次提交。无默认源站的候选空间不参与匹配；区域查询的网络、鉴权及解析错误仍传播。任何连接失败、歧义、探测清理失败或并发修改均保留原始配置并中止启动；5 分钟单连接时限。成功后直接丢弃旧 S3 字段，不创建备份表，也不保留运行时双协议。schema migration 只接受已验证 V2，schema-only 工具不得清空 V1 字段。
 
 保留策略 ID、对象 key、base_path、行为和加密 credential V1。原生空间与 download_origin 联网自动填入；可查询默认源站，不强制管理员新绑自定义域。CDN 交付是独立配置选择，不能从任意域名列表自动猜测。后续 V2 启动无升级网络请求。
 

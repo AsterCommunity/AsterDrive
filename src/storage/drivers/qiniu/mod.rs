@@ -7,7 +7,7 @@ mod multipart;
 mod objects;
 pub(crate) mod resumable;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub(crate) mod upgrade;
 mod upload;
 

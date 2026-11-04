@@ -183,7 +183,11 @@ async fn convert_with(
                                 .column(Alias::new("id"))
                                 .from(Alias::new("upload_sessions"))
                                 .and_where(Expr::col(Alias::new("policy_id")).eq(id))
-                                .and_where(Expr::col(Alias::new("status")).ne("completed"))
+                                .and_where(Expr::col(Alias::new("status")).is_in([
+                                    "uploading",
+                                    "assembling",
+                                    "presigned",
+                                ]))
                                 .limit(1)
                                 .to_owned(),
                         )
@@ -754,6 +758,52 @@ mod tests {
         );
     }
     #[tokio::test]
+    async fn only_writable_legacy_upload_states_block_conversion() {
+        for status in [
+            "failed",
+            "completed",
+            "uploading",
+            "assembling",
+            "presigned",
+        ] {
+            let db = db().await;
+            let original = insert(&db, "storage_policies", 1, "alias").await;
+            db.execute(
+                &Query::insert()
+                    .into_table(Alias::new("upload_sessions"))
+                    .columns([
+                        Alias::new("id"),
+                        Alias::new("policy_id"),
+                        Alias::new("status"),
+                    ])
+                    .values_panic(["session".into(), 1.into(), status.into()])
+                    .to_owned(),
+            )
+            .await
+            .unwrap();
+            let resolver = resolver(None);
+            let result = convert_with(&db, KEY, &resolver).await;
+            match status {
+                "failed" | "completed" => {
+                    result.unwrap();
+                    assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
+                }
+                "uploading" | "assembling" | "presigned" => {
+                    assert!(result.unwrap_err().to_string().contains("finish or cancel"));
+                    assert_eq!(resolver.calls.load(Ordering::SeqCst), 0);
+                    assert_eq!(
+                        read_string(&db, "storage_policies", "storage_config", "id", 1)
+                            .await
+                            .unwrap(),
+                        Some(original)
+                    );
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn active_upload_and_invalid_encryption_key_stop_before_network_access() {
         let db = db().await;
         let original = insert(&db, "storage_policies", 1, "first").await;
@@ -891,6 +941,140 @@ mod tests {
                 .unwrap()
                 .as_deref(),
             Some(original.as_str())
+        );
+    }
+    struct CredentialMutation {
+        db: DatabaseConnection,
+        identity: bool,
+    }
+    #[async_trait::async_trait]
+    impl NativeUpgradeResolver for CredentialMutation {
+        async fn resolve(
+            &self,
+            _: &LegacyConfig,
+            _: QiniuStaticCredentials,
+        ) -> aster_drive_storage::Result<NativeLocation> {
+            let (column, value) = match self.identity {
+                true => ("connector_id", "other-provider"),
+                false => ("ciphertext", "rotated-by-admin"),
+            };
+            self.db
+                .execute(
+                    &Query::update()
+                        .table(Alias::new("storage_policy_connector_credentials"))
+                        .value(Alias::new(column), value)
+                        .and_where(Expr::col(Alias::new("policy_id")).eq(1))
+                        .to_owned(),
+                )
+                .await
+                .unwrap();
+            Ok(NativeLocation {
+                bucket: "native".into(),
+                download_origin: "https://source.test".into(),
+            })
+        }
+    }
+    #[tokio::test]
+    async fn online_upgrade_never_overwrites_concurrent_credential_rotation_or_identity_changes() {
+        for identity in [false, true] {
+            let db = db().await;
+            let original = insert(&db, "storage_policies", 1, "alias").await;
+            let error = convert_with(
+                &db,
+                KEY,
+                &CredentialMutation {
+                    db: db.clone(),
+                    identity,
+                },
+            )
+            .await
+            .unwrap_err();
+            assert!(error.to_string().contains(match identity {
+                true => "credential identity changed",
+                false => "credentials changed",
+            }));
+            assert_eq!(
+                read_string(&db, "storage_policies", "storage_config", "id", 1)
+                    .await
+                    .unwrap(),
+                Some(original)
+            );
+            assert_eq!(
+                read_string(
+                    &db,
+                    "storage_policy_connector_credentials",
+                    if identity {
+                        "connector_id"
+                    } else {
+                        "ciphertext"
+                    },
+                    "policy_id",
+                    1
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+                Some(if identity {
+                    "other-provider"
+                } else {
+                    "rotated-by-admin"
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn upgrade_rejects_corrupt_cleanup_envelopes_and_credentials_before_provider_access() {
+        for payload in [
+            json!({"policy":{"id":8,"connector_id":CONNECTOR}}),
+            json!({"policy":{"id":8,"connector_id":CONNECTOR,"storage_config":"not-json"}}),
+            json!({"policy":{"id":8,"connector_id":CONNECTOR,"storage_config":"{}"}}),
+        ] {
+            let db = db().await;
+            db.execute(
+                &Query::insert()
+                    .into_table(Alias::new("background_tasks"))
+                    .columns([
+                        Alias::new("id"),
+                        Alias::new("kind"),
+                        Alias::new("status"),
+                        Alias::new("payload_json"),
+                    ])
+                    .values_panic([
+                        8.into(),
+                        "storage_policy_temp_cleanup".into(),
+                        "pending".into(),
+                        payload.to_string().into(),
+                    ])
+                    .to_owned(),
+            )
+            .await
+            .unwrap();
+            let resolver = resolver(None);
+            assert!(convert_with(&db, KEY, &resolver).await.is_err());
+            assert_eq!(resolver.calls.load(Ordering::SeqCst), 0);
+        }
+        let db = db().await;
+        let original = insert(&db, "storage_policies", 1, "alias").await;
+        db.execute_unprepared(
+            "UPDATE storage_policy_connector_credentials SET connector_id='other'",
+        )
+        .await
+        .unwrap();
+        let resolver = resolver(None);
+        assert!(
+            convert_with(&db, KEY, &resolver)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("credential identity mismatch")
+        );
+        assert_eq!(resolver.calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            read_string(&db, "storage_policies", "storage_config", "id", 1)
+                .await
+                .unwrap(),
+            Some(original)
         );
     }
 }

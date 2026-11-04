@@ -188,7 +188,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				);
 			if (
 				!["http:", "https:"].includes(url.protocol) ||
-				url.origin === location.origin ||
+				(timeout.kind === "provider_step" && url.origin === location.origin) ||
 				url.username ||
 				url.password ||
 				url.hash ||
@@ -267,10 +267,18 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 					xhr.abort();
 				}
 			};
-			xhr.onabort = () => {
+			const cancel = () => {
 				if (settled) return;
 				settled = true;
 				reject(new UploadRequestError("upload aborted", { isAborted: true }));
+			};
+			xhr.onabort = cancel;
+			let sent = false;
+			const abort = xhr.abort.bind(xhr);
+			xhr.abort = () => {
+				// OPENED XHR aborts before send() do not dispatch an abort event.
+				if (!sent) cancel();
+				abort();
 			};
 			xhr.upload.onprogress = (event) => {
 				if (event.lengthComputable)
@@ -278,7 +286,10 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			};
 			options.onCreateXhr?.(xhr);
 			// An onCreateXhr cancellation can happen before send().
-			if (!settled) xhr.send(range ? file.slice(range.start, range.end) : null);
+			if (!settled) {
+				sent = true;
+				xhr.send(range ? file.slice(range.start, range.end) : null);
+			}
 		});
 
 	return {

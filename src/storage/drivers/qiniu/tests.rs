@@ -247,19 +247,22 @@ struct Server {
 }
 impl Server {
     async fn driver(&self) -> QiniuDriver {
-        let mut driver = driver();
-        driver.config.download_origin = self.base.clone();
-        *driver.endpoints.lock().await = Some(Endpoints {
-            upload: Url::parse(&self.base).unwrap(),
-            management: Url::parse(&self.base).unwrap(),
-            list: Url::parse(&self.base).unwrap(),
-            expires_at: Instant::now() + Duration::from_secs(60),
-        });
-        driver
+        http_fixture_driver(&self.base).await
     }
     async fn stop(self) {
         self.handle.stop(true).await;
     }
+}
+pub(crate) async fn http_fixture_driver(base: &str) -> QiniuDriver {
+    let mut driver = driver();
+    driver.config.download_origin = base.to_string();
+    *driver.endpoints.lock().await = Some(Endpoints {
+        upload: Url::parse(base).unwrap(),
+        management: Url::parse(base).unwrap(),
+        list: Url::parse(base).unwrap(),
+        expires_at: Instant::now() + Duration::from_secs(60),
+    });
+    driver
 }
 async fn spawn() -> Server {
     async fn handler(
@@ -1096,4 +1099,336 @@ async fn streaming_multipart_uses_small_read_buffers_and_cleans_failed_or_cancel
     assert!(!driver.exists("short").await.unwrap());
     assert!(!driver.exists("long").await.unwrap());
     server.stop().await;
+}
+
+#[tokio::test]
+async fn provider_resumable_lifecycle_queries_gaps_rejects_invalid_offsets_and_completes() {
+    let server = spawn().await;
+    let driver = server.driver().await;
+    let session = driver.create_upload_session("resumable").await.unwrap();
+    assert_eq!(session.next_expected_ranges, ["0-"]);
+    server
+        .state
+        .lock()
+        .unwrap()
+        .parts
+        .insert(2, b"tail".to_vec());
+    assert_eq!(
+        driver
+            .query_upload_session(&session.upload_url)
+            .await
+            .unwrap()
+            .next_expected_ranges,
+        ["0-"]
+    );
+    server.state.lock().unwrap().parts.clear();
+    let block = 8 * 1024 * 1024;
+    for (start, total, size) in [
+        (1, block, 1),
+        (0, block, 1),
+        (0, block, block + 1),
+        (block, block, 1),
+        (0, block, -1),
+    ] {
+        assert!(
+            driver
+                .upload_session_fragment_reader(
+                    &session.upload_url,
+                    u64::try_from(start).unwrap(),
+                    u64::try_from(total).unwrap(),
+                    Box::new(tokio::io::empty()),
+                    size
+                )
+                .await
+                .is_err()
+        );
+    }
+    let first = driver
+        .upload_session_fragment_reader(
+            &session.upload_url,
+            0,
+            u64::try_from(block).unwrap() + 3,
+            Box::new(std::io::Cursor::new(vec![
+                b'a';
+                usize::try_from(block).unwrap()
+            ])),
+            block,
+        )
+        .await
+        .unwrap();
+    assert!(!first.completed);
+    assert_eq!(first.next_expected_ranges, [format!("{block}-")]);
+    let last = driver
+        .upload_session_fragment_reader(
+            &session.upload_url,
+            u64::try_from(block).unwrap(),
+            u64::try_from(block).unwrap() + 3,
+            Box::new(std::io::Cursor::new(b"end".to_vec())),
+            3,
+        )
+        .await
+        .unwrap();
+    assert_eq!(last.next_expected_ranges, [format!("{}-", block + 3)]);
+    assert_eq!(
+        driver
+            .complete_upload_session(&session.upload_url, 1)
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Precondition
+    );
+    driver
+        .complete_upload_session(&session.upload_url, u64::try_from(block).unwrap() + 3)
+        .await
+        .unwrap();
+    driver
+        .complete_upload_session(&session.upload_url, u64::try_from(block).unwrap() + 3)
+        .await
+        .unwrap();
+    assert_eq!(
+        driver
+            .complete_upload_session(&session.upload_url, 1)
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::NotFound
+    );
+    for id in ["not-json".to_string(),json!({"upload_id":"id","key":"outside/resumable","bucket":"archive","expires_at":chrono::Utc::now().timestamp()+60}).to_string()] {
+        assert!(driver.query_upload_session(&id).await.is_err());assert!(driver.abort_upload_session(&id).await.is_err());
+    }
+    let aborted = driver.create_upload_session("abort").await.unwrap();
+    driver
+        .abort_upload_session(&aborted.upload_url)
+        .await
+        .unwrap();
+    assert_eq!(server.state.lock().unwrap().aborted, 1);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn file_upload_uses_native_stream_and_reports_file_system_errors() {
+    let server = spawn().await;
+    let driver = server.driver().await;
+    let root = std::env::temp_dir().join(format!("qiniu-native-file-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir(&root).await.unwrap();
+    let path = root.join("source");
+    tokio::fs::write(&path, b"from disk").await.unwrap();
+    driver
+        .put_file("from-file", path.to_str().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(driver.get("from-file").await.unwrap(), b"from disk");
+    assert_eq!(
+        driver
+            .put_file("missing", root.join("missing").to_str().unwrap())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Transient
+    );
+    assert!(
+        driver
+            .put_reader("bad-size", Box::new(tokio::io::empty()), -1)
+            .await
+            .is_err()
+    );
+    tokio::fs::remove_dir_all(&root).await.unwrap();
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn multipart_validation_rejects_malformed_provider_records_and_receipts() {
+    use crate::storage::test_support::{HttpFixture, HttpReply};
+    for parts in [
+        json!([{"partNumber":0,"size":1,"etag":"a"}]),
+        json!([{"partNumber":1,"size":-1,"etag":"a"}]),
+        json!([{"partNumber":1,"size":1,"etag":""}]),
+        json!([{"partNumber":1,"size":1,"etag":"a"},{"partNumber":1,"size":1,"etag":"a"}]),
+    ] {
+        let peer = HttpFixture::new([HttpReply::json(200, json!({"parts":parts}))]).await;
+        let driver = http_fixture_driver(&peer.base).await;
+        let id=json!({"upload_id":"id","key":"tenant/object","bucket":"archive","expires_at":chrono::Utc::now().timestamp()+60}).to_string();
+        assert!(
+            driver
+                .list_uploaded_part_details("object", &id)
+                .await
+                .is_err()
+        );
+        peer.stop().await;
+    }
+    for reply in [
+        json!({"uploadId":"","expireAt":chrono::Utc::now().timestamp()+60}),
+        json!({"uploadId":"id","expireAt":0}),
+    ] {
+        let peer = HttpFixture::new([HttpReply::json(200, reply)]).await;
+        assert!(
+            http_fixture_driver(&peer.base)
+                .await
+                .create_multipart_upload("object")
+                .await
+                .is_err()
+        );
+        peer.stop().await;
+    }
+    let server = spawn().await;
+    let driver = server.driver().await;
+    let id = driver.create_multipart_upload("object").await.unwrap();
+    for ttl in [Duration::ZERO, Duration::from_secs(3601)] {
+        assert!(
+            driver
+                .browser_part_request("object", &id, 1, ttl)
+                .await
+                .is_err()
+        );
+    }
+    assert!(
+        driver
+            .complete_multipart_upload("object", &id, Vec::new())
+            .await
+            .is_err()
+    );
+    assert!(
+        driver
+            .complete_multipart_upload("object", &id, vec![(1, "a".into()), (1, "a".into())])
+            .await
+            .is_err()
+    );
+    assert!(
+        driver
+            .complete_multipart_upload("object", &id, vec![(1, "missing".into())])
+            .await
+            .is_err()
+    );
+    assert!(
+        driver
+            .upload_multipart_part_reader(
+                "object",
+                &id,
+                1,
+                Box::new(tokio::io::empty()),
+                1024 * 1024 * 1024 + 1
+            )
+            .await
+            .is_err()
+    );
+    driver.abort_multipart_upload("object", &id).await.unwrap();
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn rejects_upload_limits_and_invalid_form_or_part_responses_before_publication() {
+    use crate::storage::test_support::{HttpFixture, HttpReply};
+    let driver = driver();
+    assert_eq!(
+        MultipartStorageDriver::capabilities(&driver).max_parts,
+        10000
+    );
+    assert!(driver.supports_efficient_range());
+    assert_eq!(driver.max_single_put_size(), Some(1024 * 1024 * 1024));
+    for size in [0, 1024 * 1024 * 1024 * 10000 + 1] {
+        assert!(
+            driver
+                .put_multipart_reader("object", Box::new(tokio::io::empty()), size)
+                .await
+                .is_err()
+        );
+    }
+    assert!(
+        driver
+            .upload_form("object", reqwest::Body::from(""), 1024 * 1024 * 1024 + 1)
+            .await
+            .is_err()
+    );
+    assert!(driver.get_range("object", u64::MAX, Some(2)).await.is_err());
+    for response in [
+        json!({"key":"other-object","hash":"hash"}),
+        json!({"key":"tenant/object","hash":""}),
+    ] {
+        let peer = HttpFixture::new([HttpReply::json(200, response)]).await;
+        assert_eq!(
+            http_fixture_driver(&peer.base)
+                .await
+                .put("object", b"ok")
+                .await
+                .unwrap_err()
+                .kind(),
+            StorageErrorKind::Precondition
+        );
+        peer.stop().await;
+    }
+    let peer = HttpFixture::new([HttpReply::json(200, json!({"etag":""}))]).await;
+    let driver = http_fixture_driver(&peer.base).await;
+    let id=json!({"upload_id":"session","key":"tenant/object","bucket":"archive","expires_at":chrono::Utc::now().timestamp()+60}).to_string();
+    assert!(
+        driver
+            .upload_multipart_part_bytes("object", &id, 1, bytes::Bytes::from_static(b"ok"))
+            .await
+            .unwrap_err()
+            .message()
+            .contains("no ETag")
+    );
+    peer.stop().await;
+}
+
+#[tokio::test]
+async fn management_signatures_include_bodies_and_reject_non_utf8_input() {
+    let driver = driver();
+    let mut request = reqwest::Client::new()
+        .post("https://rs.example.test/operation")
+        .body("name=value")
+        .build()
+        .unwrap();
+    driver.sign_management(&mut request).unwrap();
+    let date = request.headers()["x-qiniu-date"].to_str().unwrap();
+    let canonical = format!(
+        "POST /operation\nHost: rs.example.test\nContent-Type: application/x-www-form-urlencoded\nX-Qiniu-Date: {date}\n\nname=value"
+    );
+    assert_eq!(
+        request.headers()["authorization"].to_str().unwrap(),
+        format!("Qiniu {}", driver.sign(canonical.as_bytes()).unwrap())
+    );
+    let mut request = reqwest::Client::new()
+        .post("https://rs.example.test/operation")
+        .body(vec![255])
+        .build()
+        .unwrap();
+    assert!(driver.sign_management(&mut request).is_err());
+    for bucket in ["", "bad:bucket", "bad/bucket"] {
+        let mut cfg = config();
+        cfg.bucket = bucket.into();
+        assert!(QiniuDriver::new(cfg, driver.credentials.clone()).is_err());
+    }
+    for key in ["", "bad:key", "bad\r\nkey"] {
+        let mut credentials = driver.credentials.clone();
+        credentials.access_key = key.into();
+        assert!(QiniuDriver::new(config(), credentials).is_err());
+    }
+}
+
+#[tokio::test]
+async fn provider_control_responses_are_bounded_and_request_ids_are_sanitized() {
+    use crate::storage::test_support::{HttpFixture, HttpReply};
+    let peer = HttpFixture::new([
+        HttpReply::text(200, "x".repeat(8 * 1024 * 1024 + 1)),
+        HttpReply::text(403, "x".repeat(8193)).header("x-reqid", "unsafe value token=private"),
+        HttpReply::text(200, "ok").header("content-length", "2"),
+    ])
+    .await;
+    let client = reqwest::Client::new();
+    let response = client.get(&peer.base).send().await.unwrap();
+    assert!(
+        http::decode::<serde_json::Value>(response)
+            .await
+            .unwrap_err()
+            .message()
+            .contains("exceeds size limit")
+    );
+    let response = client.get(&peer.base).send().await.unwrap();
+    let error = http::checked(response).await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::Permission);
+    assert!(error.message().contains("RequestId=unavailable"));
+    assert!(!error.message().contains("private"));
+    let driver = http_fixture_driver(&peer.base).await;
+    assert_eq!(driver.get("object").await.unwrap(), b"ok");
+    peer.stop().await;
 }

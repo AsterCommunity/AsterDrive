@@ -168,4 +168,78 @@ mod tests {
         let mut native = json!({"format_version":1,"connector_id":CONNECTOR,"schema_version":2,"values":{"bucket":"confirmed-native","download_origin":"https://native.example.test"}});
         assert!(!upgrade(&mut native).unwrap());
     }
+    #[tokio::test]
+    async fn schema_gate_rejects_corruption_and_validates_all_configuration_owners() {
+        use sea_orm_migration::sea_orm::Database;
+        for (table, column, raw) in [
+            ("storage_policies", "storage_config", "not-json"),
+            ("storage_policies", "storage_config", "{}"),
+            ("remote_storage_targets", "connector_config", "{}"),
+            (
+                "background_tasks",
+                "payload_json",
+                r#"{"policy":{"connector_id":"asterdrive.storage.qiniu"}}"#,
+            ),
+            (
+                "background_tasks",
+                "payload_json",
+                r#"{"policy":{"connector_id":"asterdrive.storage.qiniu","storage_config":"not-json"}}"#,
+            ),
+            (
+                "background_tasks",
+                "payload_json",
+                r#"{"policy":{"connector_id":"asterdrive.storage.qiniu","storage_config":"{}"}}"#,
+            ),
+        ] {
+            let db = Database::connect("sqlite::memory:").await.unwrap();
+            for sql in [
+                "CREATE TABLE storage_policies(id INTEGER,connector_id TEXT,storage_config TEXT)",
+                "CREATE TABLE remote_storage_targets(id INTEGER,connector_id TEXT,connector_config TEXT)",
+                "CREATE TABLE background_tasks(id INTEGER,kind TEXT,status TEXT,payload_json TEXT)",
+            ] {
+                db.execute_unprepared(sql).await.unwrap();
+            }
+            let mut insert = Query::insert();
+            insert.into_table(Alias::new(table));
+            match table {
+                "background_tasks" => {
+                    insert
+                        .columns([
+                            Alias::new("id"),
+                            Alias::new("kind"),
+                            Alias::new("status"),
+                            Alias::new(column),
+                        ])
+                        .values_panic([
+                            1.into(),
+                            "storage_policy_temp_cleanup".into(),
+                            "pending".into(),
+                            raw.into(),
+                        ]);
+                }
+                _ => {
+                    insert
+                        .columns([
+                            Alias::new("id"),
+                            Alias::new("connector_id"),
+                            Alias::new(column),
+                        ])
+                        .values_panic([1.into(), CONNECTOR.into(), raw.into()]);
+                }
+            }
+            db.execute(&insert.to_owned()).await.unwrap();
+            let manager = SchemaManager::new(&db);
+            assert!(Migration.up(&manager).await.is_err(), "{table}: {raw}");
+            if table != "background_tasks" {
+                assert!(Migration.down(&manager).await.is_err());
+            }
+        }
+        for mut value in [
+            json!({"format_version":1,"connector_id":"other","schema_version":2}),
+            json!({"format_version":2,"connector_id":CONNECTOR,"schema_version":2}),
+            json!({"format_version":1,"connector_id":CONNECTOR,"schema_version":3}),
+        ] {
+            assert!(upgrade(&mut value).is_err());
+        }
+    }
 }

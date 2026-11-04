@@ -97,7 +97,8 @@ class MockXMLHttpRequest {
 	}
 
 	abort() {
-		this.onabort?.();
+		// Real XHR emits no abort event until send() has started.
+		if (this.sentBody !== undefined) this.onabort?.();
 	}
 
 	getResponseHeader(name: string) {
@@ -1232,6 +1233,42 @@ describe("common numbered-part execution", () => {
 		});
 		expect(MockXMLHttpRequest.instances[0].sentBody).toBeUndefined();
 	});
+	it("accepts same-origin numbered URLs without enabling provider-step access", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const part = request({ source: "fixed", token: "part" });
+		part.url = `${location.origin}/storage/part?signature=test`;
+		const pending = uploadService.uploadPartRequest(part, new Blob(["part"]));
+		const xhr = MockXMLHttpRequest.instances[0];
+		expect(xhr.url).toBe(part.url);
+		expect(xhr.timeout).toBe(0);
+		xhr.status = 200;
+		xhr.onload?.();
+		await expect(pending).resolves.toBe("part");
+	});
+	it("rejects a response-header receipt absent from the exposed header contract", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const part = request({ source: "response_header", name: "x-receipt" });
+		await expect(
+			uploadService.uploadPartRequest(part, new Blob(["part"])),
+		).rejects.toMatchObject({ retryable: false });
+		expect(MockXMLHttpRequest.instances).toHaveLength(0);
+	});
+	it.each(["", "bad\r\nreceipt", "x".repeat(1025)])(
+		"rejects malformed fixed receipt %# after successful transport",
+		async (token) => {
+			const { uploadService } = await import("@/services/uploadService");
+			const pending = uploadService.uploadPartRequest(
+				request({ source: "fixed", token }),
+				new Blob(["part"]),
+			);
+			const xhr = MockXMLHttpRequest.instances[0];
+			xhr.status = 200;
+			xhr.onload?.();
+			await expect(pending).rejects.toMatchObject({
+				retryable: false,
+			});
+		},
+	);
 	it("rejects a missing completion contract before creating a network request", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 		await expect(

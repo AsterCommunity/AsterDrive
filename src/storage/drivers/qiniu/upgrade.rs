@@ -87,51 +87,7 @@ impl NativeUpgradeResolver for OfficialResolver {
         old: &LegacyConfig,
         credentials: QiniuStaticCredentials,
     ) -> Result<NativeLocation> {
-        use crate::storage::drivers::s3::{
-            S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials,
-        };
-        let endpoint =
-            Url::parse(&old.endpoint).map_err(|_| invalid("invalid legacy Kodo endpoint"))?;
-        let official = format!("s3.{}.qiniucs.com", old.s3_region);
-        if endpoint.scheme() != "https"
-            || !matches!(endpoint.host_str(),Some(host) if host==official || host==format!("{}.{}",old.bucket,official))
-            || endpoint.port().is_some()
-            || !endpoint.username().is_empty()
-            || endpoint.password().is_some()
-            || endpoint.path() != "/"
-            || endpoint.query().is_some()
-            || endpoint.fragment().is_some()
-        {
-            return Err(invalid(
-                "legacy Kodo upgrade requires the configured official S3 endpoint and matching region",
-            ));
-        }
-        let source = Arc::new(S3Driver::new(
-            S3DriverConfig {
-                endpoint: format!("https://{official}"),
-                bucket: old.bucket.clone(),
-                base_path: old.base_path.clone(),
-                region: old.s3_region.clone(),
-                path_style: false,
-                connect_timeout: Duration::from_secs(5),
-                read_timeout: Duration::from_secs(20),
-                operation_timeout: Duration::from_secs(30),
-            },
-            S3StaticCredentials {
-                access_key: credentials.access_key.clone(),
-                secret_key: credentials.secret_key.clone(),
-            },
-            S3DriverOptions::virtual_hosted_style(),
-            |builder| {
-                builder
-                    .request_checksum_calculation(
-                        aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
-                    )
-                    .response_checksum_validation(
-                        aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
-                    )
-            },
-        )?);
+        let source = Arc::new(legacy_source_driver(old, &credentials)?);
         let signer = discovery_driver(
             old.bucket.clone(),
             old.base_path.clone(),
@@ -141,9 +97,64 @@ impl NativeUpgradeResolver for OfficialResolver {
         let discovery = OfficialDiscovery {
             signer,
             credentials,
+            bucket_url: Url::parse("https://uc.qiniuapi.com/buckets?shared=rd")
+                .map_err(|_| invalid("invalid Kodo bucket endpoint"))?,
         };
         verify_namespace(old, source, &discovery).await
     }
+}
+
+// Keep legacy endpoint validation and S3 construction together. Namespace
+// verification only receives a driver whose endpoint matches the saved region.
+fn legacy_source_driver(
+    old: &LegacyConfig,
+    credentials: &QiniuStaticCredentials,
+) -> Result<crate::storage::drivers::s3::S3Driver> {
+    use crate::storage::drivers::s3::{
+        S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials,
+    };
+    let endpoint =
+        Url::parse(&old.endpoint).map_err(|_| invalid("invalid legacy Kodo endpoint"))?;
+    let official = format!("s3.{}.qiniucs.com", old.s3_region);
+    if endpoint.scheme() != "https"
+        || !matches!(endpoint.host_str(),Some(host) if host==official || host==format!("{}.{}",old.bucket,official))
+        || endpoint.port().is_some()
+        || !endpoint.username().is_empty()
+        || endpoint.password().is_some()
+        || endpoint.path() != "/"
+        || endpoint.query().is_some()
+        || endpoint.fragment().is_some()
+    {
+        return Err(invalid(
+            "legacy Kodo upgrade requires the configured official S3 endpoint and matching region",
+        ));
+    }
+    S3Driver::new(
+        S3DriverConfig {
+            endpoint: format!("https://{official}"),
+            bucket: old.bucket.clone(),
+            base_path: old.base_path.clone(),
+            region: old.s3_region.clone(),
+            path_style: false,
+            connect_timeout: Duration::from_secs(5),
+            read_timeout: Duration::from_secs(20),
+            operation_timeout: Duration::from_secs(30),
+        },
+        S3StaticCredentials {
+            access_key: credentials.access_key.clone(),
+            secret_key: credentials.secret_key.clone(),
+        },
+        S3DriverOptions::virtual_hosted_style(),
+        |builder| {
+            builder
+                .request_checksum_calculation(
+                    aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
+                )
+                .response_checksum_validation(
+                    aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
+                )
+        },
+    )
 }
 
 #[async_trait::async_trait]
@@ -162,24 +173,20 @@ trait UpgradeDiscovery: Send + Sync {
 struct OfficialDiscovery {
     signer: QiniuDriver,
     credentials: QiniuStaticCredentials,
+    bucket_url: Url,
 }
 #[async_trait::async_trait]
 impl UpgradeDiscovery for OfficialDiscovery {
     async fn buckets(&self) -> Result<Vec<String>> {
         http::decode(
             self.signer
-                .management(
-                    reqwest::Method::GET,
-                    Url::parse("https://uc.qiniuapi.com/buckets?shared=rd")
-                        .map_err(|_| invalid("invalid Kodo bucket endpoint"))?,
-                )
+                .management(reqwest::Method::GET, self.bucket_url.clone())
                 .await?,
         )
         .await
     }
     async fn source(&self, bucket: &str, region: &str) -> Result<Option<String>> {
-        let mut query = Url::parse("https://uc.qbox.me/v4/query")
-            .map_err(|_| invalid("invalid Kodo region endpoint"))?;
+        let mut query = self.signer.region_query.clone();
         query
             .query_pairs_mut()
             .append_pair("ak", &self.credentials.access_key)
@@ -200,10 +207,10 @@ impl UpgradeDiscovery for OfficialDiscovery {
         else {
             return Ok(None);
         };
-        let origin =
-            region.io_src.domains.first().ok_or_else(|| {
-                invalid("Kodo discovery returned no default native source domain")
-            })?;
+        let origin = match region.io_src.domains.first() {
+            Some(origin) => origin,
+            None => return Ok(None),
+        };
         Ok(Some(
             super::download::validate_domain(&format!("https://{origin}"))?
                 .as_str()
@@ -485,6 +492,205 @@ mod tests {
         };
         assert!(verify_namespace(&old(), source, &discovery).await.is_err());
     }
+    fn credentials() -> QiniuStaticCredentials {
+        QiniuStaticCredentials {
+            access_key: "AK".into(),
+            secret_key: "SK".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn official_discovery_authenticates_buckets_and_selects_matching_https_source() {
+        use crate::storage::test_support::{HttpFixture, HttpReply};
+        let region = |alias: &str, domains: serde_json::Value| serde_json::json!({"io_src":{"domains":domains},"s3":{"region_alias":alias}});
+        let peer=HttpFixture::new([
+            HttpReply::json(200,serde_json::json!(["native-a","native-b"])),
+            HttpReply::json(200,serde_json::json!({"hosts":[region("other",serde_json::json!(["wrong.example.test"])),region("cn-east-1",serde_json::json!(["source.example.test"]))]})),
+            HttpReply::json(200,serde_json::json!({"hosts":[region("other",serde_json::json!(["wrong.example.test"]))]})),
+            HttpReply::json(200,serde_json::json!({"hosts":[region("cn-east-1",serde_json::json!([]))]})),
+            HttpReply::json(200,serde_json::json!({"hosts":[region("cn-east-1",serde_json::json!(["user:password@source.example.test"]))]})),
+            HttpReply::text(503,"unavailable"),
+        ]).await;
+        let mut signer = discovery_driver(
+            "old-alias".into(),
+            "existing/prefix".into(),
+            "https://unused.test".into(),
+            credentials(),
+        )
+        .unwrap();
+        signer.region_query = Url::parse(&format!("{}/v4/query", peer.base)).unwrap();
+        let discovery = OfficialDiscovery {
+            signer,
+            credentials: credentials(),
+            bucket_url: Url::parse(&format!("{}/buckets?shared=rd", peer.base)).unwrap(),
+        };
+        assert_eq!(discovery.buckets().await.unwrap(), ["native-a", "native-b"]);
+        assert_eq!(
+            discovery
+                .source("native-a", "cn-east-1")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("https://source.example.test")
+        );
+        assert!(
+            discovery
+                .source("native-b", "cn-east-1")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            discovery
+                .source("native-a", "cn-east-1")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(discovery.source("native-a", "cn-east-1").await.is_err());
+        assert_eq!(
+            discovery.buckets().await.unwrap_err().kind(),
+            StorageErrorKind::Transient
+        );
+        let requests = peer.requests();
+        assert_eq!(requests[0].path, "/buckets");
+        assert_eq!(requests[0].query["shared"], "rd");
+        assert!(requests[0].headers["authorization"].starts_with("Qiniu AK:"));
+        let query = &requests[1].query;
+        assert_eq!(query["ak"], "AK");
+        assert_eq!(query["bucket"], "native-a");
+        assert!(
+            discovery
+                .contains(
+                    "native-a",
+                    "https://user:password@source.test",
+                    "existing/prefix",
+                    "probe",
+                    b"nonce"
+                )
+                .await
+                .is_err()
+        );
+        peer.stop().await;
+    }
+
+    #[tokio::test]
+    async fn native_identity_probe_requires_exact_bounded_content_and_redacts_errors() {
+        use crate::storage::test_support::{HttpFixture, HttpReply};
+        let peer = HttpFixture::new([
+            HttpReply::text(200, "nonce"),
+            HttpReply::text(200, "wrong"),
+            HttpReply::text(200, "non"),
+            HttpReply::text(200, "nonce-extra"),
+            HttpReply::text(404, "absent"),
+        ])
+        .await;
+        let mut driver = discovery_driver(
+            "native".into(),
+            "existing/prefix".into(),
+            "https://source.example.test".into(),
+            credentials(),
+        )
+        .unwrap();
+        driver.config.download_origin = peer.base.clone();
+        for expected in [true, false, false, false] {
+            assert_eq!(
+                driver.read_upgrade_probe("probe", b"nonce").await.unwrap(),
+                expected
+            );
+        }
+        assert_eq!(
+            driver
+                .read_upgrade_probe("probe", b"nonce")
+                .await
+                .unwrap_err()
+                .kind(),
+            StorageErrorKind::NotFound
+        );
+        for request in peer.requests() {
+            assert!(request.path == "/existing/prefix/probe");
+            assert!(request.query["token"].starts_with("AK:"));
+            assert!(request.query.contains_key("e"));
+            assert_eq!(request.headers["accept-encoding"], "identity");
+        }
+        peer.stop().await;
+    }
+
+    #[tokio::test]
+    async fn official_upgrade_rejects_untrusted_legacy_endpoints_before_network() {
+        for endpoint in [
+            "bad-url",
+            "http://s3.cn-east-1.qiniucs.com",
+            "https://evil.test",
+            "https://s3.cn-east-1.qiniucs.com:8443",
+            "https://user:password@s3.cn-east-1.qiniucs.com",
+            "https://s3.cn-east-1.qiniucs.com/path",
+            "https://s3.cn-east-1.qiniucs.com?query=1",
+            "https://s3.cn-east-1.qiniucs.com/#fragment",
+        ] {
+            let mut old = old();
+            old.endpoint = endpoint.into();
+            assert_eq!(
+                OfficialResolver
+                    .resolve(&old, credentials())
+                    .await
+                    .err()
+                    .unwrap()
+                    .kind(),
+                StorageErrorKind::Misconfigured
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_source_factory_validates_both_official_addressing_forms_without_network() {
+        for endpoint in [
+            "https://s3.cn-east-1.qiniucs.com",
+            "https://different-s3-alias.s3.cn-east-1.qiniucs.com",
+        ] {
+            let mut old = old();
+            old.endpoint = endpoint.into();
+            let source = legacy_source_driver(&old, &credentials()).unwrap();
+            assert!(source.supports_efficient_range());
+        }
+    }
+
+    #[tokio::test]
+    async fn dropped_probe_guard_cleans_owned_keys_even_after_cancellation_or_failure() {
+        for fail in [false, true] {
+            let source = Arc::new(Source {
+                fail_delete: fail,
+                ..Default::default()
+            });
+            source
+                .objects
+                .lock()
+                .unwrap()
+                .insert("owned".into(), b"nonce".to_vec());
+            drop(ProbeCleanup {
+                driver: source.clone(),
+                key: Some("owned".into()),
+            });
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while source.deletes.load(Ordering::SeqCst) == 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(source.objects.lock().unwrap().contains_key("owned"), fail);
+        }
+    }
+    #[test]
+    fn dropping_probe_guard_without_runtime_does_not_panic() {
+        let source = Arc::new(Source::default());
+        drop(ProbeCleanup {
+            driver: source.clone(),
+            key: Some("owned".into()),
+        });
+        assert_eq!(source.deletes.load(Ordering::SeqCst), 0);
+    }
+
     #[test]
     fn fixed_go_sdk_region_contract_exposes_default_source_and_s3_region() {
         let query:Query=serde_json::from_value(serde_json::json!({"hosts":[{"io_src":{"domains":["bucket.kodo-cn-east-1.qiniucs.com"]},"s3":{"region_alias":"cn-east-1"}}]})).unwrap();
