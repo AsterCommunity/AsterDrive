@@ -480,11 +480,20 @@ pub async fn list_paginated(
     offset: u64,
     sort_by: AdminShareSortBy,
     sort_order: SortOrder,
+    target_type: Option<aster_drive_model::types::EntityType>,
+    user_id: Option<i64>,
 ) -> Result<OffsetPage<ShareInfo>> {
     load_offset_page(limit, offset, 100, |limit, offset| async move {
-        let (items, total) =
-            share_repo::find_paginated(state.reader_db(), limit, offset, sort_by, sort_order)
-                .await?;
+        let (items, total) = share_repo::find_paginated(
+            state.reader_db(),
+            limit,
+            offset,
+            sort_by,
+            sort_order,
+            target_type,
+            user_id,
+        )
+        .await?;
         let items = share_infos_from_models(state, items).await?;
         Ok((items, total))
     })
@@ -499,13 +508,16 @@ pub async fn admin_delete_share(state: &impl SharedRuntimeState, share_id: i64) 
     Ok(())
 }
 
-async fn build_my_share_infos(
+async fn load_share_resources(
     db: &DatabaseConnection,
-    shares: Vec<share::Model>,
-) -> Result<Vec<MyShareInfo>> {
+    shares: &[share::Model],
+) -> Result<(
+    HashMap<i64, aster_drive_model::entities::file::Model>,
+    HashMap<i64, aster_drive_model::entities::folder::Model>,
+)> {
     let mut file_ids = Vec::new();
     let mut folder_ids = Vec::new();
-    for share in &shares {
+    for share in shares {
         match share_target_for_share(share)? {
             ShareTarget {
                 r#type: aster_drive_model::types::EntityType::File,
@@ -527,6 +539,15 @@ async fn build_my_share_infos(
         .into_iter()
         .map(|folder| (folder.id, folder))
         .collect();
+
+    Ok((file_map, folder_map))
+}
+
+async fn build_my_share_infos(
+    db: &DatabaseConnection,
+    shares: Vec<share::Model>,
+) -> Result<Vec<MyShareInfo>> {
+    let (file_map, folder_map) = load_share_resources(db, &shares).await?;
 
     let mut items = Vec::with_capacity(shares.len());
     for share in shares {
@@ -570,11 +591,25 @@ async fn share_infos_from_models(
         account::user_summaries_by_ids(state, &user_ids, profile::AvatarAudience::AdminUser)
             .await?;
 
+    let (files, folders) = load_share_resources(state.reader_db(), &shares).await?;
     shares
         .into_iter()
         .map(|share| {
+            let target = share_target_for_share(&share)?;
+            let target_name = match target.r#type {
+                aster_drive_model::types::EntityType::File => files
+                    .get(&target.id)
+                    .filter(|file| file.deleted_at.is_none())
+                    .map(|file| file.name.clone()),
+                aster_drive_model::types::EntityType::Folder => folders
+                    .get(&target.id)
+                    .filter(|folder| folder.deleted_at.is_none())
+                    .map(|folder| folder.name.clone()),
+            };
             let user = users.get(&share.user_id).cloned();
-            share_info_from_model(share, user)
+            let mut info = share_info_from_model(share, user)?;
+            info.target_name = target_name;
+            Ok(info)
         })
         .collect()
 }

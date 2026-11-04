@@ -34,6 +34,31 @@ function createUserSummary(): UserSummary {
 	};
 }
 
+vi.mock("@/components/admin/AdminSearchFilter", () => ({
+	AdminSearchFilter: ({
+		label,
+		value,
+		onChange,
+	}: {
+		label: string;
+		value?: number;
+		onChange: (value?: number) => void;
+	}) => (
+		<select
+			aria-label={label}
+			value={value ?? ""}
+			onChange={(event) =>
+				onChange(event.target.value ? Number(event.target.value) : undefined)
+			}
+		>
+			<option value="">All</option>
+			<option value="3">Archive policy</option>
+			<option value="9">Root user</option>
+			<option value="42">Other user</option>
+		</select>
+	),
+}));
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string) => key,
@@ -163,13 +188,16 @@ vi.mock("@/components/layout/AdminPageHeader", () => ({
 	AdminPageHeader: ({
 		title,
 		description,
+		toolbar,
 	}: {
 		title: string;
 		description: string;
+		toolbar?: React.ReactNode;
 	}) => (
 		<div>
 			<h1>{title}</h1>
 			<p>{description}</p>
+			{toolbar}
 		</div>
 	),
 }));
@@ -572,4 +600,30 @@ describe("AdminSharesPage", () => {
 			"?pageSize=50",
 		);
 	});
+});
+
+it("restores share filters, renders target names and unavailable placeholders", async () => {
+	mockState.list.mockResolvedValue({
+		items: [
+			createShare({ target_name: "visible.txt" }),
+			createShare({ id: 22, token: "missing-target", target_name: null }),
+		],
+		total: 2,
+	});
+	renderPage("/admin/shares?userId=9&targetType=file");
+	await screen.findByText("visible.txt");
+	expect(screen.getByText("filter_target_unavailable")).toBeInTheDocument();
+	expect(mockState.list).toHaveBeenCalledWith(
+		expect.objectContaining({ user_id: 9, target_type: "file" }),
+	);
+	fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+	await waitFor(() =>
+		expect(mockState.list).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				user_id: undefined,
+				target_type: undefined,
+				offset: 0,
+			}),
+		),
+	);
 });

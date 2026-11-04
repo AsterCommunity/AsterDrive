@@ -55,10 +55,18 @@ pub async fn find_paginated(
     offset: u64,
     sort_by: AdminPolicySortBy,
     sort_order: SortOrder,
+    keyword: Option<&str>,
 ) -> Result<(Vec<storage_policy::Model>, u64)> {
+    let mut query = StoragePolicy::find();
+    if let Some(keyword) = keyword.map(str::trim).filter(|value| !value.is_empty()) {
+        query = query.filter(aster_forge_db::search_query::lower_like_condition(
+            storage_policy::Column::Name,
+            keyword,
+        ));
+    }
     fetch_offset_page(
         db,
-        apply_admin_policy_sort(StoragePolicy::find(), sort_by, sort_order),
+        apply_admin_policy_sort(query, sort_by, sort_order),
         limit,
         offset,
     )

@@ -18,6 +18,7 @@ interface AdminNumberUnitInputProps<TValue extends string> {
 	errorMessage?: string | null;
 	id?: string;
 	inputClassName?: string;
+	inline?: boolean;
 	invalid?: boolean;
 	label?: string;
 	onUnitChange: (value: TValue) => void;
@@ -28,6 +29,7 @@ interface AdminNumberUnitInputProps<TValue extends string> {
 	unitClassName?: string;
 	units: ReadonlyArray<NumberUnitOption<TValue>>;
 	value: string;
+	step?: number | "any";
 }
 
 export function AdminNumberUnitInput<TValue extends string>({
@@ -36,6 +38,7 @@ export function AdminNumberUnitInput<TValue extends string>({
 	errorMessage,
 	id,
 	inputClassName,
+	inline = false,
 	invalid,
 	label,
 	onUnitChange,
@@ -46,6 +49,7 @@ export function AdminNumberUnitInput<TValue extends string>({
 	unitClassName,
 	units,
 	value,
+	step = 1,
 }: AdminNumberUnitInputProps<TValue>) {
 	const { t } = useTranslation("admin");
 	const invalidState = Boolean(errorMessage) || invalid === true;
@@ -53,13 +57,20 @@ export function AdminNumberUnitInput<TValue extends string>({
 	return (
 		<div className={cn("space-y-2", className)}>
 			{label ? <Label htmlFor={id}>{label}</Label> : null}
-			<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+			<div
+				className={cn(
+					"flex gap-2",
+					inline
+						? "flex-row items-center"
+						: "flex-col sm:flex-row sm:items-center",
+				)}
+			>
 				<Input
 					id={id}
 					type="number"
-					inputMode="numeric"
+					inputMode={step === "any" ? "decimal" : "numeric"}
 					min={0}
-					step={1}
+					step={step}
 					value={value}
 					disabled={disabled}
 					aria-invalid={invalidState ? true : undefined}

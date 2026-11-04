@@ -26,6 +26,31 @@ const mockState = vi.hoisted(() => ({
 	listFiles: vi.fn(),
 }));
 
+vi.mock("@/components/admin/AdminSearchFilter", () => ({
+	AdminSearchFilter: ({
+		label,
+		value,
+		onChange,
+	}: {
+		label: string;
+		value?: number;
+		onChange: (value?: number) => void;
+	}) => (
+		<select
+			aria-label={label}
+			value={value ?? ""}
+			onChange={(event) =>
+				onChange(event.target.value ? Number(event.target.value) : undefined)
+			}
+		>
+			<option value="">All</option>
+			<option value="3">Archive policy</option>
+			<option value="9">Root user</option>
+			<option value="42">Other user</option>
+		</select>
+	),
+}));
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string, options?: Record<string, unknown>) => {
@@ -674,7 +699,7 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText("admin_deleted_live").length).toBeGreaterThan(0);
 		expect(screen.queryByText("__all__")).not.toBeInTheDocument();
 
-		fireEvent.change(screen.getByPlaceholderText("admin_policy_id"), {
+		fireEvent.change(screen.getByLabelText("filter_policy"), {
 			target: { value: "3" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "select:deleted" }));
@@ -1591,4 +1616,70 @@ it("refreshes the same open Blob after maintenance without changing its URL", as
 		await screen.findByText("refreshed-after-maintenance"),
 	).toBeInTheDocument();
 	expect(screen.getByTestId("location-search")).toHaveTextContent("blobId=31");
+});
+
+it("debounces raw file input before changing URL and resets the page once", async () => {
+	mockState.listFiles.mockResolvedValue({ items: [createFile()], total: 100 });
+	renderPage("files", "/admin/files?offset=20");
+	await screen.findByText("report.txt");
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	const input = screen.getByPlaceholderText("admin_file_name_filter");
+	const before = mockState.listFiles.mock.calls.length;
+	fireEvent.change(input, { target: { value: "r" } });
+	fireEvent.change(input, { target: { value: "re" } });
+	fireEvent.change(input, { target: { value: "report " } });
+	expect(input).toHaveValue("report ");
+	expect(mockState.listFiles).toHaveBeenCalledTimes(before);
+	await waitFor(() =>
+		expect(mockState.listFiles).toHaveBeenCalledTimes(before + 1),
+	);
+	expect(mockState.listFiles).toHaveBeenLastCalledWith(
+		expect.objectContaining({ name: "report", offset: 0 }),
+	);
+	expect(input).toHaveValue("report ");
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"name=report",
+	);
+});
+
+it("restores binary size units and combines Blob health, hash and uploader filters", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeUnit=MB&sizeMin=1572864&sizeMax=3145728&health=orphan&hashKind=opaque&uploaderUserId=9",
+	);
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				size_min: 1572864,
+				size_max: 3145728,
+				health: "orphan",
+				hash_kind: "opaque",
+				uploader_user_id: 9,
+			}),
+		),
+	);
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1.5");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("3");
+	const before = mockState.listBlobs.mock.calls.length;
+	fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1536");
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 400));
+	});
+	expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+	fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				health: undefined,
+				hash_kind: undefined,
+				uploader_user_id: undefined,
+				size_min: undefined,
+				size_max: undefined,
+			}),
+		),
+	);
+	expect(screen.getByTestId("location-search")).toHaveTextContent("");
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("");
 });

@@ -35,6 +35,8 @@ pub async fn list_all_shares(
         page.offset(),
         query.sort_by(),
         query.sort_order(),
+        query.target_type,
+        query.user_id,
     )
     .await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(shares)))

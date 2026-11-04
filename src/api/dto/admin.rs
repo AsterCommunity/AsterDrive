@@ -457,6 +457,7 @@ impl AdminTeamListQuery {
     derive(IntoParams, ToSchema)
 )]
 pub struct AdminPolicyListQuery {
+    pub keyword: Option<String>,
     pub sort_by: Option<AdminPolicySortBy>,
     pub sort_order: Option<SortOrder>,
 }
@@ -517,6 +518,8 @@ impl AdminRemoteNodeListQuery {
     derive(IntoParams, ToSchema)
 )]
 pub struct AdminShareListQuery {
+    pub target_type: Option<aster_drive_model::types::EntityType>,
+    pub user_id: Option<i64>,
     pub sort_by: Option<AdminShareSortBy>,
     pub sort_order: Option<SortOrder>,
 }
@@ -605,6 +608,9 @@ impl AdminFileListQuery {
     derive(IntoParams, ToSchema)
 )]
 pub struct AdminFileBlobListQuery {
+    pub uploader_user_id: Option<i64>,
+    pub health: Option<AdminFileBlobHealth>,
+    pub hash_kind: Option<AdminFileBlobHashKind>,
     pub hash: Option<String>,
     pub policy_id: Option<i64>,
     pub storage_path: Option<String>,
@@ -684,7 +690,7 @@ pub struct AdminFileDetail {
     pub versions: Vec<AdminFileVersionSummary>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AdminFileBlobHashKind {

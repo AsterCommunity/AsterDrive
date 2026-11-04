@@ -46,6 +46,9 @@ struct CountRow {
 
 #[derive(Debug, Clone, Copy)]
 pub struct AdminFileBlobFilters<'a> {
+    pub uploader_user_id: Option<i64>,
+    pub health: Option<crate::api::dto::admin::AdminFileBlobHealth>,
+    pub hash_kind: Option<crate::api::dto::admin::AdminFileBlobHashKind>,
     pub hash: Option<&'a str>,
     pub policy_id: Option<i64>,
     pub storage_path: Option<&'a str>,
@@ -59,10 +62,16 @@ pub struct AdminFileBlobFilters<'a> {
 
 fn content_sha256_sql_condition(backend: DbBackend, column: &str) -> String {
     match backend {
-        DbBackend::Postgres => format!("{column} ~ '^[0-9A-Fa-f]{{64}}$'"),
-        DbBackend::MySql => format!("{column} REGEXP '^[0-9A-Fa-f]{{64}}$'"),
+        DbBackend::Postgres => format!(
+            "octet_length({column}) = 64 AND {column} COLLATE \"C\" ~ '^[0-9A-Fa-f]{{64}}$'"
+        ),
+        DbBackend::MySql => format!(
+            "OCTET_LENGTH({column}) = 64 AND CHAR_LENGTH({column}) = 64 AND REGEXP_LIKE({column}, '^[0-9A-Fa-f]{{64}}$', 'c')"
+        ),
         DbBackend::Sqlite | _ => {
-            format!("length({column}) = 64 AND {column} NOT GLOB '*[^0-9A-Fa-f]*'")
+            format!(
+                "length(CAST({column} AS BLOB)) = 64 AND length({column}) = 64 AND {column} NOT GLOB '*[^0-9A-Fa-f]*'"
+            )
         }
     }
 }
@@ -246,11 +255,7 @@ pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
     policy_id: i64,
 ) -> Result<StoragePolicyBlobHashKindSummary> {
     let backend = db.get_database_backend();
-    let condition = match backend {
-        DbBackend::Postgres => "hash ~ '^[0-9A-Fa-f]{64}$'",
-        DbBackend::MySql => "hash REGEXP '^[0-9A-Fa-f]{64}$'",
-        DbBackend::Sqlite | _ => "length(hash) = 64 AND hash NOT GLOB '*[^0-9A-Fa-f]*'",
-    };
+    let condition = content_sha256_sql_condition(backend, "hash");
     let content_count = i64_cast_sql(
         backend,
         &format!("COALESCE(SUM(CASE WHEN {condition} THEN 1 ELSE 0 END), 0)"),
@@ -728,6 +733,105 @@ pub async fn find_admin_blobs_paginated(
     }
     if let Some(size_max) = filters.size_max {
         query = query.filter(file_blob::Column::Size.lte(size_max));
+    }
+    use crate::api::dto::admin::{AdminFileBlobHashKind, AdminFileBlobHealth};
+    use aster_drive_model::entities::{file, file_revision, file_revision_history};
+    use sea_orm::sea_query::{Query, SimpleExpr};
+
+    if let Some(user_id) = filters.uploader_user_id {
+        query = query.filter(Expr::exists(
+            Query::select()
+                .expr(Expr::val(1))
+                .from(file::Entity)
+                .and_where(
+                    Expr::col((file::Entity, file::Column::BlobId))
+                        .equals((file_blob::Entity, file_blob::Column::Id)),
+                )
+                .and_where(Expr::col((file::Entity, file::Column::CreatedByUserId)).eq(user_id))
+                .to_owned(),
+        ));
+    }
+    if let Some(kind) = filters.hash_kind {
+        let content = Expr::cust(content_sha256_sql_condition(
+            db.get_database_backend(),
+            "file_blobs.hash",
+        ));
+        query = query.filter(match kind {
+            AdminFileBlobHashKind::ContentSha256 => content,
+            AdminFileBlobHashKind::Opaque => content.not(),
+        });
+    }
+    if let Some(health) = filters.health {
+        let files = Query::select()
+            .expr(Expr::col((file::Entity, file::Column::Id)).count())
+            .from(file::Entity)
+            .and_where(
+                Expr::col((file::Entity, file::Column::BlobId))
+                    .equals((file_blob::Entity, file_blob::Column::Id)),
+            )
+            .to_owned();
+        let versions = Query::select()
+            .expr(Expr::col((file_revision::Entity, file_revision::Column::Id)).count())
+            .from(file_revision::Entity)
+            .inner_join(
+                file_revision_history::Entity,
+                Expr::col((file_revision::Entity, file_revision::Column::HistoryId)).equals((
+                    file_revision_history::Entity,
+                    file_revision_history::Column::Id,
+                )),
+            )
+            .and_where(
+                Expr::col((file_revision::Entity, file_revision::Column::BlobId))
+                    .equals((file_blob::Entity, file_blob::Column::Id)),
+            )
+            .and_where(
+                Expr::col((file_revision::Entity, file_revision::Column::RetiredAt)).is_null(),
+            )
+            .and_where(
+                Expr::col((
+                    file_revision_history::Entity,
+                    file_revision_history::Column::CurrentRevisionId,
+                ))
+                .is_null()
+                .or(
+                    Expr::col((file_revision::Entity, file_revision::Column::Id)).ne(Expr::col((
+                        file_revision_history::Entity,
+                        file_revision_history::Column::CurrentRevisionId,
+                    ))),
+                ),
+            )
+            .to_owned();
+        let actual: SimpleExpr = Expr::SubQuery(
+            None,
+            Box::new(sea_orm::sea_query::SubQueryStatement::SelectStatement(
+                files,
+            )),
+        )
+        .add(Expr::SubQuery(
+            None,
+            Box::new(sea_orm::sea_query::SubQueryStatement::SelectStatement(
+                versions,
+            )),
+        ));
+        let recorded = Expr::col((file_blob::Entity, file_blob::Column::RefCount));
+        let not_claimed = recorded
+            .clone()
+            .ne(super::cleanup::BLOB_CLEANUP_CLAIMED_REF_COUNT);
+        let condition = match health {
+            AdminFileBlobHealth::CleanupClaimed => sea_orm::Condition::all()
+                .add(recorded.eq(super::cleanup::BLOB_CLEANUP_CLAIMED_REF_COUNT)),
+            AdminFileBlobHealth::RefCountMismatch => sea_orm::Condition::all()
+                .add(not_claimed)
+                .add(recorded.ne(actual)),
+            AdminFileBlobHealth::Orphan => sea_orm::Condition::all()
+                .add(recorded.eq(0))
+                .add(actual.eq(0)),
+            AdminFileBlobHealth::Healthy => sea_orm::Condition::all()
+                .add(not_claimed)
+                .add(recorded.clone().eq(actual))
+                .add(recorded.ne(0)),
+        };
+        query = query.filter(condition);
     }
     query = apply_admin_blob_order(query, filters.sort_by, filters.sort_order);
 
