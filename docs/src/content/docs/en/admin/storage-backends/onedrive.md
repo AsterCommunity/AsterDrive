@@ -231,7 +231,7 @@ When Microsoft Graph direct download is enabled, you can also choose the downloa
 | Download filename | Behavior |
 | --- | --- |
 | Prefer the OneDrive filename | Renamed files still prefer direct download; the downloaded name may remain the name stored in OneDrive |
-| Always use the AsterDrive filename | Native downloads and other header-dependent consumers relay on a name mismatch; in-app downloads and safe Blob previews can use direct delivery and apply the current name/MIME themselves |
+| Always use the AsterDrive filename | Native downloads and other header-dependent consumers fall back to relay when the names differ; in-app downloads and safe Blob previews can use direct delivery and apply the current name/MIME themselves |
 
 With direct download, AsterDrive still checks the signed-in user, permissions, sharing rules, and download rules first. It then sends the browser to a short-lived Microsoft download URL. Microsoft transfers the file, so the AsterDrive node does not relay the complete file body.
 
