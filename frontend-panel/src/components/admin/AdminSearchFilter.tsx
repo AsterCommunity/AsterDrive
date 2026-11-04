@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,13 +56,15 @@ export function AdminSearchFilter({
 	const [keyword, setKeyword] = useState("");
 	const [options, setOptions] = useState<Option[]>([]);
 	const [selected, setSelected] = useState<Option | null>(null);
+	const selectedRef = useRef(selected);
+	selectedRef.current = selected;
 	const [loading, setLoading] = useState(false);
 	const label =
 		kind === "user" ? t("admin_filter_user") : t("admin_filter_policy");
 
 	useEffect(() => {
 		if (value == null) return;
-		if (selected?.id === value) return;
+		if (selectedRef.current?.id === value) return;
 		let active = true;
 		loadSelected(kind, value)
 			.then((option) => {
@@ -74,7 +76,7 @@ export function AdminSearchFilter({
 		return () => {
 			active = false;
 		};
-	}, [kind, value, selected?.id]);
+	}, [kind, value]);
 
 	useEffect(() => {
 		if (!open) return;
