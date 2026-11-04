@@ -118,24 +118,26 @@ delete files/{upload_uuid}
 
 ## 直接下载规则
 
-`PresignedDownloadOptions.download_name` 表示当前逻辑文件名。下载 service 和 file resource handle 都把 `file.name` 传给 presigned driver。
+`DirectDownloadOptions.download_name` 表示当前逻辑文件名。下载 service 和 file resource handle 都把 `file.name` 传给 presigned driver。
 
 OneDrive 策略还提供 `provider_download_filename_mode`：
 
 | 模式 | 默认值 | 行为 |
 | --- | --- | --- |
 | `provider_native` | 是 | 优先使用 OneDrive 中保存的文件名，尽量保持 Graph 直接下载 |
-| `strict_current` | 否 | 要求远端文件名与 AsterDrive 当前文件名一致，不一致时使用代理流式下载 |
+| `strict_current` | 否 | 依赖 provider 响应头的消费路径要求文件名匹配；不匹配时中继。能自行保证文件名/MIME 的授权 Blob 消费方可直链 |
 
 在 `provider_native` 模式下，OneDrive driver 不检查当前文件名是否与远端名称一致。只要 Graph 能为对象返回合法 HTTP(S) 地址，就直接下载；文件重命名后可能仍然返回 OneDrive 中保存的旧文件名，旧的 `files/{uuid}` 对象也可能返回 UUID 文件名。
 
-在 `strict_current` 模式下，OneDrive driver 只有同时满足下面条件时才返回 Graph 直接下载地址：
+`allow_provider_response_headers` 表示调用方能够接受 provider 原生响应头，并自行保证最终文件名/MIME。当前仅下载和预览的 `BlobUrl` resource handle 设置为 `true`：站内下载器通过 `showSaveFilePicker` 使用当前逻辑名称，Blob 预览按授权 handle 重建 MIME。此时即使是旧 UUID 对象、重命名或共享 blob 名称不匹配，`strict_current` 也可返回 Graph 直链。
+
+浏览器原生附件下载、直接 URL、外部查看器以及其他交付方式保持 `false`。浏览器不支持 `showSaveFilePicker` 时保留原生下载回退。在 `strict_current` 且该选项为 `false` 时，OneDrive driver 只有同时满足下面条件才返回 Graph 直接下载地址：
 
 1. storage path 符合 `files/{uuid}/{filename}`。
 2. path 中的 provider item 文件名等于 `download_name`，或调用方未提供 `download_name`。
 3. Graph 返回合法的 HTTP(S) 下载地址。
 
-以下情况使用 AsterDrive 代理流式下载：
+以下情况使用 AsterDrive 代理流式下载；前三项仅针对未声明 `allow_provider_response_headers` 的严格消费路径：
 
 - 严格模式下的旧对象 `files/{uuid}`，因为无法从路径确认远端文件名
 - 严格模式下文件已在 AsterDrive 中重命名
@@ -143,7 +145,7 @@ OneDrive 策略还提供 `provider_download_filename_mode`：
 - driver 没有 presigned 能力
 - 请求包含需要同源处理的条件请求或 inline sandbox 场景
 
-严格模式回退的原因是 Graph 临时地址自己控制响应头。文件名策略由管理员显式选择，AsterDrive 不会在 `provider_native` 模式下暗中因为旧名称切换下载链路。
+严格消费路径回退的原因是 Graph 临时地址自己控制响应头。放宽文件名匹配不绕过权限或 inline sandbox 检查，不增加 provider 写操作，不修改 Graph URL 或追加未文档化的响应头覆盖参数。文件名策略由管理员显式选择，AsterDrive 不会在 `provider_native` 模式下暗中因为旧名称切换下载链路。
 
 ## 旧数据兼容
 
@@ -153,7 +155,7 @@ OneDrive 策略还提供 `provider_download_filename_mode`：
 files/{upload_uuid}
 ```
 
-路径解析器把这种路径识别为 legacy layout。旧对象仅保证读取和删除；metadata、stream 和 range 属于读取链路，继续按原路径工作。`provider_native` 模式可以继续请求 Graph 直接下载，`strict_current` 模式因为无法确认远端文件名而使用代理流式下载。新上传路径由 connector 的 `object_naming` 能力生成，不会复用旧的扁平路径。
+路径解析器把这种路径识别为 legacy layout。旧对象仅保证读取和删除；metadata、stream 和 range 属于读取链路，继续按原路径工作。`provider_native` 模式可以继续请求 Graph 直接下载，`strict_current` 的严格消费路径因为无法确认远端文件名而使用代理流式下载，授权下载/预览 Blob 消费方可继续使用 Graph 直链。新上传路径由 connector 的 `object_naming` 能力生成，不会复用旧的扁平路径。
 
 新代码将旧路径继续视为 legacy layout，provider 类型也不承担历史 blob 路径批量改写职责。历史对象迁移需要单独的存储迁移任务和明确的数据库/对象一致性方案。
 
@@ -165,10 +167,13 @@ files/{upload_uuid}
 cargo nextest run --profile ci --lib storage::connectors::tests
 cargo nextest run --profile ci --lib services::workspace::storage
 cargo nextest run --profile ci --lib storage::drivers::onedrive
+cargo nextest run --profile ci --lib services::files::file::download
 cargo nextest run --profile ci --lib services::files::upload
 cargo nextest run --profile ci --test files upload::
 cargo nextest run --profile ci --test webdav
 cargo nextest run --profile ci --features openapi --test generate_openapi
+cd frontend-panel
+bun run test src/services/downloadCoordinator.test.ts src/hooks/useBlobUrl.test.tsx
 ```
 
 行为覆盖要求：
@@ -183,10 +188,12 @@ cargo nextest run --profile ci --features openapi --test generate_openapi
 - UUID 目录冲突时不覆盖旧目录。
 - session 创建、small upload、large upload 失败时清理 UUID 目录。
 - 旧扁平路径仅保持读取和删除兼容；`provider_native` 模式继续使用 Graph 直链，
-  `strict_current` 模式使用代理流式下载。新上传路径由 `object_naming` 生成。
+  `strict_current` 的严格消费路径使用代理流式下载，授权 Blob 消费方可直链。新上传路径由 `object_naming` 生成。
 - 当前文件名匹配时返回 Graph 直接下载地址。
 - `provider_native` 模式下文件重命名仍保持 Graph 直接下载。
-- `strict_current` 模式下文件重命名或逻辑文件名不一致时使用代理流式下载。
+- `strict_current` 下文件重命名或逻辑文件名不一致时，严格消费路径中继，授权下载/预览 Blob 消费方直链。
+- driver 选项组合、resource handle 的 purpose/delivery 组合均覆盖；严格回退不访问 Graph，下载只发 GET。
+- 运行下载 coordinator 和 `useBlobUrl` 的前端测试，验证当前保存名、MIME、credentials、取消和失败行为。真实 OneDrive/CORS 验收与本地 mock 结果分开记录。
 - provider session 清理的 abort/delete 四种成功与失败组合都保留结果。
 - OpenAPI schema 与前端生成类型包含 `object_naming`。
 
@@ -197,6 +204,6 @@ cargo nextest run --profile ci --features openapi --test generate_openapi
 1. 在 descriptor 中明确填写 `object_naming`。
 2. 说明对象布局和同名隔离方式。
 3. 让所有上传入口复用 `nondedup_storage_path_for_policy()`。
-4. 如果 provider 下载 URL固定文件名，扩展 `PresignedDownloadOptions.download_name` 的匹配规则。
+4. 如果 provider 下载 URL固定文件名，扩展 `DirectDownloadOptions.download_name` 的匹配规则。
 5. 增加旧路径、非法输入、失败清理和直接下载回退测试。
 6. 重新导出 OpenAPI 并生成前端 SDK。

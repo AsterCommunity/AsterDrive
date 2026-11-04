@@ -534,7 +534,9 @@ impl DirectDownloadStorageDriver for OneDriveDriver {
         _expires: std::time::Duration,
         options: aster_drive_storage::traits::driver::DirectDownloadOptions,
     ) -> aster_drive_storage::Result<Option<aster_drive_storage::DirectDownloadRequest>> {
-        if options.require_download_name_match {
+        // Authorized Blob consumers enforce the final save name/MIME themselves;
+        // header-dependent consumers still need the strict provider-name check.
+        if options.require_download_name_match && !options.allow_provider_response_headers {
             let Some(stored_filename) = paths::provider_resumable_filename(path) else {
                 // Legacy objects do not carry a provider filename in their
                 // storage path, so strict filename mode cannot prove a match.
@@ -1481,115 +1483,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn strict_mode_relays_legacy_objects_but_provider_native_mode_uses_graph() {
-        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
-            "https://graph.microsoft.com",
-            "token",
-        ))
-        .expect("Graph client should build");
-        let driver = OneDriveDriver::new(
-            client,
-            "drive-id",
-            "root-id",
-            "",
-            5 * 1024 * 1024,
-            Duration::from_secs(10),
-        );
-        let options = aster_drive_storage::traits::driver::DirectDownloadOptions {
-            download_name: Some("video.mp4".to_string()),
-            require_download_name_match: true,
-            ..Default::default()
-        };
-
-        assert_eq!(
-            driver
-                .resolve_download_url(
-                    "files/550e8400-e29b-41d4-a716-446655440000",
-                    std::time::Duration::from_secs(60),
-                    options.clone(),
-                )
-                .await
-                .expect("legacy path should be classified"),
-            None
-        );
-
+    async fn direct_download_filename_and_provider_headers_matrix() {
         let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
         let driver = lifecycle_driver(&server);
-        let native_options = aster_drive_storage::traits::driver::DirectDownloadOptions {
-            download_name: Some("video.mp4".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            driver
-                .resolve_download_url(
-                    "files/550e8400-e29b-41d4-a716-446655440000",
-                    std::time::Duration::from_secs(60),
-                    native_options,
-                )
-                .await
-                .expect("provider-native legacy path should classify")
-                .expect("provider-native filename mode should keep direct download"),
-            aster_drive_storage::DirectDownloadRequest::preauthenticated_url(
-                "https://download.example/file",
-                None,
-            )
-        );
-        server.stop().await;
-    }
+        let legacy_path = "files/550e8400-e29b-41d4-a716-446655440000";
+        let renamed_path = "files/550e8400-e29b-41d4-a716-446655440000/old.mp4";
+        let mut expected_paths = Vec::new();
 
-    #[tokio::test]
-    async fn renamed_object_declines_direct_download_when_filename_match_is_required() {
-        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
-        let driver = lifecycle_driver(&server);
-        let options = aster_drive_storage::traits::driver::DirectDownloadOptions {
-            download_name: Some("video.mp4".to_string()),
-            require_download_name_match: true,
-            ..Default::default()
-        };
-
-        assert_eq!(
-            driver
-                .resolve_download_url(
-                    "files/550e8400-e29b-41d4-a716-446655440000/old.mp4",
-                    std::time::Duration::from_secs(60),
-                    options,
-                )
-                .await
-                .expect("strict filename mode should classify renamed path"),
-            None
-        );
-        server.stop().await;
-    }
-
-    #[tokio::test]
-    async fn named_object_with_matching_filename_uses_graph_direct_download() {
-        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
-        let driver = lifecycle_driver(&server);
-
-        let url = driver
-            .resolve_download_url(
-                NAMED_PATH,
-                std::time::Duration::from_secs(60),
-                aster_drive_storage::traits::driver::DirectDownloadOptions {
-                    download_name: Some("video.mp4".to_string()),
-                    ..Default::default()
-                },
-            )
-            .await
-            .expect("matching named object should resolve direct URL")
-            .expect("matching named object should return Graph download URL");
-
-        assert_eq!(url.url, "https://download.example/file");
+        for (path, matches_name) in [
+            (legacy_path, false),
+            (renamed_path, false),
+            (NAMED_PATH, true),
+        ] {
+            for require_download_name_match in [false, true] {
+                for allow_provider_response_headers in [false, true] {
+                    let direct = driver
+                        .resolve_download_url(
+                            path,
+                            Duration::from_secs(60),
+                            aster_drive_storage::DirectDownloadOptions {
+                                download_name: Some("video.mp4".to_string()),
+                                require_download_name_match,
+                                allow_provider_response_headers,
+                                response_content_disposition: Some(
+                                    "attachment; filename=video.mp4".into(),
+                                ),
+                                response_content_type: Some("video/mp4".into()),
+                                response_cache_control: Some("private, max-age=0".into()),
+                            },
+                        )
+                        .await
+                        .expect("download decision should succeed");
+                    let should_use_graph = !require_download_name_match
+                        || allow_provider_response_headers
+                        || matches_name;
+                    assert_eq!(
+                        direct.is_some(),
+                        should_use_graph,
+                        "path={path}, strict={require_download_name_match}, provider_headers={allow_provider_response_headers}"
+                    );
+                    if should_use_graph {
+                        assert_eq!(
+                            direct.unwrap(),
+                            aster_drive_storage::DirectDownloadRequest::preauthenticated_url(
+                                "https://download.example/file",
+                                None,
+                            ),
+                            "Graph URL and credentials must be preserved without response overrides",
+                        );
+                        expected_paths.push(format!(
+                            "/v1.0/drives/drive-id/items/root-id:/{path}:/content"
+                        ));
+                    }
+                }
+            }
+        }
         {
             let state = server.state.lock().expect("Graph lifecycle state lock");
-            assert_eq!(state.methods, ["GET"]);
             assert_eq!(
-                state.paths,
-                [
-                    "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000/video.mp4:/content"
-                ]
+                state.paths, expected_paths,
+                "strict fallback must not contact Graph"
             );
-            drop(state);
+            assert_eq!(
+                state.methods,
+                vec!["GET"; expected_paths.len()],
+                "downloads must not write to the provider"
+            );
         }
         server.stop().await;
     }

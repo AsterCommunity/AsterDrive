@@ -231,13 +231,13 @@ When Microsoft Graph direct download is enabled, you can also choose the downloa
 | Download filename | Behavior |
 | --- | --- |
 | Prefer the OneDrive filename | Renamed files still prefer direct download; the downloaded name may remain the name stored in OneDrive |
-| Always use the AsterDrive filename | Use relay streaming when the names differ, so the download uses AsterDrive's current filename |
+| Always use the AsterDrive filename | Native downloads and other header-dependent consumers fall back to relay when the names differ; in-app downloads and safe Blob previews can use direct delivery and apply the current name/MIME themselves |
 
 With direct download, AsterDrive still checks the signed-in user, permissions, sharing rules, and download rules first. It then sends the browser to a short-lived Microsoft download URL. Microsoft transfers the file, so the AsterDrive node does not relay the complete file body.
 
-New files uploaded to OneDrive keep their original filenames. Files with the same name are stored in separate locations and do not overwrite one another. The policy also offers a download filename choice: by default it prefers the filename stored in OneDrive so renamed files can keep using direct download; strict AsterDrive filenames use relay streaming when the names differ.
+New files uploaded to OneDrive keep their original filenames. Files with the same name are stored in separate locations and do not overwrite one another. The policy also offers a download filename choice: by default it prefers the filename stored in OneDrive so renamed files can keep using direct download; strict AsterDrive filenames use relay for native downloads, direct URLs, and external viewers when names differ. The in-app downloader chooses the current save name and Blob previews apply the current MIME, so they can directly read renamed files and legacy UUID objects. Inline previews requiring a sandbox still relay. Browsers without `showSaveFilePicker` retain native download fallback.
 
-Direct download needs no additional Microsoft or AsterDrive cross-origin setting. If the browser or company network cannot reach Microsoft, the download falls back to server relay; administrators can also select server relay directly in the policy editor.
+Native redirect downloads need no additional cross-origin setting. In-app downloads and Blob previews require the Microsoft temporary URL to allow cross-origin reads; verify real OneDrive/CORS behavior with the target account and browser. If the browser or company network cannot reach Microsoft, administrators can select server relay in the policy editor.
 
 ## 7. Create a Test Policy Group
 
@@ -347,4 +347,4 @@ First confirm that regular upload, download, and the admin `Validate` action wor
 
 ### Microsoft Graph Direct Download Is Not Used
 
-First confirm that the OneDrive policy selects `Microsoft Graph direct download`. With `Always use the AsterDrive filename`, renamed files use relay streaming; older objects or browsers that cannot reach Microsoft may also use relay streaming.
+First confirm that the OneDrive policy selects `Microsoft Graph direct download`. With `Always use the AsterDrive filename`, native downloads, direct URLs, and external viewers relay for renamed files or legacy UUID objects; in-app downloads and safe Blob previews can still use direct delivery. If the browser cannot read the Microsoft temporary URL across origins, check network access and CORS, then use native download or server relay.

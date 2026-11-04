@@ -975,6 +975,185 @@ async fn onedrive_strict_filename_mode_requires_provider_name_match() {
 }
 
 #[actix_web::test]
+async fn onedrive_strict_resource_handles_relax_only_authorized_blob_consumers() {
+    use crate::api::dto::files::{
+        FileResourceCredentials, FileResourceDeliveryMode, FileResourceHandleRequest,
+        FileResourcePurpose, FileResourceRepresentation,
+    };
+    use crate::services::files::file::resource_handle::{
+        FileResourcePathSet, resolve_file_resource_handle,
+    };
+    use crate::storage::drivers::onedrive::{
+        MicrosoftGraphClient, MicrosoftGraphClientConfig, OneDriveDriver,
+    };
+    use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
+
+    let requests = Arc::new(AtomicUsize::new(0));
+    let request_data = web::Data::new(requests.clone());
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let graph_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(request_data.clone())
+            .default_service(web::to(
+                |req: HttpRequest, requests: web::Data<Arc<AtomicUsize>>| async move {
+                    assert_eq!(req.method(), actix_web::http::Method::GET);
+                    assert!(req.path().ends_with(":/content"));
+                    assert!(req.query_string().is_empty());
+                    assert_eq!(
+                        req.headers().get("authorization").unwrap(),
+                        "Bearer test-token"
+                    );
+                    requests.fetch_add(1, Ordering::SeqCst);
+                    HttpResponse::Found()
+                        .insert_header(("location", "https://download.example/original-name"))
+                        .finish()
+                },
+            ))
+    })
+    .workers(1)
+    .listen(listener)
+    .unwrap()
+    .run();
+    let handle = server.handle();
+    let task = tokio::spawn(server);
+    let driver = OneDriveDriver::new(
+        MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(graph_base, "test-token"))
+            .unwrap(),
+        "drive-id",
+        "root-id",
+        "",
+        5_242_880,
+        std::time::Duration::from_secs(10),
+    );
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        driver,
+        42,
+        Some(onedrive_strict_frontend_direct_download_policy()),
+        "text/plain",
+    )
+    .await;
+    let mut current_file: file::ActiveModel = file.clone().into();
+    current_file.name = Set("当前名称.txt".into());
+    let file = current_file.update(state.writer_db()).await.unwrap();
+    let scope = WorkspaceStorageScope::Personal {
+        user_id: file.owner_user_id.unwrap(),
+    };
+    let mut expected_requests = 0;
+
+    for path in [
+        "files/550e8400-e29b-41d4-a716-446655440000",
+        "files/550e8400-e29b-41d4-a716-446655440000/old.txt",
+    ] {
+        let mut current_blob: file_blob::ActiveModel = blob.clone().into();
+        current_blob.storage_path = Set(Some(path.into()));
+        current_blob.update(state.writer_db()).await.unwrap();
+        for purpose in [
+            FileResourcePurpose::Download,
+            FileResourcePurpose::Preview,
+            FileResourcePurpose::ExternalViewer,
+        ] {
+            for delivery_mode in [
+                FileResourceDeliveryMode::BlobUrl,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceDeliveryMode::Text,
+                FileResourceDeliveryMode::MediaStream,
+                FileResourceDeliveryMode::IframeSession,
+                FileResourceDeliveryMode::Manifest,
+            ] {
+                let resource = resolve_file_resource_handle(
+                    &state,
+                    scope,
+                    file.id,
+                    FileResourcePathSet {
+                        download: "/api/files/1/download".into(),
+                        image_preview: "/api/files/1/image-preview".into(),
+                        thumbnail: "/api/files/1/thumbnail".into(),
+                    },
+                    &FileResourceHandleRequest {
+                        purpose,
+                        delivery_mode,
+                        representation: FileResourceRepresentation::Original,
+                    },
+                )
+                .await
+                .unwrap();
+                let direct = delivery_mode == FileResourceDeliveryMode::BlobUrl
+                    && purpose != FileResourcePurpose::ExternalViewer;
+                if direct {
+                    expected_requests += 1;
+                    assert_eq!(
+                        resource.request.url,
+                        "https://download.example/original-name"
+                    );
+                    assert_eq!(resource.request.credentials, FileResourceCredentials::Omit);
+                    assert_eq!(
+                        resource.request.conditional_headers,
+                        crate::api::dto::files::FileResourceConditionalHeaders::Forbidden
+                    );
+                } else {
+                    assert!(resource.request.url.starts_with("/api/files/1/download?"));
+                    assert_eq!(
+                        resource.request.credentials,
+                        FileResourceCredentials::Include
+                    );
+                }
+                assert_eq!(resource.delivery.mime_type.as_deref(), Some("text/plain"));
+                assert_eq!(requests.load(Ordering::SeqCst), expected_requests);
+            }
+        }
+    }
+
+    // Even an authorized Blob preview must retain the inline sandbox boundary.
+    let mut unsafe_file: file::ActiveModel = file.clone().into();
+    unsafe_file.mime_type = Set("text/html".into());
+    unsafe_file.update(state.writer_db()).await.unwrap();
+    for (access_scope, authorized) in [
+        (scope, true),
+        (
+            WorkspaceStorageScope::Personal {
+                user_id: file.owner_user_id.unwrap() + 1,
+            },
+            false,
+        ),
+    ] {
+        let result = resolve_file_resource_handle(
+            &state,
+            access_scope,
+            file.id,
+            FileResourcePathSet {
+                download: "/api/files/1/download".into(),
+                image_preview: "/api/files/1/image-preview".into(),
+                thumbnail: "/api/files/1/thumbnail".into(),
+            },
+            &FileResourceHandleRequest {
+                purpose: FileResourcePurpose::Preview,
+                delivery_mode: FileResourceDeliveryMode::BlobUrl,
+                representation: FileResourceRepresentation::Original,
+            },
+        )
+        .await;
+        if authorized {
+            assert!(
+                result
+                    .unwrap()
+                    .request
+                    .url
+                    .starts_with("/api/files/1/download?")
+            );
+        } else {
+            assert!(
+                result.is_err(),
+                "unauthorized callers must not receive a provider URL"
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), expected_requests);
+    }
+    handle.stop(true).await;
+    task.await.unwrap().unwrap();
+}
+
+#[actix_web::test]
 async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
     let payload = b"missing provider capability".to_vec();
     let (state, file, blob, _) = build_download_test_state_with_policy(

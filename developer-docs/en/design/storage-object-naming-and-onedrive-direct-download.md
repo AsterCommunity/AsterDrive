@@ -118,24 +118,26 @@ Upload-id collision, session encryption failure, database persistence failure, a
 
 ## Direct Download Rules
 
-`PresignedDownloadOptions.download_name` carries the current logical filename. The download service and file resource handle pass `file.name` to the presigned driver.
+`DirectDownloadOptions.download_name` carries the current logical filename. The download service and file resource handle pass `file.name` to the presigned driver.
 
 OneDrive policies also expose `provider_download_filename_mode`:
 
 | Mode | Default | Behavior |
 | --- | --- | --- |
 | `provider_native` | Yes | Prefer the filename stored in OneDrive and keep Graph direct downloads available |
-| `strict_current` | No | Require the provider filename to match AsterDrive's current filename; use relay streaming when it does not |
+| `strict_current` | No | Consumers relying on provider headers require a matching filename or relay; authorized Blob consumers that enforce the final name/MIME can use direct delivery |
 
 In `provider_native` mode, the OneDrive driver does not compare the current filename with the provider name. Whenever Graph returns a valid HTTP(S) URL, the object is downloaded directly; a renamed file may still use the older OneDrive filename, and a legacy `files/{uuid}` object may expose the UUID filename.
 
-In `strict_current` mode, the OneDrive driver returns a Graph direct-download URL only when:
+`allow_provider_response_headers` declares that the caller accepts native provider headers and enforces the final filename/MIME itself. Only download and preview `BlobUrl` resource handles enable it: the in-app downloader uses the current logical name with `showSaveFilePicker`, and Blob previews reconstruct MIME from the authorized handle. These consumers can use Graph direct delivery in `strict_current` mode for legacy UUID objects, renamed files, and shared blobs with different logical names.
+
+Native attachment downloads, direct URLs, external viewers, and other delivery modes leave it disabled. Browsers without `showSaveFilePicker` retain native download fallback. With `strict_current` and this option disabled, the OneDrive driver returns a Graph direct-download URL only when:
 
 1. The storage path matches `files/{uuid}/{filename}`.
 2. The provider item filename matches `download_name`, or the caller did not provide a name.
 3. Graph returns a valid HTTP(S) download URL.
 
-The driver returns `None`, and AsterDrive uses relay streaming, for:
+The driver returns `None`, and AsterDrive uses relay streaming, for the following cases. The first three apply only to strict consumers without `allow_provider_response_headers`:
 
 - legacy `files/{uuid}` objects in strict mode, because the path cannot prove the provider filename
 - files renamed in AsterDrive in strict mode
@@ -143,7 +145,7 @@ The driver returns `None`, and AsterDrive uses relay streaming, for:
 - drivers without a presigned capability
 - conditional requests or inline sandbox cases that require same-origin handling
 
-In strict mode, Graph's temporary URL may expose the old filename because Graph owns its response headers, so AsterDrive uses relay streaming. Filename policy is explicit; `provider_native` mode does not silently switch delivery modes because of a rename.
+Strict consumers use relay because Graph owns its temporary URL's response headers. Relaxing filename matching does not bypass authorization or inline sandbox checks, write to the provider, alter Graph URLs, or append undocumented response-header overrides. Filename policy is explicit; `provider_native` mode does not silently switch delivery modes because of a rename.
 
 ## Legacy Compatibility
 
@@ -153,7 +155,7 @@ Existing OneDrive objects may still use:
 files/{upload_uuid}
 ```
 
-The path parser classifies this as the legacy layout. Read, metadata, stream, range, and delete operations remain supported. `provider_native` mode can still request a Graph direct download, while `strict_current` mode uses relay streaming because the path cannot prove the provider filename.
+The path parser classifies this as the legacy layout. Read, metadata, stream, range, and delete operations remain supported. `provider_native` mode can still request a Graph direct download, while strict consumers in `strict_current` mode use relay because the path cannot prove the provider filename. Authorized download/preview Blob consumers can still use Graph direct delivery.
 
 New code must not reinterpret a legacy path as `files/{uuid}/{filename}` or bulk-rewrite historical blob paths based only on the provider type. Historical migration requires a separate storage migration task with an explicit database/object consistency plan.
 
@@ -165,10 +167,13 @@ When changing naming or OneDrive direct-download behavior, run at least:
 cargo nextest run --profile ci --lib storage::connectors::tests
 cargo nextest run --profile ci --lib services::workspace::storage
 cargo nextest run --profile ci --lib storage::drivers::onedrive
+cargo nextest run --profile ci --lib services::files::file::download
 cargo nextest run --profile ci --lib services::files::upload
 cargo nextest run --profile ci --test files upload::
 cargo nextest run --profile ci --test webdav
 cargo nextest run --profile ci --features openapi --test generate_openapi
+cd frontend-panel
+bun run test src/services/downloadCoordinator.test.ts src/hooks/useBlobUrl.test.tsx
 ```
 
 Required behavior coverage:
@@ -183,10 +188,12 @@ Required behavior coverage:
 - A UUID namespace collision does not overwrite the existing folder.
 - Session creation, small upload, and large upload failures clean up the UUID folder.
 - Legacy flat paths remain readable. They keep Graph direct download in
-  `provider_native` mode and use relay streaming in `strict_current` mode.
+  `provider_native` mode. In `strict_current`, strict consumers use relay and authorized Blob consumers can use direct delivery.
 - Matching named objects return a Graph direct-download URL.
 - Renamed files remain on Graph direct download in `provider_native` mode.
-- Renamed or mismatched logical names use relay streaming in `strict_current` mode.
+- Renamed or mismatched logical names use relay for strict consumers in `strict_current`; authorized download/preview Blob consumers use direct delivery.
+- Cover driver option and resource-handle purpose/delivery combinations; strict fallbacks never contact Graph and downloads issue only GET requests.
+- Run download coordinator and `useBlobUrl` frontend tests for current save names, MIME, credentials, cancellation, and failures. Record real OneDrive/CORS acceptance separately from local mock results.
 - All four abort/delete cleanup combinations retain the relevant result.
 - OpenAPI and generated frontend types contain `object_naming`.
 
@@ -197,6 +204,6 @@ A new storage connector must:
 1. Declare `object_naming` in its descriptor.
 2. Document its object layout and same-name isolation strategy.
 3. Reuse `nondedup_storage_path_for_policy()` from every upload entry point.
-4. Apply `PresignedDownloadOptions.download_name` when provider URLs fix the response filename.
+4. Apply `DirectDownloadOptions.download_name` when provider URLs fix the response filename.
 5. Add legacy-path, invalid-input, failure-cleanup, and direct-download fallback tests.
 6. Regenerate OpenAPI and the frontend SDK.
