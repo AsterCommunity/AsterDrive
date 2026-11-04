@@ -24,10 +24,7 @@ export function AdminUserFilter({ value, onChange }: AdminUserFilterProps) {
 	const [loading, setLoading] = useState(false);
 
 	useEffect(() => {
-		if (value == null) {
-			setSelected(null);
-			return;
-		}
+		if (value == null) return;
 		if (selected?.id === value) return;
 		let active = true;
 		adminUserService
