@@ -10,9 +10,16 @@ async function chooseSearch(
 	label: string,
 	keyword: string,
 	option: string,
+	kind: "users" | "policies" = "users",
 ) {
 	await page.getByLabel(label, { exact: true }).click();
-	await page.getByPlaceholder("Search by name or email…").fill(keyword);
+	await page
+		.getByPlaceholder(
+			kind === "policies"
+				? "Search by policy name…"
+				: "Search by name or email…",
+		)
+		.fill(keyword);
 	await page.getByRole("option").filter({ hasText: option }).click();
 	await expect(page.getByLabel(label, { exact: true })).toContainText(option);
 	await expect(page.getByRole("listbox")).toBeHidden();
@@ -67,7 +74,7 @@ test.describe
 					(element: HTMLInputElement) => element.selectionStart,
 				),
 			).toBe(2);
-			await chooseSearch(page, "Storage policy", name, name);
+			await chooseSearch(page, "Storage policy", name, name, "policies");
 			await chooseSearch(page, "File owner", ADMIN.email, ADMIN.username);
 			await page.reload();
 			await page.getByRole("button", { name: /Filters/ }).click();

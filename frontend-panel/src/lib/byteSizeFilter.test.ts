@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
 	BYTE_FILTER_UNITS,
 	formatByteSizeInput,
+	parseByteFilterUnit,
 	parseByteSizeInput,
 } from "@/lib/byteSizeFilter";
 
 describe("byte size filters", () => {
+	it("restores valid URL units and falls back to bytes for missing or unknown units", () => {
+		expect(parseByteFilterUnit("MB")).toBe("MB");
+		expect(parseByteFilterUnit(null)).toBe("B");
+		expect(parseByteFilterUnit("MiB")).toBe("B");
+		expect(formatByteSizeInput(undefined, "MB")).toBe("");
+		expect(parseByteSizeInput(" .5 ", "KB")).toBe(512);
+	});
 	it("converts binary units and distinguishes empty, zero and invalid input", () => {
 		expect(parseByteSizeInput("1.5", "MB")).toBe(1572864);
 		expect(parseByteSizeInput("0", "B")).toBe(0);

@@ -595,21 +595,9 @@ async fn share_infos_from_models(
     shares
         .into_iter()
         .map(|share| {
-            let target = share_target_for_share(&share)?;
-            let target_name = match target.r#type {
-                aster_drive_model::types::EntityType::File => files
-                    .get(&target.id)
-                    .filter(|file| file.deleted_at.is_none())
-                    .map(|file| file.name.clone()),
-                aster_drive_model::types::EntityType::Folder => folders
-                    .get(&target.id)
-                    .filter(|folder| folder.deleted_at.is_none())
-                    .map(|folder| folder.name.clone()),
-            };
+            let (_, name, _, deleted) = resolve_share_resource(&share, &files, &folders)?;
             let user = users.get(&share.user_id).cloned();
-            let mut info = share_info_from_model(share, user)?;
-            info.target_name = target_name;
-            Ok(info)
+            share_info_from_model(share, user, (!deleted).then_some(name))
         })
         .collect()
 }
@@ -621,5 +609,8 @@ async fn share_info_from_model_with_user(
     let user =
         account::user_summary_by_id(state, share.user_id, profile::AvatarAudience::AdminUser)
             .await?;
-    share_info_from_model(share, user)
+    let (files, folders) =
+        load_share_resources(state.writer_db(), std::slice::from_ref(&share)).await?;
+    let (_, name, _, deleted) = resolve_share_resource(&share, &files, &folders)?;
+    share_info_from_model(share, user, (!deleted).then_some(name))
 }

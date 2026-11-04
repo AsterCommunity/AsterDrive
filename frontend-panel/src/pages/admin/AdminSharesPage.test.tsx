@@ -243,19 +243,61 @@ vi.mock("@/components/ui/button", () => ({
 	),
 }));
 
-vi.mock("@/components/ui/select", () => ({
-	Select: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-	SelectContent: ({ children }: { children: React.ReactNode }) => (
-		<>{children}</>
-	),
-	SelectItem: ({ children }: { children: React.ReactNode }) => (
-		<option>{children}</option>
-	),
-	SelectTrigger: ({ children }: { children: React.ReactNode }) => (
-		<>{children}</>
-	),
-	SelectValue: () => null,
-}));
+vi.mock("@/components/ui/select", () => {
+	const { createContext, useContext } =
+		require("react") as typeof import("react");
+
+	const SelectContext = createContext<{
+		onValueChange?: (value: string) => void;
+	}>({});
+
+	return {
+		Select: ({
+			children,
+			onValueChange,
+			value,
+		}: {
+			children: React.ReactNode;
+			onValueChange?: (value: string) => void;
+			value?: string;
+		}) => (
+			<SelectContext.Provider value={{ onValueChange }}>
+				<div>
+					<div>{`select:${value}`}</div>
+					{children}
+				</div>
+			</SelectContext.Provider>
+		),
+		SelectContent: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+		SelectItem: ({
+			children,
+			value,
+		}: {
+			children: React.ReactNode;
+			value: string;
+		}) => {
+			const context = useContext(SelectContext);
+
+			return (
+				<button
+					type="button"
+					aria-label={`select:${value}`}
+					onClick={() => context.onValueChange?.(value)}
+				>
+					{children}
+				</button>
+			);
+		},
+		SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+			<div>{children}</div>
+		),
+		SelectValue: ({ children }: { children?: React.ReactNode }) => (
+			<span>{children ?? "select-value"}</span>
+		),
+	};
+});
 
 vi.mock("@/components/ui/tooltip", () => ({
 	Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -600,30 +642,67 @@ describe("AdminSharesPage", () => {
 			"?pageSize=50",
 		);
 	});
-});
 
-it("restores share filters, renders target names and unavailable placeholders", async () => {
-	mockState.list.mockResolvedValue({
-		items: [
-			createShare({ target_name: "visible.txt" }),
-			createShare({ id: 22, token: "missing-target", target_name: null }),
-		],
-		total: 2,
+	it("combines creator and target type changes while returning to the first page", async () => {
+		mockState.list.mockResolvedValue({ items: [createShare()], total: 100 });
+		renderPage("/admin/shares?offset=20");
+		await screen.findByText("share-token");
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		fireEvent.change(screen.getByLabelText("filter_share_user"), {
+			target: { value: "42" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "select:folder" }));
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					user_id: 42,
+					target_type: "folder",
+					offset: 0,
+				}),
+			),
+		);
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"targetType=folder",
+		);
+		fireEvent.change(screen.getByLabelText("filter_share_user"), {
+			target: { value: "" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "select:__all__" }));
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					user_id: undefined,
+					target_type: undefined,
+					offset: 0,
+				}),
+			),
+		);
+		expect(screen.getByTestId("location-search").textContent).toBe("");
 	});
-	renderPage("/admin/shares?userId=9&targetType=file");
-	await screen.findByText("visible.txt");
-	expect(screen.getByText("filter_target_unavailable")).toBeInTheDocument();
-	expect(mockState.list).toHaveBeenCalledWith(
-		expect.objectContaining({ user_id: 9, target_type: "file" }),
-	);
-	fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
-	await waitFor(() =>
-		expect(mockState.list).toHaveBeenLastCalledWith(
-			expect.objectContaining({
-				user_id: undefined,
-				target_type: undefined,
-				offset: 0,
-			}),
-		),
-	);
+
+	it("restores share filters, renders target names and unavailable placeholders", async () => {
+		mockState.list.mockResolvedValue({
+			items: [
+				createShare({ target_name: "visible.txt" }),
+				createShare({ id: 22, token: "missing-target", target_name: null }),
+			],
+			total: 2,
+		});
+		renderPage("/admin/shares?userId=9&targetType=file");
+		await screen.findByText("visible.txt");
+		expect(screen.getByText("filter_target_unavailable")).toBeInTheDocument();
+		expect(mockState.list).toHaveBeenCalledWith(
+			expect.objectContaining({ user_id: 9, target_type: "file" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+		await waitFor(() =>
+			expect(mockState.list).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					user_id: undefined,
+					target_type: undefined,
+					offset: 0,
+				}),
+			),
+		);
+	});
 });

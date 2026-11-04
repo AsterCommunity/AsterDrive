@@ -32,6 +32,11 @@ export function AdminSearchFilter({
 	const { t } = useTranslation("admin");
 	const [open, setOpen] = useState(false);
 	const lookup = useAdminLookup(kind, value, open);
+	const searchPlaceholder = t(
+		kind === "policies"
+			? "filter_search_policy_placeholder"
+			: "filter_search_placeholder",
+	);
 	// Retain an unavailable selection without pretending its ID is its name.
 	const selected: AdminLookupOption | null =
 		lookup.selected ??
@@ -89,8 +94,8 @@ export function AdminSearchFilter({
 			<ComboboxContent className="min-w-72">
 				<ComboboxInput
 					showTrigger={false}
-					placeholder={t("filter_search_placeholder")}
-					aria-label={t("filter_search_placeholder")}
+					placeholder={searchPlaceholder}
+					aria-label={searchPlaceholder}
 				/>
 				<div className="flex items-center justify-between px-2 py-1">
 					<span className="text-xs text-muted-foreground">{label}</span>

@@ -9,6 +9,26 @@ beforeEach(() => {
 	mocks.search.mockReset();
 });
 describe("useAdminLookup", () => {
+	it("retries failed searches and clears a selected identity without leaking it into later pages", async () => {
+		const selected = { id: 99, label: "Archive", description: "#99" };
+		mocks.get.mockResolvedValue(selected);
+		mocks.search
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValue({ items: [selected], total: 1 });
+		const { result, rerender } = renderHook(
+			({ value }) => useAdminLookup("policies", value, true),
+			{ initialProps: { value: 99 as number | undefined } },
+		);
+		await waitFor(() => expect(result.current.failed).toBe(true));
+		act(() => result.current.retry());
+		await waitFor(() => expect(result.current.failed).toBe(false));
+		await waitFor(() => expect(result.current.options).toEqual([selected]));
+		act(() => result.current.rememberSelection(selected));
+		expect(result.current.selected).toEqual(selected);
+		rerender({ value: undefined });
+		expect(result.current.selected).toBeNull();
+		expect(result.current.selectedLoading).toBe(false);
+	});
 	it("keeps a failed selected identity retryable after a successful search", async () => {
 		const selected = { id: 99, label: "Archive", description: "#99" };
 		mocks.get

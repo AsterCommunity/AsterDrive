@@ -37,6 +37,7 @@
 	"filter_uploader": "Uploader",
 	"filter_share_user": "Share user",
 	"filter_search_placeholder": "Search by name or email…",
+	"filter_search_policy_placeholder": "Search by policy name…",
 	"filter_selection_unavailable": "Selection unavailable",
 	"filter_all": "All",
 	"filter_no_results": "No matching results",

@@ -1683,3 +1683,101 @@ it("restores binary size units and combines Blob health, hash and uploader filte
 	expect(screen.getByTestId("location-search")).toHaveTextContent("");
 	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("");
 });
+
+it("combines Blob filter changes and waits for a valid size range before querying", async () => {
+	mockState.listBlobs.mockResolvedValue({ items: [createBlob()], total: 100 });
+	renderPage("blobs", "/admin/file-blobs?offset=20");
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	fireEvent.change(screen.getByLabelText("filter_uploader"), {
+		target: { value: "9" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "select:orphan" }));
+	fireEvent.click(screen.getByRole("button", { name: "select:opaque" }));
+	fireEvent.change(screen.getByPlaceholderText("admin_storage_path"), {
+		target: { value: " archive/ " },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_ref_count_min"), {
+		target: { value: "0" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_ref_count_max"), {
+		target: { value: "2" },
+	});
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				uploader_user_id: 9,
+				health: "orphan",
+				hash_kind: "opaque",
+				storage_path: "archive/",
+				ref_count_min: 0,
+				ref_count_max: 2,
+				offset: 0,
+			}),
+		),
+	);
+	const before = mockState.listBlobs.mock.calls.length;
+	fireEvent.change(screen.getByPlaceholderText("admin_size_min"), {
+		target: { value: "20" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_size_max"), {
+		target: { value: "10" },
+	});
+	expect(screen.getAllByText("filter_size_invalid").length).toBeGreaterThan(0);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 400));
+	});
+	expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+	fireEvent.change(screen.getByPlaceholderText("admin_size_max"), {
+		target: { value: "30" },
+	});
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				size_min: 20,
+				size_max: 30,
+				storage_path: "archive/",
+				uploader_user_id: 9,
+			}),
+		),
+	);
+	expect(screen.queryByText("filter_size_invalid")).not.toBeInTheDocument();
+});
+
+it("combines file owner, Blob and team identities and resets pagination", async () => {
+	mockState.listFiles.mockResolvedValue({ items: [createFile()], total: 100 });
+	renderPage("files", "/admin/files?offset=20");
+	await screen.findByText("report.txt");
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	fireEvent.change(screen.getByLabelText("filter_owner"), {
+		target: { value: "9" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_blob_id"), {
+		target: { value: "31" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_team_id"), {
+		target: { value: "7" },
+	});
+	await waitFor(() =>
+		expect(mockState.listFiles).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				owner_user_id: 9,
+				blob_id: 31,
+				team_id: 7,
+				offset: 0,
+			}),
+		),
+	);
+	fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+	await waitFor(() =>
+		expect(mockState.listFiles).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				owner_user_id: undefined,
+				blob_id: undefined,
+				team_id: undefined,
+				offset: 0,
+			}),
+		),
+	);
+	expect(screen.getByPlaceholderText("admin_team_id")).toHaveValue("");
+});

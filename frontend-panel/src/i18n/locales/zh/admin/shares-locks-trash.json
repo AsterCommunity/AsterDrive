@@ -37,6 +37,7 @@
 	"filter_uploader": "上传者",
 	"filter_share_user": "分享用户",
 	"filter_search_placeholder": "按名称或邮箱搜索…",
+	"filter_search_policy_placeholder": "按策略名称搜索…",
 	"filter_selection_unavailable": "所选项不可用",
 	"filter_all": "全部",
 	"filter_no_results": "没有匹配结果",

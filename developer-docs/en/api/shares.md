@@ -36,6 +36,7 @@ Notes:
 - `max_downloads = 0` means unlimited; the limit applies to downloads and archive exports (video streaming counts once per first playback session), online previews are not counted
 - an empty password is treated as no password
 - `GET /shares` is paginated with `limit` and `offset`
+- Create/update responses include `ShareInfo.target_name` for an available file or folder. As in the admin list, deleted or missing targets produce `null`; public token responses use their existing `name` field.
 
 Edit request:
 

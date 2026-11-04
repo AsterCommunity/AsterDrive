@@ -96,6 +96,7 @@ pub(crate) fn share_target_for_share(share: &share::Model) -> Result<ShareTarget
 pub(super) fn share_info_from_model(
     model: share::Model,
     user: Option<account::UserSummary>,
+    target_name: Option<String>,
 ) -> Result<ShareInfo> {
     let target = share_target_from_columns(model.file_id, model.folder_id).ok_or_else(|| {
         AsterError::internal_error(format!(
@@ -110,7 +111,7 @@ pub(super) fn share_info_from_model(
         user,
         team_id: model.team_id,
         target,
-        target_name: None,
+        target_name,
         expires_at: model.expires_at,
         max_downloads: model.max_downloads,
         download_count: model.download_count,
