@@ -27,7 +27,6 @@ struct CorsRule {
     expose_headers: Vec<String>,
     max_age_seconds: Option<u32>,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CorsConfiguration {
     rules: Vec<CorsRule>,
@@ -178,14 +177,16 @@ impl OssCorsClient {
             .as_ref()
             .map(|body| BASE64_STANDARD.encode(Md5::digest(body.as_bytes())));
         let headers = signing::signed_bucket_request_headers(
-            method,
-            &self.bucket,
-            &self.region,
-            &self.access_key,
-            &self.secret_key,
+            signing::OssSigningContext {
+                method,
+                bucket: &self.bucket,
+                region: &self.region,
+                access_key: &self.access_key,
+                secret_key: &self.secret_key,
+                now: Utc::now(),
+            },
             xml.as_ref().map(|_| "application/xml"),
             md5.as_deref(),
-            Utc::now(),
         )
         .map_aster_err_ctx("sign OSS CORS request", AsterError::storage_driver_error)?;
         let mut request = self.client.request(
@@ -341,6 +342,150 @@ fn parse_bool(element: &ElementRef<'_, Arc<[u8]>>) -> Result<bool> {
     }
 }
 
+fn serialize(config: &CorsConfiguration) -> Result<String> {
+    if config.rules.len() > CORS_MAX_RULES {
+        return Err(invalid_cors("OSS CORS would exceed 20 rules"));
+    }
+    let mut bytes = Vec::new();
+    let mut writer = XmlStreamWriter::new(&mut bytes)
+        .map_aster_err_ctx("create OSS CORS XML", AsterError::storage_driver_error)?;
+    writer
+        .start("CORSConfiguration")
+        .map_aster_err_ctx("write OSS CORS root", AsterError::storage_driver_error)?;
+    for rule in &config.rules {
+        writer
+            .start("CORSRule")
+            .map_aster_err_ctx("write OSS CORS rule", AsterError::storage_driver_error)?;
+        for (name, values) in [
+            ("AllowedOrigin", &rule.origins),
+            ("AllowedMethod", &rule.methods),
+            ("AllowedHeader", &rule.headers),
+            ("ExposeHeader", &rule.expose_headers),
+        ] {
+            for value in values {
+                writer
+                    .start(name)
+                    .map_aster_err_ctx("write OSS CORS field", AsterError::storage_driver_error)?;
+                writer
+                    .text(value)
+                    .map_aster_err_ctx("write OSS CORS value", AsterError::storage_driver_error)?;
+                writer
+                    .end_element()
+                    .map_aster_err_ctx("close OSS CORS field", AsterError::storage_driver_error)?;
+            }
+        }
+        if let Some(value) = rule.max_age_seconds {
+            writer
+                .start("MaxAgeSeconds")
+                .map_aster_err_ctx("write OSS CORS max age", AsterError::storage_driver_error)?;
+            writer.text(&value.to_string()).map_aster_err_ctx(
+                "write OSS CORS max age value",
+                AsterError::storage_driver_error,
+            )?;
+            writer
+                .end_element()
+                .map_aster_err_ctx("close OSS CORS max age", AsterError::storage_driver_error)?;
+        }
+        writer
+            .end_element()
+            .map_aster_err_ctx("close OSS CORS rule", AsterError::storage_driver_error)?;
+    }
+    if let Some(value) = config.response_vary {
+        writer.start("ResponseVary").map_aster_err_ctx(
+            "write OSS CORS ResponseVary",
+            AsterError::storage_driver_error,
+        )?;
+        writer
+            .text(if value { "true" } else { "false" })
+            .map_aster_err_ctx(
+                "write OSS CORS ResponseVary value",
+                AsterError::storage_driver_error,
+            )?;
+        writer.end_element().map_aster_err_ctx(
+            "close OSS CORS ResponseVary",
+            AsterError::storage_driver_error,
+        )?;
+    }
+    writer
+        .end_element()
+        .map_aster_err_ctx("close OSS CORS root", AsterError::storage_driver_error)?;
+    writer
+        .finish()
+        .map_aster_err_ctx("finalize OSS CORS XML", AsterError::storage_driver_error)?;
+    if bytes.len() > CORS_XML_MAX_BYTES {
+        return Err(invalid_cors("OSS CORS XML would exceed 16 KB"));
+    }
+    String::from_utf8(bytes)
+        .map_aster_err_ctx("encode OSS CORS XML", AsterError::storage_driver_error)
+}
+
+fn invalid_cors(message: &str) -> AsterError {
+    AsterError::from(storage_driver_error(
+        StorageErrorKind::Misconfigured,
+        message,
+    ))
+}
+
+fn response_request_id(response: &reqwest::Response) -> Option<String> {
+    response
+        .headers()
+        .get("x-oss-request-id")?
+        .to_str()
+        .ok()
+        .filter(|value| {
+            value.len() <= 128
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        .map(str::to_string)
+}
+
+fn error_code(body: &[u8]) -> Option<String> {
+    let doc =
+        OwnedDocument::from_reader_with_options(body, &xml_options(CORS_ERROR_MAX_BYTES)).ok()?;
+    if doc.root().name() != "Error" {
+        return None;
+    }
+    doc.root().children().find_map(|child| match child {
+        NodeRef::Element(element) if element.name() == "Code" => {
+            element.text().map(|value| value.trim().to_string())
+        }
+        _ => None,
+    })
+}
+
+fn response_error(status: StatusCode, body: &[u8], operation: &str) -> AsterError {
+    let code = error_code(body).filter(|value| {
+        value.len() <= 80 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    });
+    let code_text = code.as_deref().unwrap_or("Unknown");
+    let message = format!("OSS {operation} failed: HTTP {status}, provider code {code_text}");
+    let kind = match status {
+        StatusCode::UNAUTHORIZED => StorageErrorKind::Auth,
+        StatusCode::FORBIDDEN => StorageErrorKind::Permission,
+        StatusCode::BAD_REQUEST => StorageErrorKind::Misconfigured,
+        StatusCode::CONFLICT | StatusCode::PRECONDITION_FAILED => StorageErrorKind::Precondition,
+        StatusCode::TOO_MANY_REQUESTS => StorageErrorKind::RateLimited,
+        status if status.is_server_error() => StorageErrorKind::Transient,
+        _ => StorageErrorKind::Unknown,
+    };
+    if kind == StorageErrorKind::Permission && code.as_deref() == Some("AccessDenied") {
+        let permission = if operation == "GetBucketCors" {
+            "oss:GetBucketCors"
+        } else {
+            "oss:PutBucketCors"
+        };
+        storage_driver_error_with_code(
+            kind,
+            ApiErrorCode::StoragePermission,
+            format!("{message}; grant {permission} on the target bucket"),
+        )
+    } else {
+        AsterError::from(storage_driver_error(kind, message))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,14 +606,16 @@ mod tests {
     fn bucket_signing_uses_oss_v4_and_cors_query() {
         let now = Utc.with_ymd_and_hms(2023, 12, 16, 12, 0, 0).unwrap();
         let headers = signing::signed_bucket_request_headers(
-            "GET",
-            "sample-bucket",
-            "cn-hangzhou",
-            "ak",
-            "sk",
+            signing::OssSigningContext {
+                method: "GET",
+                bucket: "sample-bucket",
+                region: "cn-hangzhou",
+                access_key: "ak",
+                secret_key: "sk",
+                now,
+            },
             None,
             None,
-            now,
         )
         .unwrap();
         let auth = headers
@@ -675,149 +822,17 @@ mod tests {
         assert!(error.to_string().contains("oss:PutBucketCors"));
         assert!(!error.to_string().contains("secret"));
         assert!(!error.to_string().contains("<Error>"));
-    }
-}
 
-fn serialize(config: &CorsConfiguration) -> Result<String> {
-    if config.rules.len() > CORS_MAX_RULES {
-        return Err(invalid_cors("OSS CORS would exceed 20 rules"));
-    }
-    let mut bytes = Vec::new();
-    let mut writer = XmlStreamWriter::new(&mut bytes)
-        .map_aster_err_ctx("create OSS CORS XML", AsterError::storage_driver_error)?;
-    writer
-        .start("CORSConfiguration")
-        .map_aster_err_ctx("write OSS CORS root", AsterError::storage_driver_error)?;
-    for rule in &config.rules {
-        writer
-            .start("CORSRule")
-            .map_aster_err_ctx("write OSS CORS rule", AsterError::storage_driver_error)?;
-        for (name, values) in [
-            ("AllowedOrigin", &rule.origins),
-            ("AllowedMethod", &rule.methods),
-            ("AllowedHeader", &rule.headers),
-            ("ExposeHeader", &rule.expose_headers),
+        for provider_code in [
+            "InvalidAccessKeyId",
+            "SignatureDoesNotMatch",
+            "RequestTimeTooSkewed",
         ] {
-            for value in values {
-                writer
-                    .start(name)
-                    .map_aster_err_ctx("write OSS CORS field", AsterError::storage_driver_error)?;
-                writer
-                    .text(value)
-                    .map_aster_err_ctx("write OSS CORS value", AsterError::storage_driver_error)?;
-                writer
-                    .end_element()
-                    .map_aster_err_ctx("close OSS CORS field", AsterError::storage_driver_error)?;
-            }
+            let body = format!("<Error><Code>{provider_code}</Code></Error>");
+            let error = response_error(StatusCode::FORBIDDEN, body.as_bytes(), "GetBucketCors");
+            let message = error.to_string();
+            assert!(message.contains(provider_code));
+            assert!(!message.contains("grant oss:GetBucketCors"));
         }
-        if let Some(value) = rule.max_age_seconds {
-            writer
-                .start("MaxAgeSeconds")
-                .map_aster_err_ctx("write OSS CORS max age", AsterError::storage_driver_error)?;
-            writer.text(&value.to_string()).map_aster_err_ctx(
-                "write OSS CORS max age value",
-                AsterError::storage_driver_error,
-            )?;
-            writer
-                .end_element()
-                .map_aster_err_ctx("close OSS CORS max age", AsterError::storage_driver_error)?;
-        }
-        writer
-            .end_element()
-            .map_aster_err_ctx("close OSS CORS rule", AsterError::storage_driver_error)?;
-    }
-    if let Some(value) = config.response_vary {
-        writer.start("ResponseVary").map_aster_err_ctx(
-            "write OSS CORS ResponseVary",
-            AsterError::storage_driver_error,
-        )?;
-        writer
-            .text(if value { "true" } else { "false" })
-            .map_aster_err_ctx(
-                "write OSS CORS ResponseVary value",
-                AsterError::storage_driver_error,
-            )?;
-        writer.end_element().map_aster_err_ctx(
-            "close OSS CORS ResponseVary",
-            AsterError::storage_driver_error,
-        )?;
-    }
-    writer
-        .end_element()
-        .map_aster_err_ctx("close OSS CORS root", AsterError::storage_driver_error)?;
-    writer
-        .finish()
-        .map_aster_err_ctx("finalize OSS CORS XML", AsterError::storage_driver_error)?;
-    if bytes.len() > CORS_XML_MAX_BYTES {
-        return Err(invalid_cors("OSS CORS XML would exceed 16 KB"));
-    }
-    String::from_utf8(bytes)
-        .map_aster_err_ctx("encode OSS CORS XML", AsterError::storage_driver_error)
-}
-
-fn invalid_cors(message: &str) -> AsterError {
-    AsterError::from(storage_driver_error(
-        StorageErrorKind::Misconfigured,
-        message,
-    ))
-}
-
-fn response_request_id(response: &reqwest::Response) -> Option<String> {
-    response
-        .headers()
-        .get("x-oss-request-id")?
-        .to_str()
-        .ok()
-        .filter(|value| {
-            value.len() <= 128
-                && value
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        })
-        .map(str::to_string)
-}
-
-fn error_code(body: &[u8]) -> Option<String> {
-    let doc =
-        OwnedDocument::from_reader_with_options(body, &xml_options(CORS_ERROR_MAX_BYTES)).ok()?;
-    if doc.root().name() != "Error" {
-        return None;
-    }
-    doc.root().children().find_map(|child| match child {
-        NodeRef::Element(element) if element.name() == "Code" => {
-            element.text().map(|value| value.trim().to_string())
-        }
-        _ => None,
-    })
-}
-
-fn response_error(status: StatusCode, body: &[u8], operation: &str) -> AsterError {
-    let code = error_code(body).filter(|value| {
-        value.len() <= 80 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
-    });
-    let code_text = code.as_deref().unwrap_or("Unknown");
-    let message = format!("OSS {operation} failed: HTTP {status}, provider code {code_text}");
-    let kind = match status {
-        StatusCode::UNAUTHORIZED => StorageErrorKind::Auth,
-        StatusCode::FORBIDDEN => StorageErrorKind::Permission,
-        StatusCode::BAD_REQUEST => StorageErrorKind::Misconfigured,
-        StatusCode::CONFLICT | StatusCode::PRECONDITION_FAILED => StorageErrorKind::Precondition,
-        StatusCode::TOO_MANY_REQUESTS => StorageErrorKind::RateLimited,
-        status if status.is_server_error() => StorageErrorKind::Transient,
-        _ => StorageErrorKind::Unknown,
-    };
-    if kind == StorageErrorKind::Permission {
-        let permission = if operation == "GetBucketCors" {
-            "oss:GetBucketCors"
-        } else {
-            "oss:PutBucketCors"
-        };
-        storage_driver_error_with_code(
-            kind,
-            ApiErrorCode::StoragePermission,
-            format!("{message}; grant {permission} on the target bucket"),
-        )
-    } else {
-        AsterError::from(storage_driver_error(kind, message))
     }
 }
