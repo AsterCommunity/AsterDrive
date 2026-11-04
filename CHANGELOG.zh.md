@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **COS CORS 配置** — 公开站点来源按浏览器规则序列化，省略默认端口并去重；读取失败不会覆盖既有配置，合并写入遵守 100 条规则和 64 KiB XML 限制，遇到未知字段时停止操作。错误响应即使包含非法编码也保留 HTTP 状态码与请求 ID，分别提示 GET/PUT 所需权限，并避免回显可能包含凭据的供应商原始消息。
 - **Azure Blob 下载文件名处理** — 预签名下载链接现在会保留 AsterDrive 当前的文件名、MIME 类型以及下载缓存策略。即使文件经过重命名，且底层对象仍使用 UUID 作为对象键，也能正确处理。现有对象无需进行任何迁移。（#721）
 
 - **OSS CNAME 对象键编码** — 移除 SDK 的 bucket 路径时保留对象键编码，包括 `%2F` 等字面百分号转义，确保普通请求和预签名请求访问预期对象。

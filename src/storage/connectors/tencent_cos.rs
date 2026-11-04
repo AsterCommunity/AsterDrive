@@ -379,7 +379,13 @@ async fn configure_tencent_cos_cors_for_policy(
 fn resolve_cos_cors_allowed_origins(
     runtime_config: &crate::config::RuntimeConfig,
 ) -> Result<Vec<String>> {
-    let origins = site_url::public_site_urls(runtime_config);
+    let value = site_url::public_site_url_config_value(runtime_config).ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::PolicyActionParameterRequired,
+            "public_site_url must be configured before configuring COS CORS",
+        )
+    })?;
+    let origins = site_url::parse_public_site_url_value(&value)?;
     if origins.is_empty() {
         return Err(validation_error_with_code(
             ApiErrorCode::PolicyActionParameterRequired,
@@ -609,3 +615,6 @@ impl StorageConnector for TencentCosConnector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
