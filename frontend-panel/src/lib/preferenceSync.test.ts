@@ -61,6 +61,33 @@ describe("preferenceSync", () => {
 		expect(mockState.updatePreferences).not.toHaveBeenCalled();
 	});
 
+	it("keeps new patches separate from an in-flight sync and can schedule after cancellation", async () => {
+		let finish!: () => void;
+		mockState.updatePreferences.mockImplementationOnce(
+			() =>
+				new Promise<void>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		const { queuePreferenceSync, cancelPreferenceSync } =
+			await loadPreferenceSync();
+		queuePreferenceSync({ theme_mode: "dark" });
+		await vi.advanceTimersByTimeAsync(500);
+		queuePreferenceSync({ language: "zh" });
+		cancelPreferenceSync();
+		queuePreferenceSync({ sort_order: "desc" });
+		await vi.advanceTimersByTimeAsync(499);
+		expect(mockState.updatePreferences).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(mockState.updatePreferences.mock.calls).toEqual([
+			[{ theme_mode: "dark" }],
+			[{ sort_order: "desc" }],
+		]);
+		finish();
+		await vi.advanceTimersByTimeAsync(500);
+		expect(mockState.updatePreferences).toHaveBeenCalledTimes(2);
+	});
+
 	it("logs a warning when the preference sync fails", async () => {
 		mockState.updatePreferences.mockRejectedValueOnce(new Error("boom"));
 		const { queuePreferenceSync } = await loadPreferenceSync();
