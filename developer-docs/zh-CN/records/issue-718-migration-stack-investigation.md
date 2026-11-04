@@ -43,4 +43,3 @@ Windows 11 x64、Rust 1.99.1、MSVC target 上，Debug 原始程序在 baseline 
 本次没有在 Windows 上运行 PostgreSQL/MySQL、采集调用栈或测量实际峰值；也未验证 runtime 关闭时的迁移完成保证。测试通过不能证明所有环境或所有升级路径都已覆盖。
 
 文档检查：在 `docs/` 运行 `bun run developer-docs:build`，因本机缺少 `cargo-nextest` 而在生成 OpenAPI 前退出（101）；开发者文档构建未通过，尚未验证。
-
