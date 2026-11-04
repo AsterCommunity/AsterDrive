@@ -78,8 +78,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_cos_cors_desc",
-        "Write AsterDrive's CORS rule to the Tencent COS bucket. AllowedOrigin values come from the system public_site_url setting, while other rules are preserved.",
-        "向腾讯云 COS bucket 写入 AsterDrive 的 CORS 规则。AllowedOrigin 来自系统 public_site_url 配置，其他规则会保留。",
+        "Write AsterDrive's CORS rule to the Tencent COS bucket. Allowed origins come from Public site URL in system settings, while other rules are preserved.",
+        "向腾讯云 COS bucket 写入 AsterDrive 的 CORS 规则。允许来源取自系统设置中的“公开站点地址”，其他规则会保留。",
     ),
     aster_drive_storage::storage_connector_message!(
         "policy_cos_promote_from_s3_desc",
