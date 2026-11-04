@@ -212,3 +212,61 @@ fn should_log_upload_completion_skips_completed_retry() {
         UploadSessionStatus::Uploading
     )));
 }
+
+#[tokio::test]
+async fn explicit_provider_completion_validates_session_and_finishes_before_object_verification() {
+    use crate::runtime::SharedRuntimeState;
+    use crate::storage::test_support::{HttpFixture, HttpReply};
+    use sea_orm::ActiveModelTrait;
+    for case in ["missing-key", "negative-size", "provider-error", "complete"] {
+        let state = crate::runtime::tasks::test_support::setup_primary_state().await;
+        let policy=crate::storage::connectors::test_support::insertable_policy(crate::storage::connectors::test_support::policy("asterdrive.storage.qiniu",2,serde_json::json!({"bucket":"archive","base_path":"tenant","download_origin":"https://origin.test","provider_resumable_upload_strategy":"server_relay","object_storage_download_strategy":"relay_stream"}),Default::default())).insert(state.writer_db()).await.unwrap();
+        let replies = match case {
+            "complete" => vec![
+                HttpReply::json(
+                    200,
+                    serde_json::json!({"parts":[{"partNumber":1,"size":12,"etag":"part"}]}),
+                ),
+                HttpReply::json(
+                    200,
+                    serde_json::json!({"parts":[{"partNumber":1,"size":12,"etag":"part"}]}),
+                ),
+                HttpReply::text(200, ""),
+                HttpReply::text(404, "not-published"),
+                HttpReply::text(404, "not-published"),
+            ],
+            "provider-error" => vec![HttpReply::text(503, "unavailable")],
+            _ => vec![],
+        };
+        let peer = HttpFixture::new(replies).await;
+        let driver = crate::storage::drivers::qiniu::tests::http_fixture_driver(&peer.base).await;
+        state
+            .driver_registry()
+            .insert_for_test(policy.id, std::sync::Arc::new(driver));
+        state
+            .driver_registry()
+            .reload_policy_snapshot(state.policy_snapshot(), state.writer_db())
+            .await
+            .unwrap();
+        let mut session = mock_session(UploadSessionStatus::Uploading);
+        session.policy_id = policy.id;
+        session.object_temp_key = Some("object".into());
+        session.provider_session_ciphertext=Some(crate::services::files::upload::session::provider::encrypt_provider_session(state.get_ref(),&session.id,&crate::services::files::upload::session::provider::ProviderSessionSecret {provider:"qiniu_kodo".into(),upload_url:serde_json::json!({"upload_id":"session","bucket":"archive","key":"tenant/object","expires_at":chrono::Utc::now().timestamp()+60}).to_string(),browser:None}).unwrap());
+        match case {
+            "missing-key" => session.object_temp_key = None,
+            "negative-size" => session.total_size = -1,
+            _ => {}
+        }
+        assert!(
+            super::provider_resumable::complete_provider_resumable_upload(&state, session, None)
+                .await
+                .is_err()
+        );
+        match case {
+            "complete" => assert_eq!(peer.requests().len(), 5),
+            "provider-error" => assert_eq!(peer.requests().len(), 1),
+            _ => assert!(peer.requests().is_empty()),
+        }
+        peer.stop().await;
+    }
+}

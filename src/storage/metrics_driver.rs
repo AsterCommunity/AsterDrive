@@ -327,6 +327,21 @@ impl StorageDriver for MetricsStorageDriver {
 
 #[async_trait]
 impl MultipartStorageDriver for MetricsMultipartStorageDriver {
+    async fn browser_part_request(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        expires: Duration,
+    ) -> Result<aster_drive_storage::BrowserUploadRequest> {
+        let started_at = Instant::now();
+        let result = self
+            .inner
+            .browser_part_request(path, upload_id, part_number, expires)
+            .await;
+        self.record("browser_part_request", &result, started_at);
+        result
+    }
     fn capabilities(&self) -> aster_drive_storage::traits::multipart::MultipartStorageCapabilities {
         self.inner.capabilities()
     }

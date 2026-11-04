@@ -64,12 +64,47 @@ pub(super) async fn init_provider_resumable_upload(
         ));
     }
     validate_provider_fragment_capabilities(&capabilities)?;
+    if strategy == ProviderResumableUploadStrategy::FrontendDirect
+        && (ctx.total_size <= 0 || ctx.total_size > 9_007_199_254_740_991)
+    {
+        return Err(AsterError::validation_error(
+            "browser upload size exceeds the safe integer range",
+        ));
+    }
+    if provider.numbered_parts().is_some() {
+        let multipart = state.driver_registry().get_multipart_driver(&ctx.policy)?;
+        // Native resumable protocols can use independent numbered parts. Reuse the
+        // concurrent lifecycle, completion verification and cleanup, not the S3 wire API.
+        let plan = super::context::plan_multipart_upload(
+            ctx.total_size,
+            ctx.policy.chunk_size,
+            multipart.as_ref(),
+            "native provider resumable upload",
+        )?;
+        let (mode, status, session_kind) = match strategy {
+            ProviderResumableUploadStrategy::FrontendDirect => (
+                UploadTransport::PresignedMultipart,
+                UploadSessionStatus::Presigned,
+                UploadSessionKind::ProviderPresignedMultipart,
+            ),
+            ProviderResumableUploadStrategy::ServerRelay => (
+                UploadTransport::Chunked,
+                UploadSessionStatus::Uploading,
+                UploadSessionKind::ProviderRelayMultipart,
+            ),
+        };
+        return super::context::init_multipart_session_with_retry(
+            state, ctx, multipart.as_ref(),
+            super::context::MultipartSessionInitParams {
+                mode, status, session_kind, chunk_size: plan.chunk_size, total_chunks: plan.total_chunks,
+                expires_in: Duration::hours(24), log_label: "native provider numbered resumable",
+                abort_db_error_context: "native session DB initialization error",
+                abort_db_error_message: "failed to abort native session after DB initialization error",
+                abort_collision_context: "native upload session id collision",
+            },
+        ).await.map(Some);
+    }
     if strategy == ProviderResumableUploadStrategy::FrontendDirect {
-        if ctx.total_size <= 0 || ctx.total_size > 9_007_199_254_740_991 {
-            return Err(AsterError::validation_error(
-                "browser upload size exceeds the safe integer range",
-            ));
-        }
         let browser = provider.browser_upload().ok_or_else(|| {
             AsterError::validation_error(
                 "storage driver does not support coordinated browser uploads",

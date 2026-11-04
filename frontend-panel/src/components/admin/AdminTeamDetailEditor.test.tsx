@@ -398,8 +398,19 @@ describe("AdminTeamDetailEditor", () => {
 		const quotaInput = (await screen.findByLabelText(
 			"quota",
 		)) as HTMLInputElement;
+		await waitFor(() => {
+			expect(screen.getByDisplayValue("Product")).toBeInTheDocument();
+			expect(quotaInput).toHaveValue(
+				Number(formatStorageQuotaDraft(1024).value),
+			);
+		});
 		fireEvent.change(quotaInput, { target: { value: "0" } });
-		fireEvent.click(screen.getByRole("button", { name: "save_changes" }));
+		const saveButton = screen.getByRole("button", { name: "save_changes" });
+		await waitFor(() => {
+			expect(quotaInput).toHaveValue(0);
+			expect(saveButton).toBeEnabled();
+		});
+		fireEvent.click(saveButton);
 
 		await waitFor(() => {
 			expect(adminTeamServiceMocks.update).toHaveBeenCalledWith(14, {

@@ -19,7 +19,7 @@ mod local;
 mod localization;
 mod models;
 mod onedrive;
-mod qiniu;
+pub(crate) mod qiniu;
 mod remote;
 mod s3;
 mod sftp;

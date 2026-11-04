@@ -27,7 +27,7 @@ use crate::services::files::upload::session::shared::expected_chunk_size_for_upl
 use crate::services::workspace::storage;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
-use aster_drive_storage::PresignedUploadRequest;
+use aster_drive_storage::BrowserUploadRequest;
 use futures::{StreamExt, stream};
 
 const RECOVERABLE_UPLOAD_SESSIONS_LIMIT: u64 = 100;
@@ -201,14 +201,38 @@ async fn recoverable_session_response(
 ) -> Result<RecoverableUploadSessionResponse> {
     let mode = mode_for_kind(resolve_upload_session_kind(&session)?);
     let progress = get_progress_impl(state, session.clone()).await?;
-    let completed_parts = upload_session_part_repo::list_by_upload(state.reader_db(), &session.id)
-        .await?
-        .into_iter()
-        .map(|part| RecoverableUploadPartResponse {
-            part_number: part.part_number,
-            etag: part.etag,
-        })
-        .collect();
+    let mut completed_parts: Vec<RecoverableUploadPartResponse> =
+        upload_session_part_repo::list_by_upload(state.reader_db(), &session.id)
+            .await?
+            .into_iter()
+            .map(|part| RecoverableUploadPartResponse {
+                part_number: part.part_number,
+                etag: part.etag,
+            })
+            .collect();
+
+    // Native numbered providers reconcile authoritative ETags at completion. Recovery
+    // must work without a browser's local receipt cache, including on a second device.
+    if session.session_kind == UploadSessionKind::ProviderPresignedMultipart {
+        let policy = state
+            .policy_snapshot()
+            .get_policy_or_err(session.policy_id)?;
+        let driver = state.driver_registry().get_driver(&policy)?;
+        if driver
+            .extensions()
+            .provider_resumable
+            .is_some_and(|provider| provider.numbered_parts().is_some())
+        {
+            completed_parts = progress
+                .chunks_on_disk
+                .iter()
+                .map(|number| RecoverableUploadPartResponse {
+                    part_number: *number,
+                    etag: String::new(),
+                })
+                .collect();
+        }
+    }
 
     Ok(RecoverableUploadSessionResponse {
         upload_id: session.id,
@@ -302,7 +326,7 @@ async fn presign_parts_impl(
     state: &PrimaryAppState,
     session: upload_session::Model,
     part_numbers: Vec<i32>,
-) -> Result<HashMap<i32, PresignedUploadRequest>> {
+) -> Result<HashMap<i32, BrowserUploadRequest>> {
     tracing::debug!(
         upload_id = %session.id,
         status = ?session.status,
@@ -342,7 +366,7 @@ async fn presign_parts_impl(
     let mut requests = HashMap::new();
     for part_num in part_numbers {
         let request = multipart
-            .presigned_upload_part_request(temp_key, multipart_id, part_num, expires)
+            .browser_part_request(temp_key, multipart_id, part_num, expires)
             .await?;
         requests.insert(part_num, request);
     }
@@ -391,7 +415,7 @@ pub async fn presign_parts(
     upload_id: &str,
     user_id: i64,
     part_numbers: Vec<i32>,
-) -> Result<HashMap<i32, PresignedUploadRequest>> {
+) -> Result<HashMap<i32, BrowserUploadRequest>> {
     let session =
         load_upload_session(state, state.writer_db(), personal_scope(user_id), upload_id).await?;
     run_upload_stage_operation(
@@ -408,7 +432,7 @@ pub async fn presign_parts_for_team(
     upload_id: &str,
     user_id: i64,
     part_numbers: Vec<i32>,
-) -> Result<HashMap<i32, PresignedUploadRequest>> {
+) -> Result<HashMap<i32, BrowserUploadRequest>> {
     let session = load_upload_session(
         state,
         state.writer_db(),

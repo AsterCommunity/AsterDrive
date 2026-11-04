@@ -587,6 +587,8 @@ export type FileQuery = components["schemas"]["FileQuery"];
 export type InitUploadResponse = components["schemas"]["InitUploadResponse"];
 export type PresignedUploadRequest =
 	components["schemas"]["PresignedUploadRequest"];
+export type BrowserUploadRequest =
+	components["schemas"]["BrowserUploadRequest"];
 export type ProviderResumableUploadResponse =
 	components["schemas"]["ProviderResumableUploadResponse"];
 export type RecoverableUploadPart =

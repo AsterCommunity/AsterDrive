@@ -204,6 +204,16 @@ vi.mock("@/services/uploadService", () => ({
 		listRecoverableSessions,
 		presignParts,
 		presignedUpload,
+		uploadPartRequest: (
+			request: { url: string; headers?: Record<string, string> },
+			file: Blob,
+			onProgress: unknown,
+			options: Record<string, unknown>,
+		) =>
+			presignedUpload(request.url, file, onProgress, {
+				...options,
+				headers: request.headers,
+			}),
 		uploadChunk,
 		streamUploadBody,
 	},

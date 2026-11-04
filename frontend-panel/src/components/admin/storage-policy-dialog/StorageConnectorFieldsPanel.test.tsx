@@ -59,6 +59,7 @@ const labels: Record<string, string> = {
 	mode_relay_desc: "Relay through AsterDrive",
 	personal: "Personal",
 	number_field: "Number field",
+	download_auth_validity_seconds: "Download signature validity (seconds)",
 	policy_connector_field_required: "{{field}} is required",
 	remote_node_id: "Remote node",
 	remote_storage_target_key: "Remote target",
@@ -152,6 +153,33 @@ function renderPanel({
 }
 
 describe("StorageConnectorFieldsPanel", () => {
+	it("renders an always-visible signature lifetime with backend bounds while relay is selected", () => {
+		const { onFieldChange } = renderPanel({
+			fields: [
+				field("download_auth_validity_seconds", "number", {
+					default_value: 180,
+					validation: { min_integer: 1, max_integer: 3600 },
+				}),
+			],
+			form: {
+				...emptyForm,
+				connector_config_values: {
+					object_storage_download_strategy: "relay_stream",
+				},
+			},
+		});
+		const input = screen.getByLabelText(
+			"Download signature validity (seconds)",
+		);
+		expect(input).toHaveValue(180);
+		expect(input).toHaveAttribute("min", "1");
+		expect(input).toHaveAttribute("max", "3600");
+		fireEvent.change(input, { target: { value: "600" } });
+		expect(onFieldChange).toHaveBeenCalledWith("connector_config_values", {
+			object_storage_download_strategy: "relay_stream",
+			download_auth_validity_seconds: 600,
+		});
+	});
 	it.each(["origin", "custom_origin", "cdn"])(
 		"conditionally renders the delivery address for %s",
 		(mode) => {
