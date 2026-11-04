@@ -161,6 +161,10 @@ flowchart LR
 
 This reduces bandwidth load on the AsterDrive node. It requires the browser to reach the Azure Blob endpoint, and the container CORS settings must allow the browser origin.
 
+Presigned downloads use the current AsterDrive filename and MIME type, together with the download cache policy. Objects stored under UUID names and files renamed in AsterDrive download with the current filename when a new URL is requested; no Azure object move is needed. Existing SAS URLs retain the filename from issuance until they expire.
+
+AsterDrive sets these response headers when generating the SAS. CORS `Exposed headers` only lets scripts read existing response headers; it does not set the download filename.
+
 ## 4. Create the Azure Blob Storage Policy in AsterDrive
 
 Open:

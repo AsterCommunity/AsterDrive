@@ -283,6 +283,67 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     assert!(get_resp.status().is_success());
     assert_eq!(get_resp.bytes().await.unwrap().as_ref(), b"presigned body");
 
+    // The same opaque object must download under the current logical name,
+    // including after a rename, without rewriting the provider object.
+    let opaque_path = "files/01a1a42f-b989-738f-9e1e-8cce58eb73ab";
+    driver
+        .put(opaque_path, b"named download body")
+        .await
+        .unwrap();
+    let cache_control = "private, max-age=0, must-revalidate";
+    for (disposition, filename) in [
+        ("attachment", "报告 100%+计划.pdf"),
+        ("attachment", "重命名后的报告.pdf"),
+        ("inline", "预览 报告.pdf"),
+    ] {
+        let encoded_filename =
+            percent_encoding::utf8_percent_encode(filename, percent_encoding::NON_ALPHANUMERIC);
+        let content_disposition = format!("{disposition}; filename*=UTF-8''{encoded_filename}");
+        let request = driver
+            .resolve_download_url(
+                opaque_path,
+                Duration::from_secs(300),
+                DirectDownloadOptions {
+                    download_name: Some(filename.to_string()),
+                    response_content_disposition: Some(content_disposition.clone()),
+                    response_content_type: Some("application/pdf".to_string()),
+                    response_cache_control: Some(cache_control.to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .expect("download with response overrides");
+        let response = client.get(&request.url).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["content-disposition"],
+            content_disposition
+        );
+        assert_eq!(response.headers()["content-type"], "application/pdf");
+        assert_eq!(response.headers()["cache-control"], cache_control);
+        assert_eq!(
+            response.bytes().await.unwrap().as_ref(),
+            b"named download body"
+        );
+
+        let response = client
+            .get(&request.url)
+            .header("Range", "bytes=0-4")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            response.headers()["content-disposition"],
+            content_disposition
+        );
+        assert_eq!(response.headers()["content-type"], "application/pdf");
+        assert_eq!(response.headers()["cache-control"], cache_control);
+        assert_eq!(response.headers()["content-range"], "bytes 0-4/19");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"named");
+    }
+
     let upload_id = driver
         .create_multipart_upload("multipart/assembled.bin")
         .await
