@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+**Azure Blob 下载文件名处理** — 预签名下载链接现在会保留 AsterDrive 当前的文件名、MIME 类型以及下载缓存策略。即使文件经过重命名，且底层对象仍使用 UUID 作为对象键，也能正确处理。现有对象无需进行任何迁移。（#721）
+
 - **OSS CNAME 对象键编码** — 移除 SDK 的 bucket 路径时保留对象键编码，包括 `%2F` 等字面百分号转义，确保普通请求和预签名请求访问预期对象。
 
 - **触屏可访问的设置说明** — 管理设置的说明问号改用支持 hover 的 Popover，完整说明可通过桌面 hover、键盘聚焦、指针点击和触屏轻点获取；扩大触摸目标并关联无障碍说明，同时保持紧凑的设置布局。（#713）
