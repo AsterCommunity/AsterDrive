@@ -2567,8 +2567,16 @@ async fn test_admin_shares_support_explicit_sorting() {
     let filtered = body["data"]["items"].as_array().unwrap();
     assert_eq!(body["data"]["total"], 3);
     assert_eq!(filtered.len(), 2);
-    assert!(filtered.iter().all(|share| share["target"]["type"] == "file"));
-    assert!(filtered.iter().all(|share| share["target_name"].as_str().is_some()));
+    assert!(
+        filtered
+            .iter()
+            .all(|share| share["target"]["type"] == "file")
+    );
+    assert!(
+        filtered
+            .iter()
+            .all(|share| share["target_name"].as_str().is_some())
+    );
 
     let body: Value = admin_get_json!(
         app,
