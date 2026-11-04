@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,11 +21,13 @@ export function AdminUserFilter({ value, onChange }: AdminUserFilterProps) {
 	const [keyword, setKeyword] = useState("");
 	const [users, setUsers] = useState<UserInfo[]>([]);
 	const [selected, setSelected] = useState<UserInfo | null>(null);
+	const selectedRef = useRef(selected);
+	selectedRef.current = selected;
 	const [loading, setLoading] = useState(false);
 
 	useEffect(() => {
 		if (value == null) return;
-		if (selected?.id === value) return;
+		if (selectedRef.current?.id === value) return;
 		let active = true;
 		adminUserService
 			.get(value)
@@ -38,7 +40,7 @@ export function AdminUserFilter({ value, onChange }: AdminUserFilterProps) {
 		return () => {
 			active = false;
 		};
-	}, [value, selected?.id]);
+	}, [value]);
 
 	useEffect(() => {
 		if (!open) return;

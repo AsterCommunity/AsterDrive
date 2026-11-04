@@ -75,3 +75,27 @@ it("restores the selected user from its URL value", async () => {
 		).toBeInTheDocument(),
 	);
 });
+
+it("does not reload the old user while switching an active filter", async () => {
+	mockState.get.mockResolvedValue({
+		id: 4,
+		username: "first",
+		email: "first@example.com",
+	});
+	mockState.list.mockResolvedValue({
+		items: [{ id: 5, username: "next", email: "next@example.com" }],
+	});
+	const onChange = vi.fn();
+	const { rerender } = render(
+		<AdminUserFilter value={4} onChange={onChange} />,
+	);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "first (first@example.com)" }),
+	);
+	fireEvent.click(
+		await screen.findByRole("button", { name: "next (next@example.com)" }),
+	);
+	rerender(<AdminUserFilter value={5} onChange={onChange} />);
+	expect(onChange).toHaveBeenCalledWith(5);
+	expect(mockState.get).toHaveBeenCalledTimes(1);
+});
