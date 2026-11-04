@@ -78,7 +78,12 @@ describe("adminService", () => {
 			sort_by: "username",
 			sort_order: "asc",
 		});
-		adminPolicyService.list({ limit: 5, offset: 10, sort_by: "name" });
+		adminPolicyService.list({
+			limit: 5,
+			offset: 10,
+			keyword: "archive",
+			sort_by: "name",
+		});
 		adminRemoteNodeService.list({ limit: 7, offset: 14, sort_order: "desc" });
 		adminPolicyGroupService.list({
 			limit: 6,
@@ -96,7 +101,7 @@ describe("adminService", () => {
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			2,
-			"/admin/policies?limit=5&offset=10&sort_by=name",
+			"/admin/policies?limit=5&offset=10&keyword=archive&sort_by=name",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			3,
@@ -792,6 +797,9 @@ describe("adminService", () => {
 			offset: 20,
 			hash: "sha256:abc",
 			policy_id: 3,
+			created_by_user_id: 5,
+			health: "orphan",
+			hash_kind: "opaque",
 			storage_path: "tenant-a/archive.bin",
 			ref_count_min: 0,
 			ref_count_max: 2,
@@ -816,7 +824,7 @@ describe("adminService", () => {
 		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/files/21");
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			3,
-			"/admin/file-blobs?limit=10&offset=20&hash=sha256%3Aabc&policy_id=3&storage_path=tenant-a%2Farchive.bin&ref_count_min=0&ref_count_max=2&size_min=1024&size_max=4096&sort_by=size&sort_order=asc",
+			"/admin/file-blobs?limit=10&offset=20&hash=sha256%3Aabc&created_by_user_id=5&health=orphan&hash_kind=opaque&policy_id=3&storage_path=tenant-a%2Farchive.bin&ref_count_min=0&ref_count_max=2&size_min=1024&size_max=4096&sort_by=size&sort_order=asc",
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/file-blobs/31");
 		expect(mockState.post).toHaveBeenCalledWith(

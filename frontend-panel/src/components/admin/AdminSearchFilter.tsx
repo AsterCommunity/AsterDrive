@@ -61,10 +61,7 @@ export function AdminSearchFilter({
 		kind === "user" ? t("admin_filter_user") : t("admin_filter_policy");
 
 	useEffect(() => {
-		if (value == null) {
-			setSelected(null);
-			return;
-		}
+		if (value == null) return;
 		if (selected?.id === value) return;
 		let active = true;
 		loadSelected(kind, value)

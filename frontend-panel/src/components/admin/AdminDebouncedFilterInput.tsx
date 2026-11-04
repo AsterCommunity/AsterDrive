@@ -11,11 +11,21 @@ export function AdminDebouncedFilterInput({
 }) {
 	const [draft, setDraft] = useState(value);
 	const onChangeRef = useRef(onChange);
+	const emittedRef = useRef<string | null>(null);
 	onChangeRef.current = onChange;
-	useEffect(() => setDraft(value), [value]);
+	useEffect(() => {
+		if (value === emittedRef.current) {
+			emittedRef.current = null;
+			return;
+		}
+		setDraft(value);
+	}, [value]);
 	useEffect(() => {
 		if (draft === value) return;
-		const timer = window.setTimeout(() => onChangeRef.current(draft), 300);
+		const timer = window.setTimeout(() => {
+			emittedRef.current = draft;
+			onChangeRef.current(draft);
+		}, 300);
 		return () => window.clearTimeout(timer);
 	}, [draft, value]);
 	return (
