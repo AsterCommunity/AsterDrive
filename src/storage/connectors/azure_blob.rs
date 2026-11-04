@@ -113,7 +113,16 @@ async fn execute_cors(
     let value = site_url::public_site_url_config_value(runtime).ok_or_else(|| {
         AsterError::validation_error("Configure public_site_url before configuring Azure CORS")
     })?;
-    let origins = site_url::parse_public_site_url_value(&value)?;
+    let mut origins = Vec::new();
+    for origin in site_url::parse_public_site_url_value(&value)? {
+        let origin = url::Url::parse(&origin)
+            .map_err(|_| AsterError::validation_error("invalid public_site_url origin"))?
+            .origin()
+            .ascii_serialization();
+        if !origins.contains(&origin) {
+            origins.push(origin);
+        }
+    }
     if origins.is_empty() {
         return Err(AsterError::validation_error(
             "Configure public_site_url before configuring Azure CORS",

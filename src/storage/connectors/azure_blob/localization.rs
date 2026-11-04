@@ -8,8 +8,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "azure_cors_description",
-        "Changes Blob service CORS for the entire storage account currently used by this policy, affecting all its containers. Allowed origins: {{public_site_url}}. Other service properties and existing rules are preserved. CDN and Front Door require separate configuration.",
-        "修改当前使用的整个存储账户的 Blob service CORS，影响该账户所有容器。允许来源：{{public_site_url}}。保留其他服务属性和现有规则。CDN 和 Front Door 需单独配置。"
+        "Write AsterDrive's CORS rule to the Blob Service of the entire storage account currently used by this policy, affecting all its containers. Allowed origins come from the configured public site URLs. Other CORS rules and service settings are preserved.",
+        "向当前使用的整个存储账户的 Blob Service 写入 AsterDrive 的 CORS 规则，影响该账户所有容器。允许来源取自系统配置的公开站点地址，保留其他 CORS 规则和服务配置。"
     ),
     aster_drive_storage::storage_connector_message!(
         "azure_cors_origins",

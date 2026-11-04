@@ -225,18 +225,18 @@ Azure Blob
 
 ### 自动配置
 
-1. 在 `管理 -> 系统设置 -> 站点配置 -> 公开站点地址` 配置实际浏览器站点 Origin，例如 `https://drive.example.com`，可以配置多个明确来源，不能使用 `*`。
+1. 在 `管理 -> 系统设置 -> 站点配置 -> 公开站点地址` 配置实际浏览器站点 Origin，例如 `https://drive.example.com`，可以配置多个明确来源。来源按浏览器 Origin 规则规范化，省略 HTTP 的默认端口 `80` 和 HTTPS 的默认端口 `443`，并合并重复来源。
 2. 在 Azure Blob 策略的新建或编辑表单中填写当前连接，点击 **自动配置 Azure Blob CORS**。编辑时留空的凭据复用该策略已保存的值，新建策略必须填写完整凭据。
-3. 核对当前账户、endpoint 和账户级影响范围，使用与 COS 相同的动作确认流程。点击动作只打开确认区，不请求后端；确认后，后端读取当前连接与公开站点 Origin 并配置 CORS。保存策略或测试连接不会自动配置 CORS。
+3. 核对当前账户、endpoint 和账户级影响范围，使用与 COS 相同的动作确认流程。点击动作打开确认区，确认后由后端读取当前连接与公开站点 Origin 并配置 CORS。
 4. 查看结果中的配置变更状态、保留规则数和 Azure 请求 ID，然后继续浏览器验收。
 
 :::caution[影响账户的所有 Blob 容器]
-CORS 配置属于整个存储账户的 Blob service，影响该账户的所有 container，不受当前策略 container 或基础路径限制。多个应用共用账户时，请先确认这一影响范围。自动配置不会修改公开访问、对象权限、CDN、Front Door 或防盗链。
+CORS 配置属于当前使用的整个存储账户的 Blob Service，影响该账户的所有容器。多个应用共用账户时，请先确认这一影响范围。
 :::
 
-动作只接受账户的主 Blob service endpoint（Azure 公有云、中国云、美国政府云及德国云官方域名），使用当前 storage account name + account key 进行 Shared Key 认证。请求不包含 container 或基础路径，不会发往 CDN/Front Door；本地 Azurite 的 loopback endpoint 可用于协议测试。自定义源站域名、Private Link 专用域名或其他未识别 endpoint 请在 Azure Portal 手工配置。
+动作使用账户的主 Blob service endpoint（Azure 公有云、中国云、美国政府云及德国云官方域名），使用当前 storage account name + account key 进行 Shared Key 认证。管理请求发送到账户 Blob Service 根路径；本地 Azurite 的 loopback endpoint 可用于协议测试。自定义源站域名、Private Link 专用域名或其他未识别 endpoint 请在 Azure Portal 手工配置。
 
-账户必须允许 Shared Key，并允许 AD 服务器访问 Blob service。账户密钥提供账户级能力，不能给这个密钥单独缩小成“只改 CORS”的权限；本动作不需要订阅管理凭据、ARM、Entra ID 或 OAuth。仅持有 Container/Blob SAS 或 `Storage Blob Data Contributor` 身份不满足本动作的认证方式。若组织禁止 Shared Key，请遵循组织策略在 Azure Portal 配置 CORS，动作本身不会开启 Shared Key。权限失败只返回脱敏 provider code 和请求 ID，不回显密钥、签名或 Azure 原始错误详情。
+该配置需要 AsterDrive 服务端有足够权限更改 Blob Service 的 CORS 配置。账户须启用 Shared Key，并在 Azure 网络规则中放行运行 AsterDrive 的服务端或其出口网络访问 Blob Service。当前动作使用账户名和账户密钥进行账户级认证。组织要求使用其他认证方式时，请通过 Azure Portal 按组织策略配置 CORS。权限失败信息包含脱敏 provider code、请求 ID 和权限排查指引。
 
 自动配置先读取现有 CORS，完整保留规则及相对顺序，仅在没有完整等价规则时追加一条规则。完整等价比较包含 Origin、方法、请求头、暴露响应头和缓存时间，忽略列表顺序及 header 名大小写。不会仅凭本站 Origin 认领、更新或删除规则，公开站点地址变化后也不会自动清理旧规则。其他 Blob service 属性通过请求中省略对应 XML 顶层元素保留。
 

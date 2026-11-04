@@ -248,7 +248,7 @@ struct RecordedRequest {
 }
 
 async fn mock_service(
-    responses: Vec<(u16, String)>,
+    responses: Vec<(u16, Vec<u8>)>,
 ) -> (String, tokio::task::JoinHandle<Vec<RecordedRequest>>) {
     use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -324,9 +324,9 @@ async fn request_contract_reads_merges_writes_only_cors_and_verifies() {
     let existing = rules_xml(std::slice::from_ref(&unrelated)).unwrap();
     let updated = rules_xml(&[unrelated, desired_rule(&origins())]).unwrap();
     let (endpoint, task) = mock_service(vec![
-        (200, existing),
-        (202, String::new()),
-        (200, updated.clone()),
+        (200, existing.into_bytes()),
+        (202, Vec::new()),
+        (200, updated.clone().into_bytes()),
     ])
     .await;
     let result = driver(&endpoint)
@@ -369,7 +369,7 @@ async fn request_contract_reads_merges_writes_only_cors_and_verifies() {
 #[tokio::test]
 async fn equivalent_rules_skip_put_and_failed_reads_never_write() {
     let xml = rules_xml(&[desired_rule(&origins())]).unwrap();
-    let (endpoint, task) = mock_service(vec![(200, xml)]).await;
+    let (endpoint, task) = mock_service(vec![(200, xml.into_bytes())]).await;
     assert!(
         !driver(&endpoint)
             .configure_asterdrive_cors(&origins())
@@ -383,7 +383,7 @@ async fn equivalent_rules_skip_put_and_failed_reads_never_write() {
         (404, ""),
         (200, "broken XML"),
     ] {
-        let (endpoint, task) = mock_service(vec![(status, body.into())]).await;
+        let (endpoint, task) = mock_service(vec![(status, body.as_bytes().to_vec())]).await;
         assert!(
             driver(&endpoint)
                 .configure_asterdrive_cors(&origins())
@@ -395,13 +395,44 @@ async fn equivalent_rules_skip_put_and_failed_reads_never_write() {
 }
 
 #[tokio::test]
+async fn invalid_utf8_errors_preserve_http_status_and_request_id() {
+    let body = b"<Error><Code>AuthorizationFailure</Code><Message>\xff</Message></Error>".to_vec();
+    let (endpoint, task) = mock_service(vec![(403, body)]).await;
+    let error = driver(&endpoint)
+        .configure_asterdrive_cors(&origins())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Permission)
+    );
+    assert!(error.message().contains("403"));
+    assert!(error.message().contains("AuthorizationFailure"));
+    assert!(error.message().contains("request-123"));
+    assert!(!error.message().contains("encoding"));
+    assert_eq!(task.await.unwrap().len(), 1);
+
+    let (endpoint, task) = mock_service(vec![(200, vec![0xff])]).await;
+    let error = driver(&endpoint)
+        .configure_asterdrive_cors(&origins())
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .message()
+            .contains("invalid service properties encoding")
+    );
+    assert_eq!(task.await.unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn failed_put_and_conflicting_verification_are_reported() {
     let empty = "<StorageServiceProperties><Cors/></StorageServiceProperties>".to_owned();
     let (endpoint, task) = mock_service(vec![
-        (200, empty.clone()),
+        (200, empty.clone().into_bytes()),
         (
             403,
-            "<Error><Code>KeyBasedAuthenticationNotPermitted</Code></Error>".into(),
+            b"<Error><Code>KeyBasedAuthenticationNotPermitted</Code></Error>".to_vec(),
         ),
     ])
     .await;
@@ -415,9 +446,9 @@ async fn failed_put_and_conflicting_verification_are_reported() {
     );
     assert_eq!(task.await.unwrap().len(), 2);
     let (endpoint, task) = mock_service(vec![
-        (200, empty.clone()),
-        (202, String::new()),
-        (200, empty),
+        (200, empty.clone().into_bytes()),
+        (202, Vec::new()),
+        (200, empty.into_bytes()),
     ])
     .await;
     assert!(

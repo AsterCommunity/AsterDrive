@@ -73,13 +73,9 @@ test("uses the shared CORS confirmation flow and leaves saves and connection tes
 	await expect(
 		page.getByRole("button", { name: "Confirm action", exact: true }),
 	).toBeVisible();
-	const configuredOrigin = new URL(page.url()).origin;
 	await expect(
-		page.getByText(/entire storage account currently used/).last(),
-	).toContainText(configuredOrigin);
-	await expect(
-		page.getByText(/entire storage account currently used/).last(),
-	).not.toContainText("{{public_site_url}}");
+		page.getByText(/entire storage account currently used/),
+	).toBeVisible();
 	expect(writes).toBe(0);
 	await page.getByRole("button", { name: "2 Configure Connection" }).click();
 	await page.locator("#bucket").fill("changed-container");
@@ -97,6 +93,9 @@ test("uses the shared CORS confirmation flow and leaves saves and connection tes
 		.getByRole("button", { name: "Confirm action", exact: true })
 		.click();
 	await expect(page.getByText(/azure-request-browser/)).toBeVisible();
+	await expect(
+		page.getByText(/Site origins: https:\/\/drive.example.test/),
+	).toBeVisible();
 	expect(writes).toBe(1);
 	await page.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(page).toHaveURL(/\/admin\/policies\/\d+$/);

@@ -127,7 +127,10 @@ async fn azure_cors_saved_and_draft_execute_once_with_current_target_and_saved_c
     let service = BlobService::start();
     let new_service = BlobService::start();
     let state = common::setup().await;
-    configure_origins(&state, r#"["https://DRIVE.example.test:443"]"#);
+    configure_origins(
+        &state,
+        r#"["https://DRIVE.example.test:443","https://drive.example.test","http://drive.example.test:80","http://drive.example.test","https://drive.example.test:8443"]"#,
+    );
     let runtime = state.runtime_config().clone();
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
@@ -170,7 +173,11 @@ async fn azure_cors_saved_and_draft_execute_once_with_current_target_and_saved_c
     assert_eq!(saved["data"]["output"]["account"], "account");
     assert_eq!(
         saved["data"]["output"]["allowed_origins"],
-        json!(["https://drive.example.test:443"])
+        json!([
+            "https://drive.example.test",
+            "http://drive.example.test",
+            "https://drive.example.test:8443"
+        ])
     );
     assert_eq!(saved["data"]["output"]["changed"], true);
     assert_eq!(saved["data"]["output"]["request_id"], "azure-api-write");

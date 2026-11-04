@@ -158,11 +158,12 @@ impl AzureBlobDriver {
             AsterError::storage_driver_error,
         )
         .await?;
-        let body =
-            String::from_utf8(bytes).map_err(|_| invalid("invalid service properties encoding"))?;
         if !status.is_success() {
+            let body = String::from_utf8_lossy(&bytes);
             return Err(response_error(status, &body, request_id.as_deref()));
         }
+        let body =
+            String::from_utf8(bytes).map_err(|_| invalid("invalid service properties encoding"))?;
         Ok((body, request_id))
     }
 
