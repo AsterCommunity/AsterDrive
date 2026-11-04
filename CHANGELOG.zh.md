@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **OneDrive Blob 直连交付** — 在严格文件名模式下，应用内下载和安全的 Blob 预览可以使用 Microsoft Graph 提供的直连 URL，支持已重命名文件以及历史遗留的 UUID 对象，同时确保使用 AsterDrive 当前的文件保存名称和 MIME 类型。原生下载、直连 URL 和外部查看器仍保留严格文件名回退机制；内联沙箱安全检查仍然强制执行。(#723)
+
 - **Workspace 依赖所有权** — 全部 Forge 依赖由 workspace 统一固定到同一 revision，`crates/*` 的依赖版本也统一继承 workspace，成员保留各自的 feature 配置。
 
 - **对象存储 CNAME 配置** — OSS、OBS 和 COS 使用一致的自定义域名开关文案及桶绑定寻址，各家签名前保留最终 host、port 和对象路径。华为 OBS 以布尔字段 `obs_use_cname` 替代 `obs_addressing_mode`，可逆迁移在已保存策略、远端存储目标和延迟清理快照中保留官方／自定义域名行为。所有节点应统一升级，API 客户端须改用布尔字段。
@@ -35,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-**Azure Blob 下载文件名处理** — 预签名下载链接现在会保留 AsterDrive 当前的文件名、MIME 类型以及下载缓存策略。即使文件经过重命名，且底层对象仍使用 UUID 作为对象键，也能正确处理。现有对象无需进行任何迁移。（#721）
+- **Azure Blob 下载文件名处理** — 预签名下载链接现在会保留 AsterDrive 当前的文件名、MIME 类型以及下载缓存策略。即使文件经过重命名，且底层对象仍使用 UUID 作为对象键，也能正确处理。现有对象无需进行任何迁移。（#721）
 
 - **OSS CNAME 对象键编码** — 移除 SDK 的 bucket 路径时保留对象键编码，包括 `%2F` 等字面百分号转义，确保普通请求和预签名请求访问预期对象。
 
