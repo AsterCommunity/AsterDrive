@@ -127,7 +127,7 @@ impl StorageDriver for AzureBlobDriver {
         src_path: &str,
         dest_path: &str,
     ) -> aster_drive_storage::Result<String> {
-        let source_url = self.blob_url(src_path, "r", DEFAULT_OPERATION_SAS_TTL)?;
+        let source_url = self.blob_url(src_path, "r", DEFAULT_OPERATION_SAS_TTL, None)?;
         let endpoint_uses_loopback_host = self.endpoint_uses_loopback_host();
         let dest_client = if endpoint_uses_loopback_host {
             self.block_blob_client_without_retries(dest_path, "cw")?

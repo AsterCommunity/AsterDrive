@@ -17,7 +17,8 @@ use azure_storage_blob::{
 use aster_drive_model::types::effective_object_multipart_chunk_size;
 use aster_drive_storage::object_key;
 use aster_drive_storage::{
-    MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
+    DirectDownloadOptions, MapStorageErr, Result, StorageError, StorageErrorKind,
+    storage_driver_error,
 };
 use aster_forge_utils::net::is_loopback_host;
 use sha2::{Digest, Sha256};
@@ -191,7 +192,7 @@ impl AzureBlobDriver {
             "{}/{}?{}",
             self.endpoint,
             percent_encode_path_segment(&self.container),
-            self.service_sas_query(None, permissions, expires)?
+            self.service_sas_query(None, permissions, expires, None)?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -201,14 +202,20 @@ impl AzureBlobDriver {
         })
     }
 
-    fn blob_url(&self, path: &str, permissions: &str, expires: Duration) -> Result<Url> {
+    fn blob_url(
+        &self,
+        path: &str,
+        permissions: &str,
+        expires: Duration,
+        download_options: Option<&DirectDownloadOptions>,
+    ) -> Result<Url> {
         let key = self.full_key(path);
         Url::parse(&format!(
             "{}/{}/{}?{}",
             self.endpoint,
             percent_encode_path_segment(&self.container),
             percent_encode_blob_path(&key),
-            self.service_sas_query(Some(&key), permissions, expires)?
+            self.service_sas_query(Some(&key), permissions, expires, download_options)?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -219,7 +226,7 @@ impl AzureBlobDriver {
     }
 
     fn block_blob_url(&self, path: &str, permissions: &str, expires: Duration) -> Result<Url> {
-        self.blob_url(path, permissions, expires)
+        self.blob_url(path, permissions, expires, None)
     }
 
     fn client_options() -> BlobClientOptions {
@@ -255,7 +262,7 @@ impl AzureBlobDriver {
 
     fn blob_client(&self, path: &str, permissions: &str) -> Result<BlobClient> {
         BlobClient::new(
-            self.blob_url(path, permissions, DEFAULT_OPERATION_SAS_TTL)?,
+            self.blob_url(path, permissions, DEFAULT_OPERATION_SAS_TTL, None)?,
             None,
             Some(Self::client_options()),
         )
@@ -374,6 +381,7 @@ impl AzureBlobDriver {
         blob_name: Option<&str>,
         permissions: &str,
         expires: Duration,
+        download_options: Option<&DirectDownloadOptions>,
     ) -> Result<String> {
         use azure_core::credentials::Secret;
         use azure_core::hmac::hmac_sha256;
@@ -398,6 +406,18 @@ impl AzureBlobDriver {
         };
         let signed_resource = if blob_name.is_some() { "b" } else { "c" };
         let signed_protocol = self.sas_protocol();
+        let (cache_control, content_disposition, content_type) = download_options
+            .map(|options| {
+                (
+                    options.response_cache_control.as_deref().unwrap_or(""),
+                    options
+                        .response_content_disposition
+                        .as_deref()
+                        .unwrap_or(""),
+                    options.response_content_type.as_deref().unwrap_or(""),
+                )
+            })
+            .unwrap_or(("", "", ""));
 
         // Service SAS string-to-sign for version 2020-12-06+.
         // Empty fields are significant and must remain as blank lines.
@@ -413,11 +433,11 @@ impl AzureBlobDriver {
             signed_resource,         // signed resource
             "",                      // signed snapshot time
             "",                      // signed encryption scope
-            "",                      // rscc
-            "",                      // rscd
+            cache_control,           // rscc
+            content_disposition,     // rscd
             "",                      // rsce
             "",                      // rscl
-            "",                      // rsct
+            content_type,            // rsct
         ]
         .join("\n");
         let signature = hmac_sha256(&string_to_sign, &Secret::new(self.account_key.clone()))
@@ -435,8 +455,17 @@ impl AzureBlobDriver {
             .append_pair("st", &signed_start)
             .append_pair("se", &signed_expiry)
             .append_pair("sr", signed_resource)
-            .append_pair("sp", permissions)
-            .append_pair("sig", &signature);
+            .append_pair("sp", permissions);
+        if !cache_control.is_empty() {
+            serializer.append_pair("rscc", cache_control);
+        }
+        if !content_disposition.is_empty() {
+            serializer.append_pair("rscd", content_disposition);
+        }
+        if !content_type.is_empty() {
+            serializer.append_pair("rsct", content_type);
+        }
+        serializer.append_pair("sig", &signature);
         Ok(serializer.finish())
     }
 
@@ -483,7 +512,12 @@ mod tests {
 
     use super::{AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials};
     use aster_drive_model::types::effective_object_multipart_chunk_size;
-    use aster_drive_storage::StorageDriver;
+    use aster_drive_storage::{
+        DirectDownloadOptions, DirectDownloadStorageDriver, PresignedUploadStorageDriver,
+        StorageDriver,
+    };
+    use base64::Engine as _;
+    use hmac::{Hmac, KeyInit, Mac};
 
     fn sample_config() -> AzureBlobDriverConfig {
         AzureBlobDriverConfig {
@@ -574,6 +608,7 @@ mod tests {
                 "folder with space/中文+plus.txt",
                 "rw",
                 Duration::from_secs(300),
+                None,
             )
             .expect("blob URL");
 
@@ -607,11 +642,97 @@ mod tests {
         credentials.account_name = "devstoreaccount1".to_string();
         let driver = AzureBlobDriver::new(config, credentials).expect("valid Azurite driver");
         let blob_url = driver
-            .blob_url("local.bin", "cw", Duration::from_secs(300))
+            .blob_url("local.bin", "cw", Duration::from_secs(300), None)
             .expect("blob URL");
         let query: HashMap<_, _> = blob_url.query_pairs().into_owned().collect();
 
         assert_eq!(query.get("spr").map(String::as_str), Some("https,http"));
+    }
+
+    #[tokio::test]
+    async fn download_sas_signs_response_overrides_without_changing_the_object_path() {
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
+        let filename = "报告 100%+计划.pdf";
+        let disposition =
+            crate::services::files::file::DownloadDisposition::Attachment.header_value(filename);
+        let cache_control = "private, max-age=0, must-revalidate";
+        let content_type = "application/pdf";
+        let download = driver
+            .resolve_download_url(
+                "files/opaque-id",
+                Duration::from_secs(300),
+                DirectDownloadOptions {
+                    download_name: Some(filename.to_string()),
+                    response_cache_control: Some(cache_control.to_string()),
+                    response_content_disposition: Some(disposition.clone()),
+                    response_content_type: Some(content_type.to_string()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("download SAS")
+            .expect("direct download");
+        let url = url::Url::parse(&download.url).expect("download URL");
+        assert_eq!(url.path(), "/photos/base%20path/files/opaque%2Did");
+        let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(query.get("rscd"), Some(&disposition));
+        assert_eq!(query.get("rsct").map(String::as_str), Some(content_type));
+        assert_eq!(query.get("rscc").map(String::as_str), Some(cache_control));
+        assert_eq!(query.get("sp").map(String::as_str), Some("r"));
+
+        // Build the 2020-12-06+ protocol vector independently of the URL builder.
+        // SAS signs decoded header values, including literal RFC 5987 percent escapes.
+        let string_to_sign = format!(
+            "r\n{}\n{}\n/blob/account-name/photos/base path/files/opaque-id\n\n\nhttps\n2023-11-03\nb\n\n\n{cache_control}\n{disposition}\n\n\n{content_type}",
+            query["st"], query["se"],
+        );
+        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(b"secret").expect("fixture key");
+        mac.update(string_to_sign.as_bytes());
+        let signature =
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes());
+        assert_eq!(query.get("sig"), Some(&signature));
+    }
+
+    #[tokio::test]
+    async fn download_sas_defaults_and_other_operations_omit_response_overrides() {
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
+        let download = driver
+            .resolve_download_url(
+                "files/opaque-id",
+                Duration::from_secs(300),
+                DirectDownloadOptions::default(),
+            )
+            .await
+            .expect("download SAS")
+            .expect("direct download");
+        let upload = driver
+            .presigned_put_request("files/opaque-id", Duration::from_secs(300))
+            .await
+            .expect("upload SAS")
+            .expect("presigned upload");
+        let container = driver
+            .container_url("rl", Duration::from_secs(300))
+            .expect("container SAS");
+        let block_blob = driver
+            .block_blob_url("files/opaque-id", "cw", Duration::from_secs(300))
+            .expect("block blob SAS");
+        for url in [
+            download.url,
+            upload.url,
+            container.to_string(),
+            block_blob.to_string(),
+        ] {
+            let url = url::Url::parse(&url).expect("SAS URL");
+            let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+            for field in ["rscc", "rscd", "rsce", "rscl", "rsct"] {
+                assert!(
+                    !query.contains_key(field),
+                    "unexpected response override {field}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -21,10 +21,11 @@ impl DirectDownloadStorageDriver for AzureBlobDriver {
         &self,
         path: &str,
         expires: Duration,
-        _options: DirectDownloadOptions,
+        options: DirectDownloadOptions,
     ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
         Ok(Some(DirectDownloadRequest::temporary_url(
-            self.blob_url(path, "r", expires)?.to_string(),
+            self.blob_url(path, "r", expires, Some(&options))?
+                .to_string(),
             expires,
         )))
     }
@@ -38,7 +39,7 @@ impl PresignedUploadStorageDriver for AzureBlobDriver {
         expires: Duration,
     ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
         Ok(Some(PresignedUploadRequest::new(
-            self.blob_url(path, "cw", expires)?.to_string(),
+            self.blob_url(path, "cw", expires, None)?.to_string(),
             BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())]),
         )))
     }

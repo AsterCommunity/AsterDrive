@@ -160,6 +160,10 @@ flowchart LR
 
 好处是减轻 AsterDrive 节点带宽压力。前提是浏览器能访问 Azure Blob endpoint，并且 container CORS 配置正确。
 
+预签名下载使用 AsterDrive 当前文件名和 MIME，并应用下载缓存策略。即使对象在 Azure 中以 UUID 命名，或文件在 AsterDrive 中重命名，重新发起下载也会使用当前文件名，无需移动 Azure 对象。已有 SAS URL 在到期前仍保留签发时的名称。
+
+这些响应头由 AsterDrive 生成 SAS 时设置。CORS 的 `Exposed headers` 只控制脚本能否读取已有响应头，不负责设置下载文件名。
+
 ## 4. 在 AsterDrive 创建 Azure Blob 存储策略
 
 进入：

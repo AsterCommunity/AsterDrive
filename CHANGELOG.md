@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Azure Blob download filenames** — Presigned downloads preserve the current AsterDrive filename, MIME type, and download cache policy, including renamed files stored under UUID object keys. Existing objects need no migration. (#721)
+
 - **OSS CNAME object-key encoding** — Removing the SDK bucket path preserves encoded object keys, including literal percent escapes such as `%2F`, so ordinary and presigned requests address the intended object.
 
 - **Touch-accessible settings descriptions** — Administrator setting help icons use hover-enabled popovers so complete descriptions remain available by desktop hover, keyboard focus, pointer click, and touch tap. Larger touch targets and accessible popup descriptions preserve the existing compact settings layout. (#713)
