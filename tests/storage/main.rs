@@ -5,6 +5,7 @@
 mod common;
 
 mod azure_blob;
+mod azure_cors;
 mod google_drive;
 mod local_driver_security;
 mod policies;

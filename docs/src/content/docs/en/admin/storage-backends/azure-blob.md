@@ -222,27 +222,40 @@ If the connection test fails, do not move users to this policy yet. Check in thi
 
 ## 6. Configure CORS
 
-If you only use `relay_stream`, the browser does not request Azure Blob directly, so CORS is not the first blocker.
+With `relay_stream`, browsers do not contact Blob Storage directly. Browser `presigned` uploads, block uploads, downloads and Blob previews require CORS on the source service.
 
-If you use `presigned` upload or download, configure Blob service CORS on the Azure Storage account to allow the AsterDrive site origin.
+### Automatic configuration
 
-At minimum, check:
+1. Set the actual browser origins in `Admin -> System settings -> Site -> Public site URL`, such as `https://drive.example.com`. Multiple explicit origins are supported; `*` is rejected.
+2. In a new or existing Azure Blob policy form, fill in the current connection and click **Auto configure Azure Blob CORS**. Blank credentials in an edited draft reuse that policy's saved credentials; new drafts require complete credentials.
+3. Review the current account, endpoint and account-wide scope, then confirm using the same action confirmation flow as COS. Clicking the action opens the confirmation without contacting the backend. After confirmation, the backend reads the current connection and public site origins and configures CORS. Saving a policy or testing its connection never configures CORS automatically.
+4. Review whether configuration changed, the preserved rule count and Azure request ID, then verify real browser operations.
 
-| Item | Recommendation |
+:::caution[All Blob containers in the account are affected]
+CORS belongs to the account's entire Blob service, regardless of the policy's container or base path. Review this scope when other applications share the account. The action does not change public access, object permissions, CDN, Front Door or hotlink protection.
+:::
+
+The action accepts the primary account Blob service endpoint on official Azure public, China, US Government and Germany cloud domains. It authenticates with the current storage account name and account key using Shared Key. Management requests never include the container or base path and never go to CDN/Front Door. Loopback Azurite endpoints are supported for protocol tests. Configure custom origin domains, Private Link specific domains and other unrecognized endpoints manually in Azure Portal.
+
+The account must allow Shared Key and network access from the AD server. Account keys grant account-level access; they cannot be restricted to CORS-only operations. This action needs no subscription credentials, ARM integration, Entra ID or OAuth. Container/Blob SAS or a `Storage Blob Data Contributor` identity alone does not provide the authentication this action uses. If your organization disallows Shared Key, follow its policy and configure CORS in Azure Portal. The action will not enable Shared Key. Permission errors expose only sanitized provider codes and request IDs, never keys, signatures or raw Azure error details.
+
+The action reads existing CORS first and preserves every rule and their relative order. It appends a rule only when no fully equivalent rule exists. Equivalence includes origins, methods, request headers, exposed headers and cache duration, ignoring list order and header-name casing. An origin match alone never establishes ownership or permits replacement/deletion. Changing site origins does not automatically remove old rules. Other service properties are preserved by omitting their XML root elements from the write request.
+
+Azure selects the first rule matching origin and method. If an existing rule overlaps the required rule, the action stops for manual resolution instead of reordering or rewriting rules. It also stops before writing on more than five rules, a combined value size over 2 KiB excluding XML tags, unknown CORS fields, failed reads or invalid XML. Successful writes are read back for verification. The service properties API provides no conditional-write protection used by this action; avoid concurrent edits by administrators or external tools and inspect the final configuration.
+
+### Generated rule and manual configuration
+
+| Setting | Automatic value |
 | --- | --- |
-| Allowed origins | The public AsterDrive site origin, for example `https://drive.example.com` |
-| Allowed methods | Include at least `PUT`, `GET`, and `HEAD` |
-| Allowed headers | Include at least `Content-Type`, `x-ms-blob-type`, `x-ms-version`, and `Range`; use `*` first if you are validating |
-| Exposed headers | Include `ETag`, `Content-Length`, `Content-Range`, `Content-Disposition`, `Accept-Ranges`, and `x-ms-request-id` |
-| Max age | Follow your security policy, for example `600` |
+| Allowed origins | All normalized public site origins, explicitly listed without `*` |
+| Allowed methods | `PUT,GET,HEAD` for single/block uploads and reads |
+| Allowed headers | `content-type,range,x-ms-blob-type,x-ms-version` |
+| Exposed headers | `ETag,Content-Length,Content-Range,Content-Disposition,Accept-Ranges,x-ms-request-id` |
+| Max age | `600` seconds |
 
-`Allowed origins` should be the browser origin used to open AsterDrive. It usually comes from:
+Use the same request contract for manual configuration. The browser page origin is required, rather than the backend's internal address. Exposed headers let scripts read existing response headers; they do not set download filenames.
 
-```text
-Admin -> System Settings -> Site Configuration -> Public Site URL
-```
-
-Do not put the server-to-Azure private address here. CORS checks the browser page origin.
+A successful source configuration write proves only the source service was updated. Configure and test Front Door/CDN response headers, OPTIONS routing and caching separately, including distinct upload and download endpoints.
 
 ## 7. Create a Test Policy Group
 

@@ -13,6 +13,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { translateStorageConnectorMessage } from "@/lib/adminStorageConnectorLocalizations";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetInfo,
@@ -60,8 +61,16 @@ export function StorageConnectorActionsPanel({
 	onRequest,
 	onValueChange,
 }: StorageConnectorActionsPanelProps) {
+	const siteUrls = useFrontendConfigStore(
+		(state) => state.config?.branding.site_urls,
+	);
 	const connectorT: Translate = (key, values) =>
-		translateStorageConnectorMessage(t, connectorId, key, values);
+		translateStorageConnectorMessage(t, connectorId, key, {
+			public_site_url: siteUrls?.length
+				? siteUrls.join(", ")
+				: String(t("site_url_mismatch_not_set")),
+			...values,
+		});
 	if (actions.length === 0) {
 		return null;
 	}
@@ -123,6 +132,9 @@ export function StorageConnectorActionsPanel({
 
 						{confirmOpen ? (
 							<InlineConfirm>
+								<p className="mb-3 text-sm font-medium">
+									{connectorT(action.description_key)}
+								</p>
 								<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 									<div>
 										<p className="text-sm font-medium">

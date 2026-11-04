@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::errors::Result;
+use crate::config::site_url;
+use crate::errors::{AsterError, Result};
 use crate::storage::drivers::azure_blob::{
     AzureBlobConfigError, AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials,
 };
@@ -15,17 +16,114 @@ use aster_drive_storage::connector_descriptor::{
     object_storage_connector_descriptor, storage_connector_field,
     storage_connector_field_with_display,
 };
+use aster_drive_storage::connector_descriptor::{
+    StorageConnectorActionOutputFieldDescriptor, StorageConnectorActionOutputValueKind,
+};
+use aster_drive_storage::{
+    StorageConnectorActionDescriptor, StorageConnectorActionId, StorageConnectorActionSchema,
+};
 use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
 
 use super::common::{StorageTransferDirection, transfer_strategy_field};
 use super::{
-    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
-    StorageConnectorUploadTransport,
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    StorageConnector, StorageConnectorActionResult, StorageConnectorCredentialInput,
+    StorageConnectorIcon, StorageConnectorUploadTransport,
 };
 
 mod localization;
 
 pub struct AzureBlobConnector;
+
+const CONFIGURE_CORS: &str = "configure_azure_blob_cors";
+
+aster_drive_storage::storage_connector_action_schema! {
+    struct ConfigureAzureCorsInput {}
+}
+
+fn cors_action() -> StorageConnectorActionDescriptor {
+    use aster_drive_storage::connector_descriptor::{
+        StorageConnectorCustomActionDescriptorInput, custom_action_descriptor,
+    };
+    custom_action_descriptor(StorageConnectorCustomActionDescriptorInput {
+        action_id: StorageConnectorActionId::declared(CONFIGURE_CORS),
+        label_key: "azure_cors_action",
+        description_key: "azure_cors_description",
+        fields: ConfigureAzureCorsInput::action_fields(),
+        output_fields: [
+            (
+                "account",
+                "azure_blob_account_name",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+            (
+                "service_endpoint",
+                "endpoint",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+            (
+                "allowed_origins",
+                "azure_cors_origins",
+                StorageConnectorActionOutputValueKind::StringList,
+            ),
+            (
+                "preserved_rule_count",
+                "azure_cors_preserved",
+                StorageConnectorActionOutputValueKind::Number,
+            ),
+            (
+                "request_id",
+                "azure_cors_request_id",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+        ]
+        .into_iter()
+        .map(
+            |(name, label_key, value_kind)| StorageConnectorActionOutputFieldDescriptor {
+                name: name.into(),
+                label_key: label_key.into(),
+                value_kind,
+                true_key: None,
+                false_key: None,
+            },
+        )
+        .chain(std::iter::once(
+            StorageConnectorActionOutputFieldDescriptor {
+                name: "changed".into(),
+                label_key: "azure_cors_changed".into(),
+                value_kind: StorageConnectorActionOutputValueKind::Boolean,
+                true_key: Some("azure_cors_yes".into()),
+                false_key: Some("azure_cors_no".into()),
+            },
+        ))
+        .collect(),
+        supports_draft: true,
+        supports_saved: true,
+        requires_authorization: false,
+        mutates_remote_state: true,
+        requires_confirmation: true,
+    })
+}
+
+async fn execute_cors(
+    driver: AzureBlobDriver,
+    runtime: &crate::config::RuntimeConfig,
+    action_id: StorageConnectorActionId,
+) -> Result<StorageConnectorActionResult> {
+    let value = site_url::public_site_url_config_value(runtime).ok_or_else(|| {
+        AsterError::validation_error("Configure public_site_url before configuring Azure CORS")
+    })?;
+    let origins = site_url::parse_public_site_url_value(&value)?;
+    if origins.is_empty() {
+        return Err(AsterError::validation_error(
+            "Configure public_site_url before configuring Azure CORS",
+        ));
+    }
+    StorageConnectorActionResult::with_output(
+        action_id,
+        driver.configure_asterdrive_cors(&origins).await?,
+    )
+}
 
 aster_drive_storage::storage_connector_schema! {
     pub struct AzureBlobConnectorConfigV1 {
@@ -107,31 +205,34 @@ impl AzureBlobConnector {
 
 impl AzureBlobConnector {
     fn descriptor_definition() -> StorageConnectorDescriptor {
-        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
-            label: "Azure Blob Storage",
-            description: "Azure Blob block blob storage policy",
-            ui: StorageConnectorUiDescriptorInput {
-                label_key: "driver_type_azure_blob",
-                description_key: "policy_wizard_azure_blob_storage_desc",
-                badge_rgb: StorageConnectorBadgeRgb::new(14, 165, 233),
-                helper_key: "policy_wizard_azure_blob_helper",
-                config_step_title_key: "policy_wizard_step_connection_title",
-                config_step_description_key: "policy_wizard_step_azure_blob_connection_desc",
-                edit_context_key: "policy_edit_context_azure_blob_desc",
-                base_path_empty_display: "core:root",
-                base_path_placeholder: "tenant/prefix",
-            },
-            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
-            supports_initial_setup: true,
-            credential_mode: AzureBlobConnectorConfigV1::credential_mode(),
-            fields: AzureBlobConnectorConfigV1::descriptor_fields(),
-            presigned_part_etag_required: false,
-            storage_native_processing: false,
-            config_schema_version: 1,
-            credential_schema_version: Some(1),
-            related_issues: vec![328, 329],
-        })
+        let mut descriptor =
+            object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
+                label: "Azure Blob Storage",
+                description: "Azure Blob block blob storage policy",
+                ui: StorageConnectorUiDescriptorInput {
+                    label_key: "driver_type_azure_blob",
+                    description_key: "policy_wizard_azure_blob_storage_desc",
+                    badge_rgb: StorageConnectorBadgeRgb::new(14, 165, 233),
+                    helper_key: "policy_wizard_azure_blob_helper",
+                    config_step_title_key: "policy_wizard_step_connection_title",
+                    config_step_description_key: "policy_wizard_step_azure_blob_connection_desc",
+                    edit_context_key: "policy_edit_context_azure_blob_desc",
+                    base_path_empty_display: "core:root",
+                    base_path_placeholder: "tenant/prefix",
+                },
+                deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+                supports_initial_setup: true,
+                credential_mode: AzureBlobConnectorConfigV1::credential_mode(),
+                fields: AzureBlobConnectorConfigV1::descriptor_fields(),
+                presigned_part_etag_required: false,
+                storage_native_processing: false,
+                config_schema_version: 1,
+                credential_schema_version: Some(1),
+                related_issues: vec![328, 329, 734],
+            });
+        descriptor.actions.push(cors_action());
+        descriptor
     }
 }
 
@@ -258,6 +359,58 @@ impl StorageConnector for AzureBlobConnector {
             Self::driver_config(policy.chunk_size, config),
             Self::driver_credentials(credentials),
         )?))
+    }
+
+    async fn execute_saved_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        input: ExecuteSavedStorageConnectorActionInput,
+    ) -> Result<StorageConnectorActionResult> {
+        if input.action_id.as_str() != CONFIGURE_CORS {
+            return Err(super::common::unsupported_connector_action_error(
+                &self.descriptor(),
+                &input.action_id,
+            ));
+        }
+        let _: ConfigureAzureCorsInput =
+            super::common::decode_normalized_connector_action_input(&cors_action(), &input.values)?;
+        let config = Self::decode_config(policy)?;
+        let credentials =
+            super::common::runtime_static_credential(context.driver_registry(), policy, Self::ID)?;
+        let driver = AzureBlobDriver::new(
+            Self::driver_config(policy.chunk_size, config),
+            Self::driver_credentials(credentials),
+        )?;
+        execute_cors(driver, context.runtime_config(), input.action_id).await
+    }
+
+    async fn execute_draft_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        input: ExecuteDraftStorageConnectorActionInput,
+    ) -> Result<StorageConnectorActionResult> {
+        if input.action_id.as_str() != CONFIGURE_CORS {
+            return Err(super::common::unsupported_connector_action_error(
+                &self.descriptor(),
+                &input.action_id,
+            ));
+        }
+        let _: ConfigureAzureCorsInput =
+            super::common::decode_normalized_connector_action_input(&cors_action(), &input.values)?;
+        let connection = input.connection;
+        let credential = self
+            .prepare_draft_credential(context, input.policy_id, connection.storage.credential)
+            .await?;
+        self.validate_credential_input(&credential)?;
+        let config = self.validate_connector_config(&connection.storage.connector_config)?;
+        let config = super::common::decode_normalized_connector_config(&config)?;
+        let credentials = super::common::decode_static_credential(&credential, Self::ID)?;
+        let driver = AzureBlobDriver::new(
+            Self::driver_config(0, config),
+            Self::driver_credentials(credentials),
+        )?;
+        execute_cors(driver, context.runtime_config(), input.action_id).await
     }
 
     fn upload_transport(

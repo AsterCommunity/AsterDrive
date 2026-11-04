@@ -1,5 +1,6 @@
 //! Azure Blob Storage driver.
 
+pub(crate) mod cors;
 mod error;
 mod multipart;
 mod presigned;

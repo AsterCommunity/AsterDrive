@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetInfo,
@@ -12,6 +12,16 @@ import {
 	type StorageConnectorActionValues,
 } from "./StorageConnectorActionsPanel";
 import type { Translate } from "./StoragePolicyFieldTypes";
+
+const frontendConfig = vi.hoisted(() => ({ siteUrls: [] as string[] }));
+vi.mock("@/stores/frontendConfigStore", () => ({
+	useFrontendConfigStore: (
+		selector: (state: {
+			config: { branding: { site_urls: string[] } };
+		}) => unknown,
+	) =>
+		selector({ config: { branding: { site_urls: frontendConfig.siteUrls } } }),
+}));
 
 vi.mock("@/components/ui/select", () => ({
 	Select: ({
@@ -62,6 +72,9 @@ const labels: Record<string, string> = {
 	"field.token": "Token",
 	"mode.check": "Check",
 	"mode.repair": "Repair",
+	azure_cors_description:
+		"Changes CORS for the entire storage account currently used. Allowed origins: {{public_site_url}}.",
+	site_url_mismatch_not_set: "not set",
 	policy_connector_action_confirm: "Confirm action",
 	policy_connector_action_confirm_desc: "Remote state may change.",
 	policy_connector_action_confirm_title: "Run {{action}}?",
@@ -181,6 +194,45 @@ function remoteTarget(targetKey: string): RemoteStorageTargetInfo {
 }
 
 describe("StorageConnectorActionsPanel", () => {
+	beforeEach(() => {
+		frontendConfig.siteUrls = [];
+	});
+
+	it("renders configured origins in the Azure description and confirmation without requesting a preview", () => {
+		frontendConfig.siteUrls = [
+			"https://drive.example.test:443",
+			"https://second.example.test",
+		];
+		const { onRequest } = renderPanel({
+			actions: [
+				action("configure_azure_blob_cors", {
+					description_key: "azure_cors_description",
+				}),
+			],
+			confirmActionId: "configure_azure_blob_cors",
+		});
+		expect(
+			screen.getAllByText(
+				"Changes CORS for the entire storage account currently used. Allowed origins: https://drive.example.test:443, https://second.example.test.",
+			),
+		).toHaveLength(2);
+		expect(onRequest).not.toHaveBeenCalled();
+	});
+
+	it("shows an unset state instead of a fabricated origin", () => {
+		renderPanel({
+			actions: [
+				action("configure_azure_blob_cors", {
+					description_key: "azure_cors_description",
+				}),
+			],
+		});
+		expect(
+			screen.getByText(
+				"Changes CORS for the entire storage account currently used. Allowed origins: not set.",
+			),
+		).toBeVisible();
+	});
 	it("renders nothing when the connector declares no custom actions", () => {
 		const { container } = renderPanel({ actions: [] });
 
@@ -305,6 +357,20 @@ describe("StorageConnectorActionsPanel", () => {
 		expect(onRequest).toHaveBeenCalledWith("plugin.first");
 		expect(onConfirm).toHaveBeenCalledWith("plugin.second");
 		expect(onCancel).toHaveBeenCalledOnce();
+	});
+
+	it("repeats the provider impact scope inside the shared confirmation", () => {
+		renderPanel({
+			actions: [
+				action("plugin.first", {
+					description_key: "Changes CORS for ALL containers in this account",
+				}),
+			],
+			confirmActionId: "plugin.first",
+		});
+		expect(
+			screen.getAllByText("Changes CORS for ALL containers in this account"),
+		).toHaveLength(2);
 	});
 
 	it("disables only the submitting action and tolerates a select schema without options", () => {
