@@ -661,6 +661,59 @@ beforeEach(() => {
 });
 
 describe("AdminFilesPage", () => {
+	it("applies file text, Blob ID, team, and owner filters together", async () => {
+		renderPage("files");
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		fireEvent.change(screen.getByPlaceholderText("admin_file_name_filter"), {
+			target: { value: "report" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_blob_id"), {
+			target: { value: "31" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_team_id"), {
+			target: { value: "8" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "select-user" }));
+		await waitFor(() =>
+			expect(mockState.listFiles).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					name: "report",
+					blob_id: 31,
+					team_id: 8,
+					owner_user_id: 4,
+				}),
+			),
+		);
+		expect(screen.getByTestId("location-search")).toHaveTextContent("teamId=8");
+	});
+
+	it("applies Blob reference and size bounds", async () => {
+		renderPage("blobs", "/admin/file-blobs");
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		fireEvent.change(screen.getByPlaceholderText("admin_blob_hash_filter"), {
+			target: { value: "abc" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_ref_count_min"), {
+			target: { value: "2" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_ref_count_max"), {
+			target: { value: "5" },
+		});
+		fireEvent.change(screen.getByPlaceholderText("admin_size_max"), {
+			target: { value: "3" },
+		});
+		await waitFor(() =>
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					hash: "abc",
+					ref_count_min: 2,
+					ref_count_max: 5,
+					size_max: 3,
+				}),
+			),
+		);
+	});
+
 	it("lists files, syncs filters to the url, and opens file details", async () => {
 		renderPage("files", "/admin/files?name=report&deleted=live");
 
