@@ -197,11 +197,11 @@ Do not paste the Azure Portal URL, container URL, or a SAS URL into Endpoint. En
 
 ## Custom-Domain Endpoint
 
-Azure Blob supports mapping a custom domain (for example `https://files.contoso.example`) to the Blob endpoint. AsterDrive accepts such custom domains in the Endpoint field, but SAS signatures are still computed with the Storage account name, not the custom host.
+Azure Blob supports placing a custom domain (for example `https://files.contoso.example`) in front of the Blob endpoint. Note that Azure's direct CNAME mapping is HTTP-only, while AsterDrive requires HTTPS for non-loopback endpoints, so a production custom domain must be served through Front Door, a CDN, or an HTTPS proxy that provides TLS. AsterDrive accepts such HTTPS custom domains in the Endpoint field, but SAS signatures are still computed with the Storage account name, not the custom host.
 
 | Scenario | Supported | Notes |
 | --- | --- | --- |
-| Direct CNAME to the Blob endpoint | Yes | Follow Azure's official steps to map a subdomain to `<account>.blob.core.windows.net` |
+| Direct CNAME to the Blob endpoint | No | Azure's direct mapping is HTTP-only; AsterDrive rejects non-loopback HTTP, and the Blob endpoint certificate only covers `<account>.blob.core.windows.net`, so TLS cannot be completed for a custom domain |
 | HTTPS proxy / Front Door | Yes | Front Door/CDN can provide TLS and custom domains; cache behavior is tracked separately |
 | Static website endpoint | No | The static website endpoint is not equivalent to the Blob API and cannot be used for private file operations |
 | CDN edge caching/auth | No | Tracked separately in #689; this page does not promise CDN cache invalidation or edge authentication |

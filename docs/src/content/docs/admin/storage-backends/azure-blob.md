@@ -196,13 +196,13 @@ Azure Blob
 
 ## 自定义域名 endpoint
 
-Azure Blob 支持把自定义域名（例如 `https://files.contoso.example`）映射到 Blob endpoint。AsterDrive 允许直接把自定义域名填进 Endpoint，但 SAS 签名仍按 Storage account name 计算，不会改用自定义域名作为签名主体。
+Azure Blob 支持把自定义域名（例如 `https://files.contoso.example`）接入到 Blob endpoint 之前。注意 Azure 的直接 CNAME 映射只提供 HTTP，而 AsterDrive 要求非 loopback endpoint 使用 HTTPS，因此生产可用的自定义域名需要经 Front Door、CDN 或 HTTPS 代理提供 TLS。AsterDrive 允许把这类 HTTPS 自定义域名填进 Endpoint，但 SAS 签名仍按 Storage account name 计算，不会改用自定义域名作为签名主体。
 
 适用边界：
 
 | 场景 | 是否适用 | 说明 |
 | --- | --- | --- |
-| 直接 CNAME 到 Blob endpoint | 是 | 需要按 Azure 官方步骤把子域名 CNAME 到 `<account>.blob.core.windows.net` |
+| 直接 CNAME 到 Blob endpoint | 否 | Azure 直接映射只提供 HTTP；AsterDrive 拒绝非 loopback 的 HTTP endpoint，且 Blob endpoint 的证书只覆盖 `<account>.blob.core.windows.net`，无法为自定义域名完成 HTTPS TLS 验证 |
 | 经 HTTPS 代理 / Front Door | 是 | Front Door/CDN 可提供 TLS 和自定义域名；缓存行为由独立 CDN 功能跟踪 |
 | 静态网站 endpoint | 否 | 静态网站 endpoint 不等价于 Blob API，不能用于私有文件读写 |
 | CDN 边缘缓存/鉴权 | 否 | 由 #689 独立跟踪，本项不承诺 CDN 缓存失效或边缘鉴权 |

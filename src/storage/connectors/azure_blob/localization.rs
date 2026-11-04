@@ -13,8 +13,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "azure_blob_endpoint_hint",
-        "Enter the Azure Blob service endpoint, for example https://<account>.blob.core.windows.net. Custom domains such as https://files.contoso.example are supported when they point to the Blob endpoint; do not include credentials, query, fragment, or parent path segments, and use HTTPS except for local Azurite loopback endpoints. Use the bucket field for the container name.",
-        "填写 Azure Blob 服务 endpoint，例如 https://<account>.blob.core.windows.net；自定义域名（例如 https://files.contoso.example）需要指向 Blob endpoint。endpoint 不得包含凭据、query、fragment 或上级路径段；除本地 Azurite loopback 地址外必须使用 HTTPS；bucket 字段填写容器名称。",
+        "Enter the Azure Blob service endpoint, for example https://<account>.blob.core.windows.net. A custom domain such as https://files.contoso.example must be served by an HTTPS-capable front (Front Door, CDN, or HTTPS proxy); Azure's direct CNAME mapping is HTTP-only. Do not include credentials, query, fragment, or parent path segments, and use HTTPS except for local Azurite loopback endpoints. Use the bucket field for the container name.",
+        "填写 Azure Blob 服务 endpoint，例如 https://<account>.blob.core.windows.net；自定义域名（例如 https://files.contoso.example）须由支持 HTTPS 的前端（Front Door、CDN 或 HTTPS 代理）提供，Azure 直接 CNAME 映射仅有 HTTP。endpoint 不得包含凭据、query、fragment 或上级路径段；除本地 Azurite loopback 地址外必须使用 HTTPS；bucket 字段填写容器名称。",
     ),
     aster_drive_storage::storage_connector_message!(
         "azure_blob_endpoint_protocol_required_error",
