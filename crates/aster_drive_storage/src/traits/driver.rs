@@ -27,7 +27,9 @@ pub struct DirectDownloadOptions {
     /// Current user-visible file name. Providers whose temporary URL fixes the
     /// response filename can use this to decide whether direct delivery is safe.
     pub download_name: Option<String>,
-    /// Require provider-native delivery to preserve `download_name` exactly.
+    /// The policy requires provider-native delivery to preserve `download_name`.
+    /// Providers may waive filename matching when `allow_provider_response_headers`
+    /// is true: that consumer enforces the final name/MIME itself.
     pub require_download_name_match: bool,
     pub response_cache_control: Option<String>,
     pub response_content_disposition: Option<String>,

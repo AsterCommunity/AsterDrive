@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **OneDrive direct Blob delivery** — In strict filename mode, in-app downloads and safe Blob previews can use Graph direct URLs for renamed files and legacy UUID objects while applying the current AsterDrive save name and MIME. Native downloads, direct URLs, and external viewers retain strict filename fallback; inline sandbox checks remain enforced. (#723)
+
 - **Workspace dependency ownership** — All Forge dependencies share one workspace-pinned revision, and every `crates/*` dependency inherits its version from the workspace while retaining member-specific features.
 
 - **Object storage CNAME configuration** — OSS, OBS, and COS use the same custom-domain switch wording and bucket-bound addressing, preserving the final host, port, and object path before each provider signs the request. Huawei OBS replaces `obs_addressing_mode` with boolean `obs_use_cname`; a reversible migration preserves official/custom-domain behavior in saved policies, remote targets, and deferred cleanup snapshots. Upgrade nodes together and update API clients to use the boolean field.

@@ -98,8 +98,10 @@ Database persistence failure, upload-ID collision, session encryption failure, a
 Legacy OneDrive objects may use `files/{upload_id}`. They remain readable and
 deletable. In `provider_native` mode they can continue to use Graph direct
 download, which may expose the provider's UUID filename; in
-`strict_current` mode the download service uses relay streaming so the current
-AsterDrive filename is applied. No legacy-name check is performed unless the
+`strict_current` mode consumers relying on provider response headers use relay
+streaming so the current AsterDrive filename is applied. Authorized download and
+preview Blob consumers can still use Graph direct delivery because they enforce
+the final filename/MIME themselves. No legacy-name check is performed unless the
 administrator selects `strict_current`.
 
 See [Object Naming and OneDrive Direct Downloads](./storage-object-naming-and-onedrive-direct-download.md) for the full connector capability, path, and download acceptance matrix.
