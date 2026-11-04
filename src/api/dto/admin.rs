@@ -457,6 +457,7 @@ impl AdminTeamListQuery {
     derive(IntoParams, ToSchema)
 )]
 pub struct AdminPolicyListQuery {
+    pub keyword: Option<String>,
     pub sort_by: Option<AdminPolicySortBy>,
     pub sort_order: Option<SortOrder>,
 }
@@ -606,6 +607,9 @@ impl AdminFileListQuery {
 )]
 pub struct AdminFileBlobListQuery {
     pub hash: Option<String>,
+    pub created_by_user_id: Option<i64>,
+    pub health: Option<AdminFileBlobHealth>,
+    pub hash_kind: Option<AdminFileBlobHashKind>,
     pub policy_id: Option<i64>,
     pub storage_path: Option<String>,
     pub ref_count_min: Option<i32>,
@@ -684,7 +688,7 @@ pub struct AdminFileDetail {
     pub versions: Vec<AdminFileVersionSummary>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum AdminFileBlobHashKind {

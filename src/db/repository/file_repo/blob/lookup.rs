@@ -5,6 +5,7 @@ use sea_orm::{
     Set, TryInsertResult, sea_query::Expr,
 };
 
+use crate::api::dto::admin::{AdminFileBlobHashKind, AdminFileBlobHealth};
 use crate::api::pagination::AdminFileBlobSortBy;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
@@ -47,6 +48,9 @@ struct CountRow {
 #[derive(Debug, Clone, Copy)]
 pub struct AdminFileBlobFilters<'a> {
     pub hash: Option<&'a str>,
+    pub created_by_user_id: Option<i64>,
+    pub health: Option<AdminFileBlobHealth>,
+    pub hash_kind: Option<AdminFileBlobHashKind>,
     pub policy_id: Option<i64>,
     pub storage_path: Option<&'a str>,
     pub ref_count_min: Option<i32>,
@@ -59,10 +63,15 @@ pub struct AdminFileBlobFilters<'a> {
 
 fn content_sha256_sql_condition(backend: DbBackend, column: &str) -> String {
     match backend {
-        DbBackend::Postgres => format!("{column} ~ '^[0-9A-Fa-f]{{64}}$'"),
-        DbBackend::MySql => format!("{column} REGEXP '^[0-9A-Fa-f]{{64}}$'"),
+        DbBackend::Postgres => {
+            format!("octet_length({column}) = 64 AND {column} ~ '^[0-9A-Fa-f]{{64}}$'")
+        }
+        DbBackend::MySql => {
+            format!("length({column}) = 64 AND {column} REGEXP '^[0-9A-Fa-f]{{64}}$'")
+        }
         DbBackend::Sqlite | _ => {
-            format!("length({column}) = 64 AND {column} NOT GLOB '*[^0-9A-Fa-f]*'")
+            let hex_bytes = "[0-9A-Fa-f]".repeat(64);
+            format!("length(CAST({column} AS BLOB)) = 64 AND {column} GLOB '{hex_bytes}'")
         }
     }
 }
@@ -246,11 +255,7 @@ pub async fn summarize_blob_hash_kinds_by_policy<C: ConnectionTrait>(
     policy_id: i64,
 ) -> Result<StoragePolicyBlobHashKindSummary> {
     let backend = db.get_database_backend();
-    let condition = match backend {
-        DbBackend::Postgres => "hash ~ '^[0-9A-Fa-f]{64}$'",
-        DbBackend::MySql => "hash REGEXP '^[0-9A-Fa-f]{64}$'",
-        DbBackend::Sqlite | _ => "length(hash) = 64 AND hash NOT GLOB '*[^0-9A-Fa-f]*'",
-    };
+    let condition = content_sha256_sql_condition(backend, "hash");
     let content_count = i64_cast_sql(
         backend,
         &format!("COALESCE(SUM(CASE WHEN {condition} THEN 1 ELSE 0 END), 0)"),
@@ -707,6 +712,41 @@ pub async fn find_admin_blobs_paginated(
     let mut query = FileBlob::find();
     if let Some(hash) = filters.hash {
         query = query.filter(lower_like_condition(file_blob::Column::Hash, hash));
+    }
+    if let Some(user_id) = filters.created_by_user_id {
+        query = query.filter(Expr::cust_with_exprs(
+            "EXISTS (SELECT 1 FROM files WHERE files.blob_id = file_blobs.id AND files.created_by_user_id = ?)",
+            [Expr::val(user_id)],
+        ));
+    }
+    if let Some(hash_kind) = filters.hash_kind {
+        let condition = content_sha256_sql_condition(db.get_database_backend(), "file_blobs.hash");
+        query = query.filter(Expr::cust(match hash_kind {
+            AdminFileBlobHashKind::ContentSha256 => format!("({condition})"),
+            AdminFileBlobHashKind::Opaque => format!("NOT ({condition})"),
+        }));
+    }
+    if let Some(health) = filters.health {
+        // Keep this count aligned with the file and non-current revision counts used by the service.
+        let actual_refs = "((SELECT COUNT(*) FROM files WHERE files.blob_id = file_blobs.id) + \
+            (SELECT COUNT(*) FROM file_revisions r \
+             INNER JOIN file_revision_histories h ON h.id = r.history_id \
+             WHERE r.blob_id = file_blobs.id AND r.retired_at IS NULL \
+             AND (h.current_revision_id IS NULL OR r.id <> h.current_revision_id)))";
+        let recorded = "file_blobs.ref_count";
+        let condition = match health {
+            AdminFileBlobHealth::CleanupClaimed => format!("{recorded} = -1"),
+            AdminFileBlobHealth::RefCountMismatch => {
+                format!("{recorded} <> -1 AND {recorded} <> {actual_refs}")
+            }
+            AdminFileBlobHealth::Orphan => {
+                format!("{recorded} = 0 AND {actual_refs} = 0")
+            }
+            AdminFileBlobHealth::Healthy => {
+                format!("{recorded} > 0 AND {recorded} = {actual_refs}")
+            }
+        };
+        query = query.filter(Expr::cust(condition));
     }
     if let Some(policy_id) = filters.policy_id {
         query = query.filter(file_blob::Column::PolicyId.eq(policy_id));

@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises";
-import type { AdminFileDetail, UserInfo } from "@/types/api";
+import type {
+	AdminFileBlobDetail,
+	AdminFileDetail,
+	UserInfo,
+} from "@/types/api";
 import {
 	createFolderViaApi,
 	createTeamViaApi,
@@ -375,8 +379,12 @@ test("admin inspects personal/team workspaces and downloads current/revision con
 	});
 
 	// Blob observability hands off to the same logical revision URL.
+	const blobInfo = await apiJsonInPage<AdminFileBlobDetail>(
+		page,
+		`/api/v1/admin/file-blobs/${detail.blob.id}`,
+	);
 	await page.goto(
-		`/admin/file-blobs?hash=${encodeURIComponent(detail.blob.hash)}`,
+		`/admin/file-blobs?hash=${encodeURIComponent(detail.blob.hash)}&health=${blobInfo.health}&hashKind=${blobInfo.hash_kind}&createdByUserId=${me.id}`,
 	);
 	await page
 		.getByRole("row")

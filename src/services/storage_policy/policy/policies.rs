@@ -123,13 +123,20 @@ pub async fn list_paginated(
     state: &impl SharedRuntimeState,
     limit: u64,
     offset: u64,
+    keyword: Option<&str>,
     sort_by: AdminPolicySortBy,
     sort_order: SortOrder,
 ) -> Result<OffsetPage<StoragePolicy>> {
     load_offset_page(limit, offset, 100, |limit, offset| async move {
-        let (items, total) =
-            policy_repo::find_paginated(state.reader_db(), limit, offset, sort_by, sort_order)
-                .await?;
+        let (items, total) = policy_repo::find_paginated(
+            state.reader_db(),
+            limit,
+            offset,
+            keyword,
+            sort_by,
+            sort_order,
+        )
+        .await?;
         let items = items
             .into_iter()
             .map(StoragePolicy::try_from)

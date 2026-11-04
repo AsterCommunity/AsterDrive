@@ -132,6 +132,9 @@ pub async fn list_blobs(
             offset,
             file_repo::AdminFileBlobFilters {
                 hash: query.hash.as_deref(),
+                created_by_user_id: query.created_by_user_id,
+                health: query.health,
+                hash_kind: query.hash_kind,
                 policy_id: query.policy_id,
                 storage_path: query.storage_path.as_deref(),
                 ref_count_min: query.ref_count_min,

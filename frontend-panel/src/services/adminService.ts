@@ -280,6 +280,7 @@ export const adminPolicyService = {
 			withQuery("/admin/policies", {
 				limit: params?.limit,
 				offset: params?.offset,
+				keyword: params?.keyword,
 				sort_by: params?.sort_by,
 				sort_order: params?.sort_order,
 			}),
@@ -665,6 +666,9 @@ export const adminFileService = {
 				limit: params?.limit,
 				offset: params?.offset,
 				hash: params?.hash,
+				created_by_user_id: params?.created_by_user_id,
+				health: params?.health,
+				hash_kind: params?.hash_kind,
 				policy_id: params?.policy_id,
 				storage_path: params?.storage_path,
 				ref_count_min: params?.ref_count_min,

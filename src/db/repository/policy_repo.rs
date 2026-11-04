@@ -5,6 +5,7 @@ use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::storage_policy::{self, Entity as StoragePolicy};
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
+use aster_forge_db::search_query::lower_like_condition;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
@@ -53,12 +54,20 @@ pub async fn find_paginated(
     db: &DatabaseConnection,
     limit: u64,
     offset: u64,
+    keyword: Option<&str>,
     sort_by: AdminPolicySortBy,
     sort_order: SortOrder,
 ) -> Result<(Vec<storage_policy::Model>, u64)> {
+    let mut query = StoragePolicy::find();
+    if let Some(keyword) = keyword.filter(|value| !value.trim().is_empty()) {
+        query = query.filter(lower_like_condition(
+            storage_policy::Column::Name,
+            keyword.trim(),
+        ));
+    }
     fetch_offset_page(
         db,
-        apply_admin_policy_sort(StoragePolicy::find(), sort_by, sort_order),
+        apply_admin_policy_sort(query, sort_by, sort_order),
         limit,
         offset,
     )

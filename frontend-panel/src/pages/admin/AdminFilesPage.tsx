@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { AdminDebouncedFilterInput } from "@/components/admin/AdminDebouncedFilterInput";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { AdminSearchFilter } from "@/components/admin/AdminSearchFilter";
+import { AdminSizeFilter } from "@/components/admin/AdminSizeFilter";
 import { AdminFileDownloads } from "@/components/admin/content-access/AdminFileDownloads";
 import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
@@ -40,7 +43,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Icon } from "@/components/ui/icon";
-import { Input } from "@/components/ui/input";
 import {
 	Select,
 	SelectContent,
@@ -73,6 +75,7 @@ import { adminFileService } from "@/services/adminService";
 import type { AdminFileBlobSortBy, AdminFileSortBy } from "@/types/adminSort";
 import type {
 	AdminFileBlobDetail,
+	AdminFileBlobHashKind,
 	AdminFileBlobHealth,
 	AdminFileBlobInfo,
 	AdminFileDetail,
@@ -83,7 +86,10 @@ import type {
 type AdminFilesPageKind = "files" | "blobs";
 type DeletedFilter = "__all__" | "live" | "deleted";
 type ManagedFileQuery = {
+	blobHealth?: AdminFileBlobHealth;
+	createdByUserId?: number;
 	deleted: DeletedFilter;
+	hashKind?: AdminFileBlobHashKind;
 	offset: number;
 	ownerUserId?: number;
 	pageSize: (typeof PAGE_SIZE_OPTIONS)[number];
@@ -185,7 +191,10 @@ function createManagedFileQueryDefaults(
 ): ManagedFileQuery {
 	const isFiles = kind === "files";
 	return {
+		blobHealth: undefined,
+		createdByUserId: undefined,
 		deleted: "__all__",
+		hashKind: undefined,
 		offset: 0,
 		ownerUserId: undefined,
 		pageSize: DEFAULT_PAGE_SIZE,
@@ -210,11 +219,45 @@ function createManagedFileQuerySchema(
 	const defaultSortBy = isFiles ? DEFAULT_FILE_SORT_BY : DEFAULT_BLOB_SORT_BY;
 
 	return {
+		blobHealth: {
+			keys: ["health"],
+			parse: (params) => {
+				const value = params.get("health");
+				return !isFiles &&
+					[
+						"healthy",
+						"orphan",
+						"ref_count_mismatch",
+						"cleanup_claimed",
+					].includes(value ?? "")
+					? (value as AdminFileBlobHealth)
+					: undefined;
+			},
+			serialize: (value) => (!isFiles ? { health: value } : undefined),
+		},
+		createdByUserId: {
+			keys: ["createdByUserId"],
+			parse: (params) =>
+				!isFiles
+					? parseOptionalNumber(params.get("createdByUserId"))
+					: undefined,
+			serialize: (value) => (!isFiles ? value : undefined),
+		},
 		deleted: {
 			keys: ["deleted"],
 			parse: (searchParams) => parseDeletedFilter(searchParams.get("deleted")),
 			serialize: (value) =>
 				isFiles && value !== "__all__" ? { deleted: value } : undefined,
+		},
+		hashKind: {
+			keys: ["hashKind"],
+			parse: (params) => {
+				const value = params.get("hashKind");
+				return !isFiles && (value === "content_sha256" || value === "opaque")
+					? value
+					: undefined;
+			},
+			serialize: (value) => (!isFiles ? value : undefined),
 		},
 		offset: {
 			keys: ["offset"],
@@ -732,8 +775,34 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			setSearchParams,
 		},
 	);
+	const [filterResetVersion, setFilterResetVersion] = useState(0);
+	const pendingFilters = useRef<Partial<ManagedFileQuery>>({});
+	const pendingFilterTimer = useRef<number | null>(null);
+	const setFileQueryRef = useRef(setFileQuery);
+	setFileQueryRef.current = setFileQuery;
+	const deferFilterUpdate = useCallback((patch: Partial<ManagedFileQuery>) => {
+		pendingFilters.current = { ...pendingFilters.current, ...patch };
+		if (pendingFilterTimer.current != null)
+			window.clearTimeout(pendingFilterTimer.current);
+		pendingFilterTimer.current = window.setTimeout(() => {
+			const updates = pendingFilters.current;
+			pendingFilters.current = {};
+			pendingFilterTimer.current = null;
+			setFileQueryRef.current({ offset: 0, ...updates });
+		}, 20);
+	}, []);
+	useEffect(
+		() => () => {
+			if (pendingFilterTimer.current != null)
+				window.clearTimeout(pendingFilterTimer.current);
+		},
+		[],
+	);
 	const {
+		blobHealth,
+		createdByUserId,
 		deleted,
+		hashKind,
 		offset,
 		ownerUserId,
 		pageSize,
@@ -818,7 +887,10 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const maintenanceLockRef = useRef(false);
 	const setOffset = useManagedOffset(setFileQuery, normalizeOffset);
 	const activeFilterCount =
+		(!isFiles && blobHealth ? 1 : 0) +
+		(!isFiles && createdByUserId != null ? 1 : 0) +
 		(text.trim() ? 1 : 0) +
+		(!isFiles && hashKind ? 1 : 0) +
 		(policyId != null ? 1 : 0) +
 		(isFiles && secondaryId != null ? 1 : 0) +
 		(isFiles && ownerUserId != null ? 1 : 0) +
@@ -858,6 +930,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 						limit: query.pageSize,
 						offset: query.offset,
 						hash: query.text.trim() || undefined,
+						created_by_user_id: query.createdByUserId,
+						health: query.blobHealth,
+						hash_kind: query.hashKind,
 						policy_id: query.policyId,
 						storage_path: query.storagePath.trim() || undefined,
 						ref_count_min: query.refCountMin,
@@ -886,8 +961,16 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		[setFileQuery],
 	);
 	const resetFilters = () => {
+		if (pendingFilterTimer.current != null)
+			window.clearTimeout(pendingFilterTimer.current);
+		pendingFilters.current = {};
+		pendingFilterTimer.current = null;
+		setFilterResetVersion((current) => current + 1);
 		setFileQuery({
+			blobHealth: undefined,
+			createdByUserId: undefined,
 			deleted: "__all__",
+			hashKind: undefined,
 			offset: 0,
 			ownerUserId: undefined,
 			policyId: undefined,
@@ -1133,10 +1216,11 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 									name="MagnifyingGlass"
 									className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
 								/>
-								<Input
+								<AdminDebouncedFilterInput
+									key={filterResetVersion}
 									value={text}
-									onChange={(event) => {
-										setFileQuery({ offset: 0, text: event.target.value });
+									onChange={(value) => {
+										deferFilterUpdate({ text: value });
 									}}
 									placeholder={
 										isFiles
@@ -1146,47 +1230,39 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 									className={`${ADMIN_CONTROL_HEIGHT_CLASS} pl-9`}
 								/>
 							</div>
-							<Input
-								value={optionalNumberValue(policyId)}
-								onChange={(event) => {
-									setFileQuery({
-										offset: 0,
-										policyId: parseOptionalNumber(event.target.value),
-									});
-								}}
-								placeholder={t("admin_policy_id")}
-								className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
+							<AdminSearchFilter
+								kind="policy"
+								value={policyId}
+								onChange={(value) =>
+									setFileQuery({ offset: 0, policyId: value })
+								}
 							/>
 							{isFiles ? (
 								<>
-									<Input
+									<AdminDebouncedFilterInput
+										key={filterResetVersion}
 										value={optionalNumberValue(secondaryId)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												secondaryId: parseOptionalNumber(event.target.value),
+										onChange={(value) => {
+											deferFilterUpdate({
+												secondaryId: parseOptionalNumber(value),
 											});
 										}}
 										placeholder={t("admin_blob_id")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
 									/>
-									<Input
-										value={optionalNumberValue(ownerUserId)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												ownerUserId: parseOptionalNumber(event.target.value),
-											});
-										}}
-										placeholder={t("admin_owner_user_id")}
-										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
+									<AdminSearchFilter
+										kind="user"
+										value={ownerUserId}
+										onChange={(value) =>
+											setFileQuery({ offset: 0, ownerUserId: value })
+										}
 									/>
-									<Input
+									<AdminDebouncedFilterInput
+										key={filterResetVersion}
 										value={optionalNumberValue(teamId)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												teamId: parseOptionalNumber(event.target.value),
+										onChange={(value) => {
+											deferFilterUpdate({
+												teamId: parseOptionalNumber(value),
 											});
 										}}
 										placeholder={t("admin_team_id")}
@@ -1221,60 +1297,135 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 								</>
 							) : (
 								<>
-									<Input
-										value={storagePath}
-										onChange={(event) => {
+									<AdminSearchFilter
+										kind="user"
+										value={createdByUserId}
+										onChange={(value) =>
+											setFileQuery({ offset: 0, createdByUserId: value })
+										}
+									/>
+									<Select
+										value={blobHealth ?? "__all__"}
+										onValueChange={(value) =>
 											setFileQuery({
 												offset: 0,
-												storagePath: event.target.value,
+												blobHealth:
+													value === "__all__"
+														? undefined
+														: (value as AdminFileBlobHealth),
+											})
+										}
+									>
+										<SelectTrigger
+											aria-label={t("admin_blob_health")}
+											width="compact"
+										>
+											<SelectValue>
+												{blobHealth
+													? t(blobHealthLabelKey(blobHealth))
+													: t("admin_filter_all_health")}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="__all__">
+												{t("admin_filter_all_health")}
+											</SelectItem>
+											{(
+												[
+													"healthy",
+													"orphan",
+													"ref_count_mismatch",
+													"cleanup_claimed",
+												] as const
+											).map((value) => (
+												<SelectItem key={value} value={value}>
+													{t(blobHealthLabelKey(value))}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<Select
+										value={hashKind ?? "__all__"}
+										onValueChange={(value) =>
+											setFileQuery({
+												offset: 0,
+												hashKind:
+													value === "__all__"
+														? undefined
+														: (value as AdminFileBlobHashKind),
+											})
+										}
+									>
+										<SelectTrigger
+											aria-label={t("admin_hash_kind")}
+											width="compact"
+										>
+											<SelectValue>
+												{hashKind
+													? t(
+															hashKind === "content_sha256"
+																? "admin_hash_kind_content"
+																: "admin_hash_kind_opaque",
+														)
+													: t("admin_filter_all_hash_kinds")}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="__all__">
+												{t("admin_filter_all_hash_kinds")}
+											</SelectItem>
+											<SelectItem value="content_sha256">
+												{t("admin_hash_kind_content")}
+											</SelectItem>
+											<SelectItem value="opaque">
+												{t("admin_hash_kind_opaque")}
+											</SelectItem>
+										</SelectContent>
+									</Select>
+									<AdminDebouncedFilterInput
+										key={filterResetVersion}
+										value={storagePath}
+										onChange={(value) => {
+											deferFilterUpdate({
+												storagePath: value,
 											});
 										}}
 										placeholder={t("admin_storage_path")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-48`}
 									/>
-									<Input
+									<AdminDebouncedFilterInput
+										key={filterResetVersion}
 										value={optionalNumberValue(refCountMin)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												refCountMin: parseOptionalNumber(event.target.value),
+										onChange={(value) => {
+											deferFilterUpdate({
+												refCountMin: parseOptionalNumber(value),
 											});
 										}}
 										placeholder={t("admin_ref_count_min")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
 									/>
-									<Input
+									<AdminDebouncedFilterInput
+										key={filterResetVersion}
 										value={optionalNumberValue(refCountMax)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												refCountMax: parseOptionalNumber(event.target.value),
+										onChange={(value) => {
+											deferFilterUpdate({
+												refCountMax: parseOptionalNumber(value),
 											});
 										}}
 										placeholder={t("admin_ref_count_max")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
 									/>
-									<Input
-										value={optionalNumberValue(sizeMin)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												sizeMin: parseOptionalNumber(event.target.value),
-											});
-										}}
-										placeholder={t("admin_size_min")}
-										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
+									<AdminSizeFilter
+										key={filterResetVersion}
+										bytes={sizeMin}
+										label={t("admin_size_min")}
+										onChange={(value) => deferFilterUpdate({ sizeMin: value })}
 									/>
-									<Input
-										value={optionalNumberValue(sizeMax)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												sizeMax: parseOptionalNumber(event.target.value),
-											});
-										}}
-										placeholder={t("admin_size_max")}
-										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
+									<AdminSizeFilter
+										key={filterResetVersion}
+										bytes={sizeMax}
+										label={t("admin_size_max")}
+										onChange={(value) => deferFilterUpdate({ sizeMax: value })}
 									/>
 								</>
 							)}

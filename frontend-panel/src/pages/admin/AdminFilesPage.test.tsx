@@ -444,6 +444,20 @@ vi.mock("@/lib/format", () => ({
 	formatDateAbsoluteWithOffset: (value: string) => `date:${value}`,
 }));
 
+vi.mock("@/components/admin/AdminSearchFilter", () => ({
+	AdminSearchFilter: ({
+		kind,
+		onChange,
+	}: {
+		kind: "policy" | "user";
+		onChange: (value?: number) => void;
+	}) => (
+		<button type="button" onClick={() => onChange(kind === "policy" ? 3 : 4)}>
+			{`select-${kind}`}
+		</button>
+	),
+}));
+
 vi.mock("@/services/adminService", () => ({
 	adminFileService: {
 		createBlobMaintenanceTask: (...args: unknown[]) =>
@@ -674,9 +688,7 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText("admin_deleted_live").length).toBeGreaterThan(0);
 		expect(screen.queryByText("__all__")).not.toBeInTheDocument();
 
-		fireEvent.change(screen.getByPlaceholderText("admin_policy_id"), {
-			target: { value: "3" },
-		});
+		fireEvent.click(screen.getByRole("button", { name: "select-policy" }));
 		fireEvent.click(screen.getByRole("button", { name: "select:deleted" }));
 
 		await waitFor(() => {
@@ -793,6 +805,55 @@ describe("AdminFilesPage", () => {
 		).toBeGreaterThan(0);
 		expect(screen.getByText("admin_actual_ref_count")).toBeInTheDocument();
 		expect(screen.getAllByText(/#45/).length).toBeGreaterThan(0);
+	});
+
+	it("restores blob health, hash kind, uploader, and byte size filters from the URL", async () => {
+		renderPage(
+			"blobs",
+			"/admin/file-blobs?health=orphan&hashKind=opaque&createdByUserId=4&sizeMin=1048576",
+		);
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenCalledWith(
+				expect.objectContaining({
+					created_by_user_id: 4,
+					hash_kind: "opaque",
+					health: "orphan",
+					size_min: 1048576,
+				}),
+			);
+		});
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		expect(
+			screen.getAllByText("admin_blob_health_orphan").length,
+		).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText("admin_hash_kind_opaque").length,
+		).toBeGreaterThan(0);
+		fireEvent.click(screen.getByRole("button", { name: "select-user" }));
+		await waitFor(() => {
+			expect(screen.getByTestId("location-search")).toHaveTextContent(
+				"createdByUserId=4",
+			);
+		});
+		fireEvent.click(screen.getByRole("button", { name: "select:healthy" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "select:content_sha256" }),
+		);
+		fireEvent.change(screen.getByPlaceholderText("admin_size_min"), {
+			target: { value: "2" },
+		});
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					health: "healthy",
+					hash_kind: "content_sha256",
+					size_min: 2 * 1024 * 1024,
+				}),
+			);
+		});
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeMin=2097152",
+		);
 	});
 
 	it("links current and historical blob references to stable logical targets", async () => {

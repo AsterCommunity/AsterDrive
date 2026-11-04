@@ -569,6 +569,13 @@ async fn test_admin_files_and_file_blobs_observability() {
         .expect("default policy should exist");
     let app = create_test_app!(state.clone());
     let (admin_token, _) = register_and_login!(app);
+    let policies: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/policies?keyword=local&limit=1"
+    );
+    assert_eq!(policies["data"]["total"], 1);
+    assert_eq!(policies["data"]["items"][0]["id"], default_policy.id);
     admin_create_user!(
         app,
         admin_token,
@@ -611,6 +618,7 @@ async fn test_admin_files_and_file_blobs_observability() {
     assert_eq!(filtered_files[0]["created_by"]["username"], "fileobserver");
 
     let blob_id = filtered_files[0]["blob_id"].as_i64().unwrap();
+    let uploader_id = filtered_files[0]["created_by_user_id"].as_i64().unwrap();
     let copy_detail: Value =
         admin_get_json!(app, admin_token, &format!("/api/v1/admin/files/{copy_id}"));
     if copy_detail["data"]["blob_id"].as_i64().unwrap() != blob_id {
@@ -714,6 +722,22 @@ async fn test_admin_files_and_file_blobs_observability() {
     .insert(state.writer_db())
     .await
     .expect("opaque blob should insert");
+    let unicode_blob = file_blob::ActiveModel {
+        hash: Set("é".repeat(64)),
+        size: Set(10),
+        policy_id: Set(default_policy.id),
+        storage_path: Set(Some("opaque/unicode.bin".to_string())),
+        thumbnail_path: Set(None),
+        thumbnail_processor: Set(None),
+        thumbnail_version: Set(None),
+        ref_count: Set(0),
+        created_at: Set(Utc::now()),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("unicode hash blob should insert");
 
     let blobs_body: Value = admin_get_json!(
         app,
@@ -740,6 +764,51 @@ async fn test_admin_files_and_file_blobs_observability() {
         .unwrap();
     assert_eq!(opaque_item["hash_kind"], "opaque");
     assert_blob_ref_health(opaque_item, 0, 0, 0, "orphan");
+    let unicode_item = blobs
+        .iter()
+        .find(|blob| blob["id"] == unicode_blob.id)
+        .unwrap();
+    assert_eq!(unicode_item["hash_kind"], "opaque");
+    let uploader_blobs: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs?created_by_user_id={uploader_id}&limit=100")
+    );
+    assert!(
+        uploader_blobs["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == blob_id)
+    );
+    assert!(
+        !uploader_blobs["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == opaque_blob.id)
+    );
+    let opaque_only: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/file-blobs?hash_kind=opaque&hash=remote-object"
+    );
+    assert_eq!(opaque_only["data"]["total"], 1);
+    assert_eq!(opaque_only["data"]["items"][0]["id"], opaque_blob.id);
+    let unicode_only: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/file-blobs?hash_kind=opaque&storage_path=unicode"
+    );
+    assert_eq!(unicode_only["data"]["total"], 1);
+    assert_eq!(unicode_only["data"]["items"][0]["id"], unicode_blob.id);
+    let content_only: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/file-blobs?hash_kind=content_sha256&hash=0123456789"
+    );
+    assert_eq!(content_only["data"]["total"], 1);
+    assert_eq!(content_only["data"]["items"][0]["id"], content_hash_blob.id);
 
     let blob_filter_body: Value = admin_get_json!(
         app,
@@ -985,6 +1054,24 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
         .find(|blob| blob["id"] == orphan_blob.id)
         .unwrap();
     assert_blob_ref_health(orphan_item, 0, 0, 0, "orphan");
+    for (health, hash, expected_id) in [
+        ("healthy", "version-only", version_only_blob.id),
+        ("orphan", "orphan-health", orphan_blob.id),
+        ("ref_count_mismatch", "ref-mismatch", mismatch_blob.id),
+        (
+            "cleanup_claimed",
+            "cleanup-claimed",
+            cleanup_claimed_blob.id,
+        ),
+    ] {
+        let filtered: Value = admin_get_json!(
+            app,
+            admin_token,
+            &format!("/api/v1/admin/file-blobs?health={health}&hash={hash}&limit=1")
+        );
+        assert_eq!(filtered["data"]["total"], 1, "health={health}");
+        assert_eq!(filtered["data"]["items"][0]["id"], expected_id);
+    }
 }
 
 #[actix_web::test]

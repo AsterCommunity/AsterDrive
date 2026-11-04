@@ -4870,7 +4870,11 @@ export interface components {
             version_ref_count: number;
         };
         AdminFileBlobListQuery: {
+            /** Format: int64 */
+            created_by_user_id?: number | null;
             hash?: string | null;
+            hash_kind?: components["schemas"]["AdminFileBlobHashKind"] | null;
+            health?: components["schemas"]["AdminFileBlobHealth"] | null;
             /** Format: int64 */
             policy_id?: number | null;
             /** Format: int32 */
@@ -5084,6 +5088,7 @@ export interface components {
         /** @enum {string} */
         AdminPolicyGroupSortBy: "id" | "name" | "is_enabled" | "is_default" | "created_at" | "updated_at";
         AdminPolicyListQuery: {
+            keyword?: string | null;
             sort_by?: components["schemas"]["AdminPolicySortBy"] | null;
             sort_order?: components["schemas"]["SortOrder"] | null;
         };
@@ -11902,6 +11907,9 @@ export interface operations {
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 hash?: string | null;
+                created_by_user_id?: number | null;
+                health?: components["schemas"]["AdminFileBlobHealth"] | null;
+                hash_kind?: components["schemas"]["AdminFileBlobHashKind"] | null;
                 policy_id?: number | null;
                 storage_path?: string | null;
                 ref_count_min?: number | null;
@@ -12367,6 +12375,7 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
+                keyword?: string | null;
                 sort_by?: components["schemas"]["AdminPolicySortBy"] | null;
                 sort_order?: components["schemas"]["SortOrder"] | null;
             };

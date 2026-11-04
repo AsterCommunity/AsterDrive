@@ -117,6 +117,7 @@ pub async fn list_policies(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
+        query.keyword.as_deref(),
         query.sort_by(),
         query.sort_order(),
     )
