@@ -84,6 +84,7 @@ mod m20261030_000002_admin_content_access;
 mod m20261031_000001_task_resource_publications;
 mod m20261102_000001_obs_use_cname;
 mod m20261103_000001_cos_download_delivery;
+mod m20261104_000001_qiniu_native;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -243,6 +244,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20261031_000001_task_resource_publications::Migration),
             Box::new(m20261102_000001_obs_use_cname::Migration),
             Box::new(m20261103_000001_cos_download_delivery::Migration),
+            Box::new(m20261104_000001_qiniu_native::Migration),
         ]
     }
 }
@@ -368,6 +370,36 @@ pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<
         Box::pin(apply_database_migrations_unlocked(connection))
     })
     .await
+}
+
+/// The product upgrade needs its runtime encryption key and performs online provider
+/// verification before replacing legacy Kodo values. Schema-only tools never guess it.
+pub async fn qiniu_online_upgrade_schema_ready(
+    database: &DatabaseConnection,
+) -> Result<bool, DbErr> {
+    let manager = SchemaManager::new(database);
+    for table in [
+        "storage_policies",
+        "remote_storage_targets",
+        "storage_policy_connector_credentials",
+        "remote_storage_target_credentials",
+        "background_tasks",
+        "upload_sessions",
+    ] {
+        if !manager.has_table(table).await? {
+            return Ok(false);
+        }
+    }
+    if !manager
+        .has_column("storage_policies", "connector_id")
+        .await?
+        || !manager
+            .has_column("remote_storage_targets", "connector_config")
+            .await?
+    {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 /// Run SQLite schema migrations with foreign keys disabled before Forge opens

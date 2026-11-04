@@ -161,6 +161,18 @@ fn validate_transition(value: &BrowserUploadTransition, previous: u64, total: u6
         return Err(invalid("browser protocol state is too large"));
     }
     if let Some(request) = &value.request {
+        if request.authorization.as_ref().is_some_and(|auth| {
+            auth.scheme.is_empty()
+                || !auth
+                    .scheme
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+                || auth.token.is_empty()
+                || auth.token.len() > 8192
+                || auth.token.contains(['\r', '\n'])
+        }) {
+            return Err(invalid("unsafe browser upload capability"));
+        }
         let url =
             url::Url::parse(&request.url).map_err(|_| invalid("invalid browser upload URL"))?;
         if !matches!(url.scheme(), "https" | "http")
@@ -418,6 +430,8 @@ mod tests {
             confirmed_offset: 4,
             provider_completed: false,
             request: Some(BrowserUploadRequest {
+                authorization: None,
+                completion: None,
                 url: "https://upload.invalid/capability".into(),
                 method: BrowserUploadMethod::Patch,
                 headers: BTreeMap::new(),

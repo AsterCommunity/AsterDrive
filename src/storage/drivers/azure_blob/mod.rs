@@ -528,6 +528,28 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn numbered_browser_request_declares_block_identity_without_a_response_header_parser() {
+        use aster_drive_storage::{BrowserUploadCompletion, MultipartStorageDriver};
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials()).unwrap();
+        let id = driver.create_multipart_upload("object").await.unwrap();
+        let request = driver
+            .browser_part_request("object", &id, 3, Duration::from_secs(60))
+            .await
+            .unwrap();
+        let Some(BrowserUploadCompletion::Fixed { token }) = request.completion else {
+            panic!("Azure must declare its fixed block identity");
+        };
+        let query = url::Url::parse(&request.url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(query["blockid"], token);
+        assert!(request.response_headers.is_empty());
+        assert!(request.authorization.is_none());
+    }
+
     fn sample_credentials() -> AzureBlobStaticCredentials {
         AzureBlobStaticCredentials {
             account_name: " account-name ".to_string(),

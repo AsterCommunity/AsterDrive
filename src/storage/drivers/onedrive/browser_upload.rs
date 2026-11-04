@@ -76,6 +76,8 @@ mod tests {
     #[test]
     fn graph_acknowledgements_are_strict_and_bounded() {
         let request = BrowserUploadRequest {
+            authorization: None,
+            completion: None,
             url: "https://upload.invalid".into(),
             method: BrowserUploadMethod::Put,
             headers: BTreeMap::new(),

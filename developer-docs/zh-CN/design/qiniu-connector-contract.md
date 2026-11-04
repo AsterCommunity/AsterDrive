@@ -1,77 +1,52 @@
-# 七牛云 Kodo Connector 契约
+# Kodo 原生 connector 契约
 
-## 目标与边界
+## 所有权和协议
 
-七牛云 Kodo 作为 S3 兼容对象存储接入。Qiniu connector 负责配置、静态凭据、
-descriptor、本地化、配置规范化、连接测试和运行时 driver 构造；共享
-`S3CompatibleDriver` / `S3Driver` 负责对象 I/O、AWS SigV4、Range、流式上传、
-multipart、分页、presigned GET/PUT 和 S3 错误映射。
+Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust SDK，也不在运行时探测/回退到 S3。协议依据为 `qiniu/go-sdk@f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e` 的 `auth/credentials.go`、`storagev2/region/query.go` 与 `storagev2/internal/api-specs/`。通用 S3 connector 的 SigV4 合同保持独立。
 
-该 connector 不使用 Qiniu SDK 或七牛原生数据面协议。QBox、UpToken、
-UploadToken、原生表单上传、原生 multipart REST 和硬编码 z0/z1/z2 endpoint 表
-不属于实现边界。上传服务和前端只消费通用 descriptor/capability，不按 Qiniu
-connector ID 分支。
+- connector：配置/凭据规范化、descriptor、条件字段、连接探测、运行时与清理 driver 构造。
+- driver：HMAC-SHA1、padded URL-safe Base64、UpToken、管理凭证、区域发现、原生表单和 multipart v2、管理 API、私有读取/交付及结构化错误。
+- 上传 service/repository：用户/团队鉴权、策略协商、会话、part-size 验证、Blob/version、配额、审计、任务和完成事务。
+- 前端：执行后端给出的有限请求合同，不识别七牛 connector ID、URL 或 JSON 格式。
 
-## 配置与版本
+## Provider resumable 与编号分片
 
-这是未发布 connector 的第一个稳定 schema，配置版本为 **V1**，不保留分支内
-曾出现的原生协议或 V2 schema 兼容路径。策略必须提供：
+`upload_transport` 返回 `ProviderResumable`，策略为 `server_relay` 或 `frontend_direct`。Kodo 原生 v2 与 OneDrive/Google Drive 的顺序 range 协议不同：它支持独立编号分片与显式合并。`ProviderResumableUploadDriver::numbered_parts()` 明确协商这种协议，并复用已有 multipart planner、并发调度、完成事务和取消清理；不通过顺序执行器制造隐式完成。
 
-- `endpoint`：必填 HTTPS Kodo S3 官方 endpoint，接受服务级
-  `https://s3.<region>.qiniucs.com` 和空间级
-  `https://<S3-space-name>.s3.<region>.qiniucs.com` 两种输入。空间级 host 中的名称
-  必须与 `bucket` 一致；两种输入都规范化为不带末尾 `/` 的服务 endpoint 供 AWS SDK
-  使用。明文 HTTP、自定义 CNAME、非标准端口、
-  path、query 或 fragment 仍作为配置错误。
-- `bucket`：必填**七牛 S3 空间名**。它遵循 S3 的全局唯一要求；普通 Kodo 空间
-  名称全局唯一时两者相同，否则平台会生成另一个 S3 空间名。管理员从 Kodo 控制台
-  的空间概览或 `Get Service` 获取该值，不能想当然地填普通空间名称。
-- `base_path`：可选对象 prefix；空值表示 bucket 根。
-- `s3_region`：必填 SigV4 签名区域，必须为 1–128 个可打印 ASCII 字符，且不含
-  空白或 `/`；它同时必须等于 endpoint 中的 `<region>`。`cn-east-1` 仅为界面
-  示例，不是代码中的区域 allow-list。
-- 通用 object-storage 上传和下载策略，以及静态 Qiniu AccessKey / SecretKey。
+所有编号分片统一返回已有 `BrowserUploadRequest`：S3/OSS/COS/OBS 在后端将签名 PUT 转成通用请求，Azure 声明固定 block token，Kodo 声明受限 UpToken 与后端查询回执。`completion` 的有限规则为响应头、固定 token、供应商权威查询；前端调度器只有一条执行路径，不按 presigned/native 或供应商分支。原生 ETag/JSON 不由前端解析；完成时后端查询真实 `listParts` 并验证 partNumber、ETag 和实际大小。已有 wire mode `presigned_multipart` 是历史浏览器编号分片调度标识，不表示 native 请求使用 SigV4。外部客户端必须按新 schema 更新分片请求消费；单次 presigned PUT 合同保持不变。
 
-SecretKey 是 secret descriptor 字段，不能进入日志、错误、审计记录或 presigned
-响应 payload。编辑策略时空的 secret 字段沿用已保存凭据；新建策略必须提供完整
-凭据。
+换浏览器恢复时，原生 provider 的已上传分片以供应商查询为依据，不要求本地存储存在 ETag。旧 S3 uploadId 不可解释为原生会话。原生会话身份保存 uploadId、bucket、完整 key 和供应商截止时间，并在每个请求上核对所有权与过期时间。
 
-## 协议与运行时行为
+`complete_upload_session` 为非隐式 provider 提供显式完成合同；默认隐式 provider 无额外请求。Kodo 正式编号分片路径由 multipart completion 执行原生合并，普通 provider 完成事务继续负责元数据发布。
 
-`QiniuDriver` 将配置映射为共享 `S3DriverConfig`，并使用选定 endpoint、bucket、
-base path、region、静态凭据、超时和寻址方式构建 AWS SDK client。为兼容
-S3-compatible endpoint，请求 checksum 计算和响应 checksum 校验均限制为
-`WhenRequired`。
+## 数据面和资源
 
-寻址方式是 connector-owned provider 策略，不作为管理员字段暴露。Qiniu connector
-解除 AWS SDK 的强制 path-style，让 endpoint resolver 对普通 DNS-compatible S3
-空间名使用 virtual-hosted-style，并在名称约束要求时选择兼容形式；管理员无需理解
-或同步 endpoint 与 SDK 寻址开关。
+- 表单：`POST` multipart/form-data，key/token/file；官方单次上限 1 GiB。
+- multipart v2：init、streamed part PUT、listParts、complete JSON 和 abort；编号 1..10000，非末片至少 1 MiB，单片最多 1 GiB，供应商会话 7 天。
+- 管理：原生 stat、list（有界分页/visitor）、copy、delete；不存在和错误明确映射。
+- 私有源站：原生 `e/token` GET、HEAD、Range。Range 被忽略或 Content-Range 不一致时拒绝返回假成功。
+- 下载：最终 Host/编码路径/截止时间一起签名；token 最后，`expires_at` 与 e 一致；TTL 拒绝零和超限。不能满足精确响应头/文件名的请求返回 relay。
 
-首版独立 connector 的稳定价值是：强制官方 endpoint 与 region 一致、规范化服务级
-与空间级寻址、明确七牛 S3 空间名而不是普通空间名称、设置 Kodo 兼容所需的 checksum 策略，并
-提供七牛专属 descriptor、本地化、连接诊断、教程和真实服务验收入口。任意自建
-S3-compatible endpoint 继续使用 generic S3 connector，不借 Qiniu 品牌入口绕过
-供应商契约。
+流式上传使用固定 64 KiB ReaderStream 缓冲，逻辑分片不会分配同等大小的 Vec，也不先落临时文件。ExactSizeReader 在最后一个声明字节前探测额外数据，避免静默截断。流式 multipart 的失败/取消尝试 abort；取消通过 per-upload guard 安排清理并记录失败。进程终止或初始化响应丢失无法保证立即清理，保留供应商过期保障。不得将其描述为同步必达清理。
 
-浏览器直传仅使用标准 presigned PUT；multipart 使用标准 S3 `uploadId`、
-`partNumber` 和 ETag 语义。启用 `presigned` 前，管理员必须验证浏览器可访问
-endpoint、TLS 和 Kodo CORS；普通 relay 请求与 presigned 请求分别验收。
+下载签名有效期由 descriptor 数字字段 `download_auth_validity_seconds` 提供，范围 1..3600 秒，默认 180；缺字段的旧 V2 使用 serde 默认。有效 TTL 为 caller/config/provider 三者最小值，默认 Kodo 源站 `*.kodo-*.qiniucs.com` 另有 300 秒上限。服务端流式 GET、HEAD、Range、缩略图读取也消费此配置；直链的 e 和 expires_at 使用同一个真实截止时间。精确匹配供应商“expires 与 server time 相差过大”的 403 时映射为 Misconfigured 并提供固定脱敏原因，不把它当成账号 Permission，也不透传任意 provider body。
 
-## 验证要求
+区域发现按 AK/bucket 调用官方 v4/query，并在 driver 实例内按 TTL 缓存上传/RS/RSF 服务；无全局产品状态。下载源站、CDN、上传与管理服务不混用。HTTP client 禁止重定向，避免将凭据带到意外目标。
 
-- 本地 S3-compatible mock 或 RustFS 集成测试只证明共享 S3 数据面的 PUT、GET、
-  Range、HEAD、DELETE、list、流式上传、multipart 与 path-style /
-  virtual-hosted-style 请求契约；它不构成 Kodo provider 验收。
-- 认证、403、404、429、5xx、网络中断和超时必须经共享 S3 错误映射表现为稳定
-  `StorageErrorKind`；草稿和已保存策略连接测试覆盖成功与失败分支。
-- 文档、connector manifest、OpenAPI 和前端 SDK 必须从最终 descriptor/schema
-  重新生成，不得保留 `PresignedFormUploadRequest` 或其他原生 form-upload DTO。
-- 正式支持和合并前，通过 `tests/storage/qiniu.rs` 中受
-  `ASTER_TEST_QINIU_KODO_*` 环境变量保护的测试，在隔离真实 Kodo S3 空间记录连接
-  测试、上传、下载、Range、multipart complete/abort、list、删除、presigned 与
-  CORS smoke 证据。不得用本地 mock 替代该证据，也不得在测试输出中打印凭据或
-  完整签名 URL。
+## 配置和升级
 
-官方 endpoint、访问方式与 S3 空间名的事实源是七牛文档：
-[AWS S3 协议兼容性说明](https://developer.qiniu.com/kodo/4088/s3-access-domainname)。
+配置字段为 native bucket、base_path、download_origin、download_auth_validity_seconds、download_delivery、download_base_url、provider_resumable_upload_strategy 和 object_storage_download_strategy。静态凭据仍为 V1，加密存储与留空保留规则不变。CDN 域仅在 qiniu_cdn 时显示/必填；relay 策略可保存休眠的交付设置。
+
+升级由 `src/storage/connectors/qiniu/upgrade.rs` 在启动加载凭据/监听端口前编排，driver 的 migration-only resolver 核对外部协议。已有实例加密主密钥用于解密 policy、remote target 和对象清理快照的凭据；`/buckets?shared=rd` 列举候选，`/v4/query` 的 `s3.region_alias` 缩小区域，`io_src.domains` 提供默认 HTTPS 源站。旧 S3 空间的随机 16 字节探测对象必须从唯一原生空间读到相同 nonce，不能按名字或已有文件大小猜测。探测对象有唯一 key、位于原 prefix，始终尝试清理；用户内容不读写。
+
+网络验证在数据库事务外完成，所有结果准备好后以原配置/凭据的 compare-and-swap 一次提交。任何连接失败、歧义、探测清理失败或并发修改均保留原始配置并中止启动；5 分钟单连接时限。成功后直接丢弃旧 S3 字段，不创建备份表，也不保留运行时双协议。schema migration 只接受已验证 V2，schema-only 工具不得清空 V1 字段。
+
+保留策略 ID、对象 key、base_path、行为和加密 credential V1。原生空间与 download_origin 联网自动填入；可查询默认源站，不强制管理员新绑自定义域。CDN 交付是独立配置选择，不能从任意域名列表自动猜测。后续 V2 启动无升级网络请求。
+
+对象清理快照使用其原 policy ID/AAD 和加密凭据一起转换；保留 temp key 和任务身份。不可转换的旧 S3 multipart 会话须先完成/取消，已完成/取消快照保留历史。迁移成功后不可逆，不提供旧配置备份或自动恢复路径；无 Kodo 数据时 down 无配置可逆转。不得修改已发布 migration。
+
+## 安全与验证
+
+AK/SK、token、完整 URL 和 provider 原始错误体不得进入日志/Debug/审计。错误保留 HTTP provider code、经过筛选的 X-Reqid 和稳定 StorageErrorKind；reqwest error 的 URL 被丢弃。浏览器仅获得本次对象的短期上传能力。原生 CDN 使用私有 bucket 的 e/token 鉴权；不叠加时间戳防盗链，真实缓存 HIT/MISS、过期与密钥轮换仍需供应商验收。
+
+验证覆盖签名独立向量、原生请求、stat/list/copy/delete、GET/HEAD/Range、大小不符、重试/恢复、取消/过期、失败清理、有界流、schema/凭据、SQLite migration 原子失败与不可逆边界、远端配置确认、前端执行器与既有 provider 回归。OpenAPI、前端 SDK 和 storage docs 通过正式流程生成。真实云测试缺少输入时明确跳过，不能将 mock 或编译通过当成供应商验收。

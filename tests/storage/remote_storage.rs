@@ -9691,7 +9691,15 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         let url = urls
             .get(&i32::try_from(part_number).expect("part number should fit i32"))
             .expect("part URL should exist");
-        let response = put_presigned_bytes(url, part_body).await;
+        assert!(
+            url.authorization.is_none(),
+            "remote fixture uses signed URLs"
+        );
+        let request = aster_drive_storage::PresignedUploadRequest::from_header_pairs(
+            url.url.clone(),
+            url.headers.clone(),
+        );
+        let response = put_presigned_bytes(&request, part_body).await;
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let etag = response
             .headers()

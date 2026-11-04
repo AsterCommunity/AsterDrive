@@ -606,9 +606,10 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let qiniu = descriptor("asterdrive.storage.qiniu");
     assert_eq!(qiniu["credential_mode"], "static_secret");
     assert_eq!(qiniu["deployment_scope"], "shared_across_primary_instances");
-    assert_eq!(qiniu["config_schema_version"], 1);
+    assert_eq!(qiniu["config_schema_version"], 2);
     assert_eq!(qiniu["capabilities"]["presigned_download"], true);
-    assert_eq!(qiniu["upload_workflows"]["presigned_upload"], true);
+    assert_eq!(qiniu["upload_workflows"]["presigned_upload"], false);
+    assert_eq!(qiniu["upload_workflows"]["provider_resumable_upload"], true);
     let qiniu_actions = qiniu["actions"].as_array().expect("Qiniu actions");
     assert!(qiniu_actions.iter().any(|action| {
         action["action_id"] == "test_draft_connection"
@@ -646,37 +647,10 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
                 mapping["source_field"] == "s3_region" && mapping["target_field"] == "obs_region"
             }))
     );
-    let qiniu_promotion = qiniu["promotions"]
-        .as_array()
-        .expect("Qiniu promotions")
-        .iter()
-        .find(|promotion| promotion["promotion_id"] == "promote_from_s3")
-        .expect("Qiniu should declare generic S3 promotion");
     assert!(
-        qiniu_promotion["requirements"]
-            .as_array()
-            .is_some_and(|requirements| requirements.iter().any(|requirement| {
-                requirement["source_field"] == "endpoint"
-                    && requirement["matcher"]["kind"] == "string_prefix"
-                    && requirement["matcher"]["prefix"] == "https://"
-            }))
-    );
-    assert!(
-        qiniu_promotion["requirements"]
-            .as_array()
-            .is_some_and(|requirements| requirements.iter().any(|requirement| {
-                requirement["source_field"] == "s3_region"
-                    && requirement["matcher"]["kind"] == "string_equals"
-                    && requirement["matcher"]["value"] == "auto"
-                    && requirement["negate"] == true
-            }))
-    );
-    assert!(
-        qiniu_promotion["config_mappings"]
-            .as_array()
-            .is_some_and(|mappings| mappings.iter().any(|mapping| {
-                mapping["source_field"] == "s3_region" && mapping["target_field"] == "s3_region"
-            }))
+        qiniu
+            .get("promotions")
+            .is_none_or(|value| value.as_array().is_some_and(Vec::is_empty))
     );
     assert!(qiniu_actions.iter().any(|action| {
         action["action_id"] == "test_saved_connection"
@@ -1090,7 +1064,7 @@ async fn test_policy_connector_promotion_preserves_namespace_and_rekeys_credenti
 }
 
 #[actix_web::test]
-async fn test_policy_connector_promotion_supports_oss_qiniu_kodo_and_huawei_obs() {
+async fn test_policy_connector_promotion_supports_oss_and_huawei_obs() {
     use aster_drive::db::repository::{policy_repo, storage_policy_connector_credential_repo};
 
     let state = common::setup().await;
@@ -1115,15 +1089,6 @@ async fn test_policy_connector_promotion_supports_oss_qiniu_kodo_and_huawei_obs(
             "asterdrive.storage.alibaba_oss",
             "oss_region",
             "https://archive-bucket.oss-cn-hangzhou.aliyuncs.com",
-        ),
-        (
-            "Promote Kodo",
-            "https://kodo-space.s3.cn-east-1.qiniucs.com",
-            "kodo-space",
-            "cn-east-1",
-            "asterdrive.storage.qiniu",
-            "s3_region",
-            "https://s3.cn-east-1.qiniucs.com",
         ),
         (
             "Promote Huawei OBS",

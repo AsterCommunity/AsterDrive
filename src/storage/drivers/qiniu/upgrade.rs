@@ -1,0 +1,496 @@
+//! Migration-only S3 identity verification. Runtime Kodo never falls back to S3.
+//! Native discovery follows pinned Go SDK /buckets and /v4/query io_src contracts.
+use super::{
+    QiniuDownloadDelivery, QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials, http, invalid,
+};
+use aster_drive_storage::{Result, StorageDriver, StorageErrorKind, storage_driver_error};
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use url::Url;
+
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LegacyConfig {
+    pub endpoint: String,
+    pub bucket: String,
+    pub base_path: String,
+    pub s3_region: String,
+    pub object_storage_upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
+    pub object_storage_download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct NativeLocation {
+    pub bucket: String,
+    pub download_origin: String,
+}
+
+#[async_trait::async_trait]
+pub(crate) trait NativeUpgradeResolver: Send + Sync {
+    async fn resolve(
+        &self,
+        old: &LegacyConfig,
+        credentials: QiniuStaticCredentials,
+    ) -> Result<NativeLocation>;
+}
+pub(crate) struct OfficialResolver;
+
+#[derive(Deserialize)]
+struct Service {
+    #[serde(default)]
+    domains: Vec<String>,
+}
+#[derive(Deserialize)]
+struct S3Region {
+    region_alias: String,
+}
+#[derive(Deserialize)]
+struct Region {
+    io_src: Service,
+    s3: S3Region,
+}
+#[derive(Deserialize)]
+struct Query {
+    hosts: Vec<Region>,
+}
+
+/// A temporary random marker confirms identity even for an empty bucket. It cannot
+/// overwrite a user key, and is removed through the original authoritative namespace.
+struct ProbeCleanup {
+    driver: Arc<dyn StorageDriver>,
+    key: Option<String>,
+}
+impl Drop for ProbeCleanup {
+    fn drop(&mut self) {
+        let Some(key) = self.key.take() else {
+            return;
+        };
+        let driver = self.driver.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                if let Err(error) = driver.delete(&key).await {
+                    tracing::warn!(
+                        kind = error.kind().as_str(),
+                        "Kodo migration probe cleanup failed"
+                    );
+                }
+            });
+        } else {
+            tracing::warn!("Kodo migration runtime stopped before probe cleanup");
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl NativeUpgradeResolver for OfficialResolver {
+    async fn resolve(
+        &self,
+        old: &LegacyConfig,
+        credentials: QiniuStaticCredentials,
+    ) -> Result<NativeLocation> {
+        use crate::storage::drivers::s3::{
+            S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials,
+        };
+        let endpoint =
+            Url::parse(&old.endpoint).map_err(|_| invalid("invalid legacy Kodo endpoint"))?;
+        let official = format!("s3.{}.qiniucs.com", old.s3_region);
+        if endpoint.scheme() != "https"
+            || !matches!(endpoint.host_str(),Some(host) if host==official || host==format!("{}.{}",old.bucket,official))
+            || endpoint.port().is_some()
+            || !endpoint.username().is_empty()
+            || endpoint.password().is_some()
+            || endpoint.path() != "/"
+            || endpoint.query().is_some()
+            || endpoint.fragment().is_some()
+        {
+            return Err(invalid(
+                "legacy Kodo upgrade requires the configured official S3 endpoint and matching region",
+            ));
+        }
+        let source = Arc::new(S3Driver::new(
+            S3DriverConfig {
+                endpoint: format!("https://{official}"),
+                bucket: old.bucket.clone(),
+                base_path: old.base_path.clone(),
+                region: old.s3_region.clone(),
+                path_style: false,
+                connect_timeout: Duration::from_secs(5),
+                read_timeout: Duration::from_secs(20),
+                operation_timeout: Duration::from_secs(30),
+            },
+            S3StaticCredentials {
+                access_key: credentials.access_key.clone(),
+                secret_key: credentials.secret_key.clone(),
+            },
+            S3DriverOptions::virtual_hosted_style(),
+            |builder| {
+                builder
+                    .request_checksum_calculation(
+                        aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
+                    )
+                    .response_checksum_validation(
+                        aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
+                    )
+            },
+        )?);
+        let signer = discovery_driver(
+            old.bucket.clone(),
+            old.base_path.clone(),
+            "https://unused.invalid".into(),
+            credentials.clone(),
+        )?;
+        let discovery = OfficialDiscovery {
+            signer,
+            credentials,
+        };
+        verify_namespace(old, source, &discovery).await
+    }
+}
+
+#[async_trait::async_trait]
+trait UpgradeDiscovery: Send + Sync {
+    async fn buckets(&self) -> Result<Vec<String>>;
+    async fn source(&self, bucket: &str, region: &str) -> Result<Option<String>>;
+    async fn contains(
+        &self,
+        bucket: &str,
+        origin: &str,
+        prefix: &str,
+        key: &str,
+        nonce: &[u8],
+    ) -> Result<bool>;
+}
+struct OfficialDiscovery {
+    signer: QiniuDriver,
+    credentials: QiniuStaticCredentials,
+}
+#[async_trait::async_trait]
+impl UpgradeDiscovery for OfficialDiscovery {
+    async fn buckets(&self) -> Result<Vec<String>> {
+        http::decode(
+            self.signer
+                .management(
+                    reqwest::Method::GET,
+                    Url::parse("https://uc.qiniuapi.com/buckets?shared=rd")
+                        .map_err(|_| invalid("invalid Kodo bucket endpoint"))?,
+                )
+                .await?,
+        )
+        .await
+    }
+    async fn source(&self, bucket: &str, region: &str) -> Result<Option<String>> {
+        let mut query = Url::parse("https://uc.qbox.me/v4/query")
+            .map_err(|_| invalid("invalid Kodo region endpoint"))?;
+        query
+            .query_pairs_mut()
+            .append_pair("ak", &self.credentials.access_key)
+            .append_pair("bucket", bucket);
+        let response: Query = http::decode(
+            self.signer
+                .client
+                .get(query)
+                .send()
+                .await
+                .map_err(http::transport_error)?,
+        )
+        .await?;
+        let Some(region) = response
+            .hosts
+            .into_iter()
+            .find(|host| host.s3.region_alias == region)
+        else {
+            return Ok(None);
+        };
+        let origin =
+            region.io_src.domains.first().ok_or_else(|| {
+                invalid("Kodo discovery returned no default native source domain")
+            })?;
+        Ok(Some(
+            super::download::validate_domain(&format!("https://{origin}"))?
+                .as_str()
+                .trim_end_matches('/')
+                .to_string(),
+        ))
+    }
+    async fn contains(
+        &self,
+        bucket: &str,
+        origin: &str,
+        prefix: &str,
+        key: &str,
+        nonce: &[u8],
+    ) -> Result<bool> {
+        let candidate = discovery_driver(
+            bucket.to_string(),
+            prefix.to_string(),
+            origin.to_string(),
+            self.credentials.clone(),
+        )?;
+        candidate.read_upgrade_probe(key, nonce).await
+    }
+}
+
+async fn verify_namespace(
+    old: &LegacyConfig,
+    source: Arc<dyn StorageDriver>,
+    discovery: &dyn UpgradeDiscovery,
+) -> Result<NativeLocation> {
+    let candidates = discovery
+        .buckets()
+        .await?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    if candidates.is_empty() || candidates.len() > 10_000 {
+        return Err(invalid(
+            "Kodo bucket enumeration returned an empty or excessive candidate set",
+        ));
+    }
+    let key = format!("_aster-native-upgrade-{}", uuid::Uuid::new_v4());
+    let nonce = uuid::Uuid::new_v4().as_bytes().to_vec();
+    let mut cleanup = ProbeCleanup {
+        driver: source.clone(),
+        key: Some(key.clone()),
+    };
+    let result=async {
+        source.put(&key,&nonce).await.map_err(|_|invalid("legacy Kodo identity probe upload failed; old configuration retained"))?;
+        let mut matches=Vec::new();
+        for bucket in candidates {
+            let Some(origin)=discovery.source(&bucket,&old.s3_region).await? else{continue;};
+            match discovery.contains(&bucket,&origin,&old.base_path,&key,&nonce).await {
+                Ok(true)=>matches.push(NativeLocation{bucket,download_origin:origin}),
+                Ok(false)=>{},
+                Err(error) if error.kind()==StorageErrorKind::NotFound=>{},
+                Err(error)=>return Err(error),
+            }
+        }
+        if matches.len()!=1{return Err(storage_driver_error(StorageErrorKind::Precondition,"Kodo upgrade could not confirm exactly one native bucket for the legacy S3 namespace"));}
+        matches.pop().ok_or_else(||invalid("Kodo identity resolution failed"))
+    }.await;
+    source
+        .delete(&key)
+        .await
+        .map_err(|_| invalid("Kodo identity probe cleanup failed; no configuration was changed"))?;
+    cleanup.key = None;
+    result
+}
+
+fn discovery_driver(
+    bucket: String,
+    base_path: String,
+    origin: String,
+    credentials: QiniuStaticCredentials,
+) -> Result<QiniuDriver> {
+    QiniuDriver::new(
+        QiniuDriverConfig {
+            bucket,
+            base_path,
+            download_origin: origin,
+            download_delivery: QiniuDownloadDelivery::Origin,
+            download_base_url: None,
+            download_auth_validity_seconds: 180,
+            connect_timeout: Duration::from_secs(5),
+            read_timeout: Duration::from_secs(15),
+            operation_timeout: Duration::from_secs(20),
+        },
+        credentials,
+    )
+}
+impl QiniuDriver {
+    async fn read_upgrade_probe(&self, path: &str, expected: &[u8]) -> Result<bool> {
+        use futures::StreamExt;
+        let url = self.private_url(
+            &self.config.download_origin,
+            path,
+            chrono::Utc::now().timestamp() + 60,
+        )?;
+        let response = http::checked(
+            self.client
+                .get(url)
+                .header("accept-encoding", "identity")
+                .send()
+                .await
+                .map_err(http::transport_error)?,
+        )
+        .await?;
+        let mut stream = response.bytes_stream();
+        let mut bytes = Vec::with_capacity(expected.len());
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(http::transport_error)?;
+            if bytes.len().saturating_add(chunk.len()) > expected.len() {
+                return Ok(false);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes == expected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[derive(Default)]
+    struct Source {
+        objects: Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
+        writes: AtomicUsize,
+        deletes: AtomicUsize,
+        fail_delete: bool,
+    }
+    #[async_trait::async_trait]
+    impl StorageDriver for Source {
+        async fn put(&self, key: &str, data: &[u8]) -> Result<String> {
+            assert!(key.starts_with("_aster-native-upgrade-"));
+            assert_eq!(data.len(), 16);
+            self.writes.fetch_add(1, Ordering::SeqCst);
+            self.objects.lock().unwrap().insert(key.into(), data.into());
+            Ok(key.into())
+        }
+        async fn get(&self, key: &str) -> Result<Vec<u8>> {
+            self.objects
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .ok_or_else(|| storage_driver_error(StorageErrorKind::NotFound, "absent probe"))
+        }
+        async fn get_stream(
+            &self,
+            _: &str,
+        ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+            Err(invalid("probe must not read user streams"))
+        }
+        async fn delete(&self, key: &str) -> Result<()> {
+            self.deletes.fetch_add(1, Ordering::SeqCst);
+            if self.fail_delete {
+                return Err(invalid("injected cleanup failure"));
+            }
+            self.objects.lock().unwrap().remove(key);
+            Ok(())
+        }
+        async fn exists(&self, key: &str) -> Result<bool> {
+            Ok(self.objects.lock().unwrap().contains_key(key))
+        }
+        async fn metadata(&self, _: &str) -> Result<aster_drive_storage::BlobMetadata> {
+            Err(invalid(
+                "probe uses nonce equality, not metadata coincidence",
+            ))
+        }
+    }
+    struct Discovery {
+        source: Arc<Source>,
+        matching: Vec<&'static str>,
+        outage: bool,
+    }
+    #[async_trait::async_trait]
+    impl UpgradeDiscovery for Discovery {
+        async fn buckets(&self) -> Result<Vec<String>> {
+            Ok(vec!["candidate-a".into(), "candidate-b".into()])
+        }
+        async fn source(&self, bucket: &str, _: &str) -> Result<Option<String>> {
+            Ok(Some(format!("https://{bucket}.provider.test")))
+        }
+        async fn contains(
+            &self,
+            bucket: &str,
+            _: &str,
+            prefix: &str,
+            key: &str,
+            nonce: &[u8],
+        ) -> Result<bool> {
+            assert_eq!(prefix, "existing/prefix");
+            assert_eq!(self.source.get(key).await?, nonce);
+            if self.outage {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Transient,
+                    "injected network failure",
+                ));
+            }
+            Ok(self.matching.contains(&bucket))
+        }
+    }
+    fn old() -> LegacyConfig {
+        LegacyConfig {
+            endpoint: "https://s3.cn-east-1.qiniucs.com".into(),
+            bucket: "different-s3-alias".into(),
+            base_path: "existing/prefix".into(),
+            s3_region: "cn-east-1".into(),
+            object_storage_upload_strategy:
+                aster_drive_model::types::ObjectStorageUploadStrategy::Presigned,
+            object_storage_download_strategy:
+                aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
+        }
+    }
+    #[tokio::test]
+    async fn confirms_different_native_name_with_random_nonce_and_cleans_only_its_probe() {
+        let source = Arc::new(Source::default());
+        source
+            .objects
+            .lock()
+            .unwrap()
+            .insert("user-owned-object".into(), b"do-not-touch".to_vec());
+        let discovery = Discovery {
+            source: source.clone(),
+            matching: vec!["candidate-b"],
+            outage: false,
+        };
+        let location = verify_namespace(&old(), source.clone(), &discovery)
+            .await
+            .unwrap();
+        assert_eq!(location.bucket, "candidate-b");
+        assert_eq!(
+            location.download_origin,
+            "https://candidate-b.provider.test"
+        );
+        assert_eq!(source.writes.load(Ordering::SeqCst), 1);
+        assert_eq!(source.deletes.load(Ordering::SeqCst), 1);
+        assert_eq!(source.objects.lock().unwrap().len(), 1);
+        assert_eq!(
+            source.get("user-owned-object").await.unwrap(),
+            b"do-not-touch"
+        );
+    }
+    #[tokio::test]
+    async fn no_mapping_multiple_mappings_and_outages_never_guess_and_always_clean() {
+        for (matching, outage) in [
+            (vec![], false),
+            (vec!["candidate-a", "candidate-b"], false),
+            (vec![], true),
+        ] {
+            let source = Arc::new(Source::default());
+            let discovery = Discovery {
+                source: source.clone(),
+                matching,
+                outage,
+            };
+            assert!(
+                verify_namespace(&old(), source.clone(), &discovery)
+                    .await
+                    .is_err()
+            );
+            assert!(source.objects.lock().unwrap().is_empty());
+            assert_eq!(source.deletes.load(Ordering::SeqCst), 1);
+        }
+    }
+    #[tokio::test]
+    async fn cleanup_failure_prevents_configuration_conversion() {
+        let source = Arc::new(Source {
+            fail_delete: true,
+            ..Default::default()
+        });
+        let discovery = Discovery {
+            source: source.clone(),
+            matching: vec!["candidate-b"],
+            outage: false,
+        };
+        assert!(verify_namespace(&old(), source, &discovery).await.is_err());
+    }
+    #[test]
+    fn fixed_go_sdk_region_contract_exposes_default_source_and_s3_region() {
+        let query:Query=serde_json::from_value(serde_json::json!({"hosts":[{"io_src":{"domains":["bucket.kodo-cn-east-1.qiniucs.com"]},"s3":{"region_alias":"cn-east-1"}}]})).unwrap();
+        assert_eq!(
+            query.hosts[0].io_src.domains[0],
+            "bucket.kodo-cn-east-1.qiniucs.com"
+        );
+        assert_eq!(query.hosts[0].s3.region_alias, "cn-east-1");
+    }
+}

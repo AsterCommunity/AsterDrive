@@ -596,6 +596,47 @@ describe("uploadService", () => {
 		expect(xhr.sentBody?.size).toBe(4);
 		expect(progress).toHaveBeenCalledWith(2, 4);
 	});
+
+	it("forwards an explicit short-lived upload capability without cookies or CSRF", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const command = instruction();
+		command.request.authorization = {
+			scheme: "UpToken",
+			token: "object-scoped-short-lived-token",
+		};
+		const pending = uploadService.executeBrowserUpload(
+			command,
+			new Blob(["abcdefgh"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		expect(xhr.requestHeaderCalls).toContainEqual([
+			"Authorization",
+			"UpToken object-scoped-short-lived-token",
+		]);
+		expect(xhr.withCredentials).toBe(false);
+		xhr.status = 200;
+		xhr.responseText = '{"etag":"opaque"}';
+		xhr.onload?.();
+		await expect(pending).resolves.toMatchObject({
+			status: 200,
+			body: '{"etag":"opaque"}',
+		});
+	});
+
+	it("rejects malformed capability schemes and header injection", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		for (const authorization of [
+			{ scheme: "bad scheme", token: "token" },
+			{ scheme: "UpToken", token: "token\r\nX-Injected: value" },
+			{ scheme: "UpToken", token: "" },
+		]) {
+			const command = instruction();
+			command.request.authorization = authorization;
+			await expect(
+				uploadService.executeBrowserUpload(command, new Blob(["abcdefgh"])),
+			).rejects.toThrow("invalid upload capability");
+		}
+	});
 	it.each([202, 308, 200, 201, 204, 403, 416, 503])(
 		"reports status %i verbatim to the backend",
 		async (status) => {
@@ -1079,5 +1120,77 @@ describe("uploadService", () => {
 		const xhrNetwork = MockXMLHttpRequest.instances[2];
 		xhrNetwork.onerror?.();
 		await expect(networkFailure).rejects.toThrow("network error");
+	});
+});
+
+describe("common numbered-part execution", () => {
+	beforeEach(() => {
+		MockXMLHttpRequest.instances = [];
+		vi.stubGlobal("XMLHttpRequest", MockXMLHttpRequest);
+	});
+	function request(
+		completion: import("@/types/api").BrowserUploadRequest["completion"],
+	): import("@/types/api").BrowserUploadRequest {
+		return {
+			url: "https://storage.example/part",
+			method: "PUT",
+			headers: {},
+			body: null,
+			response_headers: ["etag"],
+			completion,
+		};
+	}
+	it.each([
+		[{ source: "response_header" as const, name: "etag" }, '"part-etag"'],
+		[{ source: "fixed" as const, token: "block-identity" }, "block-identity"],
+		[{ source: "provider_reconciled" as const }, ""],
+	])(
+		"executes the same request for the declared completion contract %j",
+		async (completion, expected) => {
+			const { uploadService } = await import("@/services/uploadService");
+			const pending = uploadService.uploadPartRequest(
+				request(completion),
+				new Blob(["part"]),
+			);
+			const xhr = MockXMLHttpRequest.instances[0];
+			xhr.status = 200;
+			xhr.responseHeaders = { etag: '"part-etag"' };
+			xhr.responseText = "opaque-provider-body";
+			xhr.onload?.();
+			await expect(pending).resolves.toBe(expected);
+			expect(xhr.withCredentials).toBe(false);
+		},
+	);
+	it("rejects a missing completion contract before creating a network request", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		await expect(
+			uploadService.uploadPartRequest(request(undefined), new Blob(["part"])),
+		).rejects.toThrow("Missing multipart completion contract");
+		expect(MockXMLHttpRequest.instances).toHaveLength(0);
+	});
+	it("rejects CORS-hidden required response headers", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.uploadPartRequest(
+			request({ source: "response_header", name: "etag" }),
+			new Blob(["part"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 200;
+		xhr.onload?.();
+		await expect(pending).rejects.toThrow("missing its completion header");
+	});
+	it("does not complete failed HTTP requests even when the receipt is fixed", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const pending = uploadService.uploadPartRequest(
+			request({ source: "fixed", token: "block" }),
+			new Blob(["part"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 403;
+		xhr.onload?.();
+		await expect(pending).rejects.toMatchObject({
+			status: 403,
+			retryable: false,
+		});
 	});
 });

@@ -113,6 +113,7 @@ pub async fn initialize_database_state(
     cfg: &crate::config::Config,
     mode: NodeRuntimeMode,
 ) -> Result<crate::storage::connectors::StorageConnectorRegistry> {
+    crate::storage::connectors::convert_qiniu_legacy_configs(database, cfg).await?;
     Migrator::up(database, None)
         .await
         .map_aster_err(AsterError::database_operation)?;

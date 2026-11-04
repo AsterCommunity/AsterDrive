@@ -52,7 +52,7 @@ test.beforeAll(async () => {
 		);
 		response.setHeader(
 			"Access-Control-Allow-Headers",
-			"Content-Type, Content-Range, X-Plugin-Protocol",
+			"Content-Type, Content-Range, X-Plugin-Protocol, Authorization",
 		);
 		response.setHeader("Cache-Control", "no-store");
 		if (request.method === "OPTIONS") {
@@ -81,6 +81,16 @@ test.beforeAll(async () => {
 				.end("custom-protocol-body");
 			return;
 		}
+		if (path.includes("native-part")) {
+			response
+				.writeHead(200, {
+					"Content-Type": "application/json",
+					ETag: "part-receipt",
+					"Access-Control-Expose-Headers": "ETag",
+				})
+				.end('{"etag":"native-receipt"}');
+			return;
+		}
 		if (path.includes("slow")) return;
 		if (path.includes("final")) {
 			response
@@ -89,7 +99,7 @@ test.beforeAll(async () => {
 			return;
 		}
 		if (!path.includes("hidden-range"))
-			response.setHeader("Access-Control-Expose-Headers", "Range");
+			response.setHeader("Access-Control-Expose-Headers", "Range, ETag");
 		response.writeHead(308, { Range: "bytes=0-3" }).end();
 	});
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -233,3 +243,90 @@ function pluginStep(offset: number): BrowserUploadStep {
 					},
 	};
 }
+
+test("native capability upload works through real CORS with no cookie or administrator credential", async ({
+	page,
+}) => {
+	const result = await page.evaluate(async (url) => {
+		const { createUploadService } = await import(
+			"/src/services/uploadService.ts"
+		);
+		return createUploadService({ kind: "personal" }).executeBrowserUpload(
+			{
+				request_id: "native-part",
+				response_body_limit: 65536,
+				timeout_ms: 60000,
+				request: {
+					url,
+					method: "PUT",
+					headers: { "Content-Type": "application/octet-stream" },
+					authorization: {
+						scheme: "UpToken",
+						token: "short-lived-object-capability",
+					},
+					body: { start: 0, end: 4 },
+					response_headers: [],
+				},
+			},
+			new Blob(["part"]),
+		);
+	}, `${origin}/native-part`);
+	expect(result.status).toBe(200);
+	expect(result.body).toBe('{"etag":"native-receipt"}');
+	const request = seen.find((value) => value.method === "PUT");
+	expect(request?.headers.authorization).toBe(
+		"UpToken short-lived-object-capability",
+	);
+	expect(request?.headers.cookie).toBeUndefined();
+	expect(request?.headers["x-csrf-token"]).toBeUndefined();
+	expect(request?.body).toBe("part");
+});
+
+test("one numbered executor handles signed PUT receipts and provider-reconciled capabilities", async ({
+	page,
+}) => {
+	const results = await page.evaluate(async (origin) => {
+		const { createUploadService } = await import(
+			"/src/services/uploadService.ts"
+		);
+		const service = createUploadService({ kind: "personal" });
+		const base = {
+			url: `${origin}/native-part`,
+			method: "PUT" as const,
+			headers: { "Content-Type": "application/octet-stream" },
+			body: null,
+			response_headers: [],
+		};
+		const reconciled = await service.uploadPartRequest(
+			{
+				...base,
+				authorization: {
+					scheme: "ShortUpload",
+					token: "short-lived-object-capability",
+				},
+				completion: { source: "provider_reconciled" },
+			},
+			new Blob(["part"]),
+		);
+		const fixed = await service.uploadPartRequest(
+			{ ...base, completion: { source: "fixed", token: "block-id" } },
+			new Blob(["part"]),
+		);
+		const header = await service.uploadPartRequest(
+			{
+				...base,
+				response_headers: ["etag"],
+				completion: { source: "response_header", name: "etag" },
+			},
+			new Blob(["part"]),
+		);
+		return [reconciled, fixed, header];
+	}, origin);
+	expect(results).toEqual(["", "block-id", "part-receipt"]);
+	expect(seen.filter((request) => request.method === "PUT")).toHaveLength(3);
+	expect(
+		seen
+			.filter((request) => request.method === "PUT")
+			.every((request) => request.headers.cookie === undefined),
+	).toBe(true);
+});
