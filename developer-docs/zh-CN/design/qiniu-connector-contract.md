@@ -25,7 +25,7 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 - multipart v2：init、streamed part PUT、listParts、complete JSON 和 abort；编号 1..10000，非末片至少 1 MiB，单片最多 1 GiB，供应商会话 7 天。
 - 管理：原生 stat、list（有界分页/visitor）、copy、delete；不存在和错误明确映射。
 - 私有源站：原生 `e/token` GET、HEAD、Range。Range 被忽略或 Content-Range 不一致时拒绝返回假成功。
-- 下载：最终 Host/编码路径/截止时间一起签名；token 最后，`expires_at` 与 e 一致；TTL 拒绝零和超限。不能满足精确响应头/文件名的请求返回 relay。
+- 下载：最终 Host/编码路径/截止时间一起签名；token 最后，`expires_at` 与 e 一致；TTL 拒绝零和超限。完整源站 GET 的 response-* 覆盖在 e/token 之前参与签名；严格 Range 和可能发起 Range 的资源消费回退 relay。CDN 附件统一通过签名内 attname 保证当前文件名并接受 CDN 原生 MIME/缓存头，不提供响应模式开关；inline 沙箱不放宽。
 
 流式上传使用固定 64 KiB ReaderStream 缓冲，逻辑分片不会分配同等大小的 Vec，也不先落临时文件。ExactSizeReader 在最后一个声明字节前探测额外数据，避免静默截断。流式 multipart 的失败/取消尝试 abort；取消通过 per-upload guard 安排清理并记录失败。进程终止或初始化响应丢失无法保证立即清理，保留供应商过期保障。不得将其描述为同步必达清理。
 
@@ -50,3 +50,5 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 AK/SK、token、完整 URL 和 provider 原始错误体不得进入日志/Debug/审计。错误保留 HTTP provider code、经过筛选的 X-Reqid 和稳定 StorageErrorKind；reqwest error 的 URL 被丢弃。浏览器仅获得本次对象的短期上传能力。原生 CDN 使用私有 bucket 的 e/token 鉴权；不叠加时间戳防盗链，真实缓存 HIT/MISS、过期与密钥轮换仍需供应商验收。
 
 验证覆盖签名独立向量、原生请求、stat/list/copy/delete、GET/HEAD/Range、大小不符、重试/恢复、取消/过期、失败清理、有界流、schema/凭据、SQLite migration 原子失败与不可逆边界、远端配置确认、前端执行器与既有 provider 回归。OpenAPI、前端 SDK 和 storage docs 通过正式流程生成。真实云测试缺少输入时明确跳过，不能将 mock 或编译通过当成供应商验收。
+
+下载响应覆盖依据为 [七牛下载设置](https://developer.qiniu.com/kodo/1659/download-setting) 和固定 revision Go SDK `storage/bucket.go::MakePrivateURLv2WithQuery`。原生源站完整 GET 实测三项 response-* 覆盖生效，206/HEAD 未应用；当前 CDN 实测 response-* 未应用、attname 生效。这些结果限定当前测试域名与配置，不把它描述为所有 CDN 配置的能力。交付配置通过 descriptor 展示/校验，远端 target 复用同一配置；前端不识别 provider。`DirectDownloadOptions.may_use_range` 由下载编排和资源消费者声明，驱动据此避免承诺 206 不支持的响应头。

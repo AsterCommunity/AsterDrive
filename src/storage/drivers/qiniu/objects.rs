@@ -27,6 +27,7 @@ impl QiniuDriver {
             &self.config.download_origin,
             path,
             self.source_read_deadline()?,
+            &[],
         )?;
         let response = http::checked(
             self.client
@@ -57,6 +58,7 @@ impl QiniuDriver {
             &self.config.download_origin,
             path,
             self.source_read_deadline()?,
+            &[],
         )?;
         let mut request = self.client.get(url).header("accept-encoding", "identity");
         if let Some(range) = &range {

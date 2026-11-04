@@ -73,8 +73,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_cdn_domain_desc",
-        "Enable private-bucket origin authentication in Qiniu CDN. Uses native e/token links, not timestamp hotlink protection. Test authentication on cache HIT and MISS.",
-        "在七牛 CDN 开启私有空间回源鉴权，使用原生 e/token 链接，不叠加时间戳防盗链。分别验收缓存 HIT/MISS 鉴权。"
+        "Enable private-bucket origin authentication in Qiniu CDN. Native e/token links sign the attachment filename; CDN controls MIME and caching. Test authentication on cache HIT and MISS.",
+        "在七牛 CDN 开启私有空间回源鉴权，使用原生 e/token 链接并签署附件文件名；MIME 和缓存头由 CDN 决定。分别验收缓存 HIT/MISS 鉴权。"
     ),
     aster_drive_storage::storage_connector_message!(
         "qiniu_access_key",

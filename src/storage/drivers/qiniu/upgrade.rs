@@ -301,6 +301,7 @@ impl QiniuDriver {
             &self.config.download_origin,
             path,
             chrono::Utc::now().timestamp() + 60,
+            &[],
         )?;
         let response = http::checked(
             self.client

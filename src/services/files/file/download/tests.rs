@@ -306,6 +306,9 @@ impl DirectDownloadStorageDriver for PresignedCountingStreamDriver {
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("path", path);
+            if options.may_use_range {
+                query.append_pair("may-use-range", "true");
+            }
             if let Some(value) = options.download_name {
                 query.append_pair("download-name", &value);
             }
@@ -933,7 +936,18 @@ async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
     .await
     .expect("OneDrive range download should use provider redirect");
 
-    assert!(matches!(outcome, DownloadOutcome::DirectRedirect { .. }));
+    let DownloadOutcome::DirectRedirect { url } = outcome else {
+        panic!("range should redirect");
+    };
+    assert_eq!(
+        reqwest::Url::parse(&url)
+            .unwrap()
+            .query_pairs()
+            .find(|(name, _)| name == "may-use-range")
+            .unwrap()
+            .1,
+        "true"
+    );
     assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
 }
 

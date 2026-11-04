@@ -167,7 +167,13 @@ async fn original_handle(
         file,
         blob,
         disposition,
-        allow_provider_response_headers,
+        aster_drive_storage::DirectDownloadOptions {
+            allow_provider_response_headers,
+            // Non-Blob consumers can hand the URL to a browser/media client
+            // which requests ranges without another delivery negotiation.
+            may_use_range: request.delivery_mode != FileResourceDeliveryMode::BlobUrl,
+            ..Default::default()
+        },
     )
     .await?
     {
@@ -741,6 +747,151 @@ mod tests {
             .query_pairs()
             .into_owned()
             .collect()
+    }
+
+    #[tokio::test]
+    async fn qiniu_native_download_preserves_names_authorization_and_inline_isolation() {
+        use crate::services::files::file::download::{
+            DownloadOutcome, build_download_outcome_with_disposition_and_range, outcome_to_response,
+        };
+        use crate::storage::drivers::qiniu::{
+            QiniuDownloadDelivery, QiniuDriver, QiniuDriverConfig, QiniuStaticCredentials,
+        };
+        use std::time::Duration;
+        for delivery in [
+            QiniuDownloadDelivery::Origin,
+            QiniuDownloadDelivery::QiniuCdn,
+        ] {
+            for mime in ["image/png", "image/svg+xml", "text/html"] {
+                let driver = QiniuDriver::new(
+                    QiniuDriverConfig {
+                        bucket: "archive".into(),
+                        base_path: "tenant".into(),
+                        download_origin: "https://origin.example.test".into(),
+                        download_delivery: delivery,
+                        download_base_url: Some("https://cdn.example.test".into()),
+                        download_auth_validity_seconds: 180,
+                        connect_timeout: Duration::from_secs(5),
+                        read_timeout: Duration::from_secs(5),
+                        operation_timeout: Duration::from_secs(5),
+                    },
+                    QiniuStaticCredentials {
+                        access_key: "AKEXAMPLE".into(),
+                        secret_key: "SKEXAMPLE".into(),
+                    },
+                )
+                .unwrap();
+                let config = serde_json::json!({"bucket":"archive", "base_path":"tenant", "download_origin":"https://origin.example.test", "download_delivery":delivery, "download_base_url":"https://cdn.example.test", "object_storage_download_strategy":"presigned", "provider_resumable_upload_strategy":"server_relay"});
+                let policy = crate::storage::connectors::test_support::policy(
+                    "asterdrive.storage.qiniu",
+                    2,
+                    config,
+                    Default::default(),
+                );
+                let (state, file, blob) =
+                    build_resource_handle_state(driver, Some(policy), "改名 +%&.png", mime).await;
+                let scope = WorkspaceStorageScope::Personal {
+                    user_id: file.owner_user_id.unwrap(),
+                };
+                for purpose in [
+                    FileResourcePurpose::Download,
+                    FileResourcePurpose::Preview,
+                    FileResourcePurpose::ExternalViewer,
+                ] {
+                    for mode in [
+                        FileResourceDeliveryMode::BlobUrl,
+                        FileResourceDeliveryMode::DirectUrl,
+                        FileResourceDeliveryMode::MediaStream,
+                    ] {
+                        let handle = resolve_file_resource_handle(
+                            &state,
+                            scope,
+                            file.id,
+                            paths(),
+                            &request(purpose, mode, FileResourceRepresentation::Original),
+                        )
+                        .await
+                        .unwrap();
+                        let attachment = purpose == FileResourcePurpose::Download;
+                        let sandbox = !attachment && mime != "image/png";
+                        let blob_consumer = mode == FileResourceDeliveryMode::BlobUrl
+                            && purpose != FileResourcePurpose::ExternalViewer;
+                        let origin_full_get = delivery == QiniuDownloadDelivery::Origin
+                            && mode == FileResourceDeliveryMode::BlobUrl;
+                        let native_attachment =
+                            delivery == QiniuDownloadDelivery::QiniuCdn && attachment;
+                        let direct =
+                            !sandbox && (blob_consumer || origin_full_get || native_attachment);
+                        if direct {
+                            let query = query_pairs(&handle.request.url);
+                            assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+                            assert_eq!(
+                                handle.request.conditional_headers,
+                                FileResourceConditionalHeaders::Forbidden
+                            );
+                            assert!(handle.lifecycle.is_some());
+                            assert_eq!(
+                                query.contains_key("response-content-type"),
+                                origin_full_get
+                            );
+                            if attachment && !origin_full_get {
+                                assert_eq!(query["attname"], file.name);
+                            }
+                        } else {
+                            assert_eq!(
+                                handle.request.url,
+                                with_download_query(
+                                    &paths().download,
+                                    if attachment { "attachment" } else { "inline" }
+                                )
+                            );
+                            assert_eq!(
+                                handle.request.credentials,
+                                FileResourceCredentials::Include
+                            );
+                        }
+                    }
+                }
+                {
+                    let outcome = build_download_outcome_with_disposition_and_range(
+                        &state,
+                        &file,
+                        &blob,
+                        super::DownloadDisposition::Attachment,
+                        None,
+                        None,
+                        "revision",
+                    )
+                    .await
+                    .unwrap();
+                    assert!(matches!(outcome, DownloadOutcome::DirectRedirect { .. }));
+                    let response = outcome_to_response(outcome);
+                    assert_eq!(response.status(), actix_web::http::StatusCode::FOUND);
+                    assert!(
+                        response
+                            .headers()
+                            .contains_key(actix_web::http::header::LOCATION)
+                    );
+                }
+                assert!(
+                    resolve_file_resource_handle(
+                        &state,
+                        WorkspaceStorageScope::Personal {
+                            user_id: file.owner_user_id.unwrap() + 100
+                        },
+                        file.id,
+                        paths(),
+                        &request(
+                            FileResourcePurpose::Download,
+                            FileResourceDeliveryMode::BlobUrl,
+                            FileResourceRepresentation::Original
+                        )
+                    )
+                    .await
+                    .is_err()
+                );
+            }
+        }
     }
 
     #[tokio::test]

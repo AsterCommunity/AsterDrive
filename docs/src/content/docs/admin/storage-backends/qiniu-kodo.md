@@ -47,7 +47,11 @@ Qiniu Kodo connector 使用七牛原生协议，替换早期的 S3 wrapper。Ast
 
 使用七牛 CDN 时，在七牛控制台开启面向私有 bucket 的回源鉴权。AD 使用原生 `e/token`，不额外实现 CDN 时间戳防盗链；七牛文档列有两种鉴权同时配置的互斥限制。分别验证缓存 MISS/HIT 的无凭证、错误凭证、改路径、改时间和过期请求，区分边缘内容缓存与鉴权结果缓存。
 
-下载策略优先：选择 `relay_stream` 时可以保存休眠的 CDN 配置，但文件仍经 AD 中继。直连不能保证所需的精确下载文件名、MIME 或响应头覆盖时，会使用中继。HTML/SVG 等资源仍遵守 AD 的安全隔离。临时 URL 是 bearer 凭据，撤销 AD 权限不会立即撤回已签发 URL；不要公开完整签名链接。
+下载策略优先：选择 `relay_stream` 时可以保存休眠的 CDN 配置，但文件仍经 AD 中继。源站直连无法满足精确响应要求时回退中继；CDN 附件下载接受原生 MIME/缓存头。HTML/SVG 等资源仍遵守 AD 的安全隔离。临时 URL 是 bearer 凭据，撤销 AD 权限不会立即撤回已签发 URL；不要公开完整签名链接。
+
+普通源站 GET 支持七牛原生 `response-content-disposition`、`response-content-type` 和 `response-cache-control` 参数；AD 将当前逻辑文件名、MIME 与缓存要求编码后放在 `e/token` 之前一起签名。因此启用 presigned 后，浏览器默认下载可从 AD 鉴权入口收到 302，再访问源站签名 URL。七牛仅承诺成功的完整 GET 应用这些覆盖；要求精确响应头的 Range 继续中继，可能自行发起 Range 的非 Blob 资源消费也保持保守回退。
+
+CDN 附件下载统一使用原生响应：AD 将当前文件名放入 `attname` 并与 `e/token` 一起签名，MIME 和 Cache-Control 由 CDN 返回，不提供额外的响应模式开关。改名不需要重写远端对象。浏览器默认下载先由 AD 鉴权，随后 302 到 CDN；授权 Blob 下载/预览也可直连。inline HTML/SVG 的同源隔离与其他精确预览要求仍生效。请在七牛控制台管理 CDN 的 MIME/缓存策略，并验收 Content-Disposition（含中文名）和 Range；`attname` 不能在签名后追加或更改。签名截止时间控制联网访问鉴权，不会清除浏览器已经缓存的内容。
 
 ## 从旧 S3 connector 升级
 
@@ -84,6 +88,7 @@ cargo nextest run --profile ci --test storage native_kodo_cloud_acceptance
 
 ## 官方依据
 
+- [下载设置与响应头覆盖](https://developer.qiniu.com/kodo/1659/download-setting)
 - [Go SDK 固定版本](https://github.com/qiniu/go-sdk/tree/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e)：认证、区域发现、原生 API 定义
 - [分片上传 v2](https://developer.qiniu.com/kodo/7458/multipartupload)
 - [上传凭证](https://developer.qiniu.com/kodo/1208/upload-token)

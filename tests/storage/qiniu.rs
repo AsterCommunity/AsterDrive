@@ -84,6 +84,42 @@ async fn native_kodo_cloud_acceptance_and_read_only_existing_object_takeover() {
         .unwrap()
         .unwrap();
     let client = reqwest::Client::new();
+    let disposition =
+        "attachment; filename=\"renamed.txt\"; filename*=UTF-8''%E4%B8%AD%E6%96%87%20%2B%25.txt";
+    let overridden = driver
+        .resolve_download_url(
+            &object,
+            Duration::from_secs(60),
+            DirectDownloadOptions {
+                download_name: Some("中文 +%.txt".into()),
+                response_content_disposition: Some(disposition.into()),
+                response_content_type: Some("text/plain; charset=utf-8".into()),
+                response_cache_control: Some("private, max-age=0, must-revalidate".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .expect("native origin supports full-GET response overrides");
+    let response = client
+        .get(&overridden.url)
+        .send()
+        .await
+        .unwrap_or_else(|_| panic!("origin response override transport failed; URL redacted"));
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(response.headers()["content-disposition"], disposition);
+    assert_eq!(
+        response.headers()["content-type"],
+        "text/plain; charset=utf-8"
+    );
+    assert_eq!(
+        response.headers()["cache-control"],
+        "private, max-age=0, must-revalidate"
+    );
+    assert_eq!(
+        response.bytes().await.unwrap().as_ref(),
+        b"hello native Kodo"
+    );
     assert!(
         client
             .head(&request.url)

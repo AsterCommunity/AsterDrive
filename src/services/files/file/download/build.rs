@@ -217,7 +217,10 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
             file,
             blob,
             disposition,
-            false,
+            aster_drive_storage::DirectDownloadOptions {
+                may_use_range: range.is_some(),
+                ..Default::default()
+            },
         )
         .await?
     {

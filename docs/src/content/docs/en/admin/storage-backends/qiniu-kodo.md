@@ -41,7 +41,11 @@ Signature validity is a policy field like COS/OBS CDN validity. The effective li
 
 For Qiniu CDN, enable private-bucket origin authentication. This implementation uses native `e/token`, not the separate timestamp hotlink-protection scheme; the provider documents incompatible combinations. Verify unsigned, invalid, tampered-path/time and expired requests on both cache HIT and MISS. Authentication-result caches and content caches are different controls.
 
-`relay_stream` overrides delivery while retaining dormant CDN settings. Exact filename/MIME/response-header requirements fall back to relay when native delivery cannot honor them; HTML/SVG isolation still applies. Issued URLs are bearer credentials and cannot be assumed immediately revoked when AD permissions change.
+`relay_stream` overrides delivery while retaining dormant CDN settings. Origin delivery falls back to relay when exact response requirements cannot be met; CDN attachments accept native MIME/cache headers; HTML/SVG isolation still applies. Issued URLs are bearer credentials and cannot be assumed immediately revoked when AD permissions change.
+
+Full origin GETs support native `response-content-disposition`, `response-content-type` and `response-cache-control`. AD encodes the current logical filename, MIME and cache requirements before signing the full query with `e/token`. With presigned delivery enabled, a browser download can receive a 302 from AD's authorized endpoint and follow the signed origin URL. Qiniu only guarantees overrides for successful full GETs: strict Range reads and non-Blob consumers that may independently request ranges retain relay delivery.
+
+CDN attachment downloads always use native responses: AD signs the current filename as `attname` together with `e/token`, while CDN supplies MIME and Cache-Control. There is no separate response-mode setting. Renames do not rewrite provider objects. Browser downloads authorize through AD before a 302 to CDN; authorized Blob downloads/previews can also use CDN directly. Inline HTML/SVG isolation and other strict preview requirements remain. Manage CDN MIME/cache policy in the Qiniu console and verify Content-Disposition (including Unicode names) and Range. Never append or change `attname` after signing. Signature expiry governs authenticated network access; it does not erase content already cached by a browser.
 
 ## Upgrade from V1
 
@@ -69,6 +73,7 @@ Missing credentials explicitly skip cloud acceptance. Only randomly named test-o
 
 ## References
 
+- [Download settings and response overrides](https://developer.qiniu.com/kodo/1659/download-setting)
 - [Go SDK pinned revision](https://github.com/qiniu/go-sdk/tree/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e)
 - [Multipart v2](https://developer.qiniu.com/kodo/7458/multipartupload)
 - [Upload tokens](https://developer.qiniu.com/kodo/1208/upload-token)
