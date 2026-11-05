@@ -102,7 +102,8 @@ type ManagedFileQuery = {
 	uploaderUserId?: number;
 	health: AdminFileBlobHealth | "__all__";
 	hashKind: AdminFileBlobHashKind | "__all__";
-	sizeUnit: ByteFilterUnit;
+	sizeMinUnit: ByteFilterUnit;
+	sizeMaxUnit: ByteFilterUnit;
 	deleted: DeletedFilter;
 	offset: number;
 	ownerUserId?: number;
@@ -216,7 +217,8 @@ function createManagedFileQueryDefaults(
 		uploaderUserId: undefined,
 		health: "__all__",
 		hashKind: "__all__",
-		sizeUnit: "B",
+		sizeMinUnit: "B",
+		sizeMaxUnit: "B",
 		deleted: "__all__",
 		offset: 0,
 		ownerUserId: undefined,
@@ -269,9 +271,21 @@ function createManagedFileQuerySchema(
 			serialize: (value) =>
 				!isFiles && value !== "__all__" ? value : undefined,
 		},
-		sizeUnit: {
-			keys: ["sizeUnit"],
-			parse: (params) => parseByteFilterUnit(params.get("sizeUnit")),
+		sizeMinUnit: {
+			keys: ["sizeMinUnit", "sizeUnit"],
+			parse: (params) =>
+				parseByteFilterUnit(
+					params.get("sizeMinUnit") ?? params.get("sizeUnit"),
+				),
+			serialize: (value) =>
+				!isFiles && value !== "B" ? { sizeMinUnit: value } : undefined,
+		},
+		sizeMaxUnit: {
+			keys: ["sizeMaxUnit"],
+			parse: (params) =>
+				parseByteFilterUnit(
+					params.get("sizeMaxUnit") ?? params.get("sizeUnit"),
+				),
 			serialize: (value) => (!isFiles && value !== "B" ? value : undefined),
 		},
 
@@ -835,7 +849,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			),
 		})),
 	];
-	const { sizeUnit: querySizeUnit, ...listQuery } = fileQuery;
+	const { sizeMinUnit, sizeMaxUnit, ...listQuery } = fileQuery;
 	const toDraft = () => ({
 		text,
 		storagePath,
@@ -843,9 +857,10 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		teamId: optionalNumberValue(teamId),
 		refCountMin: optionalNumberValue(refCountMin),
 		refCountMax: optionalNumberValue(refCountMax),
-		sizeMin: formatByteSizeInput(sizeMin, querySizeUnit),
-		sizeMax: formatByteSizeInput(sizeMax, querySizeUnit),
-		sizeUnit: querySizeUnit,
+		sizeMin: formatByteSizeInput(sizeMin, sizeMinUnit),
+		sizeMax: formatByteSizeInput(sizeMax, sizeMaxUnit),
+		sizeMinUnit,
+		sizeMaxUnit,
 	});
 	const {
 		draft,
@@ -857,8 +872,8 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		sourceKey: `${kind}:${location.key}`,
 		preserveUnchanged: navigationType === "REPLACE",
 		normalize: (value) => {
-			const min = parseByteSizeInput(value.sizeMin, value.sizeUnit);
-			const max = parseByteSizeInput(value.sizeMax, value.sizeUnit);
+			const min = parseByteSizeInput(value.sizeMin, value.sizeMinUnit);
+			const max = parseByteSizeInput(value.sizeMax, value.sizeMaxUnit);
 			if (
 				min === null ||
 				max === null ||
@@ -888,38 +903,41 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				refCountMax: optionalNumberValue(
 					parseOptionalNumber(value.refCountMax),
 				),
-				sizeMin: formatByteSizeInput(min, value.sizeUnit),
-				sizeMax: formatByteSizeInput(max, value.sizeUnit),
+				sizeMin: formatByteSizeInput(min, value.sizeMinUnit),
+				sizeMax: formatByteSizeInput(max, value.sizeMaxUnit),
 			};
 		},
 		onCommit: (value) =>
 			setFileQuery({
 				offset: 0,
-				sizeUnit: value.sizeUnit,
+				sizeMinUnit: value.sizeMinUnit,
+				sizeMaxUnit: value.sizeMaxUnit,
 				text: value.text,
 				storagePath: value.storagePath,
 				secondaryId: parseOptionalNumber(value.secondaryId),
 				teamId: parseOptionalNumber(value.teamId),
 				refCountMin: parseOptionalNumber(value.refCountMin),
 				refCountMax: parseOptionalNumber(value.refCountMax),
-				sizeMin: parseByteSizeInput(value.sizeMin, value.sizeUnit) ?? undefined,
-				sizeMax: parseByteSizeInput(value.sizeMax, value.sizeUnit) ?? undefined,
+				sizeMin:
+					parseByteSizeInput(value.sizeMin, value.sizeMinUnit) ?? undefined,
+				sizeMax:
+					parseByteSizeInput(value.sizeMax, value.sizeMaxUnit) ?? undefined,
 			}),
 	});
-	const { sizeUnit } = draft;
-	const sizeMinBytes = parseByteSizeInput(draft.sizeMin, sizeUnit);
-	const sizeMaxBytes = parseByteSizeInput(draft.sizeMax, sizeUnit);
+	const sizeMinBytes = parseByteSizeInput(draft.sizeMin, draft.sizeMinUnit);
+	const sizeMaxBytes = parseByteSizeInput(draft.sizeMax, draft.sizeMaxUnit);
 	const invalidSizeRange =
 		sizeMinBytes != null && sizeMaxBytes != null && sizeMinBytes > sizeMaxBytes;
-	const changeSizeUnit = (unit: ByteFilterUnit) => {
-		if (sizeMinBytes === null || sizeMaxBytes === null || invalidSizeRange)
-			return;
-		// Convert only the local size fields; commit the whole draft after debounce.
+	const changeSizeUnit = (
+		field: "sizeMin" | "sizeMax",
+		unit: ByteFilterUnit,
+	) => {
+		const bytes = field === "sizeMin" ? sizeMinBytes : sizeMaxBytes;
+		if (bytes === null) return;
 		setDraft({
 			...draft,
-			sizeUnit: unit,
-			sizeMin: formatByteSizeInput(sizeMinBytes, unit),
-			sizeMax: formatByteSizeInput(sizeMaxBytes, unit),
+			[`${field}Unit`]: unit,
+			[field]: formatByteSizeInput(bytes, unit),
 		});
 	};
 	const fileDetailDialog = useManagedAdminListDetailDialog<AdminFileDetail>();
@@ -1017,7 +1035,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		totalPages,
 	} = useManagedAdminList<
 		AdminFileInfo | AdminFileBlobInfo,
-		Omit<ManagedFileQuery, "sizeUnit">
+		Omit<ManagedFileQuery, "sizeMinUnit" | "sizeMaxUnit">
 	>({
 		deps: [isFiles],
 		loadPage: (query) =>
@@ -1075,7 +1093,8 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			uploaderUserId: undefined,
 			health: "__all__",
 			hashKind: "__all__",
-			sizeUnit: "B",
+			sizeMinUnit: "B",
+			sizeMaxUnit: "B",
 			deleted: "__all__",
 			offset: 0,
 			ownerUserId: undefined,
@@ -1432,7 +1451,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 											className="w-full sm:w-56"
 											inline
 											value={draft[field]}
-											unit={sizeUnit}
+											unit={draft[`${field}Unit`]}
 											units={BYTE_FILTER_UNITS}
 											step="any"
 											placeholder={t(
@@ -1440,14 +1459,20 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 													? "admin_size_min"
 													: "admin_size_max",
 											)}
-											unitAriaLabel={t("filter_size_unit")}
+											unitAriaLabel={t(
+												field === "sizeMin"
+													? "filter_size_min_unit"
+													: "filter_size_max_unit",
+											)}
 											onValueChange={(value) =>
 												setDraft({ ...draft, [field]: value })
 											}
-											onUnitChange={changeSizeUnit}
+											onUnitChange={(unit) => changeSizeUnit(field, unit)}
 											errorMessage={
-												parseByteSizeInput(draft[field], sizeUnit) === null ||
-												invalidSizeRange
+												parseByteSizeInput(
+													draft[field],
+													draft[`${field}Unit`],
+												) === null || invalidSizeRange
 													? t("filter_size_invalid")
 													: null
 											}

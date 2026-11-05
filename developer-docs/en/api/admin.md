@@ -507,7 +507,7 @@ Filters:
 
 `uploader_user_id` matches referenced files' `created_by_user_id`, using the same uploader definition as blob details without duplicating rows. `health` accepts `healthy`, `orphan`, `ref_count_mismatch`, or `cleanup_claimed`; actual references include files and active non-current revisions, with cleanup claims taking precedence. `hash_kind` accepts `content_sha256` (exactly 64 ASCII hexadecimal characters, in either case) or `opaque`. Filters execute in SQL before counting and pagination and match the displayed classification.
 
-Size bounds remain bytes in the API. The panel uses one shared B / KB / MB / GB / TB display unit (powers of 1024), persisting both byte bounds and display unit in the URL. Text and numeric filters are debounced; paginated user/policy lookups restore selected labels by ID. `GET /admin/policies?keyword=...` searches policy names, ignoring surrounding whitespace and case.
+Size bounds remain bytes in the API. The panel uses independent B / KB / MB / GB / TB display units (powers of 1024) for each bound. The URL stores byte bounds plus `sizeMinUnit` / `sizeMaxUnit`; legacy `sizeUnit` links initialize both units and are normalized to the new format. Text and numeric filters are debounced; paginated user/policy lookups restore selected labels by ID and share a bounded 30-second cache within the current admin route session. Concurrent identical lookups share a request; cancellation only stops the request once its last consumer leaves, and explicit retry bypasses the cache. `GET /admin/policies?keyword=...` searches policy names, ignoring surrounding whitespace and case.
 
 Maintenance request:
 

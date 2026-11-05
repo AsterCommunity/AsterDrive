@@ -15,7 +15,7 @@ function policyOption(policy: StoragePolicy): AdminLookupOption {
 	return { id: policy.id, label: policy.name, description: `#${policy.id}` };
 }
 
-// No persistent identity cache: results always respect the current admin session.
+// HTTP adapter; the admin route owns the bounded, short-lived lookup cache.
 export const adminLookupService = {
 	async search(
 		kind: AdminLookupKind,

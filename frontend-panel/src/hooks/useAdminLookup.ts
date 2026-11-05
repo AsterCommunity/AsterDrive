@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AdminLookupContext } from "@/hooks/adminLookupContext";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import {
-	type AdminLookupKind,
-	type AdminLookupOption,
-	adminLookupService,
+import type {
+	AdminLookupKind,
+	AdminLookupOption,
 } from "@/services/adminLookupService";
 
 export function useAdminLookup(
@@ -11,6 +11,8 @@ export function useAdminLookup(
 	value: number | undefined,
 	open: boolean,
 ) {
+	const resource = useContext(AdminLookupContext);
+	if (!resource) throw new Error("Admin lookup requires AdminLookupProvider");
 	const [search, setSearch] = useState("");
 	const keyword = useDebouncedValue(search);
 	const [page, setPage] = useState({
@@ -25,7 +27,8 @@ export function useAdminLookup(
 	const [searchFailed, setSearchFailed] = useState(false);
 	const [selectedFailed, setSelectedFailed] = useState(false);
 	const [retry, setRetry] = useState(0);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: retry explicitly reloads the selected remote identity
+	const identityRetry = useRef(0);
+	const searchRetry = useRef(0);
 	useEffect(() => {
 		setSelectedFailed(false);
 		if (value == null) {
@@ -36,8 +39,10 @@ export function useAdminLookup(
 		const controller = new AbortController();
 		setSelected((current) => (current?.id === value ? current : null));
 		setSelectedLoading(true);
-		adminLookupService
-			.get(kind, value, controller.signal)
+		const force = identityRetry.current !== retry;
+		identityRetry.current = retry;
+		resource
+			.get(kind, value, controller.signal, force)
 			.then((option) => {
 				if (!controller.signal.aborted) setSelected(option);
 			})
@@ -48,15 +53,16 @@ export function useAdminLookup(
 				if (!controller.signal.aborted) setSelectedLoading(false);
 			});
 		return () => controller.abort();
-	}, [kind, value, retry]);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: retry explicitly repeats the remote search
+	}, [kind, value, retry, resource]);
 	useEffect(() => {
 		if (!open || search !== keyword) return;
 		const controller = new AbortController();
 		setLoading(true);
 		setSearchFailed(false);
-		adminLookupService
-			.search(kind, keyword, offset, controller.signal)
+		const force = searchRetry.current !== retry;
+		searchRetry.current = retry;
+		resource
+			.search(kind, keyword, offset, controller.signal, force)
 			.then((result) => {
 				if (controller.signal.aborted) return;
 				setPage((previous) => ({
@@ -75,7 +81,7 @@ export function useAdminLookup(
 				if (!controller.signal.aborted) setLoading(false);
 			});
 		return () => controller.abort();
-	}, [kind, open, keyword, search, offset, retry]);
+	}, [kind, open, keyword, search, offset, retry, resource]);
 	const options = useMemo(() => {
 		const items = page.keyword === search ? page.items : [];
 		const current = selected?.id === value ? selected : null;

@@ -1,9 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AdminLookupProvider } from "@/components/admin/AdminLookupProvider";
 import { useAdminLookup } from "@/hooks/useAdminLookup";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), search: vi.fn() }));
 vi.mock("@/services/adminLookupService", () => ({ adminLookupService: mocks }));
+const renderLookupHook: typeof renderHook = (callback, options) =>
+	renderHook(callback, { ...options, wrapper: AdminLookupProvider });
 beforeEach(() => {
 	mocks.get.mockReset();
 	mocks.search.mockReset();
@@ -15,7 +18,7 @@ describe("useAdminLookup", () => {
 		mocks.search
 			.mockRejectedValueOnce(new Error("offline"))
 			.mockResolvedValue({ items: [selected], total: 1 });
-		const { result, rerender } = renderHook(
+		const { result, rerender } = renderLookupHook(
 			({ value }) => useAdminLookup("policies", value, true),
 			{ initialProps: { value: 99 as number | undefined } },
 		);
@@ -35,7 +38,7 @@ describe("useAdminLookup", () => {
 			.mockRejectedValueOnce(new Error("offline"))
 			.mockResolvedValue(selected);
 		mocks.search.mockResolvedValue({ items: [], total: 0 });
-		const { result, rerender } = renderHook(
+		const { result, rerender } = renderLookupHook(
 			({ open }) => useAdminLookup("policies", 99, open),
 			{ initialProps: { open: false } },
 		);
@@ -59,7 +62,9 @@ describe("useAdminLookup", () => {
 				items: [{ id: 2, label: "Second", description: "#2" }],
 				total: 2,
 			});
-		const { result } = renderHook(() => useAdminLookup("policies", 99, true));
+		const { result } = renderLookupHook(() =>
+			useAdminLookup("policies", 99, true),
+		);
 		await waitFor(() => expect(result.current.loading).toBe(false));
 		expect(result.current.selected).toEqual(selected);
 		expect(result.current.options.map((item) => item.id)).toEqual([99, 1]);
@@ -73,6 +78,28 @@ describe("useAdminLookup", () => {
 		);
 		expect(result.current.hasMore).toBe(false);
 	});
+	it("reuses a completed search across close/reopen and fetches again after retry", async () => {
+		mocks.search.mockResolvedValue({
+			items: [{ id: 1, label: "First", description: "#1" }],
+			total: 1,
+		});
+		const { result, rerender } = renderLookupHook(
+			({ open }) => useAdminLookup("users", undefined, open),
+			{ initialProps: { open: true } },
+		);
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		rerender({ open: false });
+		rerender({ open: true });
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(mocks.search).toHaveBeenCalledTimes(1);
+		act(() => result.current.retry());
+		await waitFor(() => expect(mocks.search).toHaveBeenCalledTimes(2));
+		rerender({ open: false });
+		rerender({ open: true });
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(mocks.search).toHaveBeenCalledTimes(2);
+	});
+
 	it("aborts stale requests on typing, closing and unmount and ignores late results", async () => {
 		let finish!: (value: unknown) => void;
 		mocks.search
@@ -82,8 +109,8 @@ describe("useAdminLookup", () => {
 						finish = resolve;
 					}),
 			)
-			.mockResolvedValue({ items: [], total: 0 });
-		const { result, rerender, unmount } = renderHook(
+			.mockImplementation(() => new Promise(() => {}));
+		const { result, rerender, unmount } = renderLookupHook(
 			({ open }) => useAdminLookup("users", undefined, open),
 			{ initialProps: { open: true } },
 		);

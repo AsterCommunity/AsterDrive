@@ -74,7 +74,66 @@ test.describe
 					(element: HTMLInputElement) => element.selectionStart,
 				),
 			).toBe(2);
+			const lookups: string[] = [];
+			page.on("request", (request) => {
+				if (new URL(request.url()).pathname === "/api/v1/admin/policies")
+					lookups.push(request.url());
+			});
 			await chooseSearch(page, "Storage policy", name, name, "policies");
+			await page.getByLabel("Storage policy", { exact: true }).click();
+			const searchInput = page.getByPlaceholder("Search by policy name…");
+			await searchInput.focus();
+			await expect(searchInput).toHaveCSS(
+				"background-color",
+				"rgba(0, 0, 0, 0)",
+			);
+			const bounds = await searchInput.evaluate((input) => {
+				const rect = input.getBoundingClientRect();
+				const group = input
+					.closest('[data-slot="input-group"]')
+					?.getBoundingClientRect();
+				return (
+					group != null && rect.top >= group.top && rect.bottom <= group.bottom
+				);
+			});
+			expect(bounds).toBe(true);
+			await page.evaluate(() => document.documentElement.classList.add("dark"));
+			await expect(searchInput).toHaveCSS(
+				"background-color",
+				"rgba(0, 0, 0, 0)",
+			);
+			await page.evaluate(() =>
+				document.documentElement.classList.remove("dark"),
+			);
+			const hovered = page.getByRole("option").filter({ hasText: name });
+			const unselected = page
+				.getByRole("option")
+				.filter({ hasNotText: name })
+				.first();
+			await unselected.hover();
+			await expect(unselected).toHaveAttribute("data-highlighted", "");
+			await expect(unselected).not.toHaveCSS(
+				"background-color",
+				"rgba(0, 0, 0, 0)",
+			);
+			await hovered.hover();
+			await expect(hovered).toHaveAttribute("data-highlighted", "");
+			await expect(hovered).not.toHaveCSS(
+				"background-color",
+				"rgba(0, 0, 0, 0)",
+			);
+			await page.screenshot({
+				path: testInfo.outputPath("policy-hover.png"),
+				fullPage: true,
+			});
+			await page.getByPlaceholder("Search by policy name…").press("Escape");
+			const beforeReopen = lookups.length;
+			await page.getByLabel("Storage policy", { exact: true }).click();
+			await expect(
+				page.getByRole("option").filter({ hasText: name }),
+			).toBeVisible();
+			await page.getByPlaceholder("Search by policy name…").press("Escape");
+			expect(lookups).toHaveLength(beforeReopen);
 			await chooseSearch(page, "File owner", ADMIN.email, ADMIN.username);
 			await page.reload();
 			await page.getByRole("button", { name: /Filters/ }).click();
@@ -122,10 +181,20 @@ test.describe
 					: "Opaque";
 			await gotoAdminPage(page, "/admin/file-blobs", "File Blobs");
 			await page.getByRole("button", { name: "Filters", exact: true }).click();
-			await page.getByLabel("Size unit", { exact: true }).first().click();
-			await page.getByRole("option", { name: "KB", exact: true }).click();
+			await page.getByLabel("Min size unit", { exact: true }).click();
+			await page
+				.getByRole("listbox")
+				.getByRole("option", { name: "KB", exact: true })
+				.click();
+			await expect(page.getByRole("listbox")).toBeHidden();
 			await page.getByPlaceholder("Min size").fill("1.5");
-			await page.getByPlaceholder("Max size").fill("3");
+			await page.getByLabel("Max size unit", { exact: true }).click();
+			await page
+				.getByRole("listbox")
+				.getByRole("option", { name: "MB", exact: true })
+				.click();
+			await expect(page.getByRole("listbox")).toBeHidden();
+			await page.getByPlaceholder("Max size").fill("0.0029296875");
 			await expect(page).toHaveURL(/sizeMin=1536/);
 			await expect(page).toHaveURL(/sizeMax=3072/);
 			await page.getByLabel("Health", { exact: true }).click();
@@ -142,7 +211,15 @@ test.describe
 			await page.goto(url);
 			await page.getByRole("button", { name: /Filters/ }).click();
 			await expect(page.getByPlaceholder("Min size")).toHaveValue("1.5");
-			await expect(page.getByPlaceholder("Max size")).toHaveValue("3");
+			await expect(page.getByPlaceholder("Max size")).toHaveValue(
+				"0.0029296875",
+			);
+			await expect(
+				page.getByLabel("Min size unit", { exact: true }),
+			).toContainText("KB");
+			await expect(
+				page.getByLabel("Max size unit", { exact: true }),
+			).toContainText("MB");
 			await expect(page.getByLabel("Health", { exact: true })).toContainText(
 				"Healthy",
 			);

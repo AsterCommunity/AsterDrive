@@ -1664,6 +1664,7 @@ it("restores binary size units and combines Blob health, hash and uploader filte
 	const before = mockState.listBlobs.mock.calls.length;
 	fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
 	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1536");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("3");
 	await act(async () => {
 		await new Promise((resolve) => setTimeout(resolve, 400));
 	});
@@ -1707,7 +1708,7 @@ it("preserves pending Blob filters when converting units and debounces one combi
 		expect(path).toHaveValue(" archive/ ");
 		expect(refs).toHaveValue("2");
 		expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1024");
-		expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("2048");
+		expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("2");
 		await act(async () => vi.advanceTimersByTimeAsync(50));
 		expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
 		await act(async () => vi.advanceTimersByTimeAsync(300));
@@ -1723,7 +1724,7 @@ it("preserves pending Blob filters when converting units and debounces one combi
 		);
 		expect(hash).toHaveValue(" pending-hash ");
 		expect(screen.getByTestId("location-search")).toHaveTextContent(
-			"sizeUnit=KB",
+			"sizeMinUnit=KB",
 		);
 	} finally {
 		vi.useRealTimers();
@@ -1747,10 +1748,10 @@ it("converts pending decimal bounds across units without submitting an older dra
 		await act(async () => vi.advanceTimersByTimeAsync(300));
 		fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
 		expect(min).toHaveValue("1536");
-		expect(max).toHaveValue("2304");
+		expect(max).toHaveValue("2.25");
 		fireEvent.click(screen.getAllByRole("button", { name: "select:B" })[0]);
 		expect(min).toHaveValue("1572864");
-		expect(max).toHaveValue("2359296");
+		expect(max).toHaveValue("2.25");
 		await act(async () => vi.advanceTimersByTimeAsync(50));
 		expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
 		await act(async () => vi.advanceTimersByTimeAsync(300));
@@ -1795,7 +1796,7 @@ it.each(["clear", "navigate"] as const)(
 				}),
 			);
 			expect(screen.getByTestId("location-search")).not.toHaveTextContent(
-				"sizeUnit",
+				"sizeMinUnit",
 			);
 		} finally {
 			vi.useRealTimers();
@@ -1899,4 +1900,30 @@ it("combines file owner, Blob and team identities and resets pagination", async 
 		),
 	);
 	expect(screen.getByPlaceholderText("admin_team_id")).toHaveValue("");
+});
+
+it("restores independent size units and converts only the chosen bound", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeMinUnit=KB&sizeMaxUnit=MB&sizeMin=1536&sizeMax=3145728",
+	);
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1.5");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("3");
+	const before = mockState.listBlobs.mock.calls.length;
+	fireEvent.click(screen.getAllByRole("button", { name: "select:GB" })[1]);
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1.5");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue(
+		"0.0029296875",
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeMaxUnit=GB",
+		),
+	);
+	expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"sizeMinUnit=KB",
+	);
 });
