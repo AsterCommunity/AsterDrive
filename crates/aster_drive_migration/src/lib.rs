@@ -983,6 +983,32 @@ mod tests {
             .expect("migration lock should be available after panic");
     }
 
+    #[test]
+    fn migration_stack_probe_runs_in_a_separate_process() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "--ignored",
+                "tests::migration_stack_budget_probe",
+                "--nocapture",
+            ])
+            .env("ASTER_MIGRATION_PROBE_STACK_KIB", "8192")
+            .output()
+            .expect("migration stack probe process should start");
+        assert!(
+            output.status.success(),
+            "migration stack probe failed: {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "migration stack probe did not run: {}",
+            String::from_utf8_lossy(&output.stdout),
+        );
+    }
+
     /// Run this test in its own process: a stack overflow can abort the process.
     /// `ASTER_MIGRATION_PROBE_STACK_KIB` sets the requested worker stack size.
     #[test]
