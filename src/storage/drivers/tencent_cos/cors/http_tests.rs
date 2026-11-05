@@ -224,6 +224,35 @@ async fn cors_absent_configuration_and_existing_rules_use_signed_merge() {
 }
 
 #[tokio::test]
+async fn cors_shadowed_put_rule_without_etag_never_writes() {
+    let shadow = CosCorsRule {
+        id: Some("other-app".into()),
+        allowed_origins: vec!["*".into()],
+        allowed_methods: vec!["PUT".into()],
+        allowed_headers: vec!["x-custom".into()],
+        expose_headers: vec!["Content-Length".into()],
+        max_age_seconds: Some(600),
+    };
+    let body = build_cors_configuration_xml(&CosCorsConfiguration {
+        rules: vec![shadow],
+        response_vary: None,
+    })
+    .unwrap();
+    let fixture = Fixture::new(vec![reply("GET", 200, body)]).await;
+    let error = fixture
+        .driver
+        .configure_asterdrive_cors(&["https://drive.test".into()])
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Precondition)
+    );
+    assert!(error.message().contains("no rules were written"));
+    fixture.finish(1).await;
+}
+
+#[tokio::test]
 async fn cors_merge_that_exceeds_provider_limits_never_sends_put() {
     let other = "<CORSRule><AllowedOrigin>https://other.test</AllowedOrigin><AllowedMethod>GET</AllowedMethod></CORSRule>";
     let full_rules = format!(

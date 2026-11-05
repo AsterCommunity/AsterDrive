@@ -196,6 +196,14 @@ fn wildcard_matches(pattern: &str, value: &str) -> bool {
     }
 }
 
+fn required_exposed_headers(method: &str) -> &'static [&'static str] {
+    match method {
+        "PUT" => &["ETag"],
+        "GET" | "HEAD" => EXPOSED_HEADERS,
+        _ => &[],
+    }
+}
+
 fn needs_rule(rules: &[CorsRule], origins: &[String]) -> Result<bool> {
     // POST form upload, native v2 part PUT, and private Blob GET/HEAD/Range.
     // Model simple GET separately: an earlier matching rule can shadow exposed
@@ -228,15 +236,14 @@ fn needs_rule(rules: &[CorsRule], origins: &[String]) -> Result<bool> {
             match matched {
                 None => missing = true,
                 Some(rule)
-                    if matches!(*method, "GET" | "HEAD")
-                        && EXPOSED_HEADERS.iter().any(|required| {
-                            // X-Reqid and X-Log are always exposed by Kodo per the SDK.
-                            !matches!(*required, "X-Reqid" | "X-Log" | "Content-Length")
-                                && !rule
-                                    .exposed_header
-                                    .iter()
-                                    .any(|h| h.eq_ignore_ascii_case(required))
-                        }) =>
+                    if required_exposed_headers(method).iter().any(|required| {
+                        // X-Reqid and X-Log are always exposed by Kodo per the SDK.
+                        !matches!(*required, "X-Reqid" | "X-Log" | "Content-Length")
+                            && !rule
+                                .exposed_header
+                                .iter()
+                                .any(|h| h.eq_ignore_ascii_case(required))
+                    }) =>
                 {
                     return Err(storage_driver_error(
                         StorageErrorKind::Precondition,
