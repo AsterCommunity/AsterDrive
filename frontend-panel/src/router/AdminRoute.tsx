@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
+import { AdminLookupProvider } from "@/components/admin/AdminLookupProvider";
 import { ensureI18nNamespaces } from "@/i18n";
 import { logger } from "@/lib/logger";
 import { useAuthStore } from "@/stores/authStore";
@@ -54,7 +55,9 @@ export function AdminRoute() {
 		<div aria-busy={isChecking || undefined}>
 			<Suspense fallback={<Loading />}>
 				<AdminSiteUrlMismatchPrompt />
-				<Outlet />
+				<AdminLookupProvider key={user.id}>
+					<Outlet />
+				</AdminLookupProvider>
 			</Suspense>
 		</div>
 	);

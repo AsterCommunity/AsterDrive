@@ -1,5 +1,5 @@
 import { withQuery } from "@/lib/queryParams";
-import { api, downloadFile } from "@/services/http";
+import { type ApiRequestConfig, api, downloadFile } from "@/services/http";
 import type {
 	ActionMessageResp,
 	AddTeamMemberRequest,
@@ -149,7 +149,7 @@ export const adminSystemService = {
 // --- Users ---
 
 export const adminUserService = {
-	list: (params?: AdminUserListQuery) =>
+	list: (params?: AdminUserListQuery, config?: ApiRequestConfig) =>
 		api.get<UserPage>(
 			withQuery("/admin/users", {
 				limit: params?.limit,
@@ -160,9 +160,11 @@ export const adminUserService = {
 				sort_by: params?.sort_by,
 				sort_order: params?.sort_order,
 			}),
+			config,
 		),
 
-	get: (id: number) => api.get<UserInfo>(`/admin/users/${id}`),
+	get: (id: number, config?: ApiRequestConfig) =>
+		api.get<UserInfo>(`/admin/users/${id}`, config),
 
 	create: (data: CreateUserReq) =>
 		api.post<CreateUserResponse>("/admin/users", data),
@@ -275,14 +277,16 @@ export const adminTeamService = {
 // --- Policies ---
 
 export const adminPolicyService = {
-	list: (params?: AdminPolicyListQuery) =>
+	list: (params?: AdminPolicyListQuery, config?: ApiRequestConfig) =>
 		api.get<StoragePolicyPage>(
 			withQuery("/admin/policies", {
 				limit: params?.limit,
 				offset: params?.offset,
+				keyword: params?.keyword,
 				sort_by: params?.sort_by,
 				sort_order: params?.sort_order,
 			}),
+			config,
 		),
 
 	listAll: async (pageSize = 100) => {
@@ -328,7 +332,8 @@ export const adminPolicyService = {
 		return allPolicies;
 	},
 
-	get: (id: number) => api.get<StoragePolicy>(`/admin/policies/${id}`),
+	get: (id: number, config?: ApiRequestConfig) =>
+		api.get<StoragePolicy>(`/admin/policies/${id}`, config),
 
 	getCapacity: (id: number) =>
 		api.get<StoragePolicyCapacityInfo>(`/admin/policies/${id}/capacity`),
@@ -632,6 +637,8 @@ export const adminShareService = {
 			withQuery("/admin/shares", {
 				limit: params?.limit,
 				offset: params?.offset,
+				target_type: params?.target_type,
+				user_id: params?.user_id,
 				sort_by: params?.sort_by,
 				sort_order: params?.sort_order,
 			}),
@@ -665,6 +672,9 @@ export const adminFileService = {
 				limit: params?.limit,
 				offset: params?.offset,
 				hash: params?.hash,
+				uploader_user_id: params?.uploader_user_id,
+				health: params?.health,
+				hash_kind: params?.hash_kind,
 				policy_id: params?.policy_id,
 				storage_path: params?.storage_path,
 				ref_count_min: params?.ref_count_min,

@@ -89,4 +89,13 @@ describe("useApiList", () => {
 		expect(result.current.total).toBe(1);
 		expect(mockState.handleApiError).not.toHaveBeenCalled();
 	});
+	it("ignores a rejected request after unmount", async () => {
+		const deferred = createDeferred<{ items: string[]; total: number }>();
+		const { useApiList } = await import("@/hooks/useApiList");
+		const { unmount } = renderHook(() => useApiList(() => deferred.promise));
+		unmount();
+		deferred.reject(new Error("late failure"));
+		await Promise.resolve();
+		expect(mockState.handleApiError).not.toHaveBeenCalled();
+	});
 });

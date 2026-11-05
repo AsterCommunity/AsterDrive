@@ -65,7 +65,9 @@ export async function resolveAdminSiteUrlPrompt(page: Page) {
 export async function gotoAdminPage(page: Page, url: string, heading: string) {
 	await page.goto(url);
 	await resolveAdminSiteUrlPrompt(page);
-	await expect(page.getByRole("heading", { name: heading })).toBeVisible({
+	await expect(
+		page.getByRole("heading", { name: heading, exact: true }),
+	).toBeVisible({
 		timeout: 30_000,
 	});
 }

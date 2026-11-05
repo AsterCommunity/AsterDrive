@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Admin list filters** — File and Blob lists support debounced inputs, searchable policy and user selectors, and shareable filter URLs. Blob size bounds use independent binary units, with unit changes preserving pending inputs and byte values. Search selectors reuse results for 30 seconds within the admin session. Blob lists can filter by uploader, health and hash kind; share lists can filter by type and user and display target names, with a placeholder for deleted or missing targets. (#719, #720)
+
 - **Huawei OBS CORS configuration** — Administrators can explicitly merge bucket CORS from current drafts or saved policies through the existing confirmation. Native OBS signing supports official and OBS-bound CNAME endpoints with management requests bounded to 30 seconds or a shorter configured deadline; unrelated rules, IDs and order are preserved, satisfied requests skip writes, and shadowing rules or unsupported configuration fail safely. Saving and connection tests do not configure CORS; CDN and real-browser acceptance remain separate. (#732)
 
 - **Kodo CORS configuration** — Administrators can explicitly configure bucket CORS from current policy drafts or saved credentials using Qiniu's native management API and the existing generic confirmation. Rules and order are preserved, equivalent configuration skips writes, and changes are read back. The first rule replaces Kodo's default allow-all CORS behavior; uploads, origin reads and CDN browser behavior require separate acceptance. (#733)

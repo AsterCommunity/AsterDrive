@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { AdminSearchFilter } from "@/components/admin/AdminSearchFilter";
+import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
 	AdminSortableTableHead,
 	AdminTableCell as TableCell,
@@ -18,6 +20,13 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
@@ -26,7 +35,9 @@ import {
 } from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
+	managedEnumQueryField,
 	managedOffsetQueryField,
+	managedOptionalNumberQueryField,
 	managedPageSizeQueryField,
 	managedSortByQueryField,
 	managedSortOrderQueryField,
@@ -60,6 +71,8 @@ const DEFAULT_SHARE_SORT_BY = "created_at" as const satisfies AdminShareSortBy;
 const DEFAULT_SHARE_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 type ManagedShareQuery = {
+	userId?: number;
+	targetType: "__all__" | "file" | "folder";
 	offset: number;
 	pageSize: (typeof SHARE_PAGE_SIZE_OPTIONS)[number];
 	sortBy: AdminShareSortBy;
@@ -67,6 +80,8 @@ type ManagedShareQuery = {
 };
 
 const MANAGED_SHARE_QUERY_DEFAULTS = {
+	userId: undefined,
+	targetType: "__all__",
 	offset: 0,
 	pageSize: DEFAULT_SHARE_PAGE_SIZE,
 	sortBy: DEFAULT_SHARE_SORT_BY,
@@ -74,6 +89,12 @@ const MANAGED_SHARE_QUERY_DEFAULTS = {
 } satisfies ManagedShareQuery;
 
 const MANAGED_SHARE_QUERY_SCHEMA = {
+	userId: managedOptionalNumberQueryField("userId"),
+	targetType: managedEnumQueryField({
+		key: "targetType",
+		defaultValue: "__all__",
+		options: ["__all__", "file", "folder"],
+	}),
 	offset: managedOffsetQueryField(),
 	pageSize: managedPageSizeQueryField(
 		SHARE_PAGE_SIZE_OPTIONS,
@@ -93,7 +114,19 @@ export default function AdminSharesPage() {
 		searchParams,
 		setSearchParams,
 	});
-	const { offset, pageSize, sortBy, sortOrder } = query;
+	const { offset, pageSize, sortBy, sortOrder, userId, targetType } = query;
+	const targetOptions = (["__all__", "file", "folder"] as const).map(
+		(value) => ({
+			value,
+			label: t(
+				value === "__all__"
+					? "filter_target_all"
+					: value === "file"
+						? "core:file"
+						: "core:folder",
+			),
+		}),
+	);
 	const setOffset = useManagedOffset(setQuery);
 	const {
 		currentPage,
@@ -110,6 +143,9 @@ export default function AdminSharesPage() {
 			adminShareService.list({
 				limit: query.pageSize,
 				offset: query.offset,
+				user_id: query.userId,
+				target_type:
+					query.targetType === "__all__" ? undefined : query.targetType,
 				sort_by: query.sortBy,
 				sort_order: query.sortOrder,
 			}),
@@ -217,6 +253,7 @@ export default function AdminSharesPage() {
 				>
 					{t("audit_user")}
 				</AdminSortableTableHead>
+				<TableHead>{t("filter_target_name")}</TableHead>
 				<TableHead>{t("core:type")}</TableHead>
 				<AdminSortableTableHead
 					sortKey="expires_at"
@@ -256,12 +293,58 @@ export default function AdminSharesPage() {
 					title={t("shares")}
 					description={t("shares_intro")}
 					className="px-0 md:px-0"
+					toolbar={
+						<AdminFilterToolbar
+							inline
+							activeFilterCount={
+								(userId != null ? 1 : 0) + (targetType !== "__all__" ? 1 : 0)
+							}
+							onResetFilters={() =>
+								setQuery({
+									userId: undefined,
+									targetType: "__all__",
+									offset: 0,
+								})
+							}
+						>
+							<Select
+								items={targetOptions}
+								value={targetType}
+								onValueChange={(value) =>
+									setQuery({
+										offset: 0,
+										targetType:
+											value === "file" || value === "folder"
+												? value
+												: "__all__",
+									})
+								}
+							>
+								<SelectTrigger width="fit" aria-label={t("core:type")}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{targetOptions.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<AdminSearchFilter
+								kind="users"
+								value={userId}
+								label={t("filter_share_user")}
+								onChange={(userId) => setQuery({ userId, offset: 0 })}
+							/>
+						</AdminFilterToolbar>
+					}
 				/>
 				<AdminTableList
 					frameless
 					loading={loading}
 					items={shares}
-					columns={8}
+					columns={9}
 					rows={6}
 					emptyIcon={sharesEmptyIcon}
 					emptyTitle={t("no_shares")}
@@ -290,6 +373,16 @@ export default function AdminSharesPage() {
 								</TableCell>
 								<TableCell>
 									<UserIdentity user={s.user} />
+								</TableCell>
+								<TableCell
+									className="max-w-64 truncate"
+									title={s.target_name ?? undefined}
+								>
+									{s.target_name ?? (
+										<span className="text-muted-foreground">
+											{t("filter_target_unavailable")}
+										</span>
+									)}
 								</TableCell>
 								<TableCell>
 									<Badge variant="outline">
