@@ -44,8 +44,9 @@ pub enum AzureBlobConfigError {
 }
 
 impl AzureBlobConfigError {
+    /// Report invalid administrator configuration as a client input error.
     pub fn into_aster_error(self) -> AsterError {
-        self.into_storage_error().into()
+        AsterError::validation_error(self.into_storage_error().message())
     }
 
     fn into_storage_error(self) -> StorageError {

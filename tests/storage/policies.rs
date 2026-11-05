@@ -5710,7 +5710,7 @@ async fn test_azure_blob_policy_rejects_invalid_endpoint_shapes_with_stable_code
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
-            500,
+            400,
             "azure create should reject endpoint {endpoint}"
         );
         let body: Value = test::read_body_json(resp).await;
@@ -5731,7 +5731,7 @@ async fn test_azure_blob_policy_rejects_invalid_endpoint_shapes_with_stable_code
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
-            500,
+            400,
             "azure draft test should reject endpoint {endpoint}"
         );
         let body: Value = test::read_body_json(resp).await;
@@ -5797,7 +5797,7 @@ async fn test_azure_blob_policy_rejects_invalid_endpoint_shapes_with_stable_code
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        500,
+        400,
         "azure update should reject plaintext HTTP"
     );
     let body: Value = test::read_body_json(resp).await;
@@ -5885,10 +5885,18 @@ async fn test_azure_front_door_policy_defaults_edit_validation_and_relay_precede
             .set_json(serde_json::json!({"connector_config":invalid}))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert!(
-            !resp.status().is_success(),
-            "invalid {field} must be rejected"
-        );
+        assert_eq!(resp.status(), 400, "invalid {field} must be a client error");
+        let body: Value = test::read_body_json(resp).await;
+        if field == "download_base_url"
+            && invalid["values"][field] == "https://downloads.example.test/container"
+        {
+            assert!(
+                body["msg"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("Azure Front Door download address")),
+                "preserve the field hint: {body}"
+            );
+        }
     }
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/admin/policies/{policy_id}"))

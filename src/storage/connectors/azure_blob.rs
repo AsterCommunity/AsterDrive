@@ -347,7 +347,8 @@ impl StorageConnector for AzureBlobConnector {
             .to_string();
         crate::storage::drivers::azure_blob::cdn::FrontDoorConfig::from_config(
             &Self::driver_config(0, config.clone()),
-        )?;
+        )
+        .map_err(|error| crate::errors::AsterError::validation_error(error.message()))?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,

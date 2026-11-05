@@ -96,6 +96,10 @@ test("configures Azure Front Door delivery and preserves cache settings across e
 	]);
 	expect(origin.ok()).toBe(true);
 	await page.reload();
+	await expect(page.locator("#endpoint")).toHaveValue(
+		"https://account.blob.core.windows.net",
+	);
+	await expect(cache).toHaveCount(0);
 	await delivery.click();
 	await page
 		.getByRole("option", { name: "Azure Front Door", exact: true })
