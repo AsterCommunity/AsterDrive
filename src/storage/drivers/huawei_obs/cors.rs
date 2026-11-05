@@ -22,6 +22,7 @@ use super::{HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials, 
 const CORS_XML_MAX_BYTES: usize = 64 * 1024;
 const CORS_ERROR_MAX_BYTES: usize = 8 * 1024;
 const CORS_MAX_RULES: usize = 100;
+const CORS_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const REQUIRED_EXPOSE_HEADERS: &[&str] = &[
     "ETag",
     "Content-Range",
@@ -61,6 +62,8 @@ pub(crate) struct ObsCorsApplyResult {
 }
 
 impl ObsCorsClient {
+    /// Build a native bucket-management client with a deadline independent of
+    /// long-running object transfers, while honoring shorter configured limits.
     pub(crate) fn new(
         config: &HuaweiObsDriverConfig,
         credentials: &HuaweiObsStaticCredentials,
@@ -94,7 +97,7 @@ impl ObsCorsClient {
         let client = reqwest::Client::builder()
             .connect_timeout(config.connect_timeout)
             .read_timeout(config.read_timeout)
-            .timeout(config.operation_timeout)
+            .timeout(config.operation_timeout.min(CORS_REQUEST_TIMEOUT))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(OUTBOUND_HTTP_USER_AGENT)
             .build()
@@ -112,6 +115,8 @@ impl ObsCorsClient {
         })
     }
 
+    /// Read and preserve existing rules, then write only when browser requests
+    /// need another rule; failed reads and unsafe merges never trigger a PUT.
     pub(crate) async fn configure(&self, origins: &[String]) -> Result<ObsCorsApplyResult> {
         validate_origins(origins)?;
         let (mut config, get_request_id) = self.get().await?;

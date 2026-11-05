@@ -25,7 +25,7 @@
 - Driver 负责 HTTP、OBS 原生签名、XML、规则合并和脱敏错误。复用 OBS signer 的规范资源和 HMAC 实现，不调用 COS 或 OSS signer。
 - 普通模式请求 `https://BUCKET.obs.REGION.myhuaweicloud.com/?cors`；已规范化的 bucket-prefixed endpoint 不重复追加 bucket。CNAME 模式请求 `https://BOUND-OBS-DOMAIN/?cors`，规范资源为 `/BOUND-OBS-DOMAIN/?cors`，不是 `/BUCKET/?cors`。
 - `download_base_url` / CDN domain 永不作为管理目标。CNAME endpoint 必须直接绑定 OBS，不能把 CDN 加速域名当作 OBS 管理入口。
-- 使用项目 `OUTBOUND_HTTP_USER_AGENT`，沿用连接／读取／操作超时，禁用重定向，防止签名被转发到另一 Host。
+- 使用项目 `OUTBOUND_HTTP_USER_AGENT`，沿用连接／读取超时；每次 CORS 管理请求的总超时取 `min(operation_timeout, 30 秒)`，覆盖连接至完整响应体读取，更短的配置仍生效。GET 和 PUT 分别计时，不改变对象操作的超时。禁用重定向，防止签名被转发到另一 Host。
 
 执行沿用通用“此操作可能修改远端存储状态，请确认后继续”确认框。不增加目标／Origin 专用确认 schema。创建、普通保存、连接测试不隐式调用 CORS。
 
@@ -63,6 +63,6 @@ cd frontend-panel
 bun run test -- src/components/admin/storage-policy-dialog/StorageConnectorActionsPanel.test.tsx src/components/admin/storage-policy-dialog/policyActionSelection.test.ts
 ```
 
-本地覆盖请求目标、签名、XML／ID／顺序、空配置、幂等、规则遮挡、限制、权限及错误脱敏；管理员 route 覆盖草稿、已保存策略、留空凭据保留、目标切换、普通保存／连接测试隔离和非管理员拒绝。通用前端组件覆盖 action 显示、确认及草稿／保存路由，并保留 COS / OSS 回归。
+本地覆盖请求目标、签名、XML／ID／顺序、空配置、幂等、规则遮挡、限制、权限及错误脱敏；`total_deadline_caps_body_reads_and_preserves_shorter_operation_timeout` 通过局部 HTTP 服务和 Tokio 虚拟时间，证明部分响应体不能突破 30 秒总期限，且 10 秒配置不会被放宽；管理员 route 覆盖草稿、已保存策略、留空凭据保留、目标切换、普通保存／连接测试隔离和非管理员拒绝。通用前端组件覆盖 action 显示、确认及草稿／保存路由，并保留 COS / OSS 回归。
 
 **真实云状态：未验证。** 本次没有使用真实 OBS 凭据写入 bucket，没有证明真实浏览器单文件／分片直传、GET／HEAD／Range、ETag／Content-Disposition 可读、CNAME 网络路径或 CDN 生效。云端验收需保留脱敏前后配置、第二次不变更结果和 RequestId，按浏览器路径验证；#716 的 CDN 回源、鉴权与缓存验收继续独立保留。

@@ -633,3 +633,52 @@ fn unsupported_patterns_refuse_a_write_instead_of_missing_a_shadowing_rule() {
         assert!(error.to_string().contains("no rules were written"));
     }
 }
+
+#[tokio::test]
+async fn total_deadline_caps_body_reads_and_preserves_shorter_operation_timeout() {
+    use std::task::Poll;
+    use std::time::Duration;
+
+    for (operation_timeout, expected_deadline) in [(3_600, 30), (10, 10)] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let mut config = sample_driver_config(&endpoint, true);
+        config.operation_timeout = Duration::from_secs(operation_timeout);
+        // Isolate the total deadline from the timeout between individual reads.
+        config.read_timeout = Duration::from_secs(120);
+        let client = ObsCorsClient::new(&config, &sample_credentials()).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            assert!(
+                read_request(&mut stream)
+                    .await
+                    .starts_with("GET /?cors HTTP/1.1")
+            );
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1024\r\nConnection: close\r\n\r\n<")
+                .await
+                .unwrap();
+            // Keep a partial response open; the per-read timeout is deliberately longer.
+            std::future::pending::<()>().await;
+        });
+        let mut response = client.request("GET", None).await.unwrap();
+        assert_eq!(response.chunk().await.unwrap().unwrap().as_ref(), b"<");
+
+        // Only pause after real socket I/O has completed, avoiding virtual-time
+        // auto-advancement while the OS is still delivering the response headers.
+        tokio::time::pause();
+        let mut next_chunk = std::pin::pin!(response.chunk());
+        assert!(futures::poll!(next_chunk.as_mut()).is_pending());
+        tokio::time::advance(Duration::from_secs(expected_deadline - 1)).await;
+        assert!(futures::poll!(next_chunk.as_mut()).is_pending());
+        tokio::time::advance(Duration::from_secs(2)).await;
+        match futures::poll!(next_chunk.as_mut()) {
+            Poll::Ready(Err(error)) => assert!(error.is_timeout(), "{error}"),
+            result => {
+                panic!("response body exceeded the {expected_deadline}s deadline: {result:?}")
+            }
+        }
+        tokio::time::resume();
+        server.abort();
+    }
+}
