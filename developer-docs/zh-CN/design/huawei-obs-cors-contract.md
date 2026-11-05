@@ -63,6 +63,6 @@ cd frontend-panel
 bun run test -- src/components/admin/storage-policy-dialog/StorageConnectorActionsPanel.test.tsx src/components/admin/storage-policy-dialog/policyActionSelection.test.ts
 ```
 
-本地覆盖请求目标、签名、XML／ID／顺序、空配置、幂等、规则遮挡、限制、权限及错误脱敏；`total_deadline_caps_body_reads_and_preserves_shorter_operation_timeout` 通过局部 HTTP 服务和 Tokio 虚拟时间，证明部分响应体不能突破 30 秒总期限，且 10 秒配置不会被放宽；管理员 route 覆盖草稿、已保存策略、留空凭据保留、目标切换、普通保存／连接测试隔离和非管理员拒绝。通用前端组件覆盖 action 显示、确认及草稿／保存路由，并保留 COS / OSS 回归。
+本地覆盖请求目标、签名、XML／ID／顺序、空配置、幂等、规则遮挡、限制、权限及错误脱敏；`total_deadline_caps_body_reads_and_preserves_shorter_operation_timeout` 通过局部 HTTP 服务和 Tokio 虚拟时间，证明部分响应体不能突破 30 秒总期限，且 10 秒配置不会被放宽；管理员 route 覆盖草稿、已保存策略、留空凭据保留、目标切换、普通保存及失败的连接测试隔离和非管理员拒绝；成功的连接测试路径尚未覆盖。通用前端组件覆盖 action 显示、确认及草稿／保存路由，并保留 COS / OSS 回归。
 
 **真实云状态：未验证。** 本次没有使用真实 OBS 凭据写入 bucket，没有证明真实浏览器单文件／分片直传、GET／HEAD／Range、ETag／Content-Disposition 可读、CNAME 网络路径或 CDN 生效。云端验收需保留脱敏前后配置、第二次不变更结果和 RequestId，按浏览器路径验证；#716 的 CDN 回源、鉴权与缓存验收继续独立保留。
