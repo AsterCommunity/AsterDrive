@@ -13,10 +13,13 @@
 
 pub use sea_orm_migration::prelude::*;
 
+use futures::FutureExt;
 use sea_orm_migration::sea_orm::{
     ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DatabaseExecutor, DbBackend,
     Statement,
 };
+use std::panic::{AssertUnwindSafe, resume_unwind};
+use std::sync::{Arc, Mutex};
 
 mod m20260512_000001_baseline_schema;
 mod m20260515_000001_add_passkeys;
@@ -88,6 +91,9 @@ mod m20261104_000001_qiniu_native;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
+// Windows Debug's isolated migration probe succeeded at 864 KiB and 8 MiB;
+// reserve 8 MiB for the complete production call chain, pending Windows CI validation.
+const MIGRATION_WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
 const RESOURCE_LOCK_REFACTOR_MIGRATION: &str = "m20260803_000001_refactor_resource_locks";
 const STORAGE_POLICY_CONNECTOR_CONFIGS_MIGRATION: &str =
     "m20260803_000002_storage_policy_connector_configs";
@@ -152,7 +158,11 @@ impl Migrator {
     pub async fn up(database: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         match steps {
             Some(step_count) => {
-                <CurrentMigrator as MigratorTrait>::up(database, Some(step_count)).await
+                let database = database.clone();
+                run_migration_worker(move || async move {
+                    <CurrentMigrator as MigratorTrait>::up(&database, Some(step_count)).await
+                })
+                .await
             }
             None => apply_database_migrations(database).await,
         }
@@ -362,14 +372,99 @@ where
 }
 
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
-    if database.get_database_backend() == DbBackend::Sqlite {
-        return apply_sqlite_database_migrations(database).await;
+    let database = database.clone();
+    run_migration_worker(move || async move { apply_database_migrations_in_place(&database).await })
+        .await
+}
+
+async fn run_migration_worker<F, Fut>(operation: F) -> Result<(), DbErr>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<(), DbErr>>,
+{
+    let handle = tokio::runtime::Handle::try_current().map_err(|error| {
+        migration_state_error(format!("migration requires a Tokio runtime: {error}"))
+    })?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("aster-db-migration".into())
+        .stack_size(MIGRATION_WORKER_STACK_SIZE)
+        .spawn(move || {
+            let result =
+                std::panic::catch_unwind(AssertUnwindSafe(|| handle.block_on(operation())));
+            if let Err(result) = sender.send(result) {
+                match result {
+                    Ok(Ok(())) => {
+                        tracing::warn!("migration finished after its caller stopped waiting")
+                    }
+                    Ok(Err(error)) => {
+                        tracing::error!(%error, "migration failed after its caller stopped waiting")
+                    }
+                    Err(_) => tracing::error!(
+                        "migration worker panicked after its caller stopped waiting"
+                    ),
+                }
+            }
+        })
+        .map_err(|error| {
+            migration_state_error(format!("failed to start migration worker: {error}"))
+        })?;
+    // Dropping the caller does not stop the thread. The original runtime must remain
+    // alive and driven until the worker finishes; shutdown can interrupt migration.
+    match receiver.await {
+        Ok(Ok(result)) => result,
+        Ok(Err(payload)) => resume_unwind(payload),
+        Err(error) => Err(migration_state_error(format!(
+            "migration worker disconnected: {error}"
+        ))),
     }
-    let options = database_migration_lock_options().with_postgres_transaction(false);
-    aster_forge_db_migration::with_migration_lock(database, &options, |connection| {
-        Box::pin(apply_database_migrations_unlocked(connection))
-    })
-    .await
+}
+
+type MigrationPanic = Arc<Mutex<Option<Box<dyn std::any::Any + Send>>>>;
+
+async fn apply_database_migrations_in_place(database: &DatabaseConnection) -> Result<(), DbErr> {
+    let panic = MigrationPanic::default();
+    let result = if database.get_database_backend() == DbBackend::Sqlite {
+        apply_sqlite_database_migrations(database, &panic, |connection| {
+            Box::pin(apply_database_migrations_unlocked(connection))
+        })
+        .await
+    } else {
+        let options = database_migration_lock_options().with_postgres_transaction(false);
+        aster_forge_db_migration::with_migration_lock(database, &options, |connection| {
+            Box::pin(apply_migrations_catching_panic(
+                apply_database_migrations_unlocked(connection),
+                panic.clone(),
+            ))
+        })
+        .await
+    };
+    let payload = panic
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
+    if let Some(payload) = payload {
+        if let Err(error) = result {
+            tracing::error!(%error, "migration panic occurred; cleanup result");
+        }
+        resume_unwind(payload);
+    }
+    result
+}
+
+async fn apply_migrations_catching_panic(
+    operation: impl std::future::Future<Output = Result<(), DbErr>>,
+    panic: MigrationPanic,
+) -> Result<(), DbErr> {
+    match AssertUnwindSafe(operation).catch_unwind().await {
+        Ok(result) => result,
+        Err(payload) => {
+            *panic.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(payload);
+            Err(migration_state_error(
+                "migration panicked; rolling back and releasing lock".into(),
+            ))
+        }
+    }
 }
 
 /// The product upgrade needs its runtime encryption key and performs online provider
@@ -411,7 +506,13 @@ pub async fn qiniu_online_upgrade_schema_ready(
 /// SQLite writer is deliberately single-connection, so the pragma setup, Forge
 /// transaction, integrity check, and state restoration all use the same
 /// physical connection.
-async fn apply_sqlite_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
+async fn apply_sqlite_database_migrations(
+    database: &DatabaseConnection,
+    panic: &MigrationPanic,
+    operation: impl for<'a> FnOnce(
+        DatabaseExecutor<'a>,
+    ) -> aster_forge_db_migration::MigrationFuture<'a, ()>,
+) -> Result<(), DbErr> {
     let pool = database.get_sqlite_connection_pool();
     let max_connections = pool.options().get_max_connections();
     if max_connections != 1 {
@@ -432,7 +533,10 @@ async fn apply_sqlite_database_migrations(database: &DatabaseConnection) -> Resu
     }
 
     let operation_result = with_database_migration_lock(database, |connection| {
-        Box::pin(apply_database_migrations_unlocked(connection))
+        Box::pin(apply_migrations_catching_panic(
+            operation(connection),
+            panic.clone(),
+        ))
     })
     .await;
 
@@ -710,6 +814,236 @@ fn migration_state_error(message: String) -> DbErr {
 mod tests {
     use super::*;
     use sea_orm_migration::SchemaManager;
+
+    #[tokio::test]
+    async fn step_limited_migrations_apply_only_requested_steps() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        Migrator::up(&db, Some(1)).await.unwrap();
+        let history = inspect_migration_history(&db).await.unwrap();
+        assert_eq!(history.applied, current_migration_names()[..1]);
+        assert_eq!(
+            history.pending_current.len(),
+            current_migration_names().len() - 1
+        );
+
+        Migrator::up(&db, Some(1)).await.unwrap();
+        let history = inspect_migration_history(&db).await.unwrap();
+        assert_eq!(history.applied, current_migration_names()[..2]);
+    }
+
+    #[tokio::test]
+    async fn step_limited_migrations_require_a_runtime_for_the_worker() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let error = std::thread::spawn(move || {
+            futures::executor::block_on(Migrator::up(&db, Some(1))).unwrap_err()
+        })
+        .join()
+        .unwrap();
+        assert!(error.to_string().contains("requires a Tokio runtime"));
+    }
+
+    #[tokio::test]
+    async fn step_limited_migration_propagates_database_failure() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.execute_unprepared("CREATE TABLE users (id INTEGER)")
+            .await
+            .unwrap();
+        let error = Migrator::up(&db, Some(1)).await.unwrap_err();
+        assert!(
+            error.to_string().contains("no such column: username"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn worker_reports_missing_runtime() {
+        let error =
+            futures::executor::block_on(run_migration_worker(|| async { Ok(()) })).unwrap_err();
+        assert!(error.to_string().contains("requires a Tokio runtime"));
+    }
+
+    #[tokio::test]
+    async fn worker_propagates_error_and_panic() {
+        let error = run_migration_worker(|| async { Err(DbErr::Custom("worker failure".into())) })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("worker failure"));
+        let task = tokio::spawn(run_migration_worker(|| async {
+            panic!("worker panic marker")
+        }));
+        assert!(task.await.unwrap_err().is_panic());
+    }
+
+    #[tokio::test]
+    async fn worker_finishes_after_caller_cancellation_while_runtime_is_driven() {
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(run_migration_worker(move || async move {
+            started_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            done_tx.send(()).unwrap();
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), done_rx)
+            .await
+            .expect("worker should finish while runtime is still driven")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn migration_failure_restores_sqlite_foreign_keys_and_releases_lock() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.execute_unprepared("PRAGMA foreign_keys = ON")
+            .await
+            .unwrap();
+        db.execute_unprepared("CREATE TABLE users (id INTEGER)")
+            .await
+            .unwrap();
+        let error = apply_database_migrations(&db).await.unwrap_err();
+        assert!(error.to_string().contains("migration"));
+        assert!(sqlite_foreign_keys_enabled(&db).await.unwrap());
+        with_database_migration_lock(&db, |_| Box::pin(async { Ok(()) }))
+            .await
+            .expect("migration lock should be available after failure");
+    }
+
+    #[tokio::test]
+    async fn panic_in_migration_callback_rolls_back_and_releases_sqlite_lock() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let panic = MigrationPanic::default();
+        let result = with_database_migration_lock(&db, |connection| {
+            Box::pin(apply_migrations_catching_panic(
+                async move {
+                    connection
+                        .execute_unprepared("CREATE TABLE rollback_probe (id INTEGER)")
+                        .await?;
+                    panic!("migration panic marker")
+                },
+                panic.clone(),
+            ))
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(panic.lock().unwrap().is_some());
+        assert!(
+            !SchemaManager::new(&db)
+                .has_table("rollback_probe")
+                .await
+                .unwrap()
+        );
+        with_database_migration_lock(&db, |_| Box::pin(async { Ok(()) }))
+            .await
+            .expect("lock should be available after panic rollback");
+    }
+
+    #[tokio::test]
+    async fn sqlite_panic_restores_foreign_keys_after_rollback() {
+        let db = sea_orm_migration::sea_orm::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.execute_unprepared("PRAGMA foreign_keys = ON")
+            .await
+            .unwrap();
+        let panic = MigrationPanic::default();
+        let result = apply_sqlite_database_migrations(&db, &panic, |connection| {
+            Box::pin(async move {
+                connection
+                    .execute_unprepared("CREATE TABLE rollback_probe (id INTEGER)")
+                    .await?;
+                panic!("migration panic marker")
+            })
+        })
+        .await;
+        assert!(result.is_err());
+        assert!(panic.lock().unwrap().is_some());
+        assert!(sqlite_foreign_keys_enabled(&db).await.unwrap());
+        assert!(
+            !SchemaManager::new(&db)
+                .has_table("rollback_probe")
+                .await
+                .unwrap()
+        );
+        with_database_migration_lock(&db, |_| Box::pin(async { Ok(()) }))
+            .await
+            .expect("migration lock should be available after panic");
+    }
+
+    #[test]
+    fn migration_stack_probe_runs_in_a_separate_process() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "--ignored",
+                "tests::migration_stack_budget_probe",
+                "--nocapture",
+            ])
+            .env("ASTER_MIGRATION_PROBE_STACK_KIB", "8192")
+            .output()
+            .expect("migration stack probe process should start");
+        assert!(
+            output.status.success(),
+            "migration stack probe failed: {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+            "migration stack probe did not run: {}",
+            String::from_utf8_lossy(&output.stdout),
+        );
+    }
+
+    /// Run this test in its own process: a stack overflow can abort the process.
+    /// `ASTER_MIGRATION_PROBE_STACK_KIB` sets the requested worker stack size.
+    #[test]
+    #[ignore = "manual migration stack budget probe; run in a separate process"]
+    fn migration_stack_budget_probe() {
+        let stack_kib: usize = std::env::var("ASTER_MIGRATION_PROBE_STACK_KIB")
+            .expect("set ASTER_MIGRATION_PROBE_STACK_KIB")
+            .parse()
+            .expect("stack size must be a positive integer in KiB");
+        let stack_bytes = stack_kib.checked_mul(1024).expect("stack size overflow");
+        assert!(stack_bytes > 0, "stack size must be positive");
+        std::thread::Builder::new()
+            .name("migration-stack-probe".into())
+            .stack_size(stack_bytes)
+            .spawn(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("probe runtime should start");
+                runtime.block_on(async {
+                    let mut options =
+                        sea_orm_migration::sea_orm::ConnectOptions::new("sqlite::memory:");
+                    options.max_connections(1);
+                    let db = sea_orm_migration::sea_orm::Database::connect(options)
+                        .await
+                        .expect("probe SQLite connection should open");
+                    apply_database_migrations_in_place(&db)
+                        .await
+                        .expect("probe migrations should succeed");
+                });
+            })
+            .expect("probe thread should start")
+            .join()
+            .expect("probe thread should finish");
+    }
 
     #[test]
     fn mysql_migrations_do_not_install_a_global_version_gate() {
