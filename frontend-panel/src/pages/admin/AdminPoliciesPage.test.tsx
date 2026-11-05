@@ -1995,6 +1995,100 @@ describe("AdminPoliciesPage connector orchestration", () => {
 		});
 	});
 
+	it.each(["asterdrive.storage.qiniu", "asterdrive.storage.tencent_cos"])(
+		"uses generic confirmation and the current target for %s CORS",
+		async (connectorId) => {
+			const actionId = connectorId.endsWith("qiniu")
+				? "configure_qiniu_cors"
+				: "configure_tencent_cos_cors";
+			const corsAction = action({
+				action_id: actionId,
+				kind: "custom",
+				endpoints: [
+					"execute_draft_storage_policy_action",
+					"execute_saved_storage_policy_action",
+				],
+				mutates_remote_state: true,
+				requires_confirmation: true,
+				output_fields: [
+					{ name: "bucket", label_key: "bucket", value_kind: "text" },
+					{
+						name: "allowed_origins",
+						label_key: "origins",
+						value_kind: "string_list",
+					},
+				],
+			});
+			const connector = descriptor(connectorId, {
+				actions: [
+					corsAction,
+					action({
+						action_id: "test_saved_connection",
+						kind: "connection_test",
+						endpoints: ["test_policy_connection"],
+					}),
+				],
+				fields: [field("bucket", { required: true })],
+			});
+			const saved = policy(connectorId, { bucket: "old-bucket" });
+			mockState.manageDescriptors = [connector];
+			mockState.createDescriptors = [connector];
+			mockState.policies = [saved];
+			mockState.update.mockResolvedValue(saved);
+			mockState.testConnection.mockResolvedValue(undefined);
+			mockState.executeDraftPolicyAction.mockResolvedValue({
+				action_id: actionId,
+				ok: true,
+				output: {
+					bucket: "new-bucket",
+					allowed_origins: ["https://drive.test"],
+				},
+			});
+			mockState.executeSavedPolicyAction.mockResolvedValue({
+				action_id: actionId,
+				ok: true,
+			});
+			renderDetail();
+			await waitForCatalog(connectorId);
+			await waitFor(() => expect(currentDialog().editMode).toBe(true));
+			await act(async () => currentDialog().onRunConnectionTest());
+			await act(async () => currentDialog().onSubmit());
+			expect(mockState.testConnection).toHaveBeenCalledTimes(1);
+			expect(mockState.executeDraftPolicyAction).not.toHaveBeenCalled();
+			expect(mockState.executeSavedPolicyAction).not.toHaveBeenCalled();
+			await act(async () => currentDialog().onRequestConnectorAction(actionId));
+			expect(currentDialog().connectorActionConfirmId).toBe(actionId);
+			expect(mockState.executeSavedPolicyAction).not.toHaveBeenCalled();
+			await act(async () => currentDialog().onConfirmConnectorAction(actionId));
+			expect(mockState.executeSavedPolicyAction).toHaveBeenCalledWith(7, {
+				action_id: actionId,
+				values: {},
+			});
+			await act(async () =>
+				currentDialog().onFieldChange("connector_config_values", {
+					bucket: "new-bucket",
+				}),
+			);
+			await act(async () => currentDialog().onRequestConnectorAction(actionId));
+			await act(async () => currentDialog().onConfirmConnectorAction(actionId));
+			expect(mockState.executeDraftPolicyAction).toHaveBeenCalledWith(
+				expect.objectContaining({
+					policy_id: 7,
+					action_id: actionId,
+					connection: expect.objectContaining({
+						connector_config: expect.objectContaining({
+							values: { bucket: "new-bucket" },
+						}),
+					}),
+				}),
+			);
+			expect(mockState.toastSuccess).toHaveBeenLastCalledWith(
+				"policy_connector_action_success",
+				{ description: "bucket: new-bucket · origins: https://drive.test" },
+			);
+		},
+	);
+
 	it("executes connector-defined custom actions with their own field mapping", async () => {
 		const repairAction = action({
 			action_id: "plugin.repair_index",

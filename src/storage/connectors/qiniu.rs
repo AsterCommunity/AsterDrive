@@ -26,6 +26,7 @@ use super::{
     StorageConnectorUploadTransport,
 };
 
+mod cors;
 mod localization;
 pub(crate) mod upgrade;
 
@@ -218,6 +219,9 @@ impl QiniuConnector {
                 related_issues: vec![702],
             });
         descriptor.capabilities.custom_download_base_url = true;
+        descriptor
+            .actions
+            .push(cors::configure_cors_action_descriptor());
         descriptor.capabilities.object_storage_transfer_strategy = false;
         descriptor.upload_workflows.presigned_upload = false;
         descriptor.upload_workflows.provider_resumable_upload = true;
@@ -252,6 +256,48 @@ impl QiniuConnector {
 
 #[async_trait]
 impl StorageConnector for QiniuConnector {
+    async fn execute_draft_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        input: super::ExecuteDraftStorageConnectorActionInput,
+    ) -> Result<super::StorageConnectorActionResult> {
+        cors::validate_action(&input.action_id, &input.values)?;
+        let origins = cors::allowed_origins(context.runtime_config())?;
+        let connection = input.connection;
+        let credential = self
+            .prepare_draft_credential(context, input.policy_id, connection.storage.credential)
+            .await?;
+        self.validate_credential_input(&credential)?;
+        let config = self.validate_connector_config(&connection.storage.connector_config)?;
+        self.validate_policy_behavior(&connection.behavior.normalized())?;
+        let driver = Self::build_driver(
+            super::common::decode_normalized_connector_config(&config)?,
+            super::common::decode_static_credential(&credential, Self::ID)?,
+        )?;
+        super::StorageConnectorActionResult::with_output(
+            input.action_id,
+            driver.configure_asterdrive_cors(&origins).await?,
+        )
+    }
+
+    async fn execute_saved_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        input: super::ExecuteSavedStorageConnectorActionInput,
+    ) -> Result<super::StorageConnectorActionResult> {
+        cors::validate_action(&input.action_id, &input.values)?;
+        let origins = cors::allowed_origins(context.runtime_config())?;
+        let driver = Self::build_driver(
+            Self::decode_config(policy)?,
+            super::common::runtime_static_credential(context.driver_registry(), policy, Self::ID)?,
+        )?;
+        super::StorageConnectorActionResult::with_output(
+            input.action_id,
+            driver.configure_asterdrive_cors(&origins).await?,
+        )
+    }
+
     async fn test_draft_connection(
         &self,
         context: &super::StorageConnectorContext<'_>,

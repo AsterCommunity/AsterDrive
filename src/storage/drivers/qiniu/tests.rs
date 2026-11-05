@@ -22,7 +22,7 @@ fn config() -> QiniuDriverConfig {
         operation_timeout: Duration::from_secs(10),
     }
 }
-fn driver() -> QiniuDriver {
+pub(super) fn driver() -> QiniuDriver {
     QiniuDriver::new(
         config(),
         QiniuStaticCredentials {
@@ -256,6 +256,7 @@ impl Server {
 pub(crate) async fn http_fixture_driver(base: &str) -> QiniuDriver {
     let mut driver = driver();
     driver.config.download_origin = base.to_string();
+    driver.bucket_api = Url::parse(base).unwrap();
     *driver.endpoints.lock().await = Some(Endpoints {
         upload: Url::parse(base).unwrap(),
         management: Url::parse(base).unwrap(),

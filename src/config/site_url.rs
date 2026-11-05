@@ -36,18 +36,23 @@ fn parse_public_site_url_entries(value: &str) -> Result<Vec<String>> {
 }
 
 fn parse_public_site_url_origin(origin: &str) -> Result<String> {
-    if origin == "*" {
+    if origin.contains('*') {
         return Err(AsterError::validation_error(
             "public_site_url does not support wildcard origins",
         ));
     }
 
-    cors::normalize_origin(origin, false).map_err(|err| {
+    let validated = cors::normalize_origin(origin, false).map_err(|err| {
         AsterError::validation_error(format!(
             "invalid public_site_url origin '{origin}': {}",
             err.message()
         ))
-    })
+    })?;
+    // Preserve the strict origin-only validation above; URL origin serialization
+    // additionally removes default ports and normalizes IPv6 as browsers do.
+    url::Url::parse(&validated)
+        .map(|url| url.origin().ascii_serialization())
+        .map_err(|_| AsterError::validation_error("invalid public_site_url origin"))
 }
 
 pub fn parse_public_site_url_value(value: &str) -> Result<Vec<String>> {
@@ -123,7 +128,7 @@ pub fn public_site_url_for_request(
         return None;
     }
 
-    let request_origin = cors::normalize_origin(&format!("{scheme}://{host}"), false).ok();
+    let request_origin = parse_public_site_url_origin(&format!("{scheme}://{host}")).ok();
     if let Some(request_origin) = request_origin
         && origins.iter().any(|origin| origin == &request_origin)
     {
@@ -202,6 +207,16 @@ mod tests {
     }
 
     #[test]
+    fn public_origins_match_browser_serialization_and_deduplicate_default_ports() {
+        assert_eq!(
+            parse_public_site_url_value(
+                r#"["https://DRIVE.example.test:443/","https://drive.example.test","http://drive.example.test:80","https://drive.example.test:8443","https://[2001:db8::1]:443","http://[::1]:8080"]"#,
+            ).unwrap(),
+            vec!["https://drive.example.test", "http://drive.example.test", "https://drive.example.test:8443", "https://[2001:db8::1]", "http://[::1]:8080"],
+        );
+    }
+
+    #[test]
     fn normalize_public_site_url_accepts_empty_and_valid_origins() {
         assert!(normalize_public_site_url_config_value("   ").is_err());
         assert_eq!(
@@ -250,6 +265,10 @@ mod tests {
         assert!(normalize_public_site_url_config_value(r#"["ftp://drive.example.com"]"#).is_err());
         assert!(normalize_public_site_url_config_value(r#"["*.example.com"]"#).is_err());
         assert!(normalize_public_site_url_config_value(r#"["*"]"#).is_err());
+        assert!(normalize_public_site_url_config_value(r#"["https://*.example.com"]"#).is_err());
+        assert!(
+            normalize_public_site_url_config_value(r#"["https://example.com:65536"]"#).is_err()
+        );
         assert!(normalize_public_site_url_config_value(r#""https://drive.example.com""#).is_err());
     }
 
@@ -285,6 +304,11 @@ mod tests {
 
         assert_eq!(
             public_site_url_for_request(&runtime_config, "https", "panel.example.com").as_deref(),
+            Some("https://panel.example.com")
+        );
+        assert_eq!(
+            public_site_url_for_request(&runtime_config, "https", "panel.example.com:443")
+                .as_deref(),
             Some("https://panel.example.com")
         );
         assert_eq!(
