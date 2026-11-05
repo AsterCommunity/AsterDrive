@@ -67,7 +67,7 @@ test.describe
 			await input.press("ArrowRight");
 			await input.press("ArrowRight");
 			await expect(page).toHaveURL(/name=report/);
-			expect(calls).toHaveLength(1);
+			await expect.poll(() => calls.length).toBe(1);
 			expect(new URL(page.url()).searchParams.has("offset")).toBe(false);
 			expect(
 				await input.evaluate(
@@ -253,7 +253,7 @@ test.describe
 			await page
 				.getByRole("button", { name: "Clear filters", exact: true })
 				.click();
-			expect(new URL(page.url()).search).toBe("");
+			await expect.poll(() => new URL(page.url()).search).toBe("");
 			await expect(page.getByPlaceholder("Min size")).toHaveValue("");
 		});
 
@@ -317,6 +317,6 @@ test.describe
 			await page
 				.getByRole("button", { name: "Clear filters", exact: true })
 				.click();
-			expect(new URL(page.url()).search).toBe("");
+			await expect.poll(() => new URL(page.url()).search).toBe("");
 		});
 	});
