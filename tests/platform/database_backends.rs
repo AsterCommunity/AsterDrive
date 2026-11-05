@@ -1457,13 +1457,20 @@ async fn assert_production_migrator_releases_lock_after_failure(database_url: St
         .execute_unprepared("DROP TABLE users")
         .await
         .unwrap();
-    tokio::time::timeout(
-        std::time::Duration::from_secs(15),
-        aster_drive_migration::Migrator::up(&database, None),
+    // Other tests may hold the server-wide lock while running full migrations.
+    // Allow for the production MySQL lock acquisition timeout (300 seconds).
+    timeout(
+        Duration::from_secs(330),
+        aster_drive_migration::with_database_migration_lock(&database, |_| {
+            Box::pin(async { Ok(()) })
+        }),
     )
     .await
-    .expect("migration lock must be released after failure")
-    .expect("migration should succeed after removing the invalid table");
+    .expect("timed out waiting to reacquire the migration lock")
+    .expect("migration lock must be available after failure");
+    aster_drive_migration::Migrator::up(&database, None)
+        .await
+        .expect("migration should succeed after removing the invalid table");
 }
 
 #[tokio::test]
