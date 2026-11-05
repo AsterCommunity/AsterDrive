@@ -1,3 +1,8 @@
+//! Tencent Cloud COS bucket CORS protocol.
+//!
+//! Provider references: [`GET Bucket cors`](https://cloud.tencent.com/document/product/436/8274)
+//! and [`PUT Bucket cors`](https://cloud.tencent.com/document/product/436/8279).
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 

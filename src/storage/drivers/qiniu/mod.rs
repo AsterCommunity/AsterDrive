@@ -12,6 +12,7 @@ pub(crate) mod tests;
 pub(crate) mod upgrade;
 mod upload;
 
+use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use aster_drive_storage::{Result, StorageErrorKind, storage_driver_error};
 pub use download::{QiniuDownloadDelivery, default_download_auth_validity_seconds};
 use serde::{Deserialize, Serialize};
@@ -125,6 +126,7 @@ impl QiniuDriver {
             reqwest::Client::builder()
                 .connect_timeout(config.connect_timeout)
                 .redirect(reqwest::redirect::Policy::none())
+                .user_agent(OUTBOUND_HTTP_USER_AGENT)
         };
         let control_client = http_client_builder()
             .read_timeout(config.read_timeout)

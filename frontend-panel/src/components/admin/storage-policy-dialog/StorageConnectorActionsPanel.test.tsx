@@ -55,6 +55,8 @@ const labels: Record<string, string> = {
 	"action.first.desc": "Inspect the first remote namespace.",
 	"action.second": "Second action",
 	"action.second.desc": "Inspect the second remote namespace.",
+	policy_oss_cors_action: "Configure CORS",
+	policy_oss_cors_desc: "Configure this OSS bucket.",
 	"field.enabled": "Enabled",
 	"field.mode": "Mode",
 	"field.path": "Path",
@@ -181,6 +183,24 @@ function remoteTarget(targetKey: string): RemoteStorageTargetInfo {
 }
 
 describe("StorageConnectorActionsPanel", () => {
+	it("uses the generic confirmation for the OSS CORS action without target fields", () => {
+		const ossAction = action("configure_alibaba_oss_cors", {
+			label_key: "policy_oss_cors_action",
+			description_key: "policy_oss_cors_desc",
+			fields: [],
+			mutates_remote_state: true,
+			requires_confirmation: true,
+		});
+		const { onConfirm } = renderPanel({
+			actions: [ossAction],
+			confirmActionId: ossAction.action_id,
+		});
+		expect(screen.getByText("Run Configure CORS?")).toBeVisible();
+		expect(screen.getByText("Remote state may change.")).toBeVisible();
+		expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Confirm action" }));
+		expect(onConfirm).toHaveBeenCalledWith("configure_alibaba_oss_cors");
+	});
 	it("renders nothing when the connector declares no custom actions", () => {
 		const { container } = renderPanel({ actions: [] });
 

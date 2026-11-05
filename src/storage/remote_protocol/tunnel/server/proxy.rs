@@ -14,6 +14,7 @@ use super::{
     REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelBroker, RemoteTunnelHttpResponse,
     RemoteTunnelOwnerDirectory, RemoteTunnelRegistry, RemoteTunnelStreamHttpResponse,
 };
+use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
@@ -58,7 +59,10 @@ impl ClusterRemoteTunnelBroker {
         Self {
             local,
             directory,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .user_agent(OUTBOUND_HTTP_USER_AGENT)
+                .build()
+                .expect("AsterDrive outbound user-agent must be valid"),
         }
     }
 

@@ -106,6 +106,15 @@ struct OssSigner {
     use_cname: bool,
 }
 
+pub(super) struct OssSigningContext<'a> {
+    pub(super) method: &'a str,
+    pub(super) bucket: &'a str,
+    pub(super) region: &'a str,
+    pub(super) access_key: &'a str,
+    pub(super) secret_key: &'a str,
+    pub(super) now: DateTime<Utc>,
+}
+
 impl Sign for OssSigner {
     fn sign_http_request(
         &self,
@@ -165,30 +174,22 @@ impl OssSigner {
                 .insert("x-oss-security-token", token.to_string());
         }
 
-        let date = now.format("%Y%m%d").to_string();
-        let scope = credential_scope(&date, &self.region);
         let url = Url::parse(request.uri())?;
-        let canonical_request = canonical_request(
-            request.method(),
-            &self.bucket,
+        let context = OssSigningContext {
+            method: request.method(),
+            bucket: &self.bucket,
+            region: &self.region,
+            access_key: credentials.access_key_id(),
+            secret_key: credentials.secret_access_key(),
+            now,
+        };
+        let authorization = authorization_header(
+            &context,
             key,
             url.query().unwrap_or_default(),
             &collect_signed_headers(request),
-        );
-        let string_to_sign = string_to_sign(&datetime, &scope, &canonical_request);
-        let signature = signature(
-            credentials.secret_access_key(),
-            &date,
-            &self.region,
-            &string_to_sign,
         )?;
-        request.headers_mut().insert(
-            "authorization",
-            format!(
-                "{OSS_SIGN_ALGORITHM} Credential={}/{scope},Signature={signature}",
-                credentials.access_key_id()
-            ),
-        );
+        request.headers_mut().insert("authorization", authorization);
         Ok(())
     }
 
@@ -252,6 +253,59 @@ impl OssSigner {
         request.set_uri(url.as_str())?;
         Ok(())
     }
+}
+
+pub(super) fn signed_bucket_request_headers(
+    context: OssSigningContext<'_>,
+    content_type: Option<&str>,
+    content_md5: Option<&str>,
+) -> std::result::Result<Vec<(String, String)>, BoxError> {
+    let mut headers = vec![
+        (
+            "x-oss-date".to_string(),
+            context.now.format("%Y%m%dT%H%M%SZ").to_string(),
+        ),
+        (
+            "x-oss-content-sha256".to_string(),
+            OSS_UNSIGNED_PAYLOAD.to_string(),
+        ),
+    ];
+    if let Some(value) = content_type {
+        headers.push(("content-type".to_string(), value.to_string()));
+    }
+    if let Some(value) = content_md5 {
+        headers.push(("content-md5".to_string(), value.to_string()));
+    }
+    let signed = headers
+        .iter()
+        .map(|(name, value)| (name.clone(), vec![value.clone()]))
+        .collect();
+    headers.push((
+        "authorization".to_string(),
+        authorization_header(&context, "", "cors", &signed)?,
+    ));
+    Ok(headers)
+}
+
+fn authorization_header(
+    context: &OssSigningContext<'_>,
+    key: &str,
+    query: &str,
+    headers: &BTreeMap<String, Vec<String>>,
+) -> std::result::Result<String, BoxError> {
+    let date = context.now.format("%Y%m%d").to_string();
+    let scope = credential_scope(&date, context.region);
+    let canonical = canonical_request(context.method, context.bucket, key, query, headers);
+    let signed = string_to_sign(
+        &context.now.format("%Y%m%dT%H%M%SZ").to_string(),
+        &scope,
+        &canonical,
+    );
+    let signature = signature(context.secret_key, &date, context.region, &signed)?;
+    Ok(format!(
+        "{OSS_SIGN_ALGORITHM} Credential={}/{scope},Signature={signature}",
+        context.access_key
+    ))
 }
 
 fn normalize_aws_request_for_oss(
