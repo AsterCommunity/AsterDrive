@@ -166,11 +166,13 @@ Before running the action, enter the public site addresses that users actually u
 Admin -> System Settings -> Site -> Public Site URL
 ```
 
-Each address must be a complete HTTP(S) origin such as `https://drive.example.com`. Do not include paths, query strings, or wildcards.
+Each address must be a complete HTTP(S) origin such as `https://drive.example.com`. Do not include paths, query strings, or wildcards. AsterDrive serializes origins as browsers do: HTTP `:80` and HTTPS `:443` are omitted, non-default ports are retained, and duplicates are removed. Any invalid origin stops the action before writing.
 
 AsterDrive creates or updates its own COS CORS rule from these addresses and preserves unrelated rules. Do not edit CORS for the same bucket in the Tencent Cloud console at the same time, because concurrent changes may overwrite each other.
 
-The Tencent Cloud credential used by the policy needs permission to read and update bucket CORS. If the action fails, first check the public site address, Access Key / Secret Key, bucket region, and CORS permissions.
+The Tencent Cloud credential needs `name/cos:GetBucketCORS` and `name/cos:PutBucketCORS` on the target bucket. Only an explicit `NoSuchCORSConfiguration` is treated as an absent configuration; other read failures never proceed to a write. The merged configuration is limited to 100 rules and 64 KiB of XML, including escaping and the document declaration. Excess limits, unknown fields, or configurations that cannot be preserved reliably stop the action; unrelated rules are never removed to make room. Errors retain the status, filtered provider code and RequestId without echoing raw provider messages. If the action fails, first check the public site address, Access Key / Secret Key, bucket region, and CORS permissions.
+
+A successful action confirms the origin bucket CORS write. Browser preflight, uploads, multipart, Range and response-header access still require separate acceptance; configure and verify CDN CORS independently.
 
 ## 5. Create a Tencent COS Storage Policy in AsterDrive
 

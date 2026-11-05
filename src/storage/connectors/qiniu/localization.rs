@@ -2,6 +2,38 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "qiniu_cors_action",
+        "Auto configure Kodo CORS",
+        "自动配置 Kodo CORS"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cors_description",
+        "Configure this bucket's CORS through Qiniu's management API using Public site URL in system settings. Existing rules and their order are preserved. Adding the first rule replaces Kodo's default allow-all CORS behavior. This does not configure CDN CORS or prove browser upload/download access.",
+        "使用系统设置中的“公开站点地址”，通过七牛管理 API 配置当前空间的 CORS，保留已有规则及顺序。首次添加规则会替代 Kodo 默认允许所有来源的跨域行为。此操作不配置 CDN CORS，也不代表浏览器上传和下载已验收通过。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cors_origins",
+        "Allowed origins",
+        "允许来源"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cors_changed",
+        "Configuration changed",
+        "配置已变更"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cors_preserved",
+        "Existing rules preserved",
+        "保留的已有规则数"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "qiniu_cors_request_id",
+        "Provider request ID",
+        "服务商请求 ID"
+    ),
+    aster_drive_storage::storage_connector_message!("qiniu_cors_yes", "Yes", "是"),
+    aster_drive_storage::storage_connector_message!("qiniu_cors_no", "No", "否"),
+    aster_drive_storage::storage_connector_message!(
         "driver_type_qiniu",
         "Qiniu Kodo",
         "七牛云 Kodo"

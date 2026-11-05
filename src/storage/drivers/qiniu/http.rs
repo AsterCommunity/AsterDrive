@@ -187,17 +187,7 @@ pub(super) async fn checked(response: Response) -> Result<Response> {
         return Ok(response);
     }
     let code = response.status().as_u16();
-    let request_id = response
-        .headers()
-        .get("x-reqid")
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| {
-            v.len() <= 128
-                && v.bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"-_=/.".contains(&b))
-        })
-        .unwrap_or("unavailable")
-        .to_string();
+    let request_id = request_id(&response).unwrap_or_else(|| "unavailable".into());
     // Recognize only this exact, non-sensitive provider reason. Do not expose raw
     // bodies, which may echo object URLs or credentials.
     let expiry_window_error = if code == 403 {
@@ -238,6 +228,19 @@ pub(super) async fn checked(response: Response) -> Result<Response> {
         kind,
         format!("Kodo provider status={code}, RequestId={request_id}{reason}"),
     ))
+}
+
+pub(super) fn request_id(response: &Response) -> Option<String> {
+    response
+        .headers()
+        .get("x-reqid")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| {
+            v.len() <= 128
+                && v.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_=/.".contains(&b))
+        })
+        .map(str::to_owned)
 }
 pub(super) async fn decode<T: DeserializeOwned>(response: Response) -> Result<T> {
     let mut stream = checked(response).await?.bytes_stream();

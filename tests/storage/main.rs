@@ -9,6 +9,7 @@ mod google_drive;
 mod local_driver_security;
 mod policies;
 mod qiniu;
+mod qiniu_cors;
 mod remote_enrollment;
 mod remote_storage;
 mod s3;

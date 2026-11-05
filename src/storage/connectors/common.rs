@@ -3,9 +3,10 @@ use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code}
 use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionId,
-    StorageConnectorActionKind, StorageConnectorDescriptor, StorageConnectorFieldDescriptor,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorSelectOptionInput,
-    storage_connector_field, storage_connector_select_field,
+    StorageConnectorActionKind, StorageConnectorActionOutputFieldDescriptor,
+    StorageConnectorActionOutputValueKind, StorageConnectorDescriptor,
+    StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorSelectOptionInput, storage_connector_field, storage_connector_select_field,
 };
 use aster_drive_storage::{
     ConnectorConfigEnvelope, ConnectorId, StorageConnectorActionSchema,
@@ -23,6 +24,41 @@ pub(super) const MAX_CAPACITY_PROBE_TIMEOUT_SECS: i64 = 30;
 
 pub(super) const fn default_capacity_probe_timeout_secs() -> u64 {
     DEFAULT_CAPACITY_PROBE_TIMEOUT_SECS
+}
+
+/// Build a non-boolean action output descriptor with shared defaults.
+/// Boolean outputs declare their localized true/false labels explicitly.
+pub(super) fn action_output_field(
+    name: &str,
+    label_key: &str,
+    value_kind: StorageConnectorActionOutputValueKind,
+) -> StorageConnectorActionOutputFieldDescriptor {
+    debug_assert!(!matches!(
+        value_kind,
+        StorageConnectorActionOutputValueKind::Boolean
+    ));
+    StorageConnectorActionOutputFieldDescriptor {
+        name: name.to_string(),
+        label_key: label_key.to_string(),
+        value_kind,
+        true_key: None,
+        false_key: None,
+    }
+}
+
+pub(super) fn boolean_action_output_field(
+    name: &str,
+    label_key: &str,
+    true_key: &str,
+    false_key: &str,
+) -> StorageConnectorActionOutputFieldDescriptor {
+    StorageConnectorActionOutputFieldDescriptor {
+        name: name.to_string(),
+        label_key: label_key.to_string(),
+        value_kind: StorageConnectorActionOutputValueKind::Boolean,
+        true_key: Some(true_key.to_string()),
+        false_key: Some(false_key.to_string()),
+    }
 }
 
 pub(super) fn capacity_probe_timeout_field() -> StorageConnectorFieldDescriptor {

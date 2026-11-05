@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Kodo CORS configuration** — Administrators can explicitly configure bucket CORS from current policy drafts or saved credentials using Qiniu's native management API and the existing generic confirmation. Rules and order are preserved, equivalent configuration skips writes, and changes are read back. The first rule replaces Kodo's default allow-all CORS behavior; uploads, origin reads and CDN browser behavior require separate acceptance. (#733)
 - **Task queue diagnostics** — Targeted local logs correlate enqueue commits, wakeups, consumer/lane identity, shared quota locking, selection, CAS, handler lifecycle and real transaction callsites. Empty polling stays at TRACE and diagnostics omit task payloads and raw errors.
 
 - **Huawei OBS private CDN delivery** — Optional Huawei CDN Type A / SHA-256 downloads use an independent encrypted key, configurable authentication parameter and bounded validity matching the CDN console. Authorized Blob downloads and safe previews can use CDN; exact names, strict response headers and isolated inline requests retain relay. OBS-origin mode remains the default, and uploads, multipart, cleanup and backend I/O retain native OBS endpoints and signing. Chinese and English setup guides separate CNAME, private-origin authorization, client authentication, caching and real-provider acceptance. (#686)
@@ -39,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **COS CORS configuration** — Public site origins follow browser serialization, including default-port removal and deduplication. CORS read failures cannot overwrite existing configuration, merged writes enforce the 100-rule and 64 KiB limits, and unsupported fields stop the action. Provider errors retain HTTP status and request IDs even for invalid response encoding, identify GET/PUT permissions separately, and omit raw provider messages that could expose credentials.
 - **Azure Blob download filenames** — Presigned downloads preserve the current AsterDrive filename, MIME type, and download cache policy, including renamed files stored under UUID object keys. Existing objects need no migration. (#721)
 
 - **OSS CNAME object-key encoding** — Removing the SDK bucket path preserves encoded object keys, including literal percent escapes such as `%2F`, so ordinary and presigned requests address the intended object.

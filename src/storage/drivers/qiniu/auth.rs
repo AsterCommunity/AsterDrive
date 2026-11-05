@@ -40,30 +40,17 @@ impl QiniuDriver {
     }
     pub(super) fn sign_management(&self, request: &mut reqwest::Request) -> Result<()> {
         let date = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
-        let host = request
-            .url()
-            .host_str()
-            .ok_or_else(|| invalid("management URL has no host"))?;
-        let host = match request.url().port() {
-            Some(port) => format!("{host}:{port}"),
-            None => host.to_string(),
-        };
-        let path = match request.url().query() {
-            Some(q) => format!("{}?{q}", request.url().path()),
-            None => request.url().path().to_string(),
-        };
-        let mut canonical = format!(
-            "{} {path}\nHost: {host}\nContent-Type: application/x-www-form-urlencoded\nX-Qiniu-Date: {date}\n\n",
-            request.method()
-        );
-        if let Some(body) = request.body().and_then(reqwest::Body::as_bytes) {
-            canonical.push_str(
-                std::str::from_utf8(body).map_err(|_| invalid("invalid management body"))?,
-            );
-        }
+        let content_type = request
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .map(|value| value.to_str().map(str::to_owned))
+            .transpose()
+            .map_err(|_| invalid("invalid management content type"))?
+            .unwrap_or_else(|| "application/x-www-form-urlencoded".into());
+        let canonical = management_signing_payload(request, &date, &content_type)?;
         let authorization = format!("Qiniu {}", self.sign(canonical.as_bytes())?);
         for (name, value) in [
-            ("content-type", "application/x-www-form-urlencoded"),
+            ("content-type", content_type.as_str()),
             ("x-qiniu-date", date.as_str()),
             ("authorization", authorization.as_str()),
         ] {
@@ -75,4 +62,38 @@ impl QiniuDriver {
         }
         Ok(())
     }
+}
+
+/// Canonical Qiniu v2 payload. JSON bucket configuration and form management
+/// requests must sign their actual Content-Type and body, per the pinned SDK.
+pub(super) fn management_signing_payload(
+    request: &reqwest::Request,
+    date: &str,
+    content_type: &str,
+) -> Result<String> {
+    let host = request
+        .url()
+        .host_str()
+        .ok_or_else(|| invalid("management URL has no host"))?;
+    let host = match request.url().port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    let path = match request.url().query() {
+        Some(q) => format!("{}?{q}", request.url().path()),
+        None => request.url().path().to_string(),
+    };
+    let mut canonical = format!(
+        "{} {path}\nHost: {host}\nContent-Type: {content_type}\nX-Qiniu-Date: {date}\n\n",
+        request.method()
+    );
+    if matches!(
+        content_type,
+        "application/json" | "application/x-www-form-urlencoded"
+    ) && let Some(body) = request.body().and_then(reqwest::Body::as_bytes)
+    {
+        canonical
+            .push_str(std::str::from_utf8(body).map_err(|_| invalid("invalid management body"))?);
+    }
+    Ok(canonical)
 }

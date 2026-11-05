@@ -32,6 +32,22 @@ Single form uploads support up to 1 GiB. Numbered uploads have at most 10,000 pa
 
 Browser networking must reach Kodo upload domains. Allow the AD origin in upload CORS for PUT, Authorization and Content-Type. Download consumers may need GET/HEAD/Range and exposed response headers. Server connectivity does not prove browser CORS.
 
+## Automatic bucket CORS
+
+Choose **Auto configure Kodo CORS** in a storage policy's create or edit page and explicitly accept the same generic confirmation used by COS. The action uses the current draft or saved bucket and AK/SK. Blank credential edits retain saved values; changing the draft bucket does not write to the old bucket. Ordinary saving and connection tests never configure CORS.
+
+Configure **Public site URL** in system settings first. Only those explicit HTTP(S) origins are used, with default ports removed and duplicates eliminated. Missing, wildcard or invalid origins stop before provider requests; the action never falls back to `*`.
+
+**This affects the entire Kodo bucket, including other prefixes. Without custom rules Kodo allows cross-origin access by default; adding the first rule removes CORS response headers for unmatched origins.** If other sites share the bucket, configure their required rules in the Qiniu console first. CORS does not replace object authentication or change public access, hotlink protection or CDN settings.
+
+The native management requests are `GET /corsRules/get/{bucket}` and `POST /corsRules/set/{bucket}` through the fixed UC endpoint `https://uc.qiniuapi.com`, using AK/SK-based `Qiniu` authentication. They never use download, CDN, upload or RS object-management hosts. Credentials require CORS read and set permission on the target bucket; scope subaccount permissions to that bucket. An upload token cannot configure CORS. Errors report HTTP status and filtered RequestId without echoing raw provider messages, AK/SK or management tokens.
+
+Kodo rules have no stable IDs and use the first matching rule in order. AsterDrive preserves every existing rule and its order, and skips writes when the configuration already satisfies its requirements. Otherwise it appends a rule for POST/PUT/GET/HEAD, Authorization/Content-Type/Range and exposed ETag, Content-Length, Content-Range, Content-Disposition, Accept-Ranges, X-Reqid and X-Log. Repeated execution does not keep appending rules. An earlier matching read rule missing required exposed headers stops the action with instructions to adjust that rule in Qiniu; existing rules are never claimed, deleted or reordered.
+
+Kodo permits at most 10 rules. AsterDrive also bounds management JSON reads and writes to 64 KiB as a defensive limit, not a documented provider size limit. Excess limits, unknown fields, malformed responses, permissions or other read failures never cause truncated or empty configuration writes. After writing, the complete ordered configuration is read back; verification failures or differences are reported as failures. Avoid concurrent CORS edits because the management API provides no conditional-write guarantee.
+
+Results include the bucket, allowed origins, change status, preserved rule count and RequestId when available. Success proves configuration and readback, **not browser compatibility on every upload or CDN endpoint**. Qiniu's overview describes bucket rules without specifying every form-upload and multipart v2 ingress; upload endpoints may have fixed CORS behavior, while CDN caching and headers require separate acceptance. Verify browser POST where used, native part PUT preflights with Authorization/Content-Type, JSON acknowledgements, origin GET/HEAD/Range and response-header access. Separately verify CDN authentication, cache HIT/MISS, CORS and `Vary: Origin`; a bucket configuration write does not configure CDN CORS.
+
 ## Private delivery
 
 | Download strategy and delivery | Behavior |
@@ -71,6 +87,9 @@ cargo nextest run --profile ci --test storage native_kodo_cloud_acceptance
 Missing credentials explicitly skip cloud acceptance. Only randomly named test-owned objects are deleted. Real browser uploads/CORS, CDN HIT/MISS expiry/key rotation and cross-browser recovery require separate acceptance. Publish only anonymized request categories/status/results, never credentials or full signed URLs.
 
 ## References
+
+- [Pinned CORS read API](https://github.com/qiniu/go-sdk/blob/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e/storagev2/apis/api_get_bucket_cors_rules.go), [write request model](https://github.com/qiniu/go-sdk/blob/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e/storagev2/apis/set_bucket_cors_rules/api.go)
+- [Bucket CORS behavior](https://developer.qiniu.com/kodo/8608/dev-cross-domain-resource-sharing), [rule limits and ordering](https://developer.qiniu.com/kodo/8539/set-the-cross-domain-resource-sharing)
 
 - [Download settings and response overrides](https://developer.qiniu.com/kodo/1659/download-setting)
 - [Go SDK pinned revision](https://github.com/qiniu/go-sdk/tree/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e)

@@ -38,6 +38,22 @@ Qiniu Kodo connector 使用七牛原生协议，替换早期的 S3 wrapper。Ast
 
 浏览器网络必须能访问七牛上传域名。上传 CORS 允许 AD 站点来源、PUT、Authorization 和 Content-Type；下载侧按使用场景允许 GET、HEAD、Range，并暴露所需响应头。服务端连接测试不代表浏览器 CORS 验收通过。
 
+## 自动配置空间 CORS
+
+在存储策略的创建或编辑页面选择 **自动配置 Kodo CORS**，通过与 COS 相同的通用确认框显式执行。操作使用当前草稿或已保存策略的空间和 AK/SK；编辑时凭据留空保留已保存值，修改草稿空间不会写入原空间。普通保存和测试连接不会写 CORS。
+
+先在系统设置填写 **公开站点地址**。操作只使用这些明确的 HTTP(S) 来源，省略默认端口并去重；缺失、通配符或任一地址非法时均在供应商请求前停止，不默认开放 `*`。
+
+**影响范围是整个 Kodo 空间，不限于策略的基础路径。Kodo 无自定义规则时默认允许跨域；首次添加规则后，未匹配的来源将不再获得 CORS 响应头。** 同一空间供其他站点使用时，应先在七牛控制台为它们配置所需规则，再执行此操作。CORS 不代替对象鉴权，也不修改空间公开性、防盗链或 CDN 设置。
+
+操作通过固定 UC 管理入口 `https://uc.qiniuapi.com` 调用原生 `GET /corsRules/get/{bucket}` 与 `POST /corsRules/set/{bucket}`，使用 AK/SK 生成 `Qiniu` 管理鉴权。它不会把管理请求发送到下载源站、CDN、上传域名或 RS 对象管理入口。凭据须具备目标空间的 CORS 读取和设置权限；子账号应仅授予目标空间所需权限，上传凭证不能执行此操作。失败结果提供 HTTP 状态码和经过筛选的 RequestId，不回显原始供应商消息、AK/SK 或管理 token。
+
+七牛规则没有稳定 ID，且按顺序使用第一条匹配项。AsterDrive 保留所有原规则及顺序，已有规则满足需求时不写入；否则在末尾追加一条规则，允许 POST/PUT/GET/HEAD、Authorization/Content-Type/Range，并暴露 ETag、Content-Length、Content-Range、Content-Disposition、Accept-Ranges、X-Reqid 和 X-Log。重复执行不会持续追加。若早先匹配的读取规则缺少所需暴露响应头，会停止并提示在七牛控制台调整，不认领、删除或重排原规则。
+
+空间最多 10 条规则。AsterDrive 另设 64 KiB 管理 JSON 读写上限（防御性限制，并非供应商文档声明的大小上限）；超限、未知字段、无法解析、权限或其他读取失败时不写回截断或空配置。写入后回读整个规则集；回读失败或不一致不会报告成功。操作期间不要并发修改同一空间的 CORS，管理 API 没有提供条件写入保障。
+
+成功结果包含空间、允许来源、是否变更、保留规则数和 RequestId（若有）。这只证明空间配置与回读，**不证明所有上传域和 CDN 的浏览器行为**。七牛概述介绍空间级规则，但未逐项规定表单上传和 multipart v2 各入口的适用性；不同上传入口可能有固定 CORS，CDN 缓存和响应头策略也需单独验收。请在真实浏览器分别验证 POST（如使用）、原生分片 PUT 的 Authorization/Content-Type 预检、JSON 完成回执读取，以及源站 GET/HEAD/Range 和所需响应头读取；CDN 域单独验证有效/失效鉴权、缓存 HIT/MISS、CORS 和 `Vary: Origin`，不能把空间写入成功视为 CDN 已配置。
+
 ## 私有源站和 CDN 下载
 
 | 下载策略与交付 | 实际行为 |
@@ -89,6 +105,8 @@ cargo nextest run --profile ci --test storage native_kodo_cloud_acceptance
 
 - [下载设置与响应头覆盖](https://developer.qiniu.com/kodo/1659/download-setting)
 - [Go SDK 固定版本](https://github.com/qiniu/go-sdk/tree/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e)：认证、区域发现、原生 API 定义
+- [Go SDK CORS 读取](https://github.com/qiniu/go-sdk/blob/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e/storagev2/apis/api_get_bucket_cors_rules.go)、[设置与 JSON 模型](https://github.com/qiniu/go-sdk/blob/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e/storagev2/apis/set_bucket_cors_rules/api.go)
+- [跨域资源共享](https://developer.qiniu.com/kodo/8608/dev-cross-domain-resource-sharing)、[规则数量与匹配顺序](https://developer.qiniu.com/kodo/8539/set-the-cross-domain-resource-sharing)
 - [分片上传 v2](https://developer.qiniu.com/kodo/7458/multipartupload)
 - [上传凭证](https://developer.qiniu.com/kodo/1208/upload-token)
 - [私有下载](https://developer.qiniu.com/kodo/1656/download-private)
