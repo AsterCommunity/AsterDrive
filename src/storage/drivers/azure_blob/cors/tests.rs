@@ -1,5 +1,7 @@
 use super::*;
-use crate::storage::drivers::azure_blob::{AzureBlobDriverConfig, AzureBlobStaticCredentials};
+use crate::storage::drivers::azure_blob::{
+    AZURE_STORAGE_VERSION, AzureBlobDriverConfig, AzureBlobStaticCredentials,
+};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -56,19 +58,26 @@ fn shared_key_signatures_match_independent_python_vectors() {
             "+B7/Y5SUi9+LVLlH9M5yC9d75Il76rs3PNgEy516iRU=",
         ),
     ] {
+        let mut storage = driver(endpoint);
+        storage.account_name = account.to_owned();
+        storage.account_key = key.clone();
+        let mut request = reqwest::Client::new().request(method.parse().unwrap(), endpoint);
+        request = match length {
+            0 => request,
+            length => request
+                .header("content-type", content_type)
+                .body(vec![b'x'; length]),
+        };
+        let mut request = request.build().unwrap();
+        storage
+            .sign_blob_service_properties_request(&mut request, date)
+            .unwrap();
         assert_eq!(
-            shared_key_signature(
-                account,
-                &key,
-                method,
-                &Url::parse(endpoint).unwrap(),
-                date,
-                content_type,
-                length
-            )
-            .unwrap(),
-            expected
+            request.headers()["authorization"],
+            format!("SharedKey {account}:{expected}")
         );
+        assert_eq!(request.headers()["x-ms-date"], date);
+        assert_eq!(request.headers()["x-ms-version"], AZURE_STORAGE_VERSION);
     }
 }
 
@@ -84,7 +93,10 @@ fn management_target_rejects_cdn_container_sas_and_wrong_account() {
         "https://account.blob.core.windows.net:8443",
         "https://user:secret@account.blob.core.windows.net",
     ] {
-        assert!(driver(endpoint).cors_service_url().is_err(), "{endpoint}");
+        assert!(
+            driver(endpoint).blob_service_properties_url().is_err(),
+            "{endpoint}"
+        );
     }
     for suffix in [
         "windows.net",
@@ -93,13 +105,13 @@ fn management_target_rejects_cdn_container_sas_and_wrong_account() {
         "cloudapi.de",
     ] {
         let endpoint = format!("https://account.blob.core.{suffix}");
-        let url = driver(&endpoint).cors_service_url().unwrap();
+        let url = driver(&endpoint).blob_service_properties_url().unwrap();
         assert_eq!(url.path(), "/");
         assert_eq!(url.query(), Some("restype=service&comp=properties"));
     }
     assert_eq!(
         driver("http://127.0.0.1:10000/account")
-            .cors_service_url()
+            .blob_service_properties_url()
             .unwrap()
             .path(),
         "/account/"
@@ -108,13 +120,13 @@ fn management_target_rejects_cdn_container_sas_and_wrong_account() {
 
 #[test]
 fn xml_updates_only_cors_and_preserves_rules_and_order() {
-    let mut unrelated = desired_rule(&["https://other.example.test".into()]);
+    let mut unrelated = asterdrive_cors_rule(&["https://other.example.test".into()]);
     unrelated
         .0
         .insert("AllowedHeaders".into(), "x-custom,content-type".into());
-    let rules = vec![unrelated, desired_rule(&origins())];
-    let xml = rules_xml(&rules).unwrap();
-    assert_eq!(parse_rules(&xml).unwrap(), rules);
+    let rules = vec![unrelated, asterdrive_cors_rule(&origins())];
+    let xml = build_cors_configuration_xml(&rules).unwrap();
+    assert_eq!(parse_cors_configuration(&xml).unwrap(), rules);
     for property in [
         "Logging",
         "HourMetrics",
@@ -126,21 +138,24 @@ fn xml_updates_only_cors_and_preserves_rules_and_order() {
         assert!(!xml.contains(property));
     }
     let properties = xml.replace("<Cors>", "<Logging><Version>1.0</Version></Logging><FutureProperty>retained by omission</FutureProperty><Cors>");
-    assert_eq!(parse_rules(&properties).unwrap(), rules);
-    let escaped = desired_rule(&["https://example.test/?a=1&b=2".into()]);
+    assert_eq!(parse_cors_configuration(&properties).unwrap(), rules);
+    let escaped = asterdrive_cors_rule(&["https://example.test/?a=1&b=2".into()]);
     assert_eq!(
-        parse_rules(&rules_xml(std::slice::from_ref(&escaped)).unwrap()).unwrap(),
+        parse_cors_configuration(
+            &build_cors_configuration_xml(std::slice::from_ref(&escaped)).unwrap()
+        )
+        .unwrap(),
         vec![escaped]
     );
 }
 
 #[test]
 fn merging_is_idempotent_without_claiming_other_rules() {
-    let desired = desired_rule(&origins());
-    assert!(needs_append(&[], &desired).unwrap());
-    let unrelated = desired_rule(&["https://another.example.test".into()]);
-    assert!(needs_append(std::slice::from_ref(&unrelated), &desired).unwrap());
-    assert!(!needs_append(&[unrelated, desired.clone()], &desired).unwrap());
+    let desired = asterdrive_cors_rule(&origins());
+    assert!(needs_asterdrive_cors_rule(&[], &desired).unwrap());
+    let unrelated = asterdrive_cors_rule(&["https://another.example.test".into()]);
+    assert!(needs_asterdrive_cors_rule(std::slice::from_ref(&unrelated), &desired).unwrap());
+    assert!(!needs_asterdrive_cors_rule(&[unrelated, desired.clone()], &desired).unwrap());
     let mut reordered = desired.clone();
     reordered
         .0
@@ -149,20 +164,20 @@ fn merging_is_idempotent_without_claiming_other_rules() {
         "AllowedHeaders".into(),
         "X-MS-VERSION, RANGE, CONTENT-TYPE, X-MS-BLOB-TYPE".into(),
     );
-    assert!(!needs_append(&[reordered], &desired).unwrap());
+    assert!(!needs_asterdrive_cors_rule(&[reordered], &desired).unwrap());
     for origin in ["*", "https://*.example.test", "https://drive.example.test"] {
-        let mut conflicting = desired_rule(&[origin.into()]);
+        let mut conflicting = asterdrive_cors_rule(&[origin.into()]);
         conflicting
             .0
             .insert("AllowedHeaders".into(), "content-type".into());
-        assert!(needs_append(&[conflicting, desired.clone()], &desired).is_err());
+        assert!(needs_asterdrive_cors_rule(&[conflicting, desired.clone()], &desired).is_err());
     }
 }
 
 #[test]
 fn parsing_rejects_unknown_duplicate_and_malformed_cors_without_dropping_them() {
-    let xml = rules_xml(&[desired_rule(&origins())]).unwrap();
-    for invalid in [
+    let xml = build_cors_configuration_xml(&[asterdrive_cors_rule(&origins())]).unwrap();
+    for invalid_xml in [
         xml.replace("</CorsRule>", "<FutureField>keep</FutureField></CorsRule>"),
         xml.replace("<CorsRule>", "<CorsRule extra=\"keep\">"),
         xml.replace("<AllowedMethods>", "<AllowedMethods extra=\"keep\">"),
@@ -173,9 +188,9 @@ fn parsing_rejects_unknown_duplicate_and_malformed_cors_without_dropping_them() 
         "<Error><Code>Denied</Code></Error>".into(),
         "<StorageServiceProperties/>".into(),
         "<!DOCTYPE x [<!ENTITY x 'boom'>]><StorageServiceProperties><Cors>&x;</Cors></StorageServiceProperties>".into(),
-    ] { assert!(parse_rules(&invalid).is_err(), "{invalid}"); }
+    ] { assert!(parse_cors_configuration(&invalid_xml).is_err(), "{invalid_xml}"); }
     assert!(
-        parse_rules("<StorageServiceProperties><Cors/></StorageServiceProperties>")
+        parse_cors_configuration("<StorageServiceProperties><Cors/></StorageServiceProperties>")
             .unwrap()
             .is_empty()
     );
@@ -183,9 +198,9 @@ fn parsing_rejects_unknown_duplicate_and_malformed_cors_without_dropping_them() 
 
 #[test]
 fn rule_count_size_and_entry_boundaries_are_checked_before_put() {
-    let rule = desired_rule(&origins());
-    assert!(rules_xml(&vec![rule.clone(); 5]).is_ok());
-    assert!(rules_xml(&vec![rule.clone(); 6]).is_err());
+    let rule = asterdrive_cors_rule(&origins());
+    assert!(build_cors_configuration_xml(&vec![rule.clone(); 5]).is_ok());
+    assert!(build_cors_configuration_xml(&vec![rule.clone(); 6]).is_err());
     let mut boundary = rule.clone();
     boundary
         .0
@@ -207,12 +222,12 @@ fn rule_count_size_and_entry_boundaries_are_checked_before_put() {
     while boundary.0.values().map(String::len).sum::<usize>() > 2048 {
         boundary.0.get_mut("AllowedHeaders").unwrap().pop();
     }
-    assert!(validate_limits(&[boundary.clone()]).is_ok());
+    assert!(validate_cors_configuration_limits(&[boundary.clone()]).is_ok());
     boundary.0.get_mut("AllowedHeaders").unwrap().push('a');
-    assert!(validate_limits(&[boundary]).is_err());
+    assert!(validate_cors_configuration_limits(&[boundary]).is_err());
     let mut oversized = rule;
     oversized.0.insert("AllowedOrigins".into(), "a".repeat(257));
-    assert!(rules_xml(&[oversized]).is_err());
+    assert!(build_cors_configuration_xml(&[oversized]).is_err());
 }
 
 #[test]
@@ -222,7 +237,7 @@ fn provider_error_does_not_expose_messages_or_signatures() {
         StatusCode::BAD_REQUEST,
         StatusCode::INTERNAL_SERVER_ERROR,
     ] {
-        let error = response_error(
+        let error = azure_cors_response_error(
             status,
             "<Error><Code>KeyBasedAuthenticationNotPermitted</Code><Message>secret-key sig=secret</Message></Error>",
             Some("request-123"),
@@ -237,6 +252,45 @@ fn provider_error_does_not_expose_messages_or_signatures() {
         if status == StatusCode::FORBIDDEN {
             assert!(error.message().contains("Shared Key"));
         }
+    }
+}
+
+#[test]
+fn management_and_object_requests_share_azure_provider_error_classification() {
+    for (status, code, expected) in [
+        (
+            StatusCode::FORBIDDEN,
+            "AuthenticationFailed",
+            StorageErrorKind::Auth,
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            "AuthorizationFailure",
+            StorageErrorKind::Permission,
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            "KeyBasedAuthenticationNotPermitted",
+            StorageErrorKind::Permission,
+        ),
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "FutureServiceFailure",
+            StorageErrorKind::Transient,
+        ),
+    ] {
+        let sdk_error = azure_core::Error::with_message(
+            azure_core::error::ErrorKind::HttpResponse {
+                status: status.as_u16().into(),
+                error_code: Some(code.to_owned()),
+                raw_response: None,
+            },
+            "provider request failed",
+        );
+        let cors_error =
+            azure_cors_response_error(status, &format!("<Error><Code>{code}</Code></Error>"), None);
+        assert_eq!(cors_error.kind(), expected);
+        assert_eq!(AzureBlobDriver::classify_azure_error(&sdk_error), expected);
     }
 }
 
@@ -320,9 +374,10 @@ async fn mock_service(
 
 #[tokio::test]
 async fn request_contract_reads_merges_writes_only_cors_and_verifies() {
-    let unrelated = desired_rule(&["https://other.example.test".into()]);
-    let existing = rules_xml(std::slice::from_ref(&unrelated)).unwrap();
-    let updated = rules_xml(&[unrelated, desired_rule(&origins())]).unwrap();
+    let unrelated = asterdrive_cors_rule(&["https://other.example.test".into()]);
+    let existing = build_cors_configuration_xml(std::slice::from_ref(&unrelated)).unwrap();
+    let updated =
+        build_cors_configuration_xml(&[unrelated, asterdrive_cors_rule(&origins())]).unwrap();
     let (endpoint, task) = mock_service(vec![
         (200, existing.into_bytes()),
         (202, Vec::new()),
@@ -346,19 +401,23 @@ async fn request_contract_reads_merges_writes_only_cors_and_verifies() {
         let body = &request.body;
         let headers = &request.headers;
         assert_eq!(headers["x-ms-version"], AZURE_STORAGE_VERSION);
-        let signature = shared_key_signature(
-            "account",
-            "c2VjcmV0",
-            method,
-            &driver(&endpoint).cors_service_url().unwrap(),
-            &headers["x-ms-date"],
-            headers.get("content-type").map_or("", String::as_str),
-            body.len(),
-        )
-        .unwrap();
+        let mut signed_request = reqwest::Client::new()
+            .request(
+                method.parse().unwrap(),
+                driver(&endpoint).blob_service_properties_url().unwrap(),
+            )
+            .body(body.clone());
+        signed_request = match headers.get("content-type") {
+            Some(content_type) => signed_request.header("content-type", content_type),
+            None => signed_request,
+        };
+        let mut signed_request = signed_request.build().unwrap();
+        driver(&endpoint)
+            .sign_blob_service_properties_request(&mut signed_request, &headers["x-ms-date"])
+            .unwrap();
         assert_eq!(
             headers["authorization"],
-            format!("SharedKey account:{signature}")
+            signed_request.headers()["authorization"].to_str().unwrap()
         );
         if index == 1 {
             assert_eq!(body, &updated);
@@ -368,7 +427,7 @@ async fn request_contract_reads_merges_writes_only_cors_and_verifies() {
 
 #[tokio::test]
 async fn equivalent_rules_skip_put_and_failed_reads_never_write() {
-    let xml = rules_xml(&[desired_rule(&origins())]).unwrap();
+    let xml = build_cors_configuration_xml(&[asterdrive_cors_rule(&origins())]).unwrap();
     let (endpoint, task) = mock_service(vec![(200, xml.into_bytes())]).await;
     assert!(
         !driver(&endpoint)
@@ -402,10 +461,7 @@ async fn invalid_utf8_errors_preserve_http_status_and_request_id() {
         .configure_asterdrive_cors(&origins())
         .await
         .unwrap_err();
-    assert_eq!(
-        error.storage_error_kind(),
-        Some(StorageErrorKind::Permission)
-    );
+    assert_eq!(error.kind(), StorageErrorKind::Permission);
     assert!(error.message().contains("403"));
     assert!(error.message().contains("AuthorizationFailure"));
     assert!(error.message().contains("request-123"));
@@ -463,6 +519,80 @@ async fn failed_put_and_conflicting_verification_are_reported() {
 }
 
 #[tokio::test]
+async fn failed_error_body_reads_preserve_status_and_request_id() {
+    let (endpoint, task) =
+        mock_service(vec![(403, vec![b'x'; AZURE_CORS_XML_MAX_BYTES + 1])]).await;
+    let error = driver(&endpoint)
+        .configure_asterdrive_cors(&origins())
+        .await
+        .unwrap_err();
+    assert_eq!(task.await.unwrap().len(), 1);
+    assert_eq!(error.kind(), StorageErrorKind::Permission);
+    assert!(error.message().contains("403"));
+    assert!(error.message().contains("request-123"));
+}
+
+#[tokio::test]
+async fn failed_readback_reports_that_the_write_was_accepted() {
+    for (status, body) in [
+        (503, b"service unavailable".to_vec()),
+        (200, b"invalid service properties".to_vec()),
+    ] {
+        let (endpoint, task) = mock_service(vec![
+            (
+                200,
+                b"<StorageServiceProperties><Cors/></StorageServiceProperties>".to_vec(),
+            ),
+            (202, Vec::new()),
+            (status, body),
+        ])
+        .await;
+        let error = driver(&endpoint)
+            .configure_asterdrive_cors(&origins())
+            .await
+            .unwrap_err();
+        assert_eq!(task.await.unwrap().len(), 3);
+        assert!(error.message().contains("accepted the CORS write"));
+        assert!(error.message().contains("request-123"));
+        assert!(!error.message().contains("existing rules were not replaced"));
+    }
+}
+
+#[tokio::test]
+async fn readback_compares_rule_semantics_while_preserving_rule_order() {
+    let unrelated = asterdrive_cors_rule(&["https://other.example.test".into()]);
+    let existing = build_cors_configuration_xml(std::slice::from_ref(&unrelated)).unwrap();
+    let mut desired = asterdrive_cors_rule(&origins());
+    desired
+        .0
+        .insert("AllowedMethods".into(), "HEAD, PUT, GET".into());
+    desired.0.insert(
+        "AllowedHeaders".into(),
+        "X-MS-VERSION, RANGE, CONTENT-TYPE, X-MS-BLOB-TYPE".into(),
+    );
+    desired.0.insert("MaxAgeInSeconds".into(), "0600".into());
+    for (rules, success) in [
+        (vec![unrelated.clone(), desired.clone()], true),
+        (vec![desired, unrelated], false),
+    ] {
+        let (endpoint, task) = mock_service(vec![
+            (200, existing.clone().into_bytes()),
+            (202, Vec::new()),
+            (
+                200,
+                build_cors_configuration_xml(&rules).unwrap().into_bytes(),
+            ),
+        ])
+        .await;
+        let result = driver(&endpoint)
+            .configure_asterdrive_cors(&origins())
+            .await;
+        assert_eq!(task.await.unwrap().len(), 3);
+        assert_eq!(result.is_ok(), success);
+    }
+}
+
+#[tokio::test]
 async fn azurite_cors_preserves_service_properties_and_browser_headers() {
     use testcontainers::{
         GenericImage, ImageExt,
@@ -495,16 +625,21 @@ async fn azurite_cors_preserves_service_properties_and_browser_headers() {
         "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
             .into();
     let initial = "<StorageServiceProperties><Logging><Version>1.0</Version><Delete>true</Delete><Read>true</Read><Write>false</Write><RetentionPolicy><Enabled>true</Enabled><Days>7</Days></RetentionPolicy></Logging><DefaultServiceVersion>2023-11-03</DefaultServiceVersion><Cors/></StorageServiceProperties>";
+    let client = reqwest::Client::new();
     storage
-        .cors_request(Method::PUT, Some(initial.into()))
+        .request_blob_service_properties(&client, Method::PUT, Some(initial.into()))
         .await
         .unwrap();
-    let (before, _) = storage.cors_request(Method::GET, None).await.unwrap();
-    let other = desired_rule(&["https://other.example.test".into()]);
+    let (before, _) = storage
+        .request_blob_service_properties(&client, Method::GET, None)
+        .await
+        .unwrap();
+    let other = asterdrive_cors_rule(&["https://other.example.test".into()]);
     storage
-        .cors_request(
+        .request_blob_service_properties(
+            &client,
             Method::PUT,
-            Some(rules_xml(std::slice::from_ref(&other)).unwrap()),
+            Some(build_cors_configuration_xml(std::slice::from_ref(&other)).unwrap()),
         )
         .await
         .unwrap();
@@ -518,14 +653,17 @@ async fn azurite_cors_preserves_service_properties_and_browser_headers() {
             .unwrap()
             .changed
     );
-    let (after, _) = storage.cors_request(Method::GET, None).await.unwrap();
+    let (after, _) = storage
+        .request_blob_service_properties(&client, Method::GET, None)
+        .await
+        .unwrap();
     assert_eq!(
-        parse_rules(&after).unwrap(),
-        vec![other, desired_rule(&origins())]
+        parse_cors_configuration(&after).unwrap(),
+        vec![other, asterdrive_cors_rule(&origins())]
     );
     let non_cors = |xml: &str| {
         let doc =
-            OwnedDocument::from_reader_with_options(xml.as_bytes(), &ParseOptions::new()).unwrap();
+            BorrowedDocument::parse_with_options(xml.as_bytes(), &ParseOptions::new()).unwrap();
         doc.root()
             .child_elements()
             .filter(|e| e.name() != "Cors")

@@ -144,6 +144,29 @@ async fn azure_cors_saved_and_draft_execute_once_with_current_target_and_saved_c
     let catalog_text = serde_json::to_string(&catalog).unwrap();
     assert!(catalog_text.contains("configure_azure_blob_cors"));
     assert!(!catalog_text.contains("supports_preview"));
+    let descriptor = catalog["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|descriptor| descriptor["connector_id"] == "asterdrive.storage.azure_blob")
+        .unwrap();
+    let action = descriptor["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["action_id"] == "configure_azure_blob_cors")
+        .unwrap();
+    assert_eq!(
+        action["output_fields"],
+        json!([
+            {"name":"account", "label_key":"azure_blob_account_name", "value_kind":"text"},
+            {"name":"service_endpoint", "label_key":"endpoint", "value_kind":"text"},
+            {"name":"allowed_origins", "label_key":"azure_cors_origins", "value_kind":"string_list"},
+            {"name":"preserved_rule_count", "label_key":"azure_cors_preserved", "value_kind":"number"},
+            {"name":"request_id", "label_key":"azure_cors_request_id", "value_kind":"text"},
+            {"name":"changed", "label_key":"azure_cors_changed", "value_kind":"boolean", "true_key":"azure_cors_yes", "false_key":"azure_cors_no"},
+        ])
+    );
 
     let request = test::TestRequest::post()
         .uri("/api/v1/admin/policies")
@@ -292,7 +315,15 @@ async fn azure_cors_rejects_missing_and_invalid_origins_before_network() {
         let request = test::TestRequest::post().uri("/api/v1/admin/policies/action")
             .insert_header(("Cookie", common::access_cookie_header(&token))).insert_header(common::csrf_header_for(&token))
             .set_json(json!({"action_id":"configure_azure_blob_cors", "connection":connection(&service.endpoint)})).to_request();
-        assert_eq!(test::call_service(&app, request).await.status(), 400);
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), 400);
+        match value {
+            None | Some("[]") => {
+                let body: Value = test::read_body_json(response).await;
+                assert_eq!(body["code"], "policy.action_parameter_required");
+            }
+            _ => {}
+        }
     }
     assert!(service.state.lock().unwrap().requests.is_empty());
     service.stop().await;
