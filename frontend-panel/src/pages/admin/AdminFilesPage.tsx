@@ -835,7 +835,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			),
 		})),
 	];
-	const { sizeUnit, ...listQuery } = fileQuery;
+	const { sizeUnit: querySizeUnit, ...listQuery } = fileQuery;
 	const toDraft = () => ({
 		text,
 		storagePath,
@@ -843,8 +843,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		teamId: optionalNumberValue(teamId),
 		refCountMin: optionalNumberValue(refCountMin),
 		refCountMax: optionalNumberValue(refCountMax),
-		sizeMin: formatByteSizeInput(sizeMin, sizeUnit),
-		sizeMax: formatByteSizeInput(sizeMax, sizeUnit),
+		sizeMin: formatByteSizeInput(sizeMin, querySizeUnit),
+		sizeMax: formatByteSizeInput(sizeMax, querySizeUnit),
+		sizeUnit: querySizeUnit,
 	});
 	const {
 		draft,
@@ -856,8 +857,8 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		sourceKey: `${kind}:${location.key}`,
 		preserveUnchanged: navigationType === "REPLACE",
 		normalize: (value) => {
-			const min = parseByteSizeInput(value.sizeMin, sizeUnit);
-			const max = parseByteSizeInput(value.sizeMax, sizeUnit);
+			const min = parseByteSizeInput(value.sizeMin, value.sizeUnit);
+			const max = parseByteSizeInput(value.sizeMax, value.sizeUnit);
 			if (
 				min === null ||
 				max === null ||
@@ -887,23 +888,25 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				refCountMax: optionalNumberValue(
 					parseOptionalNumber(value.refCountMax),
 				),
-				sizeMin: formatByteSizeInput(min, sizeUnit),
-				sizeMax: formatByteSizeInput(max, sizeUnit),
+				sizeMin: formatByteSizeInput(min, value.sizeUnit),
+				sizeMax: formatByteSizeInput(max, value.sizeUnit),
 			};
 		},
 		onCommit: (value) =>
 			setFileQuery({
 				offset: 0,
+				sizeUnit: value.sizeUnit,
 				text: value.text,
 				storagePath: value.storagePath,
 				secondaryId: parseOptionalNumber(value.secondaryId),
 				teamId: parseOptionalNumber(value.teamId),
 				refCountMin: parseOptionalNumber(value.refCountMin),
 				refCountMax: parseOptionalNumber(value.refCountMax),
-				sizeMin: parseByteSizeInput(value.sizeMin, sizeUnit) ?? undefined,
-				sizeMax: parseByteSizeInput(value.sizeMax, sizeUnit) ?? undefined,
+				sizeMin: parseByteSizeInput(value.sizeMin, value.sizeUnit) ?? undefined,
+				sizeMax: parseByteSizeInput(value.sizeMax, value.sizeUnit) ?? undefined,
 			}),
 	});
+	const { sizeUnit } = draft;
 	const sizeMinBytes = parseByteSizeInput(draft.sizeMin, sizeUnit);
 	const sizeMaxBytes = parseByteSizeInput(draft.sizeMax, sizeUnit);
 	const invalidSizeRange =
@@ -911,11 +914,12 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const changeSizeUnit = (unit: ByteFilterUnit) => {
 		if (sizeMinBytes === null || sizeMaxBytes === null || invalidSizeRange)
 			return;
-		setFileQuery({
+		// Convert only the local size fields; commit the whole draft after debounce.
+		setDraft({
+			...draft,
 			sizeUnit: unit,
-			sizeMin: sizeMinBytes,
-			sizeMax: sizeMaxBytes,
-			offset: 0,
+			sizeMin: formatByteSizeInput(sizeMinBytes, unit),
+			sizeMax: formatByteSizeInput(sizeMaxBytes, unit),
 		});
 	};
 	const fileDetailDialog = useManagedAdminListDetailDialog<AdminFileDetail>();

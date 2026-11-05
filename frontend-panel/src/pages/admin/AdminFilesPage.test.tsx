@@ -1684,6 +1684,125 @@ it("restores binary size units and combines Blob health, hash and uploader filte
 	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("");
 });
 
+it("preserves pending Blob filters when converting units and debounces one combined query", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeUnit=MB&sizeMin=1048576&sizeMax=2097152",
+	);
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	const hash = screen.getByPlaceholderText("admin_blob_hash_filter");
+	const path = screen.getByPlaceholderText("admin_storage_path");
+	const refs = screen.getByPlaceholderText("admin_ref_count_min");
+	const before = mockState.listBlobs.mock.calls.length;
+	vi.useFakeTimers();
+	try {
+		fireEvent.change(hash, { target: { value: " pending-hash " } });
+		fireEvent.change(path, { target: { value: " archive/ " } });
+		fireEvent.change(refs, { target: { value: "2" } });
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+
+		expect(hash).toHaveValue(" pending-hash ");
+		expect(path).toHaveValue(" archive/ ");
+		expect(refs).toHaveValue("2");
+		expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1024");
+		expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("2048");
+		await act(async () => vi.advanceTimersByTimeAsync(50));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before + 1);
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hash: "pending-hash",
+				storage_path: "archive/",
+				ref_count_min: 2,
+				size_min: 1048576,
+				size_max: 2097152,
+			}),
+		);
+		expect(hash).toHaveValue(" pending-hash ");
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeUnit=KB",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("converts pending decimal bounds across units without submitting an older draft", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeUnit=MB&sizeMin=1048576&sizeMax=3145728",
+	);
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	const min = screen.getByPlaceholderText("admin_size_min");
+	const max = screen.getByPlaceholderText("admin_size_max");
+	const before = mockState.listBlobs.mock.calls.length;
+	vi.useFakeTimers();
+	try {
+		fireEvent.change(min, { target: { value: "1.5" } });
+		fireEvent.change(max, { target: { value: "2.25" } });
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+		expect(min).toHaveValue("1536");
+		expect(max).toHaveValue("2304");
+		fireEvent.click(screen.getAllByRole("button", { name: "select:B" })[0]);
+		expect(min).toHaveValue("1572864");
+		expect(max).toHaveValue("2359296");
+		await act(async () => vi.advanceTimersByTimeAsync(50));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before + 1);
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({ size_min: 1572864, size_max: 2359296 }),
+		);
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeMin=1572864",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it.each(["clear", "navigate"] as const)(
+	"does not revive pending filters or units after %s",
+	async (action) => {
+		renderPage("blobs", "/admin/file-blobs?sizeUnit=MB&sizeMin=1048576");
+		await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		vi.useFakeTimers();
+		try {
+			fireEvent.change(screen.getByPlaceholderText("admin_blob_hash_filter"), {
+				target: { value: "pending-hash" },
+			});
+			fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: action === "clear" ? "clear_filters" : "other-blob",
+				}),
+			);
+			await act(async () => vi.advanceTimersByTimeAsync(500));
+			expect(screen.getByPlaceholderText("admin_blob_hash_filter")).toHaveValue(
+				action === "clear" ? "" : "retained",
+			);
+			expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("");
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					hash: action === "clear" ? undefined : "retained",
+					size_min: undefined,
+				}),
+			);
+			expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+				"sizeUnit",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
+
 it("combines Blob filter changes and waits for a valid size range before querying", async () => {
 	mockState.listBlobs.mockResolvedValue({ items: [createBlob()], total: 100 });
 	renderPage("blobs", "/admin/file-blobs?offset=20");
