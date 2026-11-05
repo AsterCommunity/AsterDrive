@@ -10,7 +10,7 @@ use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
 use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StreamUploadDriver};
 use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 
-use super::{AzureBlobDriver, DEFAULT_OPERATION_SAS_TTL};
+use super::{AzureBlobDriver, AzureBlobResponseHeaders, DEFAULT_OPERATION_SAS_TTL};
 
 #[async_trait]
 impl StorageDriver for AzureBlobDriver {
@@ -127,7 +127,13 @@ impl StorageDriver for AzureBlobDriver {
         src_path: &str,
         dest_path: &str,
     ) -> aster_drive_storage::Result<String> {
-        let source_url = self.blob_url(src_path, "r", DEFAULT_OPERATION_SAS_TTL, None)?;
+        let source_url = self.blob_url(
+            &self.endpoint,
+            src_path,
+            "r",
+            DEFAULT_OPERATION_SAS_TTL,
+            AzureBlobResponseHeaders::default(),
+        )?;
         let endpoint_uses_loopback_host = self.endpoint_uses_loopback_host();
         let dest_client = if endpoint_uses_loopback_host {
             self.block_blob_client_without_retries(dest_path, "cw")?

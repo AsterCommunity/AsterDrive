@@ -8,11 +8,11 @@
 
 use std::time::Duration;
 
-use aster_drive_storage::{DirectDownloadOptions, Result, StorageErrorKind, storage_driver_error};
+use aster_drive_storage::{Result, StorageErrorKind, storage_driver_error};
 use azure_core::{credentials::Secret, hmac::hmac_sha256};
 use chrono::{SecondsFormat, Utc};
 
-use super::{AZURE_STORAGE_VERSION, AzureBlobDriver};
+use super::{AZURE_STORAGE_VERSION, AzureBlobDriver, AzureBlobResponseHeaders};
 
 impl AzureBlobDriver {
     pub(super) fn service_sas_query(
@@ -20,7 +20,8 @@ impl AzureBlobDriver {
         blob_name: Option<&str>,
         permissions: &str,
         expires: Duration,
-        download_options: Option<&DirectDownloadOptions>,
+        response_headers: AzureBlobResponseHeaders<'_>,
+        signed_protocol: &str,
     ) -> Result<String> {
         let starts_on = Utc::now() - chrono::Duration::minutes(5);
         let expires_on = Utc::now()
@@ -39,23 +40,7 @@ impl AzureBlobDriver {
             ),
             None => format!("/blob/{}/{}", self.account_name, self.container),
         };
-        let signed_resource = match blob_name {
-            Some(_) => "b",
-            None => "c",
-        };
-        let signed_protocol = self.sas_protocol();
-        let (cache_control, content_disposition, content_type) = download_options
-            .map(|options| {
-                (
-                    options.response_cache_control.as_deref().unwrap_or(""),
-                    options
-                        .response_content_disposition
-                        .as_deref()
-                        .unwrap_or(""),
-                    options.response_content_type.as_deref().unwrap_or(""),
-                )
-            })
-            .unwrap_or(("", "", ""));
+        let signed_resource = if blob_name.is_some() { "b" } else { "c" };
 
         // Service SAS string-to-sign for version 2020-12-06+.
         // Empty fields are significant and must remain as blank lines.
@@ -71,11 +56,11 @@ impl AzureBlobDriver {
             signed_resource,         // signed resource
             "",                      // signed snapshot time
             "",                      // signed encryption scope
-            cache_control,           // rscc
-            content_disposition,     // rscd
-            "",                      // rsce
-            "",                      // rscl
-            content_type,            // rsct
+            response_headers.cache_control.unwrap_or(""),
+            response_headers.content_disposition.unwrap_or(""),
+            "", // rsce
+            "", // rscl
+            response_headers.content_type.unwrap_or(""),
         ]
         .join("\n");
         let signature = hmac_sha256(&string_to_sign, &Secret::new(self.account_key.clone()))
@@ -87,32 +72,23 @@ impl AzureBlobDriver {
             })?;
 
         let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        if let Some(value) = response_headers.cache_control {
+            serializer.append_pair("rscc", value);
+        }
+        if let Some(value) = response_headers.content_disposition {
+            serializer.append_pair("rscd", value);
+        }
+        if let Some(value) = response_headers.content_type {
+            serializer.append_pair("rsct", value);
+        }
         serializer
             .append_pair("sv", AZURE_STORAGE_VERSION)
             .append_pair("spr", signed_protocol)
             .append_pair("st", &signed_start)
             .append_pair("se", &signed_expiry)
             .append_pair("sr", signed_resource)
-            .append_pair("sp", permissions);
-        match cache_control {
-            "" => {}
-            value => {
-                serializer.append_pair("rscc", value);
-            }
-        }
-        match content_disposition {
-            "" => {}
-            value => {
-                serializer.append_pair("rscd", value);
-            }
-        }
-        match content_type {
-            "" => {}
-            value => {
-                serializer.append_pair("rsct", value);
-            }
-        }
-        serializer.append_pair("sig", &signature);
+            .append_pair("sp", permissions)
+            .append_pair("sig", &signature);
         Ok(serializer.finish())
     }
 }

@@ -31,7 +31,7 @@ fn connection(endpoint: &str) -> Value {
     json!({
         "connector_config": {
             "format_version": 1, "connector_id": "asterdrive.storage.azure_blob", "schema_version": 1,
-            "values": {"endpoint": endpoint, "bucket": "archive", "base_path": "test", "object_storage_upload_strategy": "presigned", "object_storage_download_strategy": "presigned"}
+            "values": {"endpoint": endpoint, "bucket": "archive", "base_path": "test", "object_storage_upload_strategy": "presigned", "object_storage_download_strategy": "presigned", "download_delivery":"azure_front_door_sas", "download_base_url":"https://downloads.example.test", "azure_cdn_cache_max_age_seconds":300}
         }, "behavior": {}, "credential": {"mode": "static", "values": {"azure_blob_account_name": "account", "azure_blob_account_key": "c2VjcmV0"}}
     })
 }

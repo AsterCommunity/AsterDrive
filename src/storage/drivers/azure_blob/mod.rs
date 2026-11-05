@@ -1,5 +1,6 @@
 //! Azure Blob Storage driver.
 
+pub mod cdn;
 pub(crate) mod cors;
 mod error;
 mod multipart;
@@ -19,8 +20,7 @@ use azure_storage_blob::{
 use aster_drive_model::types::effective_object_multipart_chunk_size;
 use aster_drive_storage::object_key;
 use aster_drive_storage::{
-    DirectDownloadOptions, MapStorageErr, Result, StorageError, StorageErrorKind,
-    storage_driver_error,
+    MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
 };
 use aster_forge_utils::net::is_loopback_host;
 use sha2::{Digest, Sha256};
@@ -39,26 +39,14 @@ pub struct NormalizedAzureBlobConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AzureBlobConfigError {
     MissingEndpoint,
-    InvalidEndpoint(String),
+    InvalidEndpoint,
     MissingContainer,
 }
 
 impl AzureBlobConfigError {
+    /// Report invalid administrator configuration as a client input error.
     pub fn into_aster_error(self) -> AsterError {
-        match self {
-            Self::MissingEndpoint => crate::errors::storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "endpoint is required for Azure Blob storage",
-            ),
-            Self::InvalidEndpoint(endpoint) => crate::errors::storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                format!("invalid Azure Blob endpoint URL: '{endpoint}'"),
-            ),
-            Self::MissingContainer => crate::errors::storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "container is required for Azure Blob storage",
-            ),
-        }
+        AsterError::validation_error(self.into_storage_error().message())
     }
 
     fn into_storage_error(self) -> StorageError {
@@ -67,9 +55,9 @@ impl AzureBlobConfigError {
                 StorageErrorKind::Misconfigured,
                 "endpoint is required for Azure Blob storage",
             ),
-            Self::InvalidEndpoint(endpoint) => storage_driver_error(
+            Self::InvalidEndpoint => storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                format!("invalid Azure Blob endpoint URL: '{endpoint}'"),
+                "invalid Azure Blob endpoint URL: expected an absolute HTTP(S) URL without credentials, query, fragment, control characters, or parent path segments; non-loopback endpoints must use HTTPS",
             ),
             Self::MissingContainer => storage_driver_error(
                 StorageErrorKind::Misconfigured,
@@ -77,6 +65,13 @@ impl AzureBlobConfigError {
             ),
         }
     }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct AzureBlobResponseHeaders<'a> {
+    pub cache_control: Option<&'a str>,
+    pub content_disposition: Option<&'a str>,
+    pub content_type: Option<&'a str>,
 }
 
 #[derive(Clone)]
@@ -87,14 +82,18 @@ pub struct AzureBlobDriver {
     container: String,
     base_path: String,
     chunk_size: i64,
+    front_door: Option<cdn::FrontDoorConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AzureBlobDriverConfig {
     pub endpoint: String,
     pub container: String,
     pub base_path: String,
     pub chunk_size: i64,
+    pub download_delivery: cdn::AzureBlobDownloadDelivery,
+    pub download_base_url: String,
+    pub azure_cdn_cache_max_age_seconds: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +108,7 @@ impl AzureBlobDriver {
         credentials: &AzureBlobStaticCredentials,
     ) -> Result<()> {
         Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
+        cdn::FrontDoorConfig::from_config(config)?;
         if credentials.account_name.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
@@ -131,6 +131,7 @@ impl AzureBlobDriver {
         Self::validate_config(&config, &credentials)?;
         let normalized =
             Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
+        let front_door = cdn::FrontDoorConfig::from_config(&config)?;
         Ok(Self {
             endpoint: normalized.endpoint,
             account_name: credentials.account_name.trim().to_string(),
@@ -138,6 +139,7 @@ impl AzureBlobDriver {
             container: normalized.container,
             base_path: config.base_path,
             chunk_size: effective_object_multipart_chunk_size(config.chunk_size),
+            front_door,
         })
     }
 
@@ -162,18 +164,28 @@ impl AzureBlobDriver {
             return Err(AzureBlobConfigError::MissingContainer);
         }
 
+        // HTTP URI parsing preserves the configured path instead of resolving
+        // dot segments or repairing browser-style URL spellings.
         let parsed: http::Uri = endpoint
             .parse()
-            .map_err(|_| AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()))?;
-        let scheme = parsed
-            .scheme_str()
-            .ok_or_else(|| AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()))?;
-        if scheme != "http" && scheme != "https" {
-            return Err(AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()));
+            .map_err(|_| AzureBlobConfigError::InvalidEndpoint)?;
+        let https_only =
+            parsed.scheme_str() == Some("http") && !parsed.host().is_some_and(is_loopback_host);
+        if !matches!(parsed.scheme_str(), Some("http" | "https"))
+            || parsed
+                .authority()
+                .is_none_or(|authority| authority.as_str().contains('@'))
+            || https_only
+            || parsed.query().is_some()
+            || endpoint.contains('#')
+            || endpoint.chars().any(char::is_control)
+        {
+            return Err(AzureBlobConfigError::InvalidEndpoint);
         }
-        parsed
-            .authority()
-            .ok_or_else(|| AzureBlobConfigError::InvalidEndpoint(endpoint.to_string()))?;
+        let decoded_path = percent_encoding::percent_decode_str(parsed.path()).decode_utf8();
+        if !matches!(decoded_path, Ok(ref path) if path.split('/').all(|segment| segment != "..")) {
+            return Err(AzureBlobConfigError::InvalidEndpoint);
+        }
 
         Ok(NormalizedAzureBlobConfig {
             endpoint: endpoint.to_string(),
@@ -194,7 +206,13 @@ impl AzureBlobDriver {
             "{}/{}?{}",
             self.endpoint,
             percent_encode_path_segment(&self.container),
-            self.service_sas_query(None, permissions, expires, None)?
+            self.service_sas_query(
+                None,
+                permissions,
+                expires,
+                AzureBlobResponseHeaders::default(),
+                Self::sas_protocol(&self.endpoint),
+            )?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -206,18 +224,25 @@ impl AzureBlobDriver {
 
     fn blob_url(
         &self,
+        endpoint: &str,
         path: &str,
         permissions: &str,
         expires: Duration,
-        download_options: Option<&DirectDownloadOptions>,
+        response_headers: AzureBlobResponseHeaders<'_>,
     ) -> Result<Url> {
         let key = self.full_key(path);
         Url::parse(&format!(
             "{}/{}/{}?{}",
-            self.endpoint,
+            endpoint.trim_end_matches('/'),
             percent_encode_path_segment(&self.container),
             percent_encode_blob_path(&key),
-            self.service_sas_query(Some(&key), permissions, expires, download_options)?
+            self.service_sas_query(
+                Some(&key),
+                permissions,
+                expires,
+                response_headers,
+                Self::sas_protocol(endpoint)
+            )?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -228,7 +253,13 @@ impl AzureBlobDriver {
     }
 
     fn block_blob_url(&self, path: &str, permissions: &str, expires: Duration) -> Result<Url> {
-        self.blob_url(path, permissions, expires, None)
+        self.blob_url(
+            &self.endpoint,
+            path,
+            permissions,
+            expires,
+            AzureBlobResponseHeaders::default(),
+        )
     }
 
     fn client_options() -> BlobClientOptions {
@@ -264,7 +295,13 @@ impl AzureBlobDriver {
 
     fn blob_client(&self, path: &str, permissions: &str) -> Result<BlobClient> {
         BlobClient::new(
-            self.blob_url(path, permissions, DEFAULT_OPERATION_SAS_TTL, None)?,
+            self.blob_url(
+                &self.endpoint,
+                path,
+                permissions,
+                DEFAULT_OPERATION_SAS_TTL,
+                AzureBlobResponseHeaders::default(),
+            )?,
             None,
             Some(Self::client_options()),
         )
@@ -309,8 +346,10 @@ impl AzureBlobDriver {
             .is_some_and(|host| is_loopback_host(&host))
     }
 
-    fn sas_protocol(&self) -> &'static str {
-        if self.endpoint_uses_loopback_host() {
+    fn sas_protocol(endpoint: &str) -> &'static str {
+        if Url::parse(endpoint).ok().is_some_and(|url| {
+            url.scheme() == "http" && url.host_str().is_some_and(is_loopback_host)
+        }) {
             "https,http"
         } else {
             "https"
@@ -419,7 +458,14 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use super::{AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials};
+    use azure_core::credentials::Secret;
+    use azure_core::hmac::hmac_sha256;
+    use chrono::{SecondsFormat, Utc};
+
+    use super::{
+        AzureBlobDriver, AzureBlobDriverConfig, AzureBlobResponseHeaders,
+        AzureBlobStaticCredentials,
+    };
     use aster_drive_model::types::effective_object_multipart_chunk_size;
     use aster_drive_storage::{
         DirectDownloadOptions, DirectDownloadStorageDriver, PresignedUploadStorageDriver,
@@ -434,6 +480,7 @@ mod tests {
             container: " photos ".to_string(),
             base_path: "base path".to_string(),
             chunk_size: 1,
+            ..Default::default()
         }
     }
 
@@ -484,7 +531,9 @@ mod tests {
             ("", "photos"),
             ("acct.blob.core.windows.net", "photos"),
             ("ftp://acct.blob.core.windows.net", "photos"),
+            ("https://?", "photos"),
             ("https:///missing-host", "photos"),
+            ("https:/missing-authority", "photos"),
             ("https://acct.blob.core.windows.net", ""),
         ] {
             assert!(
@@ -531,15 +580,235 @@ mod tests {
     }
 
     #[test]
+    fn rejects_endpoint_userinfo_query_fragment_controls_and_parent_paths() {
+        for endpoint in [
+            "https://user@acct.blob.core.windows.net",
+            "https://user:password@acct.blob.core.windows.net",
+            "https://acct.blob.core.windows.net?api-version=2023-11-03",
+            "https://acct.blob.core.windows.net/#fragment",
+            "https://acct.blob.core.windows.net/../shared",
+            "https://acct.blob.core.windows.net/%2e%2e/shared",
+            "https://acct.blob.core.windows.net/base/%2E%2E/shared",
+            "https://acct.blob.core.windows.net/base\tpath",
+            // SAS for non-loopback hosts is always signed `spr=https`, so a plain
+            // HTTP endpoint could only fail at request time with a misleading 403.
+            "http://storage.internal:10000/devstoreaccount1",
+            "http://files.contoso.example",
+        ] {
+            assert!(
+                AzureBlobDriver::normalize_endpoint_and_container(endpoint, "photos").is_err(),
+                "expected invalid Azure endpoint: {endpoint:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_official_custom_and_local_endpoint_paths() {
+        for (endpoint, expected) in [
+            (
+                "https://acct.blob.core.windows.net/",
+                "https://acct.blob.core.windows.net",
+            ),
+            (
+                " https://files.contoso.example ",
+                "https://files.contoso.example",
+            ),
+            (
+                "https://files.contoso.example/base-path",
+                "https://files.contoso.example/base-path",
+            ),
+            (
+                "http://127.0.0.1:10000/devstoreaccount1",
+                "http://127.0.0.1:10000/devstoreaccount1",
+            ),
+            (
+                "http://localhost:10000/devstoreaccount1",
+                "http://localhost:10000/devstoreaccount1",
+            ),
+        ] {
+            let normalized = AzureBlobDriver::normalize_endpoint_and_container(endpoint, "photos")
+                .unwrap_or_else(|error| {
+                    panic!("expected valid Azure endpoint {endpoint:?}: {error:?}")
+                });
+            assert_eq!(normalized.endpoint, expected);
+            assert_eq!(normalized.container, "photos");
+        }
+    }
+
+    #[test]
+    fn invalid_endpoint_error_does_not_replay_userinfo_or_raw_endpoint() {
+        let endpoint = "https://user:password@acct.blob.core.windows.net?sig=leak";
+        let error = AzureBlobDriver::normalize_endpoint_and_container(endpoint, "photos")
+            .expect_err("endpoint with credentials must fail");
+        let message = error.message();
+        assert!(message.contains("invalid Azure Blob endpoint URL"));
+        assert!(!message.contains("password"));
+        assert!(!message.contains("sig=leak"));
+        assert!(!message.contains(endpoint));
+    }
+
+    /// Recompute the service-SAS signature over the documented 2020-12-06+
+    /// string-to-sign layout (signed version 2023-11-03, blob resource) and
+    /// compare it with the `sig` query parameter.
+    fn assert_signed_service_sas(
+        query: &HashMap<String, String>,
+        signed_permissions: &str,
+        canonical_resource: &str,
+        rscc: &str,
+        rscd: &str,
+        rsct: &str,
+    ) {
+        let string_to_sign = [
+            signed_permissions, // signed permissions
+            query.get("st").expect("st should exist").as_str(),
+            query.get("se").expect("se should exist").as_str(),
+            canonical_resource,
+            "",           // signed identifier
+            "",           // signed IP
+            "https",      // signed protocol
+            "2023-11-03", // signed version
+            "b",          // signed resource
+            "",           // signed snapshot time
+            "",           // signed encryption scope
+            rscc,         // rscc
+            rscd,         // rscd
+            "",           // rsce
+            "",           // rscl
+            rsct,         // rsct
+        ]
+        .join("\n");
+        let expected = hmac_sha256(&string_to_sign, &Secret::new("c2VjcmV0".to_string()))
+            .expect("recompute Azure Blob SAS signature");
+        assert_eq!(
+            query.get("sig").map(String::as_str),
+            Some(expected.as_str()),
+            "service SAS signature must match the recomputed string-to-sign"
+        );
+    }
+
+    #[test]
+    fn sas_response_headers_are_serialized_and_signed_together() {
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
+        let headers = AzureBlobResponseHeaders {
+            cache_control: Some("private, max-age=0"),
+            content_disposition: Some("attachment; filename=报告.txt"),
+            content_type: Some("text/plain"),
+        };
+        let url = driver
+            .blob_url(
+                &driver.endpoint,
+                "folder with space/中文+plus.txt",
+                "r",
+                Duration::from_secs(300),
+                headers,
+            )
+            .expect("download SAS URL");
+        let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+        let expiry = query
+            .get("se")
+            .expect("signed Azure Blob URL should include se");
+
+        assert_eq!(
+            query.get("rscc").map(String::as_str),
+            Some("private, max-age=0")
+        );
+        assert_eq!(
+            query.get("rscd").map(String::as_str),
+            Some("attachment; filename=报告.txt")
+        );
+        assert_eq!(query.get("rsct").map(String::as_str), Some("text/plain"));
+        assert_eq!(query.get("spr").map(String::as_str), Some("https"));
+        assert_signed_service_sas(
+            &query,
+            "r",
+            "/blob/account-name/photos/base path/folder with space/中文+plus.txt",
+            "private, max-age=0",
+            "attachment; filename=报告.txt",
+            "text/plain",
+        );
+        assert_eq!(
+            query.get("sp").map(String::as_str),
+            Some("r"),
+            "download SAS should remain read-only"
+        );
+        assert!(expiry > &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true));
+        let latest_expiry = (Utc::now() + chrono::Duration::seconds(301))
+            .to_rfc3339_opts(SecondsFormat::Secs, true);
+        assert!(expiry.as_str() <= latest_expiry.as_str());
+    }
+
+    #[test]
+    fn sas_urls_without_response_headers_do_not_serialize_override_fields() {
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
+            .expect("valid Azure driver");
+        let url = driver
+            .blob_url(
+                &driver.endpoint,
+                "folder with space/中文+plus.txt",
+                "r",
+                Duration::from_secs(300),
+                AzureBlobResponseHeaders::default(),
+            )
+            .expect("download SAS URL");
+        let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert!(!query.contains_key("rscc"));
+        assert!(!query.contains_key("rscd"));
+        assert!(!query.contains_key("rsct"));
+        assert_signed_service_sas(
+            &query,
+            "r",
+            "/blob/account-name/photos/base path/folder with space/中文+plus.txt",
+            "",
+            "",
+            "",
+        );
+    }
+
+    #[test]
+    fn custom_domain_host_changes_url_but_not_sas_canonical_resource() {
+        let mut config = sample_config();
+        config.endpoint = "https://files.contoso.example".to_string();
+        let driver = AzureBlobDriver::new(config, sample_credentials())
+            .expect("valid custom-domain Azure driver");
+        let url = driver
+            .blob_url(
+                &driver.endpoint,
+                "folder with space/中文+plus.txt",
+                "r",
+                Duration::from_secs(300),
+                AzureBlobResponseHeaders::default(),
+            )
+            .expect("custom-domain blob URL");
+        let query: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(url.host_str(), Some("files.contoso.example"));
+        assert_eq!(
+            url.path(),
+            "/photos/base%20path/folder%20with%20space/%E4%B8%AD%E6%96%87%2Bplus%2Etxt",
+        );
+        assert_signed_service_sas(
+            &query,
+            "r",
+            "/blob/account-name/photos/base path/folder with space/中文+plus.txt",
+            "",
+            "",
+            "",
+        );
+    }
+
+    #[test]
     fn builds_encoded_blob_and_container_sas_urls() {
         let driver = AzureBlobDriver::new(sample_config(), sample_credentials())
             .expect("valid Azure driver");
         let blob_url = driver
             .blob_url(
+                &driver.endpoint,
                 "folder with space/中文+plus.txt",
                 "rw",
                 Duration::from_secs(300),
-                None,
+                AzureBlobResponseHeaders::default(),
             )
             .expect("blob URL");
 
@@ -573,7 +842,13 @@ mod tests {
         credentials.account_name = "devstoreaccount1".to_string();
         let driver = AzureBlobDriver::new(config, credentials).expect("valid Azurite driver");
         let blob_url = driver
-            .blob_url("local.bin", "cw", Duration::from_secs(300), None)
+            .blob_url(
+                &driver.endpoint,
+                "local.bin",
+                "cw",
+                Duration::from_secs(300),
+                AzureBlobResponseHeaders::default(),
+            )
             .expect("blob URL");
         let query: HashMap<_, _> = blob_url.query_pairs().into_owned().collect();
 

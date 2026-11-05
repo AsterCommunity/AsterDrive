@@ -12,6 +12,7 @@ fn driver(endpoint: &str) -> AzureBlobDriver {
             container: "container-not-service".into(),
             base_path: "prefix-not-service".into(),
             chunk_size: 0,
+            ..Default::default()
         },
         AzureBlobStaticCredentials {
             account_name: "account".into(),
@@ -58,7 +59,9 @@ fn shared_key_signatures_match_independent_python_vectors() {
             "+B7/Y5SUi9+LVLlH9M5yC9d75Il76rs3PNgEy516iRU=",
         ),
     ] {
-        let mut storage = driver(endpoint);
+        // The signed request includes service query parameters; the configured
+        // endpoint must remain a query-free Blob endpoint.
+        let mut storage = driver("https://account.blob.core.windows.net");
         storage.account_name = account.to_owned();
         storage.account_key = key.clone();
         let mut request = reqwest::Client::new().request(method.parse().unwrap(), endpoint);
@@ -93,10 +96,11 @@ fn management_target_rejects_cdn_container_sas_and_wrong_account() {
         "https://account.blob.core.windows.net:8443",
         "https://user:secret@account.blob.core.windows.net",
     ] {
-        assert!(
-            driver(endpoint).blob_service_properties_url().is_err(),
-            "{endpoint}"
-        );
+        // Exercise the management boundary independently of the constructor,
+        // which already rejects credentials, SAS queries and non-loopback HTTP.
+        let mut storage = driver("https://account.blob.core.windows.net");
+        storage.endpoint = endpoint.to_owned();
+        assert!(storage.blob_service_properties_url().is_err(), "{endpoint}");
     }
     for suffix in [
         "windows.net",
