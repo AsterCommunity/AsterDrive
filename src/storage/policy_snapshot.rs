@@ -22,6 +22,7 @@ use aster_drive_model::entities::{
 
 #[derive(Default)]
 struct PolicySnapshotData {
+    generation: u64,
     policies_by_id: HashMap<i64, storage_policy::Model>,
     policy_groups_by_id: HashMap<i64, storage_policy_group::Model>,
     placement_profiles_by_id: HashMap<i64, CompiledPlacementProfile>,
@@ -33,22 +34,56 @@ struct PolicySnapshotData {
     system_default_policy_id: Option<i64>,
 }
 
+/// Compiled routing facts with versioned publication of committed assignment updates.
 pub struct PolicySnapshot {
     snapshot: RwLock<PolicySnapshotData>,
 }
 
 impl PolicySnapshot {
+    /// Create an empty snapshot to populate from the writer database at startup.
     pub fn new() -> Self {
         Self {
             snapshot: RwLock::new(PolicySnapshotData::default()),
         }
     }
 
+    /// Reload database-backed routing facts without overwriting a newer local update.
+    ///
+    /// Reads and compilation run outside the snapshot lock. A concurrent assignment
+    /// update or successful reload invalidates that read; retry against the writer.
+    /// Only the version check and replacement hold the existing write lock.
     pub(crate) async fn reload(
         &self,
         db: &DatabaseConnection,
         connectors: &crate::storage::connectors::StorageConnectorRegistry,
     ) -> Result<()> {
+        loop {
+            let generation = self.snapshot.read().generation;
+            let next = PolicySnapshotData::load(db, connectors).await?;
+            if self.replace_if_current(generation, next) {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Publish a completed read only while its source generation is still current.
+    fn replace_if_current(&self, generation: u64, mut next: PolicySnapshotData) -> bool {
+        let mut snapshot = self.snapshot.write();
+        if snapshot.generation != generation {
+            return false;
+        }
+        next.generation = generation.wrapping_add(1);
+        *snapshot = next;
+        true
+    }
+}
+
+impl PolicySnapshotData {
+    /// Read and compile a replacement without holding the shared snapshot lock.
+    async fn load(
+        db: &DatabaseConnection,
+        connectors: &crate::storage::connectors::StorageConnectorRegistry,
+    ) -> Result<Self> {
         let policies = policy_repo::find_all(db).await?;
         let policy_groups = policy_group_repo::find_all_groups(db).await?;
         let placement_rules = storage_policy_group_rule::Entity::find()
@@ -264,7 +299,8 @@ impl PolicySnapshot {
             .into_iter()
             .filter_map(|team| team.policy_group_id.map(|group_id| (team.id, group_id)))
             .collect();
-        *self.snapshot.write() = PolicySnapshotData {
+        Ok(Self {
+            generation: 0,
             policies_by_id,
             policy_groups_by_id,
             placement_profiles_by_id,
@@ -274,11 +310,11 @@ impl PolicySnapshot {
             remote_node_id_by_policy_id,
             system_default_policy_group_id,
             system_default_policy_id,
-        };
-
-        Ok(())
+        })
     }
+}
 
+impl PolicySnapshot {
     pub fn get_policy(&self, policy_id: i64) -> Option<storage_policy::Model> {
         self.snapshot.read().policies_by_id.get(&policy_id).cloned()
     }
@@ -436,25 +472,29 @@ impl PolicySnapshot {
         self.get_policy_group(group_id)
     }
 
+    /// Publish a committed user assignment and invalidate older database reads.
     pub fn set_user_policy_group(&self, user_id: i64, group_id: i64) {
-        self.snapshot
-            .write()
+        let mut snapshot = self.snapshot.write();
+        snapshot
             .user_policy_group_by_user_id
             .insert(user_id, group_id);
+        snapshot.generation = snapshot.generation.wrapping_add(1);
     }
 
+    /// Publish a committed team assignment and invalidate older database reads.
     pub fn set_team_policy_group(&self, team_id: i64, group_id: i64) {
-        self.snapshot
-            .write()
+        let mut snapshot = self.snapshot.write();
+        snapshot
             .team_policy_group_by_team_id
             .insert(team_id, group_id);
+        snapshot.generation = snapshot.generation.wrapping_add(1);
     }
 
+    /// Remove a committed user assignment without allowing an older read to restore it.
     pub fn remove_user_policy_group(&self, user_id: i64) {
-        self.snapshot
-            .write()
-            .user_policy_group_by_user_id
-            .remove(&user_id);
+        let mut snapshot = self.snapshot.write();
+        snapshot.user_policy_group_by_user_id.remove(&user_id);
+        snapshot.generation = snapshot.generation.wrapping_add(1);
     }
 
     fn policy_available_for_outbound(&self, policy: &storage_policy::Model) -> bool {
@@ -547,7 +587,7 @@ mod tests {
         RemoteDownloadStrategy, RemoteUploadStrategy, UserRole, UserStatus,
     };
     use chrono::Utc;
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = db::connect_with_metrics(
@@ -867,6 +907,137 @@ mod tests {
         assert_eq!(decision.policy_id, policy.id);
         assert_eq!(decision.revision, 9);
         assert_eq!(decision.rule_id, Some(rule.id));
+    }
+
+    /// Freeze a real database read, apply a local binding update, then attempt
+    /// publication from another thread. Old reads must never win the write lock.
+    #[tokio::test]
+    async fn stale_reload_preserves_team_and_user_assignment_mutations() {
+        use aster_drive_model::entities::team;
+        use sea_orm::IntoActiveModel;
+        for mutation in [
+            "team-create",
+            "team-reassign",
+            "user-reassign",
+            "user-remove",
+        ] {
+            let db = setup_db().await;
+            let policy = create_policy(&db, "Original", "/tmp/generation-original", true).await;
+            let group = create_group(&db, "Original", policy.id, true, 0, 0).await;
+            let next_group = create_group(&db, "Next", policy.id, false, 0, 0).await;
+            let mut user = create_user(&db, "generation-user", "generation-user@example.test")
+                .await
+                .into_active_model();
+            user.policy_group_id = Set(Some(group.id));
+            let user = user.update(&db).await.unwrap();
+            let team_record = |group_id| team::ActiveModel {
+                id: Set(744),
+                name: Set("Generation team".into()),
+                description: Set(String::new()),
+                created_by: Set(user.id),
+                storage_used: Set(0),
+                storage_quota: Set(0),
+                policy_group_id: Set(Some(group_id)),
+                created_at: Set(Utc::now()),
+                updated_at: Set(Utc::now()),
+                archived_at: Set(None),
+            };
+            if mutation == "team-reassign" {
+                team_record(group.id).insert(&db).await.unwrap();
+            }
+            let snapshot = std::sync::Arc::new(PolicySnapshot::new());
+            let connectors = builtin_storage_connector_registry().unwrap();
+            snapshot.reload(&db, &connectors).await.unwrap();
+            let generation = snapshot.snapshot.read().generation;
+            let stale = super::PolicySnapshotData::load(&db, &connectors)
+                .await
+                .unwrap();
+            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let publishing_snapshot = snapshot.clone();
+            let publishing_barrier = barrier.clone();
+            let publisher = std::thread::spawn(move || {
+                publishing_barrier.wait();
+                publishing_snapshot.replace_if_current(generation, stale)
+            });
+            match mutation {
+                "team-create" => {
+                    team_record(next_group.id).insert(&db).await.unwrap();
+                    snapshot.set_team_policy_group(744, next_group.id);
+                }
+                "team-reassign" => {
+                    let mut team = team::Entity::find_by_id(744)
+                        .one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .into_active_model();
+                    team.policy_group_id = Set(Some(next_group.id));
+                    team.update(&db).await.unwrap();
+                    snapshot.set_team_policy_group(744, next_group.id);
+                }
+                "user-reassign" | "user-remove" => {
+                    let mut updated = user.clone().into_active_model();
+                    updated.policy_group_id = Set(if mutation == "user-remove" {
+                        None
+                    } else {
+                        Some(next_group.id)
+                    });
+                    updated.update(&db).await.unwrap();
+                    if mutation == "user-remove" {
+                        snapshot.remove_user_policy_group(user.id);
+                    } else {
+                        snapshot.set_user_policy_group(user.id, next_group.id);
+                    }
+                }
+                _ => unreachable!(),
+            }
+            barrier.wait();
+            assert!(
+                !publisher.join().unwrap(),
+                "stale reload must lose to {mutation}"
+            );
+            let expected_team = mutation.starts_with("team-").then_some(next_group.id);
+            let expected_user = match mutation {
+                "user-reassign" => Some(next_group.id),
+                "user-remove" => None,
+                _ => Some(group.id),
+            };
+            assert_eq!(snapshot.resolve_team_policy_group_id(744), expected_team);
+            assert_eq!(
+                snapshot.resolve_default_policy_group_id(user.id),
+                expected_user
+            );
+            // A fresh authoritative read must still publish normally after contention.
+            snapshot.reload(&db, &connectors).await.unwrap();
+            assert_eq!(snapshot.get_policy(policy.id).unwrap().name, "Original");
+            assert_eq!(snapshot.resolve_team_policy_group_id(744), expected_team);
+            assert_eq!(
+                snapshot.resolve_default_policy_group_id(user.id),
+                expected_user
+            );
+        }
+    }
+
+    /// Two reads may proceed concurrently, but a late older publication must
+    /// retry instead of replacing a snapshot published since its read began.
+    #[tokio::test]
+    async fn concurrent_reload_publications_preserve_the_newer_policy_state() {
+        use sea_orm::IntoActiveModel;
+        let db = setup_db().await;
+        let policy = create_policy(&db, "Before", "/tmp/generation-policy", true).await;
+        let snapshot = PolicySnapshot::new();
+        let connectors = builtin_storage_connector_registry().unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
+        let generation = snapshot.snapshot.read().generation;
+        let old_read = super::PolicySnapshotData::load(&db, &connectors)
+            .await
+            .unwrap();
+        let mut updated = policy.clone().into_active_model();
+        updated.name = Set("After".into());
+        updated.update(&db).await.unwrap();
+        snapshot.reload(&db, &connectors).await.unwrap();
+        assert!(!snapshot.replace_if_current(generation, old_read));
+        assert_eq!(snapshot.get_policy(policy.id).unwrap().name, "After");
     }
 
     #[tokio::test]

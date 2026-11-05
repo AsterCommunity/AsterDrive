@@ -31,6 +31,7 @@ workspace scope
 - 上传会话的 `placement_profile_id` 和 `placement_revision` 必须非空。缺少绑定的旧会话阻止升级，须在旧版本完成、取消并清理；不会自动删除会话、上传分片或云端对象。
 - `placement_rule_id` 继续允许空值：文件夹显式策略覆盖不经过 placement rule，这属于当前产品语义。
 - 团队绑定由 immutable snapshot 读取，缺失时明确报错，不再回数据库兜底。团队创建及绑定变更返回前更新本地 snapshot，并发布跨实例 topology reload。启用 config sync 的每个实例另以 30 秒间隔从 writer 对账 routing/assignment snapshot；通知丢失无需等待订阅重连即可恢复，对账失败保留原快照并在下个周期重试，不周期性销毁 driver 或解密凭据。
+- 快照 publication 使用同一写锁保护 generation 检查与整体替换。用户/团队绑定的本地增删改和成功 reload 都推进 generation；锁外读取期间若 generation 已变化，reload 丢弃旧结果并重新读取，避免旧查询覆盖已提交绑定。数据库读取与规则编译保持锁外执行，多个 reload 可以并发。
 - 新清理 migration 不支持向旧兼容 schema 回滚；降级需要恢复匹配版本的数据库备份。所有 writer 必须同步升级。
 
 上传初始化和空文件创建在 service 边界使用 writer 数据库校验 scope 访问权，保持团队成员校验与 placement 匹配、资源锁各自独立。
