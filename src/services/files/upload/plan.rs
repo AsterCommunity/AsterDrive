@@ -50,32 +50,22 @@ pub(crate) struct UploadPlan {
 }
 
 impl UploadPlan {
-    pub(crate) fn try_from_session(
+    pub(crate) fn from_session(
         session: &aster_drive_model::entities::upload_session::Model,
-    ) -> Result<Self> {
-        let placement_profile_id = session.placement_profile_id.ok_or_else(|| {
-            crate::errors::AsterError::validation_error(
-                "upload session is missing its placement profile binding",
-            )
-        })?;
-        let placement_revision = session.placement_revision.ok_or_else(|| {
-            crate::errors::AsterError::validation_error(
-                "upload session is missing its placement revision binding",
-            )
-        })?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             upload_id: session.id.clone(),
             filename: session.filename.clone(),
             mime_type: session.mime_type.clone(),
             total_size: session.total_size,
             policy_id: session.policy_id,
-            placement_profile_id,
+            placement_profile_id: session.placement_profile_id,
             placement_rule_id: session.placement_rule_id,
-            placement_revision,
+            placement_revision: session.placement_revision,
             transport: crate::services::files::upload::session::kind::mode_for_kind(
                 session.session_kind,
             ),
-        })
+        }
     }
 }
 
@@ -312,9 +302,9 @@ async fn init_chunked_upload_session(
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
-                placement_profile_id: Some(ctx.routing_decision.profile_id),
+                placement_profile_id: ctx.routing_decision.profile_id,
                 placement_rule_id: ctx.routing_decision.rule_id,
-                placement_revision: Some(ctx.routing_decision.revision),
+                placement_revision: ctx.routing_decision.revision,
                 placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,

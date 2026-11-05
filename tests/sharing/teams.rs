@@ -40,7 +40,7 @@ async fn test_team_crud_and_member_lifecycle() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
     let mail_sender = state.mail_sender.clone();
-    let app = create_test_app!(state);
+    let app = create_test_app!(state.clone());
 
     let owner_id = register_user!(
         app,
@@ -74,6 +74,13 @@ async fn test_team_crud_and_member_lifecycle() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let team_id = body["data"]["id"].as_i64().unwrap();
+    // Creation must publish the local assignment even without a notification listener.
+    assert!(
+        state
+            .policy_snapshot
+            .resolve_team_policy_group_id(team_id)
+            .is_some()
+    );
     assert_eq!(body["data"]["created_by"]["id"], owner_id);
     assert_eq!(body["data"]["created_by"]["username"], "owner1");
     assert_eq!(body["data"]["my_role"], "owner");

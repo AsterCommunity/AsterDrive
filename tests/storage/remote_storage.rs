@@ -1002,7 +1002,7 @@ async fn setup_reverse_tunnel_ingress_profile_target(
 }
 
 #[actix_web::test]
-async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
+async fn test_remote_storage_targets_use_reverse_tunnel_without_base_url() {
     let (
         provider_state,
         provider_server,
@@ -1086,7 +1086,7 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
 }
 
 #[actix_web::test]
-async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() {
+async fn test_remote_storage_targets_auto_empty_base_url_uses_reverse_tunnel() {
     let (
         _provider_state,
         provider_server,
@@ -1119,7 +1119,7 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
 }
 
 #[tokio::test]
-async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabilities() {
+async fn test_remote_storage_target_create_rejects_driver_missing_from_capabilities() {
     let consumer_state = common::setup().await;
     let consumer_node = remote_node::create(
         &consumer_state,
@@ -1166,7 +1166,7 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
 }
 
 #[tokio::test]
-async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabilities() {
+async fn test_remote_storage_target_update_rejects_driver_missing_from_capabilities() {
     let consumer_state = common::setup().await;
     let consumer_node = remote_node::create(
         &consumer_state,
@@ -1223,7 +1223,7 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
 }
 
 #[tokio::test]
-async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_authoritative() {
+async fn test_remote_storage_target_update_without_driver_change_keeps_remote_authoritative() {
     let consumer_state = common::setup().await;
     let consumer_node = remote_node::create(
         &consumer_state,
@@ -2614,7 +2614,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("remote storage target create should succeed");
     let create_entry = latest_audit_log(
         &provider_state,
-        aster_drive_model::types::AuditAction::FollowerIngressProfileCreate,
+        aster_drive_model::types::AuditAction::FollowerStorageTargetCreate,
     )
     .await;
     assert_eq!(
@@ -2639,7 +2639,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("remote storage target update should succeed");
     let update_entry = latest_audit_log(
         &provider_state,
-        aster_drive_model::types::AuditAction::FollowerIngressProfileUpdate,
+        aster_drive_model::types::AuditAction::FollowerStorageTargetUpdate,
     )
     .await;
     assert_eq!(
@@ -2658,7 +2658,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("remote storage target delete should succeed");
     let delete_entry = latest_audit_log(
         &provider_state,
-        aster_drive_model::types::AuditAction::FollowerIngressProfileDelete,
+        aster_drive_model::types::AuditAction::FollowerStorageTargetDelete,
     )
     .await;
     assert_eq!(
@@ -7271,7 +7271,7 @@ async fn test_pending_remote_node_connection_test_requires_completed_enrollment_
 }
 
 #[actix_web::test]
-async fn test_remote_ingress_profiles_require_completed_enrollment_before_network() {
+async fn test_remote_storage_targets_require_completed_enrollment_before_network() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
     let (provider_server, request_count) =

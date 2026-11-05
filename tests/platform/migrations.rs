@@ -345,6 +345,38 @@ async fn storage_placement_migration_preserves_legacy_rule_semantics() {
         .try_get_by_index(0)
         .expect("legacy compatibility count should decode");
     assert_eq!(legacy_count, 1);
+    // Cleanup preserves imported rules/targets and replaces only the obsolete generated description.
+    db.execute_unprepared("UPDATE storage_policy_group_rules SET description = 'Materialized from storage_policy_group_items; TODO remove in 0.6.0' WHERE id = 4442").await.unwrap();
+    CurrentMigrator::up(&db, None).await.unwrap();
+    let manager = aster_drive_migration::SchemaManager::new(&db);
+    assert!(
+        !manager
+            .has_table("storage_policy_group_items")
+            .await
+            .unwrap()
+    );
+    let rule = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT description FROM storage_policy_group_rules WHERE id = 4442",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rule.try_get_by_index::<String>(0).unwrap(),
+        "Imported placement rule."
+    );
+    let target = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT policy_id, weight FROM storage_policy_group_rule_targets WHERE id = 4442",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.try_get_by_index::<i64>(0).unwrap(), policy_id);
+    assert_eq!(target.try_get_by_index::<i32>(1).unwrap(), 100);
 }
 
 #[tokio::test]
@@ -1132,7 +1164,7 @@ async fn resource_lock_migration_rejects_unresolved_legacy_target() {
 
 #[tokio::test]
 async fn resource_lock_migration_rejects_unrepresentable_downgrade() {
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     db.execute_unprepared(
         "INSERT INTO users (id, username, email, password_hash, role, status, storage_quota, storage_used, created_at, updated_at) \
          VALUES (102, 'root-lock-owner', 'root-lock-owner@example.test', 'hash', 'user', 'active', 0, 0, datetime('now'), datetime('now')); \
@@ -1170,13 +1202,16 @@ async fn resource_lock_migration_rejects_unrepresentable_downgrade() {
     assert_eq!(count, 1, "failed downgrade must retain the typed lock row");
 }
 
-async fn setup_current_schema() -> sea_orm::DatabaseConnection {
+async fn setup_historical_schema_before_compat_cleanup() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite memory database should connect");
-    CurrentMigrator::up(&db, None)
-        .await
-        .expect("current migrations should apply");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(EXPIRED_STORAGE_COMPAT_MIGRATION)),
+    )
+    .await
+    .expect("historical migration prefix should apply");
     db
 }
 
@@ -1189,7 +1224,7 @@ async fn external_auth_login_flow_browser_binding_migration_is_registered_and_re
         "external auth browser binding migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let current_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
     assert!(has_column(&current_columns, "browser_binding_hash"));
 
@@ -1216,7 +1251,7 @@ async fn upload_session_kind_column_migrations_are_reversible() {
         "upload session kind migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(has_column(&current_columns, "session_kind"));
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
@@ -1245,7 +1280,7 @@ async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
         "required upload session kind migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
 
     let rollback_steps = steps_to_roll_back_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
@@ -1377,7 +1412,7 @@ async fn upload_provider_session_migration_is_nullable_and_reversible() {
         "upload provider session migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(has_column(&current_columns, "provider_session_ciphertext"));
 
@@ -1410,7 +1445,7 @@ async fn remote_tunnel_owner_directory_migration_is_registered_and_reversible() 
         "remote tunnel owner directory migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
     let columns = sqlite_table_columns(&db, "remote_tunnel_owners").await;
     for expected in [
@@ -1447,7 +1482,7 @@ async fn provider_relay_resumable_ordering_index_is_registered_and_reversible() 
             .any(|migration| { migration.name() == PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION })
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let index = "idx_upload_sessions_provider_relay_ordering";
     assert!(sqlite_table_index_exists(&db, "upload_sessions", index).await);
     assert_eq!(
@@ -2511,8 +2546,9 @@ fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
         .iter()
         .position(|migration| migration.name() == migration_name)
         .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
-    u32::try_from(migrations.len() - position)
-        .expect("migration rollback step count should fit u32")
+    // Historical rollback tests stop before the irreversible compatibility cleanup.
+    let end = usize::try_from(steps_before_migration(EXPIRED_STORAGE_COMPAT_MIGRATION)).unwrap();
+    u32::try_from(end - position).expect("migration rollback step count should fit u32")
 }
 
 fn steps_before_migration(migration_name: &str) -> u32 {
@@ -2608,9 +2644,12 @@ async fn storage_policy_legacy_cleanup_drops_empty_legacy_surface() {
     }
     assert!(!sqlite_table_exists(&db, "storage_policy_credentials").await);
     assert!(!sqlite_table_exists(&db, "storage_connector_application_configs").await);
-    CurrentMigrator::up(&db, None)
-        .await
-        .expect("reapplying the current migration set should be idempotent");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(EXPIRED_STORAGE_COMPAT_MIGRATION)),
+    )
+    .await
+    .expect("reapplying the current migration set should be idempotent");
 }
 
 fn steps_to_roll_back_rename_managed_ingress_profiles() -> u32 {
@@ -2817,7 +2856,7 @@ async fn sqlite_column_is_not_null(
 
 #[tokio::test]
 async fn forge_task_runtime_schema_uses_shared_tables_indexes_and_dedupe_column() {
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
 
     assert!(sqlite_table_exists(&db, aster_forge_db::RUNTIME_LEASES_TABLE).await);
     assert!(sqlite_table_exists(&db, aster_forge_db::SCHEDULED_TASKS_TABLE).await);
@@ -2848,7 +2887,7 @@ async fn forge_task_runtime_schema_uses_shared_tables_indexes_and_dedupe_column(
 
 #[tokio::test]
 async fn forge_task_runtime_migrations_roll_back_and_reapply_as_one_contract() {
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let steps = steps_to_roll_back_migration(RUNTIME_LEASES_MIGRATION);
 
     CurrentMigrator::down(&db, Some(steps))
@@ -2863,9 +2902,12 @@ async fn forge_task_runtime_migrations_roll_back_and_reapply_as_one_contract() {
             .any(|column| column == "dedupe_key")
     );
 
-    CurrentMigrator::up(&db, None)
-        .await
-        .expect("Forge task runtime migrations should reapply");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(EXPIRED_STORAGE_COMPAT_MIGRATION)),
+    )
+    .await
+    .expect("Forge task runtime migrations should reapply");
     assert!(sqlite_table_exists(&db, aster_forge_db::RUNTIME_LEASES_TABLE).await);
     assert!(sqlite_table_exists(&db, aster_forge_db::SCHEDULED_TASKS_TABLE).await);
     assert!(
@@ -2917,7 +2959,7 @@ async fn json_text_columns_are_not_null_in_current_schema() {
         "JSON text constraint migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     for (table, column) in [
         ("external_auth_providers", "options"),
         ("storage_policy_authorization_flows", "context"),
@@ -2938,7 +2980,7 @@ async fn forge_audit_query_indexes_are_present_in_current_schema() {
         "Forge audit query index migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     for index in [
         aster_forge_db::AUDIT_LOG_ACTION_CREATED_USER_INDEX,
         aster_forge_db::AUDIT_LOG_CREATED_ID_INDEX,
@@ -3153,7 +3195,7 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
         "object field rename migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(has_column(&current_columns, "object_temp_key"));
     assert!(has_column(&current_columns, "object_multipart_id"));
@@ -3186,9 +3228,12 @@ async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
         .await
         .expect("mysql migration test database should connect");
 
-    CurrentMigrator::up(&db, None)
-        .await
-        .expect("current migrations should apply on MySQL");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(EXPIRED_STORAGE_COMPAT_MIGRATION)),
+    )
+    .await
+    .expect("current migrations should apply on MySQL");
     assert!(
         mysql_table_index_exists(
             &db,
@@ -3261,7 +3306,7 @@ async fn remote_storage_target_max_file_size_migration_removes_target_level_limi
         "remote storage target max_file_size drop migration should be registered"
     );
 
-    let db = setup_current_schema().await;
+    let db = setup_historical_schema_before_compat_cleanup().await;
     let current_columns = sqlite_table_columns(&db, "remote_storage_targets").await;
     assert!(has_column(&current_columns, "target_key"));
     assert!(
@@ -3359,4 +3404,274 @@ async fn allow_shared_webdav_locks_down_reports_duplicate_entity_locks() {
         sqlite_index_exists(&db, "idx_resource_locks_entity").await,
         "failed rollback must not drop idx_resource_locks_entity before duplicate validation"
     );
+}
+
+const EXPIRED_STORAGE_COMPAT_MIGRATION: &str = "m20261105_000001_remove_expired_storage_compat";
+
+async fn expired_storage_compat_fixture(db: &DatabaseConnection) {
+    CurrentMigrator::up(
+        db,
+        Some(steps_before_migration(EXPIRED_STORAGE_COMPAT_MIGRATION)),
+    )
+    .await
+    .unwrap();
+    for sql in [
+        "INSERT INTO users (id, username, email, password_hash, created_at, updated_at) VALUES (61105, 'compat', 'compat@example.test', 'hash', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        "INSERT INTO upload_sessions (id, user_id, filename, total_size, chunk_size, total_chunks, policy_id, session_kind, placement_profile_id, placement_rule_id, placement_revision, created_at, expires_at, updated_at) VALUES ('compat-upload', 61105, 'bound.bin', 100, 100, 1, 1, 'offset_staging', 10, NULL, 7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        "INSERT INTO upload_session_parts (id, upload_id, part_number, etag, size, created_at, updated_at) VALUES (61105, 'compat-upload', 1, 'receipt', 100, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        "INSERT INTO master_bindings (id, name, master_url, access_key, secret_key, storage_namespace, created_at, updated_at) VALUES (61105, 'binding', 'https://primary.example.test', 'key', 'secret', 'namespace', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        "INSERT INTO remote_storage_targets (id, master_binding_id, target_key, name, driver_type, endpoint, bucket, access_key, secret_key, base_path, connector_id, connector_config, last_error, created_at, updated_at) VALUES (61105, 61105, 'converted', 'Converted', 'local', '', '', '', '', 'old-prefix', 'asterdrive.storage.local', '{\"format_version\":1,\"connector_id\":\"asterdrive.storage.local\",\"schema_version\":1,\"values\":{\"base_path\":\"old-prefix\"}}', '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        "INSERT INTO remote_storage_target_credentials (id, target_id, connector_id, schema_version, ciphertext, created_at, updated_at) VALUES (61105, 61105, 'asterdrive.storage.local', 1, 'encrypted-credential-kept', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+    ] {
+        db.execute_unprepared(sql).await.unwrap();
+    }
+}
+
+async fn assert_expired_storage_compat_cleanup(db: &DatabaseConnection) {
+    expired_storage_compat_fixture(db).await;
+    let backend = db.get_database_backend();
+    let manager = aster_drive_migration::SchemaManager::new(db);
+    Migrator::up(db, None).await.unwrap();
+    assert!(
+        !manager
+            .has_table("storage_policy_group_items")
+            .await
+            .unwrap()
+    );
+    for column in [
+        "driver_type",
+        "endpoint",
+        "bucket",
+        "access_key",
+        "secret_key",
+        "base_path",
+    ] {
+        assert!(
+            !manager
+                .has_column("remote_storage_targets", column)
+                .await
+                .unwrap()
+        );
+    }
+    let row = db.query_one_raw(Statement::from_string(backend,
+        "SELECT placement_profile_id, placement_rule_id, placement_revision FROM upload_sessions WHERE id = 'compat-upload'"))
+        .await.unwrap().unwrap();
+    assert_eq!(row.try_get_by_index::<i64>(0).unwrap(), 10);
+    assert_eq!(row.try_get_by_index::<Option<i64>>(1).unwrap(), None);
+    assert_eq!(row.try_get_by_index::<i64>(2).unwrap(), 7);
+    let row = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT etag FROM upload_session_parts WHERE upload_id = 'compat-upload'",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "receipt");
+    let row = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT connector_config FROM remote_storage_targets WHERE id = 61105",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    let config: serde_json::Value =
+        serde_json::from_str(&row.try_get_by_index::<String>(0).unwrap()).unwrap();
+    assert_eq!(config["values"]["base_path"], "old-prefix");
+    let credential = db
+        .query_one_raw(Statement::from_string(
+            backend,
+            "SELECT ciphertext FROM remote_storage_target_credentials WHERE target_id = 61105",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        credential.try_get_by_index::<String>(0).unwrap(),
+        "encrypted-credential-kept"
+    );
+    // An already-applied migration is harmless, and required bindings reject NULL.
+    Migrator::up(db, None).await.unwrap();
+    for column in ["placement_profile_id", "placement_revision"] {
+        assert!(
+            db.execute_unprepared(&format!(
+                "UPDATE upload_sessions SET {column} = NULL WHERE id = 'compat-upload'"
+            ))
+            .await
+            .is_err()
+        );
+    }
+    if backend == DbBackend::Sqlite {
+        for index in [
+            "idx_upload_sessions_team_id",
+            "idx_upload_sessions_frontend_client",
+            "idx_upload_sessions_status_expires_at",
+            "idx_upload_sessions_provider_relay_ordering",
+            "idx_upload_sessions_folder_status_expires",
+        ] {
+            assert!(sqlite_table_index_exists(db, "upload_sessions", index).await);
+        }
+        let violations = db
+            .query_all_raw(Statement::from_string(backend, "PRAGMA foreign_key_check"))
+            .await
+            .unwrap();
+        assert!(violations.is_empty());
+        let mode = db
+            .query_one_raw(Statement::from_string(backend, "PRAGMA foreign_keys"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(mode.try_get_by_index::<i64>(0).unwrap(), 1);
+    }
+    assert!(
+        CurrentMigrator::down(db, Some(2))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("irreversible")
+    );
+}
+
+async fn assert_expired_storage_compat_preflight(db: &DatabaseConnection) {
+    expired_storage_compat_fixture(db).await;
+    let manager = aster_drive_migration::SchemaManager::new(db);
+    for (invalid_sql, repair_sql, expected) in [
+        (
+            "UPDATE upload_sessions SET placement_profile_id = NULL",
+            "UPDATE upload_sessions SET placement_profile_id = 10",
+            "pre-placement upload sessions",
+        ),
+        (
+            "UPDATE remote_storage_targets SET connector_id = NULL",
+            "UPDATE remote_storage_targets SET connector_id = 'asterdrive.storage.local'",
+            "unconverted remote storage targets",
+        ),
+        (
+            "UPDATE remote_storage_targets SET secret_key = 'do-not-discard'",
+            "UPDATE remote_storage_targets SET secret_key = ''",
+            "plaintext credentials",
+        ),
+    ] {
+        db.execute_unprepared(invalid_sql).await.unwrap();
+        let error = CurrentMigrator::up(db, None).await.unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+        assert!(
+            manager
+                .has_table("storage_policy_group_items")
+                .await
+                .unwrap()
+        );
+        assert!(
+            manager
+                .has_column("remote_storage_targets", "driver_type")
+                .await
+                .unwrap()
+        );
+        assert!(
+            manager
+                .has_column("remote_storage_targets", "secret_key")
+                .await
+                .unwrap()
+        );
+        db.execute_unprepared(repair_sql).await.unwrap();
+    }
+    CurrentMigrator::up(db, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn expired_storage_compat_cleanup_sqlite() {
+    assert_expired_storage_compat_cleanup(&Database::connect("sqlite::memory:").await.unwrap())
+        .await;
+}
+#[tokio::test]
+async fn expired_storage_compat_cleanup_postgres() {
+    let db = Database::connect(common::postgres_empty_test_database_url().await)
+        .await
+        .unwrap();
+    assert_expired_storage_compat_cleanup(&db).await;
+}
+#[tokio::test]
+async fn expired_storage_compat_cleanup_mysql() {
+    let db = Database::connect(common::mysql_empty_test_database_url().await)
+        .await
+        .unwrap();
+    assert_expired_storage_compat_cleanup(&db).await;
+}
+#[tokio::test]
+async fn expired_storage_compat_preflight_sqlite() {
+    assert_expired_storage_compat_preflight(&Database::connect("sqlite::memory:").await.unwrap())
+        .await;
+}
+#[tokio::test]
+async fn expired_storage_compat_preflight_postgres() {
+    let db = Database::connect(common::postgres_empty_test_database_url().await)
+        .await
+        .unwrap();
+    assert_expired_storage_compat_preflight(&db).await;
+}
+#[tokio::test]
+async fn expired_storage_compat_preflight_mysql() {
+    let db = Database::connect(common::mysql_empty_test_database_url().await)
+        .await
+        .unwrap();
+    assert_expired_storage_compat_preflight(&db).await;
+}
+
+#[tokio::test]
+async fn expired_storage_compat_sqlite_ddl_failure_rolls_back_rebuild_and_restores_foreign_keys() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    expired_storage_compat_fixture(&db).await;
+    db.execute_unprepared("CREATE INDEX test_legacy_endpoint ON remote_storage_targets(endpoint)")
+        .await
+        .unwrap();
+    assert!(CurrentMigrator::up(&db, None).await.is_err());
+    let manager = aster_drive_migration::SchemaManager::new(&db);
+    assert!(
+        manager
+            .has_table("storage_policy_group_items")
+            .await
+            .unwrap()
+    );
+    assert!(
+        manager
+            .has_column("remote_storage_targets", "driver_type")
+            .await
+            .unwrap()
+    );
+    assert!(
+        manager
+            .has_column("remote_storage_targets", "endpoint")
+            .await
+            .unwrap()
+    );
+    assert!(!sqlite_column_is_not_null(&db, "upload_sessions", "placement_profile_id").await);
+    assert!(
+        !manager
+            .has_table("upload_sessions__placement_required")
+            .await
+            .unwrap()
+    );
+    let parts = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM upload_session_parts WHERE upload_id = 'compat-upload'",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(parts.try_get_by_index::<i64>(0).unwrap(), 1);
+    let mode = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_keys",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(mode.try_get_by_index::<i64>(0).unwrap(), 1);
+    db.execute_unprepared("DROP INDEX test_legacy_endpoint")
+        .await
+        .unwrap();
+    CurrentMigrator::up(&db, None).await.unwrap();
 }

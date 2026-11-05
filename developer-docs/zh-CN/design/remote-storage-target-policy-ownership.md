@@ -97,6 +97,10 @@ Target 创建表单必须按 follower 返回的 connector descriptors 和字段�
 
 早期 remote policy 可能只有 `remote_node_id`，没有 `remote_storage_target_key`。target 归 follower binding 所有，primary 无法在数据库 migration 中可靠推断原策略意图，因此不做隐式映射：这类策略必须由管理员重新编辑并选择 target。运行时、容量查询和 follower 对象请求都会拒绝空 target key，不再回退到 binding 级默认值。
 
+远端目标的 0.5.x 扁平配置在线转换窗口已结束。`m20261105_000001_remove_expired_storage_compat` 在确认 connector 配置存在且旧明文凭据已清空后，物理删除 `driver_type`、`endpoint`、`bucket`、`access_key`、`secret_key` 和 `base_path` 兼容列。未完成转换的数据库必须先启动旧版本完成转换，不能直接丢弃原配置升级。connector 配置、加密凭据、target key 和对象位置保持不变。
+
+审计的 Rust 类型、action 字符串、entity type、配置分组和展示/翻译键统一使用 storage target 命名。`m20261105_000002_remote_target_audit_names` 在事务中将六种旧 ingress action 和 `remote_ingress_profile` entity type 规范化，并同步 `audit_log_recorded_actions` 中的选择；action 数字 ID、日志 ID、时间、操作者、details 和目标快照保持不变。旧名称仅存在于历史 migration 和迁移测试中，当前 API 不再接受旧 entity type 或返回旧 action。自定义筛选、配置备份和 API 客户端须更新；所有 writer 和配套前端同步升级。
+
 ## 协议与能力兼容
 
 当前内部存储协议为 `v6`，兼容下限为 `v6`，primary 与 follower 声明的版本区间必须有交集。

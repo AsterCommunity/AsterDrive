@@ -545,11 +545,11 @@ fn detail_message(
             copy_param(details, &mut params, "expires_at");
             Some(message("remote_node_enrollment_token_created", params))
         }
-        AuditAction::AdminCreateRemoteIngressProfile
-        | AuditAction::AdminUpdateRemoteIngressProfile
-        | AuditAction::AdminDeleteRemoteIngressProfile => {
+        AuditAction::AdminCreateRemoteStorageTarget
+        | AuditAction::AdminUpdateRemoteStorageTarget
+        | AuditAction::AdminDeleteRemoteStorageTarget => {
             copy_params(details, &mut params, &["target_key", "driver_type"]);
-            Some(message("remote_ingress_profile_snapshot", params))
+            Some(message("remote_storage_target_snapshot", params))
         }
         AuditAction::AdminCreateExternalAuthProvider
         | AuditAction::AdminUpdateExternalAuthProvider
@@ -918,15 +918,15 @@ fn detail_message(
             );
             Some(message("follower_object_changed", params))
         }
-        AuditAction::FollowerIngressProfileCreate
-        | AuditAction::FollowerIngressProfileUpdate
-        | AuditAction::FollowerIngressProfileDelete => {
+        AuditAction::FollowerStorageTargetCreate
+        | AuditAction::FollowerStorageTargetUpdate
+        | AuditAction::FollowerStorageTargetDelete => {
             copy_params(
                 details,
                 &mut params,
                 &["binding_id", "target_key", "driver_type"],
             );
-            Some(message("follower_ingress_profile_changed", params))
+            Some(message("follower_storage_target_changed", params))
         }
         AuditAction::AdminRevokeUserSessions
         | AuditAction::AdminResetUserPassword
@@ -1712,11 +1712,11 @@ mod tests {
     }
 
     #[test]
-    fn remote_ingress_details_preserve_the_existing_translation_code() {
+    fn remote_storage_target_details_use_storage_target_translation_code() {
         for action in [
-            AuditAction::AdminCreateRemoteIngressProfile,
-            AuditAction::AdminUpdateRemoteIngressProfile,
-            AuditAction::AdminDeleteRemoteIngressProfile,
+            AuditAction::AdminCreateRemoteStorageTarget,
+            AuditAction::AdminUpdateRemoteStorageTarget,
+            AuditAction::AdminDeleteRemoteStorageTarget,
         ] {
             let presentation = build_audit_presentation(
                 action,
@@ -1727,7 +1727,7 @@ mod tests {
             )
             .unwrap();
             let detail = presentation.detail.unwrap();
-            assert_eq!(detail.code, "remote_ingress_profile_snapshot");
+            assert_eq!(detail.code, "remote_storage_target_snapshot");
             assert_eq!(detail.params["target_key"], "primary");
             assert_eq!(detail.params["driver_type"], "s3");
         }

@@ -12,8 +12,8 @@ use aster_drive_model::entities::{
     managed_follower, master_binding, mfa_email_code, mfa_factor, mfa_login_flow,
     mfa_recovery_code, mfa_totp_setup_flow, passkey, remote_storage_target, resource_lock,
     resource_lock_namespace, share, storage_migration_checkpoint, storage_policy,
-    storage_policy_group, storage_policy_group_item, tag, team, team_member, upload_session,
-    upload_session_part, user, user_invitation, user_profile, webdav_account, wopi_session,
+    storage_policy_group, tag, team, team_member, upload_session, upload_session_part, user,
+    user_invitation, user_profile, webdav_account, wopi_session,
 };
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, EntityName, EntityTrait, IdenStatic, Iterable,
@@ -77,7 +77,6 @@ fn all_entity_schemas() -> Vec<EntitySchema> {
         entity_schema!(storage_migration_checkpoint::Entity),
         entity_schema!(storage_policy::Entity),
         entity_schema!(storage_policy_group::Entity),
-        entity_schema!(storage_policy_group_item::Entity),
         entity_schema!(aster_forge_db::system_config::Entity),
         entity_schema!(aster_forge_db::runtime_lease::Entity),
         entity_schema!(aster_forge_db::scheduled_task::Entity),

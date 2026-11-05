@@ -118,9 +118,9 @@ async fn create_upload_session(
             received_count: Set(2),
             folder_id: Set(None),
             policy_id: Set(policy.id),
-            placement_profile_id: Set(None),
+            placement_profile_id: Set(1),
             placement_rule_id: Set(None),
-            placement_revision: Set(None),
+            placement_revision: Set(1),
             placement_execution_preference: Set("automatic".to_string()),
             status: Set(spec.status),
             session_kind: Set(match (spec.object_temp_key, spec.object_multipart_id) {

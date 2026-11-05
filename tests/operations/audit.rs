@@ -1544,3 +1544,95 @@ async fn test_audit_ip_ignores_client_forwarded_headers_without_trusted_proxies(
         "spoofed forwarded header must be dropped; unconfigured trusted proxies pin to the peer"
     );
 }
+
+#[actix_web::test]
+async fn test_migrated_remote_target_audit_supports_filters_presentation_and_csv() {
+    use aster_drive_migration::{MigratorTrait, SchemaManager};
+    let state = common::setup().await;
+    aster_forge_db::create_audit_log_row(
+        state.writer_db(),
+        aster_forge_db::AuditLogCreate {
+            user_id: 0,
+            action: "admin_create_remote_ingress_profile".into(),
+            entity_type: "remote_ingress_profile".into(),
+            entity_id: Some(61105),
+            entity_name: Some("Historical storage target".into()),
+            details: Some(r#"{"target_key":"rst_historical","driver_type":"s3"}"#.into()),
+            ip_address: None,
+            user_agent: None,
+            created_at: chrono::Utc::now(),
+        },
+    )
+    .await
+    .unwrap();
+    let migration = aster_drive_migration::CurrentMigrator::migrations()
+        .pop()
+        .unwrap();
+    assert_eq!(
+        migration.name(),
+        "m20261105_000002_remote_target_audit_names"
+    );
+    migration
+        .up(&SchemaManager::new(state.writer_db()))
+        .await
+        .unwrap();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let filter = "action=admin_create_remote_storage_target&entity_type=remote_storage_target&entity_id=61105";
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/admin/audit-logs?{filter}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    let entries = body["data"]["items"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["action"], "admin_create_remote_storage_target");
+    assert_eq!(entries[0]["entity_type"], "remote_storage_target");
+    assert_eq!(entries[0]["entity_name"], "Historical storage target");
+    assert_eq!(
+        entries[0]["presentation"]["summary"]["code"],
+        "admin_create_remote_storage_target"
+    );
+    assert_eq!(
+        entries[0]["presentation"]["detail"]["code"],
+        "remote_storage_target_snapshot"
+    );
+    assert_eq!(
+        entries[0]["presentation"]["detail"]["params"]["target_key"],
+        "rst_historical"
+    );
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!("/api/v1/admin/audit-logs/export?{filter}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let csv = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
+    assert!(
+        csv.contains("admin_create_remote_storage_target,remote_storage_target,61105"),
+        "{csv}"
+    );
+    assert!(csv.contains("rst_historical"));
+    assert!(!csv.contains("remote_ingress"));
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/api/v1/admin/audit-logs?entity_type=remote_ingress_profile")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        400,
+        "retired entity names must not remain an API alias"
+    );
+}

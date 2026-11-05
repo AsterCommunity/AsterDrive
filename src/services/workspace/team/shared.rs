@@ -514,6 +514,9 @@ pub(super) async fn create_team_record(
     )
     .await?;
     transaction::commit(txn).await?;
+    state
+        .policy_snapshot()
+        .set_team_policy_group(created_team.id, policy_group_id);
     crate::services::workspace::storage::invalidate_team_access_cache_for_member(
         state,
         created_team.id,

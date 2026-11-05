@@ -5,9 +5,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_policy::policy::placement::{
     FolderPlacementOverride, StoragePlacementContext, StorageRoutingDecision,
 };
-use crate::services::workspace::scope::{
-    WorkspaceStorageScope, require_team_policy_group_id_with_db, verify_folder_access,
-};
+use crate::services::workspace::scope::{WorkspaceStorageScope, verify_folder_access};
 use aster_drive_model::entities::folder;
 use sea_orm::ConnectionTrait;
 
@@ -88,7 +86,7 @@ pub(crate) async fn resolve_blob_write_size_limit(
         }
         (None, None) => None,
     };
-    let profile_id = placement_profile_id(state, state.writer_db(), request.scope).await?;
+    let profile_id = placement_profile_id(state, request.scope)?;
     let profile = state
         .policy_snapshot()
         .get_placement_profile(profile_id)
@@ -112,7 +110,7 @@ pub(crate) async fn resolve_blob_policy_for_write(
     state: &PrimaryAppState,
     request: BlobPolicyRequest<'_>,
 ) -> Result<BlobPolicyResolution> {
-    resolve_blob_policy_for_write_on(state, state.writer_db(), request).await
+    resolve_blob_policy_for_write_internal(state, request, &[], true).await
 }
 
 pub(crate) async fn resolve_blob_policy_for_write_with_exclusions(
@@ -123,27 +121,11 @@ pub(crate) async fn resolve_blob_policy_for_write_with_exclusions(
         crate::services::storage_policy::policy::placement::TargetExclusionReason,
     )],
 ) -> Result<BlobPolicyResolution> {
-    resolve_blob_policy_for_write_on_internal(
-        state,
-        state.writer_db(),
-        request,
-        dynamic_exclusions,
-        false,
-    )
-    .await
+    resolve_blob_policy_for_write_internal(state, request, dynamic_exclusions, false).await
 }
 
-pub(crate) async fn resolve_blob_policy_for_write_on<C: sea_orm::ConnectionTrait>(
+async fn resolve_blob_policy_for_write_internal(
     state: &PrimaryAppState,
-    db: &C,
-    request: BlobPolicyRequest<'_>,
-) -> Result<BlobPolicyResolution> {
-    resolve_blob_policy_for_write_on_internal(state, db, request, &[], true).await
-}
-
-async fn resolve_blob_policy_for_write_on_internal<C: sea_orm::ConnectionTrait>(
-    state: &PrimaryAppState,
-    db: &C,
     request: BlobPolicyRequest<'_>,
     dynamic_exclusions: &[(
         i64,
@@ -176,13 +158,11 @@ async fn resolve_blob_policy_for_write_on_internal<C: sea_orm::ConnectionTrait>(
     };
     let (policy, routing_decision) = resolve_new_blob_policy_from_snapshot(
         state,
-        db,
         &request,
         folder_hint,
         dynamic_exclusions,
         record_routing,
-    )
-    .await?;
+    )?;
     Ok(BlobPolicyResolution {
         policy,
         routing_decision: Some(routing_decision),
@@ -222,9 +202,8 @@ impl From<folder::Model> for VerifiedFolderPolicyHint {
 /// Database access remains at the surrounding upload boundary for permissions,
 /// quota and session persistence. Profile/rule/target matching itself is kept
 /// off the upload hot path database lookup.
-async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
+fn resolve_new_blob_policy_from_snapshot(
     state: &impl SharedRuntimeState,
-    fallback_db: &C,
     request: &BlobPolicyRequest<'_>,
     folder: Option<VerifiedFolderPolicyHint>,
     dynamic_exclusions: &[(
@@ -236,7 +215,7 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
     aster_drive_model::entities::storage_policy::Model,
     StorageRoutingDecision,
 )> {
-    let profile_id = placement_profile_id(state, fallback_db, request.scope).await?;
+    let profile_id = placement_profile_id(state, request.scope)?;
     let context = StoragePlacementContext::from_filename(
         profile_id,
         request.filename,
@@ -283,31 +262,23 @@ async fn resolve_new_blob_policy_from_snapshot<C: sea_orm::ConnectionTrait>(
     Ok((policy, decision))
 }
 
-async fn placement_profile_id<C: ConnectionTrait>(
+fn placement_profile_id(
     state: &impl SharedRuntimeState,
-    fallback_db: &C,
     scope: WorkspaceStorageScope,
 ) -> Result<i64> {
-    Ok(match scope {
+    match scope {
         WorkspaceStorageScope::Personal { user_id } => state
             .policy_snapshot()
-            .require_user_policy_group_id(user_id)?,
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id,
-        } => match state
+            .require_user_policy_group_id(user_id),
+        WorkspaceStorageScope::Team { team_id, .. } => state
             .policy_snapshot()
             .resolve_team_policy_group_id(team_id)
-        {
-            Some(profile_id) => profile_id,
-            None => {
-                // TODO(0.6.0): remove this cache-miss compatibility read once
-                // all team assignment mutation paths publish snapshot updates.
-                require_team_policy_group_id_with_db(state, fallback_db, team_id, actor_user_id)
-                    .await?
-            }
-        },
-    })
+            .ok_or_else(|| {
+                AsterError::storage_policy_not_found(format!(
+                    "no storage placement profile in snapshot for team #{team_id}"
+                ))
+            }),
+    }
 }
 
 fn folder_placement_override(

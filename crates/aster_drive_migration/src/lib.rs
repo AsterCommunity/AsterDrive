@@ -85,6 +85,8 @@ mod m20261031_000001_task_resource_publications;
 mod m20261102_000001_obs_use_cname;
 mod m20261103_000001_cos_download_delivery;
 mod m20261104_000001_qiniu_native;
+mod m20261105_000001_remove_expired_storage_compat;
+mod m20261105_000002_remote_target_audit_names;
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
@@ -245,6 +247,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20261102_000001_obs_use_cname::Migration),
             Box::new(m20261103_000001_cos_download_delivery::Migration),
             Box::new(m20261104_000001_qiniu_native::Migration),
+            Box::new(m20261105_000001_remove_expired_storage_compat::Migration),
+            Box::new(m20261105_000002_remote_target_audit_names::Migration),
         ]
     }
 }
@@ -488,8 +492,8 @@ async fn sqlite_foreign_keys_enabled(database: &DatabaseConnection) -> Result<bo
 /// The 0.5.0 storage-policy credential importer uses this after ordinary SeaORM
 /// migrations have completed. Keeping connector-owned credential conversion
 /// under the same lock prevents concurrent instances from importing the same
-/// legacy rows. The legacy schema remains in place until the 0.6.0 cleanup
-/// migration tracked by issue #463.
+/// legacy rows. Physical legacy-policy cleanup is implemented by
+/// m20260820_000001_remove_storage_policy_legacy.
 pub async fn with_database_migration_lock<T, F>(
     database: &DatabaseConnection,
     operation: F,

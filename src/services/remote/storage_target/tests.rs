@@ -282,12 +282,6 @@ fn s3_model() -> remote_storage_target::Model {
             )
             .unwrap(),
         ),
-        driver_type: String::new(),
-        endpoint: String::new(),
-        bucket: String::new(),
-        access_key: String::new(),
-        secret_key: String::new(),
-        base_path: String::new(),
         desired_revision: 1,
         applied_revision: 1,
         last_error: String::new(),

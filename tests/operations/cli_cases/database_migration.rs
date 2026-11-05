@@ -120,7 +120,8 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
     .await
     .unwrap();
 
-    CurrentMigrator::up(&db, None).await.unwrap();
+    // Test this historical rename in isolation, before later irreversible cleanup.
+    CurrentMigrator::up(&db, Some(1)).await.unwrap();
     assert_eq!(
         scalar_string(
             &db,
@@ -167,11 +168,7 @@ async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_dow
         0
     );
 
-    let rollback_steps =
-        u32::try_from(migrations.len() - rename_index).expect("rollback step count should fit u32");
-    CurrentMigrator::down(&db, Some(rollback_steps))
-        .await
-        .unwrap();
+    CurrentMigrator::down(&db, Some(1)).await.unwrap();
     assert_eq!(
         scalar_string(
             &db,

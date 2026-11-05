@@ -221,6 +221,21 @@ mod tests {
     }
 
     #[test]
+    fn remote_target_action_selection_uses_current_names() {
+        let settings = AuditLogRuntimeSettings::from_raw_values(
+            Some("true"),
+            Some(r#"["admin_create_remote_storage_target","follower_storage_target_delete"]"#),
+        );
+        assert!(settings.should_record(AuditAction::AdminCreateRemoteStorageTarget));
+        assert!(settings.should_record(AuditAction::FollowerStorageTargetDelete));
+        assert!(!settings.should_record(AuditAction::AdminDeleteRemoteStorageTarget));
+        assert!(
+            normalize_recorded_actions_config_value(r#"["admin_create_remote_ingress_profile"]"#)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn normalize_recorded_actions_rejects_unknown_and_duplicate_values() {
         assert!(normalize_recorded_actions_config_value(r#"["user_login","unknown"]"#).is_err());
         assert!(normalize_recorded_actions_config_value(r#"["file_upload"]"#).is_err());

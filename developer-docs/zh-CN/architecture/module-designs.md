@@ -800,9 +800,9 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 
 ### 0.5 存储升级中间态
 
-0.5 升级在运行配置和加密密钥可用后，把旧策略列中的明文静态凭据导入独立凭据表。导入成功后会清空 `access_key` / `secret_key` 的旧值，并删除两个 deprecated credential store 中已经转换的行，但 0.5.x 保留旧列、旧表和相关索引。为了让已经不再包含 legacy 字段的 current entity 仍能写入这套兼容 schema，0.5 migration 只给遗留 `driver_type` 增加空默认值，并将 MySQL 上没有 TEXT 默认值的遗留 `options` 放宽为 nullable；这不是物理清理。物理 schema 清理由 issue #463 的 0.6.0 新 migration 负责，历史 migration 保持不变。
+0.5 升级在运行配置和加密密钥可用后，把旧策略列中的明文静态凭据导入独立凭据表。导入成功后会清空 `access_key` / `secret_key` 的旧值，并删除两个 deprecated credential store 中已经转换的行，但 0.5.x 保留旧列、旧表和相关索引。为了让已经不再包含 legacy 字段的 current entity 仍能写入这套兼容 schema，0.5 migration 只给遗留 `driver_type` 增加空默认值，并将 MySQL 上没有 TEXT 默认值的遗留 `options` 放宽为 nullable；这不是物理清理。物理 schema 清理已由 `m20260820_000001_remove_storage_policy_legacy` 实现：先拒绝未转换凭据，再删除旧列、索引、外键和旧凭据表。历史导入步骤继续保留用于升级。
 
-`database-migrate` 在目标完成复制和校验后加载运行配置，并在 migration lock 下执行同一个幂等 importer。这样尚未启动过 0.5.x runtime 的源数据库也能在目标端完成重加密；已经完成 importer 的数据库会得到空迁移报告。复制 MySQL 兼容 schema 时，CLI 会把 nullable 的遗留 `storage_policies.options` 规范化为历史空对象 `{}`，以便写入仍保持 `NOT NULL` 的 SQLite/PostgreSQL 目标。CLI 不删除兼容列或兼容表，避免提前执行 #463 的 0.6.0 schema 职责。
+`database-migrate` 在目标完成复制和校验后加载运行配置，并在 migration lock 下执行同一个幂等 importer。这样尚未启动过 0.5.x runtime 的源数据库也能在目标端完成重加密；已经完成 importer 的数据库会得到空迁移报告。复制 MySQL 兼容 schema 时，CLI 会把 nullable 的遗留 `storage_policies.options` 规范化为历史空对象 `{}`，以便写入仍保持 `NOT NULL` 的 SQLite/PostgreSQL 目标。当前 CLI 复制已经完成升级的 schema；后续 `m20261105_000001_remove_expired_storage_compat` 还会移除旧 placement item 投影和远端目标扁平列，并要求上传会话持有 profile/revision。旧库应先使用对应旧版本完成导入、排空旧会话并升级。
 
 ### 断点续传模型
 

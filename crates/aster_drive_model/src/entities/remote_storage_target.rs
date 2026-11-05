@@ -17,17 +17,6 @@ pub struct Model {
     pub name: String,
     pub connector_id: Option<String>,
     pub connector_config: Option<String>,
-    /// TODO(remote-storage-target-0.7.0): remove the flattened compatibility
-    /// columns after the supported 0.5.0 upgrade window. Runtime code never
-    /// reads them; new rows write empty values only for the old NOT NULL schema.
-    pub driver_type: String,
-    pub endpoint: String,
-    pub bucket: String,
-    #[serde(skip_serializing)]
-    pub access_key: String,
-    #[serde(skip_serializing)]
-    pub secret_key: String,
-    pub base_path: String,
     pub desired_revision: i64,
     pub applied_revision: i64,
     pub last_error: String,
@@ -89,12 +78,6 @@ mod tests {
             name: "ingress".to_string(),
             connector_id: Some("asterdrive.storage.s3".to_string()),
             connector_config: Some(r#"{"format_version":1}"#.to_string()),
-            driver_type: String::new(),
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: String::new(),
             desired_revision: 1,
             applied_revision: 1,
             last_error: String::new(),
