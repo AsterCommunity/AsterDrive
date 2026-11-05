@@ -4,7 +4,7 @@ use aster_drive_storage::{StorageDriver, StorageErrorKind};
 
 use super::{HuaweiObsDriver, HuaweiObsDriverConfig, HuaweiObsStaticCredentials};
 
-fn config(endpoint: &str, use_cname: bool) -> HuaweiObsDriverConfig {
+pub(super) fn config(endpoint: &str, use_cname: bool) -> HuaweiObsDriverConfig {
     HuaweiObsDriverConfig {
         endpoint: endpoint.to_string(),
         bucket: "archive-bucket".to_string(),
@@ -21,7 +21,7 @@ fn config(endpoint: &str, use_cname: bool) -> HuaweiObsDriverConfig {
     }
 }
 
-fn credentials() -> HuaweiObsStaticCredentials {
+pub(super) fn credentials() -> HuaweiObsStaticCredentials {
     HuaweiObsStaticCredentials {
         access_key: "access-key".to_string(),
         secret_key: "secret-key".to_string(),

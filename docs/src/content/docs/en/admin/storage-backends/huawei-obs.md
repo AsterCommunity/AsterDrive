@@ -147,6 +147,12 @@ See Huawei's [Method A authentication](https://support.huaweicloud.com/usermanua
 
 ## 3. Configure OBS CORS
 
+Administrators can explicitly select **Configure CORS** for a new draft, edited draft, or saved policy and accept the existing remote-state confirmation. Configure a valid **Public site URL** first; the backend strictly derives origins without defaulting to `*`. Blank AK/SK fields in an edit reuse the saved credential while the action targets the current draft bucket. Ordinary saves and connection tests never configure CORS.
+
+In addition to object permissions, this action needs only `obs:bucket:GetBucketCORS` and `obs:bucket:PutBucketCORS` on the target bucket. The action does not call the deletion API, but Huawei’s `PutBucketCORS` permission itself also permits deleting bucket CORS. It does not require public access, bucket policy or CDN administration. The action reads and merges existing rules, preserving IDs and order, and skips writes when current requests are already satisfied. An earlier matching rule hiding required headers such as ETag, unknown XML fields, or the merger's local safety bounds of 100 rules / 64 KiB blocks the write instead of clearing the configuration. Avoid simultaneous console changes: replacing a complete document is not an atomic cross-console merge.
+
+Results show the bucket scope, normalized origins, change status, preserved rule count and available OBS request ID. Official mode uses the bucket's regional OBS endpoint; CNAME mode uses the endpoint directly bound to OBS, never a CDN acceleration domain. The independent CDN download domain is not used for management. See the [OBS CORS protocol evidence](https://drive.docs.astercosm.com/developer/design/huawei-obs-cors-contract/) for pinned official SDK sources, signing vectors and validation boundaries. Origin CORS changes do not configure CDN response headers, caches or authentication.
+
 When using only `relay_stream`, the browser does not call OBS directly, so CORS can be configured later. Before enabling presigned uploads or downloads, verify:
 
 See the [S3 / MinIO / R2 tutorial's CORS section](/en/admin/storage-backends/s3/#12-configure-cors-for-presigned) for the general `presigned` rules; the OBS-specific console field mapping is listed below.
@@ -161,11 +167,11 @@ In the Huawei Cloud OBS console, start with the following rule for presigned sin
 
 | OBS field | Recommended value |
 | --- | --- |
-| Allowed origins | The actual AsterDrive page origin; use `*` temporarily while diagnosing |
+| Allowed origins | The actual AsterDrive page origin, such as `https://drive.example.com` |
 | Allowed methods | `GET`, `HEAD`, `PUT` |
-| Allowed headers | `Content-Type`; use `*` temporarily while diagnosing |
-| Exposed headers | `ETag`; add `Content-Length`, `Content-Range`, and `Accept-Ranges` for Range downloads |
-| Cache time | `3600` |
+| Allowed headers | `Content-Type`, `Range` |
+| Exposed headers | `ETag`, `Content-Length`, `Content-Range`, `Accept-Ranges`, `Content-Disposition` |
+| Cache time | `600` |
 
 `ETag` is an upload response header and belongs in the exposed-header field, not the request-header allowlist used by preflight. Do not copy AWS S3 `x-amz-*` headers into an OBS rule; the browser preflight currently needs at least `Content-Type`. When the console reports `OPTIONS` 403, check that origin, `PUT`, and `Content-Type` all match the same rule.
 
