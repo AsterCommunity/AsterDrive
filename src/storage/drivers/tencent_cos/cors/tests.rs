@@ -44,6 +44,24 @@ fn existing_matching_cos_rule_cannot_shadow_required_headers() {
 }
 
 #[test]
+fn headerless_part_put_checks_the_first_rule_before_the_owned_rule() {
+    let origins = vec!["https://drive.example.com".into()];
+    // The existing rule cannot match content-type, but a headerless multipart
+    // PUT still selects it and must be able to read the part ETag.
+    let mut shadow = asterdrive_cors_rule(&origins);
+    shadow.id = Some("other-app".into());
+    shadow.allowed_methods = vec!["PUT".into()];
+    shadow.allowed_headers = vec!["x-custom".into()];
+    shadow.expose_headers.clear();
+    let owned = asterdrive_cors_rule(&["https://old.example.com".into()]);
+    assert!(super::validate_rule_order(std::slice::from_ref(&shadow), &origins).is_err());
+    assert!(super::validate_rule_order(&[shadow.clone(), owned.clone()], &origins).is_err());
+    assert!(super::validate_rule_order(&[owned, shadow.clone()], &origins).is_ok());
+    shadow.expose_headers = vec!["etag".into()];
+    assert!(super::validate_rule_order(&[shadow], &origins).is_ok());
+}
+
+#[test]
 fn rules_after_owned_cos_rule_do_not_shadow_it() {
     let mut owned = asterdrive_cors_rule(&["https://drive.example.com".to_string()]);
     owned.id = Some(ASTERDRIVE_COS_CORS_RULE_ID.to_string());

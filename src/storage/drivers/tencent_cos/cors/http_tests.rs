@@ -229,7 +229,7 @@ async fn cors_shadowed_put_rule_without_etag_never_writes() {
         id: Some("other-app".into()),
         allowed_origins: vec!["*".into()],
         allowed_methods: vec!["PUT".into()],
-        allowed_headers: vec!["*".into()],
+        allowed_headers: vec!["x-custom".into()],
         expose_headers: vec!["Content-Length".into()],
         max_age_seconds: Some(600),
     };

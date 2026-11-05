@@ -283,6 +283,9 @@ fn exposes_required_headers(rule: &CosCorsRule, method: &str) -> bool {
 
 fn validate_rule_order(rules: &[CosCorsRule], origins: &[String]) -> Result<()> {
     let requests: &[(&str, &[&str])] = &[
+        // Presigned multipart parts have no required request headers; the
+        // browser's preflight can omit Access-Control-Request-Headers entirely.
+        ("PUT", &[]),
         ("PUT", &["content-type"]),
         ("GET", &[]),
         ("GET", &["range"]),

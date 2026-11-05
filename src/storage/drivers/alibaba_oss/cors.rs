@@ -291,7 +291,14 @@ fn rule_matches(rule: &CorsRule, origin: &str, method: &str, headers: &[&str]) -
         && headers.iter().all(|header| {
             rule.headers
                 .iter()
-                .any(|candidate| candidate == "*" || candidate.eq_ignore_ascii_case(header))
+                // OSS permits one '*' anywhere in AllowedHeader. Header names
+                // are case-insensitive even when the wildcard is partial.
+                .any(|candidate| {
+                    wildcard_matches(
+                        &candidate.to_ascii_lowercase(),
+                        &header.to_ascii_lowercase(),
+                    )
+                })
         })
 }
 
@@ -842,7 +849,12 @@ mod tests {
 
     #[tokio::test]
     async fn equivalent_rule_skips_put_and_read_failure_never_overwrites() {
-        for (body, status, should_succeed) in [
+        let origins = vec!["https://drive.example".into()];
+        let mut shadow = desired_rule(&origins);
+        shadow.methods = vec!["PUT".into()];
+        shadow.headers = vec!["Content-*".into()];
+        shadow.expose_headers.clear();
+        for (body, status, expected_error) in [
             (
                 serialize(&CorsConfiguration {
                     rules: vec![desired_rule(&["https://drive.example".into()])],
@@ -850,12 +862,21 @@ mod tests {
                 })
                 .unwrap(),
                 "200 OK",
-                true,
+                None,
             ),
             (
                 "<Error><Code>AccessDenied</Code><Message>private</Message></Error>".into(),
                 "403 Forbidden",
-                false,
+                Some("oss:GetBucketCors"),
+            ),
+            (
+                serialize(&CorsConfiguration {
+                    rules: vec![shadow, desired_rule(&origins)],
+                    response_vary: None,
+                })
+                .unwrap(),
+                "200 OK",
+                Some("no rules were written"),
             ),
         ] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -897,12 +918,13 @@ mod tests {
                 );
             });
             let result = client.configure(&["https://drive.example".into()]).await;
-            if should_succeed {
-                assert!(!result.unwrap().changed);
-            } else {
-                let error = result.err().expect("read failure").to_string();
-                assert!(error.contains("oss:GetBucketCors"));
-                assert!(!error.contains("private"));
+            match expected_error {
+                None => assert!(!result.unwrap().changed),
+                Some(expected) => {
+                    let error = result.err().expect("configuration must fail").to_string();
+                    assert!(error.contains(expected), "{error}");
+                    assert!(!error.contains("private"));
+                }
             }
             server.await.unwrap();
         }
@@ -978,6 +1000,32 @@ mod tests {
         let error = needs_rule(&[put_shadow], &["https://drive.example".into()])
             .expect_err("a matching PUT rule without ETag must block multipart uploads");
         assert!(error.to_string().contains("no rules were written"));
+    }
+
+    #[test]
+    fn partial_header_wildcards_cannot_hide_an_earlier_put_rule() {
+        let origins = vec!["https://drive.example".into()];
+        let desired = desired_rule(&origins);
+        for pattern in ["Content-*", "CONTENT-*", "*-Type", "cOn*TyPe", "*"] {
+            let mut shadow = desired.clone();
+            shadow.methods = vec!["PUT".into()];
+            shadow.headers = vec![pattern.into()];
+            shadow.expose_headers.clear();
+            assert!(rule_matches(&shadow, &origins[0], "PUT", &["content-type"]));
+            assert!(
+                needs_rule(&[shadow, desired.clone()], &origins).is_err(),
+                "{pattern}"
+            );
+        }
+        let mut put = desired.clone();
+        put.methods = vec!["PUT".into()];
+        put.headers = vec!["Content-*".into()];
+        put.expose_headers = vec!["etag".into()];
+        assert!(!needs_rule(&[put.clone(), desired], &origins).unwrap());
+        put.headers = vec!["X-Custom-*".into()];
+        assert!(!rule_matches(&put, &origins[0], "PUT", &["content-type"]));
+        put.headers = vec!["con**type".into()];
+        assert!(!rule_matches(&put, &origins[0], "PUT", &["content-type"]));
     }
 
     #[test]
