@@ -176,6 +176,29 @@ describe("policy action selection", () => {
 			),
 		).toBe("saved");
 	});
+	it("routes OBS CORS to current draft values and unchanged saved policies", () => {
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				{ ...ossCorsAction, action_id: "configure_huawei_obs_cors" },
+				"draft",
+				null,
+			),
+		).toBe("draft");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				{ ...ossCorsAction, action_id: "configure_huawei_obs_cors" },
+				"draft",
+				42,
+			),
+		).toBe("draft");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				{ ...ossCorsAction, action_id: "configure_huawei_obs_cors" },
+				"saved",
+				42,
+			),
+		).toBe("saved");
+	});
 	it("uses draft values for new policies and changed edits", () => {
 		const localDescriptor = descriptor("asterdrive.storage.local", [
 			draftAction,

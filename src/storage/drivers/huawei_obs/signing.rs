@@ -359,6 +359,37 @@ fn format_obs_date(time: std::time::SystemTime) -> String {
         .to_string()
 }
 
+/// Sign a bucket CORS request using the same native OBS canonical resource and
+/// HMAC-SHA1 contract as object operations, including CNAME host ownership.
+pub(super) fn signed_cors_request_headers(
+    method: &str,
+    url: &Url,
+    bucket: &str,
+    use_cname: bool,
+    credentials: &super::HuaweiObsStaticCredentials,
+    content_md5: Option<&str>,
+    now: std::time::SystemTime,
+) -> std::result::Result<Vec<(&'static str, String)>, BoxError> {
+    let mut request = HttpRequest::new(aws_smithy_types::body::SdkBody::empty());
+    let mut headers = vec![("date", format_obs_date(now))];
+    if let Some(md5) = content_md5 {
+        request.headers_mut().insert("content-md5", md5.to_string());
+        request
+            .headers_mut()
+            .insert("content-type", "application/xml");
+        headers.push(("content-md5", md5.to_string()));
+        headers.push(("content-type", "application/xml".to_string()));
+    }
+    let resource = canonical_resource(url, bucket, use_cname);
+    let to_sign = obs_string_to_sign(method, &request, &resource, &headers[0].1);
+    let signature = obs_signature(&credentials.secret_key, &to_sign)?;
+    headers.push((
+        "authorization",
+        format!("OBS {}:{signature}", credentials.access_key),
+    ));
+    Ok(headers)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
