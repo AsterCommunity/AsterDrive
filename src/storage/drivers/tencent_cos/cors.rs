@@ -290,10 +290,10 @@ fn validate_rule_order(rules: &[CosCorsRule], origins: &[String]) -> Result<()> 
     ];
     for origin in origins {
         for (method, headers) in requests {
-            let matching = rules.iter().find(|rule| {
-                rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID)
-                    && rule_matches(rule, origin, method, headers)
-            });
+            let matching = rules
+                .iter()
+                .take_while(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID))
+                .find(|rule| rule_matches(rule, origin, method, headers));
             if let Some(rule) = matching
                 && !exposes_required_headers(rule, method)
             {

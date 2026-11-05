@@ -44,6 +44,23 @@ fn existing_matching_cos_rule_cannot_shadow_required_headers() {
 }
 
 #[test]
+fn rules_after_owned_cos_rule_do_not_shadow_it() {
+    let mut owned = asterdrive_cors_rule(&["https://drive.example.com".to_string()]);
+    owned.id = Some(ASTERDRIVE_COS_CORS_RULE_ID.to_string());
+    let mut later_conflict = asterdrive_cors_rule(&["*".to_string()]);
+    later_conflict.id = Some("other-app".into());
+    later_conflict.allowed_methods = vec!["GET".into()];
+    later_conflict.expose_headers.clear();
+    assert!(
+        super::validate_rule_order(
+            &[owned, later_conflict],
+            &["https://drive.example.com".into()]
+        )
+        .is_ok()
+    );
+}
+
+#[test]
 fn replacing_owned_cos_rule_keeps_its_existing_position() {
     let mut owned = asterdrive_cors_rule(&["https://old.example.com".to_string()]);
     owned.id = Some(ASTERDRIVE_COS_CORS_RULE_ID.to_string());
