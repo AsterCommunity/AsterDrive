@@ -1,3 +1,8 @@
+//! Tencent Cloud COS bucket CORS protocol.
+//!
+//! Provider references: [`GET Bucket cors`](https://cloud.tencent.com/document/product/436/8274)
+//! and [`PUT Bucket cors`](https://cloud.tencent.com/document/product/436/8279).
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -70,16 +75,14 @@ impl TencentCosDriver {
         allowed_origins: &[String],
     ) -> Result<TencentCosCorsApplyResult> {
         let mut existing = self.get_bucket_cors().await?;
+        validate_rule_order(&existing.rules, allowed_origins)?;
         let preserved_rule_count = existing
             .rules
             .iter()
             .filter(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID))
             .count();
         let replaced_existing_rule = preserved_rule_count != existing.rules.len();
-        existing
-            .rules
-            .retain(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID));
-        existing.rules.push(asterdrive_cors_rule(allowed_origins));
+        replace_asterdrive_rule(&mut existing.rules, allowed_origins);
         existing.response_vary = Some(true);
 
         let request_id = self.put_bucket_cors(&existing).await?;
@@ -228,6 +231,94 @@ pub(crate) fn asterdrive_cors_rule(allowed_origins: &[String]) -> CosCorsRule {
             "x-cos-hash-crc64ecma".to_string(),
         ],
         max_age_seconds: Some(600),
+    }
+}
+
+const COS_REQUIRED_EXPOSE_HEADERS: &[&str] = &[
+    "ETag",
+    "Content-Range",
+    "Content-Disposition",
+    "Accept-Ranges",
+];
+
+fn wildcard_matches(pattern: &str, value: &str) -> bool {
+    match pattern.split_once('*') {
+        Some((prefix, suffix)) => {
+            !suffix.contains('*')
+                && value.len() >= prefix.len() + suffix.len()
+                && value.starts_with(prefix)
+                && value.ends_with(suffix)
+        }
+        None => pattern.eq_ignore_ascii_case(value),
+    }
+}
+
+fn rule_matches(rule: &CosCorsRule, origin: &str, method: &str, headers: &[&str]) -> bool {
+    rule.allowed_origins
+        .iter()
+        .any(|pattern| wildcard_matches(pattern, origin))
+        && rule
+            .allowed_methods
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(method))
+        && headers.iter().all(|header| {
+            rule.allowed_headers
+                .iter()
+                .any(|candidate| candidate == "*" || candidate.eq_ignore_ascii_case(header))
+        })
+}
+
+fn exposes_required_headers(rule: &CosCorsRule, method: &str) -> bool {
+    let required = match method {
+        "PUT" => &COS_REQUIRED_EXPOSE_HEADERS[..1],
+        "GET" | "HEAD" => COS_REQUIRED_EXPOSE_HEADERS,
+        _ => &[],
+    };
+    required.iter().all(|header| {
+        rule.expose_headers
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(header))
+    })
+}
+
+fn validate_rule_order(rules: &[CosCorsRule], origins: &[String]) -> Result<()> {
+    let requests: &[(&str, &[&str])] = &[
+        // Presigned multipart parts have no required request headers; the
+        // browser's preflight can omit Access-Control-Request-Headers entirely.
+        ("PUT", &[]),
+        ("PUT", &["content-type"]),
+        ("GET", &[]),
+        ("GET", &["range"]),
+        ("HEAD", &[]),
+    ];
+    for origin in origins {
+        for (method, headers) in requests {
+            let matching = rules
+                .iter()
+                .take_while(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID))
+                .find(|rule| rule_matches(rule, origin, method, headers));
+            if let Some(rule) = matching
+                && !exposes_required_headers(rule, method)
+            {
+                return Err(AsterError::from(storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    "an earlier matching COS CORS rule lacks required exposed headers; adjust that rule in the Tencent COS console (no rules were written)",
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn replace_asterdrive_rule(rules: &mut Vec<CosCorsRule>, origins: &[String]) {
+    let desired = asterdrive_cors_rule(origins);
+    if let Some(index) = rules
+        .iter()
+        .position(|rule| rule.id.as_deref() == Some(ASTERDRIVE_COS_CORS_RULE_ID))
+    {
+        rules[index] = desired;
+    } else {
+        rules.push(desired);
     }
 }
 

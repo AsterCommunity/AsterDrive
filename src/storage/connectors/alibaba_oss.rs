@@ -1,7 +1,10 @@
 use async_trait::async_trait;
+use serde::Serialize;
 use std::time::Duration;
 
-use crate::errors::{AsterError, Result};
+use crate::api::api_error_code::ApiErrorCode;
+use crate::config::site_url;
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::storage::drivers::alibaba_oss::{
     AlibabaOssDriver, AlibabaOssDriverConfig, AlibabaOssStaticCredentials,
     cdn::{OssDownloadDelivery, default_cdn_auth_validity_seconds},
@@ -10,19 +13,29 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, StorageConnectorBadgeRgb,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    ObjectStorageConnectorDescriptorInput, StorageConnectorActionId,
+    StorageConnectorActionOutputValueKind, StorageConnectorBadgeRgb,
+    StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
     StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
-    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
-    storage_connector_field, storage_connector_field_with_display,
+    StorageConnectorUiDescriptorInput, custom_action_descriptor,
+    object_storage_connector_descriptor, storage_connector_field,
+    storage_connector_field_with_display,
 };
-use aster_drive_storage::{StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue};
+use aster_drive_storage::{
+    StorageConnectorActionSchema, StorageConnectorConfigSchema, StorageConnectorFieldDefaultValue,
+};
 
-use super::common::{StorageTransferDirection, transfer_strategy_field};
+use super::common::{
+    StorageTransferDirection, action_output_field, boolean_action_output_field,
+    decode_normalized_connector_action_input, transfer_strategy_field,
+    unsupported_connector_action_error,
+};
 use super::{
-    StorageConnector, StorageConnectorCredentialInput, StorageConnectorIcon,
-    StorageConnectorUploadTransport,
+    ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,
+    StorageConnector, StorageConnectorActionResult, StorageConnectorCredentialInput,
+    StorageConnectorIcon, StorageConnectorUploadTransport,
 };
 
 mod localization;
@@ -30,6 +43,93 @@ mod localization;
 pub struct AlibabaOssConnector;
 
 const PROMOTE_FROM_S3_ID: &str = "promote_from_s3";
+const CONFIGURE_CORS_ACTION_ID: &str = "configure_alibaba_oss_cors";
+
+aster_drive_storage::storage_connector_action_schema! {
+    struct ConfigureAlibabaOssCorsActionInput {}
+}
+
+fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorActionDescriptor {
+    custom_action_descriptor(StorageConnectorCustomActionDescriptorInput {
+        action_id: StorageConnectorActionId::declared(CONFIGURE_CORS_ACTION_ID),
+        label_key: "policy_oss_cors_action",
+        description_key: "policy_oss_cors_desc",
+        fields: ConfigureAlibabaOssCorsActionInput::action_fields(),
+        output_fields: vec![
+            action_output_field(
+                "bucket",
+                "policy_oss_cors_output_bucket",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+            action_output_field(
+                "origins",
+                "policy_oss_cors_output_origins",
+                StorageConnectorActionOutputValueKind::StringList,
+            ),
+            action_output_field(
+                "preserved_rule_count",
+                "policy_oss_cors_output_preserved_rules",
+                StorageConnectorActionOutputValueKind::Number,
+            ),
+            action_output_field(
+                "request_id",
+                "policy_oss_cors_output_request_id",
+                StorageConnectorActionOutputValueKind::Text,
+            ),
+            boolean_action_output_field(
+                "changed",
+                "policy_oss_cors_output_changed",
+                "policy_oss_cors_output_yes",
+                "policy_oss_cors_output_no",
+            ),
+        ],
+        supports_draft: true,
+        supports_saved: true,
+        requires_authorization: false,
+        mutates_remote_state: true,
+        requires_confirmation: true,
+    })
+}
+
+#[derive(Serialize)]
+struct AlibabaOssCorsActionOutput {
+    bucket: String,
+    origins: Vec<String>,
+    changed: bool,
+    preserved_rule_count: usize,
+    request_id: Option<String>,
+}
+
+impl From<crate::storage::drivers::alibaba_oss::cors::OssCorsApplyResult>
+    for AlibabaOssCorsActionOutput
+{
+    fn from(value: crate::storage::drivers::alibaba_oss::cors::OssCorsApplyResult) -> Self {
+        Self {
+            bucket: value.bucket,
+            origins: value.origins,
+            changed: value.changed,
+            preserved_rule_count: value.preserved_rule_count,
+            request_id: value.request_id,
+        }
+    }
+}
+
+fn cors_origins(runtime_config: &crate::config::RuntimeConfig) -> Result<Vec<String>> {
+    let raw = site_url::public_site_url_config_value(runtime_config).ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::PolicyActionParameterRequired,
+            "public_site_url must be configured before configuring OSS CORS",
+        )
+    })?;
+    let origins = site_url::parse_public_site_url_value(&raw)?;
+    if origins.is_empty() {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyActionParameterRequired,
+            "public_site_url must contain at least one origin",
+        ));
+    }
+    Ok(origins)
+}
 
 fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
     super::s3::s3_compatible_promotion_descriptor(super::s3::S3CompatiblePromotionDescriptorInput {
@@ -301,6 +401,7 @@ impl AlibabaOssConnector {
                 credential_schema_version: Some(1),
                 related_issues: vec![450, 474, 685],
             });
+        descriptor.actions.push(configure_cors_action_descriptor());
         descriptor.promotions.push(promote_from_s3_descriptor());
         descriptor.capabilities.custom_download_base_url = true;
         descriptor
@@ -440,6 +541,88 @@ impl StorageConnector for AlibabaOssConnector {
             Self::driver_config(config),
             Self::driver_credentials(credentials),
         )?))
+    }
+
+    async fn execute_saved_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        policy: &storage_policy::Model,
+        input: ExecuteSavedStorageConnectorActionInput,
+    ) -> Result<StorageConnectorActionResult> {
+        match input.action_id.as_str() {
+            CONFIGURE_CORS_ACTION_ID => {
+                let _: ConfigureAlibabaOssCorsActionInput =
+                    decode_normalized_connector_action_input(
+                        &configure_cors_action_descriptor(),
+                        &input.values,
+                    )?;
+                let origins = cors_origins(context.runtime_config())?;
+                let config = Self::decode_config(policy)?;
+                let credentials: AlibabaOssStaticCredentialsV1 =
+                    super::common::runtime_static_credential(
+                        context.driver_registry(),
+                        policy,
+                        Self::ID,
+                    )?;
+                let config = Self::driver_config(config);
+                let credentials = Self::driver_credentials(credentials);
+                let result =
+                    AlibabaOssDriver::configure_asterdrive_cors(&config, &credentials, &origins)
+                        .await?;
+                StorageConnectorActionResult::with_output(
+                    input.action_id,
+                    AlibabaOssCorsActionOutput::from(result),
+                )
+            }
+            _ => Err(unsupported_connector_action_error(
+                &self.descriptor(),
+                &input.action_id,
+            )),
+        }
+    }
+
+    async fn execute_draft_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
+        input: ExecuteDraftStorageConnectorActionInput,
+    ) -> Result<StorageConnectorActionResult> {
+        match input.action_id.as_str() {
+            CONFIGURE_CORS_ACTION_ID => {
+                let _: ConfigureAlibabaOssCorsActionInput =
+                    decode_normalized_connector_action_input(
+                        &configure_cors_action_descriptor(),
+                        &input.values,
+                    )?;
+                let origins = cors_origins(context.runtime_config())?;
+                let connection = input.connection;
+                let credential = self
+                    .prepare_draft_credential(
+                        context,
+                        input.policy_id,
+                        connection.storage.credential,
+                    )
+                    .await?;
+                self.validate_credential_input(&credential)?;
+                let connector_config =
+                    self.validate_connector_config(&connection.storage.connector_config)?;
+                self.validate_connection_credential(&connector_config, &credential)?;
+                let config = super::common::decode_normalized_connector_config(&connector_config)?;
+                let credentials = super::common::decode_static_credential(&credential, Self::ID)?;
+                let config = Self::driver_config(config);
+                let credentials = Self::driver_credentials(credentials);
+                let result =
+                    AlibabaOssDriver::configure_asterdrive_cors(&config, &credentials, &origins)
+                        .await?;
+                StorageConnectorActionResult::with_output(
+                    input.action_id,
+                    AlibabaOssCorsActionOutput::from(result),
+                )
+            }
+            _ => Err(unsupported_connector_action_error(
+                &self.descriptor(),
+                &input.action_id,
+            )),
+        }
     }
 
     fn upload_transport(

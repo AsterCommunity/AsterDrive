@@ -16,6 +16,7 @@ use reqwest::{Method, StatusCode, Url};
 use serde::Serialize;
 
 use super::AzureBlobDriver;
+use crate::config::OUTBOUND_HTTP_USER_AGENT;
 
 #[cfg(test)]
 mod tests;
@@ -195,6 +196,7 @@ impl AzureBlobDriver {
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
+            .user_agent(OUTBOUND_HTTP_USER_AGENT)
             .build()
             .map_err(|_| {
                 storage_driver_error(

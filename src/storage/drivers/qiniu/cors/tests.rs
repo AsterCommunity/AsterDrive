@@ -56,7 +56,24 @@ fn first_matching_rule_is_authoritative_for_simple_reads_and_preflight() {
             .kind(),
         StorageErrorKind::Precondition
     );
-    assert!(!needs_rule(&[complete, shadow], &origins()).unwrap());
+    assert!(!needs_rule(&[complete.clone(), shadow], &origins()).unwrap());
+
+    let mut put_shadow = complete.clone();
+    put_shadow.allowed_method = vec!["PUT".into()];
+    put_shadow.exposed_header.clear();
+    assert_eq!(
+        needs_rule(&[put_shadow], &origins()).unwrap_err().kind(),
+        StorageErrorKind::Precondition
+    );
+    let mut put_shadow = asterdrive_rule(&origins());
+    put_shadow.allowed_method = vec!["PUT".into()];
+    put_shadow.exposed_header.clear();
+    assert_eq!(
+        needs_rule(&[put_shadow, complete], &origins())
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Precondition
+    );
     for (pattern, value, expected) in [
         ("*", "https://drive.test", true),
         ("https://*.test", "https://drive.test", true),

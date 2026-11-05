@@ -337,6 +337,14 @@ async fn mock_service(
                                     .collect(),
                                 body: String::from_utf8(body.to_vec()).unwrap(),
                             });
+                            assert_eq!(
+                                request
+                                    .headers()
+                                    .get("user-agent")
+                                    .and_then(|value| value.to_str().ok()),
+                                Some(crate::config::OUTBOUND_HTTP_USER_AGENT),
+                                "Azure Blob CORS management requests must identify AsterDrive",
+                            );
                             let mut responses = responses.lock().unwrap();
                             let (status, body) =
                                 responses.pop_front().expect("unexpected extra request");
