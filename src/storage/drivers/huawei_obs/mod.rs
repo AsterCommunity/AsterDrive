@@ -8,6 +8,7 @@
 //! than S3 ListObjectsV2.
 
 pub mod cdn;
+pub(crate) mod cors;
 mod signing;
 #[cfg(test)]
 mod tests;

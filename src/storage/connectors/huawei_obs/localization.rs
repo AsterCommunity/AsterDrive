@@ -2,6 +2,43 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_action",
+        "Configure CORS",
+        "配置 CORS",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_desc",
+        "Add the current public site origins to this OBS bucket's CORS rules. Existing rules are preserved; an equivalent rule is not written again. This does not configure CDN response headers.",
+        "将当前公开站点来源加入此 OBS bucket 的 CORS 规则。保留已有规则，等价规则不会重复写入；不会配置 CDN 响应头。",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_output_bucket",
+        "Bucket (scope)",
+        "Bucket（配置范围）",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_output_origins",
+        "Allowed origins",
+        "允许的来源",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_output_preserved_rules",
+        "Preserved rules",
+        "保留规则数",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_output_request_id",
+        "OBS request ID",
+        "OBS 请求 ID",
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "policy_obs_cors_output_changed",
+        "Changed",
+        "是否变更",
+    ),
+    aster_drive_storage::storage_connector_message!("policy_obs_cors_output_yes", "Yes", "是",),
+    aster_drive_storage::storage_connector_message!("policy_obs_cors_output_no", "No", "否",),
+    aster_drive_storage::storage_connector_message!(
         "driver_type_huawei_obs",
         "Huawei Cloud OBS",
         "华为云 OBS",
