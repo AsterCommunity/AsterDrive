@@ -12,6 +12,7 @@ fn driver(endpoint: &str) -> AzureBlobDriver {
             container: "container-not-service".into(),
             base_path: "prefix-not-service".into(),
             chunk_size: 0,
+            ..Default::default()
         },
         AzureBlobStaticCredentials {
             account_name: "account".into(),

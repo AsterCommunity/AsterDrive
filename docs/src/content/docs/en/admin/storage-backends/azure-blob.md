@@ -195,27 +195,59 @@ Fill in:
 Do not paste the Azure Portal URL, container URL, or a SAS URL into Endpoint. Endpoint should look like `https://<account>.blob.core.windows.net`. The container is entered separately in the Bucket / Container field.
 :::
 
-## Custom-Domain Endpoint
+## Custom Domains and Front Door Download Delivery
 
-Azure Blob supports placing a custom domain (for example `https://files.contoso.example`) in front of the Blob endpoint. Note that Azure's direct CNAME mapping is HTTP-only, while AsterDrive requires HTTPS for non-loopback endpoints, so a production custom domain must be served through Front Door, a CDN, or an HTTPS proxy that provides TLS. AsterDrive accepts such HTTPS custom domains in the Endpoint field, but SAS signatures are still computed with the Storage account name, not the custom host.
+Supported delivery uses client SAS with Azure Front Door Standard/Premium. Existing policies default to Blob origin when the new fields are absent. Account credentials remain unchanged; no separate CDN credential or `azure_use_cname` switch is needed.
 
-| Scenario | Supported | Notes |
-| --- | --- | --- |
-| Direct CNAME to the Blob endpoint | No | Azure's direct mapping is HTTP-only; AsterDrive rejects non-loopback HTTP, and the Blob endpoint certificate only covers `<account>.blob.core.windows.net`, so TLS cannot be completed for a custom domain |
-| HTTPS proxy / Front Door | Yes | Front Door/CDN can provide TLS and custom domains; cache behavior is tracked separately |
-| Static website endpoint | No | The static website endpoint is not equivalent to the Blob API and cannot be used for private file operations |
-| CDN edge caching/auth | No | Tracked separately in #689; this page does not promise CDN cache invalidation or edge authentication |
+| Field | Value |
+| --- | --- |
+| Endpoint | Blob API address, e.g. `https://myaccount.blob.core.windows.net`, or an HTTPS proxy supporting the complete Blob API |
+| Download strategy | `presigned` uses the selected delivery; `relay_stream` always uses AsterDrive while retaining delivery settings |
+| Download delivery mode | `azure_blob_origin` (default) or `azure_front_door_sas` |
+| Download address | Required for Front Door, e.g. `https://files.example.com`; HTTPS domain only, without container, path or SAS |
+| CDN cache time (seconds) | `0–31622400`, default `0` (disabled); maximum 366 days |
 
-Endpoint validation rules:
+Only browser-facing presigned downloads and eligible previews use Front Door. Uploads, SAS PUT, blocks, list, copy, backend reads, cleanup, connection tests and CORS management retain Endpoint. Inline content requiring same-origin isolation retains AsterDrive relay. Download errors do not reroute other operations to Front Door.
 
-- Must be an absolute `http://` or `https://` URL
-- Must not contain username, password, query, or fragment
-- Must not contain control characters or `..` path traversal segments
-- Plain HTTP is accepted only for loopback hosts (for example local Azurite at `http://127.0.0.1:10000/<account>` or `http://localhost:10000/<account>`); every other endpoint must use HTTPS
+Example `connector_config.values` (account credentials remain separately in `credential`):
 
-:::caution[Do not weaken HTTPS requirements]
-Use an HTTPS endpoint in production. Do not fall back to HTTP to bypass certificate or configuration issues.
-:::
+```json
+{
+  "endpoint": "https://myaccount.blob.core.windows.net",
+  "bucket": "archive",
+  "base_path": "files",
+  "object_storage_upload_strategy": "presigned",
+  "object_storage_download_strategy": "presigned",
+  "download_delivery": "azure_front_door_sas",
+  "download_base_url": "https://files.example.com",
+  "azure_cdn_cache_max_age_seconds": 300
+}
+```
+
+Object `report.pdf` downloads from `https://files.example.com/archive/files/report.pdf?...SAS...`. The container is appended once. The SAS canonical resource remains `/blob/myaccount/archive/files/report.pdf`. The driver encodes Unicode, spaces and literal percent signs and signs filename, MIME and cache overrides.
+
+### Azure Console Setup
+
+1. Create Front Door Standard/Premium, configure the download domain and TLS certificate. Set origin and Origin host header to the real Blob account host. Leave Origin path empty and do not rewrite container/object paths.
+2. Forward the complete client SAS query and `rscc`, `rscd`, `rsct`. Do not remove or rewrite them, or inject a fixed origin SAS to replace client SAS.
+3. Select **Use Query String** including all query parameters: SAS signature, expiry and response overrides. Do not cache by object path alone.
+4. Respect origin `Cache-Control`. Configure and verify CORS, OPTIONS, GET, HEAD and Range on the download domain. Upload CORS remains on Blob origin.
+5. Standard requires a reachable origin; Premium can use Private Link following the official setup. Private Link isolates the origin network, not end-user authorization.
+
+References: [Storage Blobs scenario](https://learn.microsoft.com/azure/frontdoor/scenario-storage-blobs), [Front Door caching](https://learn.microsoft.com/azure/frontdoor/front-door-caching), [Service SAS](https://learn.microsoft.com/rest/api/storageservices/create-service-sas).
+
+### Cache and Authorization Boundaries
+
+- `0` signs `rscc=private, max-age=0, must-revalidate`, preventing Front Door caching.
+- Positive `N` signs `rscc=public, max-age=0, s-maxage=N`, permitting shared edge caching while browser caches must revalidate.
+- Retention starts when the origin response enters the cache; SAS expiry starts at issuance. Cache hits do not ask Blob to revalidate SAS, so an old URL can still hit after SAS expiry. Different SAS URLs create separate cache entries and frequent issuance can reduce hit rates.
+- Permission changes, deletion, renaming and policy edits do not immediately remove cached copies or revoke issued URLs. Purge Front Door manually for emergency removal. Keep cache time `0` when origin authorization/expiry must be checked on each request, or deploy separate edge authorization. This feature does not create edge authorization or automatically purge caches.
+
+### Endpoint and Real-Provider Acceptance
+
+Endpoint must be an absolute HTTP(S) URI without credentials, query, fragment, control characters or `..` segments. HTTPS is required except for local Azurite loopback endpoints; download addresses always require HTTPS. Azure direct CNAME mapping only supports HTTP; use Front Door or an HTTPS proxy for TLS. Static website endpoints are not the Blob API and cannot serve private file operations. Put full Blob API proxies in Endpoint and download-only Front Door domains in Download address.
+
+Local tests prove configuration, SAS, routing, response headers and browser forms; Azurite proves Blob API behavior only. Verify real Front Door certificates, private origins, CORS, cache misses/hits, hits after SAS expiry and purge separately with your Azure resources.
 
 ## 5. Test the Connection Before Saving Production Routing
 

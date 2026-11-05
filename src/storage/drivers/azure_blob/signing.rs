@@ -21,6 +21,7 @@ impl AzureBlobDriver {
         permissions: &str,
         expires: Duration,
         response_headers: AzureBlobResponseHeaders<'_>,
+        signed_protocol: &str,
     ) -> Result<String> {
         let starts_on = Utc::now() - chrono::Duration::minutes(5);
         let expires_on = Utc::now()
@@ -40,7 +41,6 @@ impl AzureBlobDriver {
             None => format!("/blob/{}/{}", self.account_name, self.container),
         };
         let signed_resource = if blob_name.is_some() { "b" } else { "c" };
-        let signed_protocol = self.sas_protocol();
 
         // Service SAS string-to-sign for version 2020-12-06+.
         // Empty fields are significant and must remain as blank lines.

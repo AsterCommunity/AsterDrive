@@ -243,6 +243,9 @@ fn azure_config(upload: ObjectStorageUploadStrategy) -> AzureBlobConnectorConfig
         endpoint: "https://account.blob.core.windows.net".to_string(),
         bucket: "archive".to_string(),
         base_path: "tenant-a".to_string(),
+        download_delivery: Default::default(),
+        download_base_url: String::new(),
+        azure_cdn_cache_max_age_seconds: 0,
         object_storage_upload_strategy: upload,
         object_storage_download_strategy: ObjectStorageDownloadStrategy::RelayStream,
     }
@@ -2254,6 +2257,56 @@ fn upload_transport_is_resolved_by_connector_owned_typed_config() {
     for (id, policy, expected) in cases {
         assert_eq!(connector(id).upload_transport(&policy).unwrap(), expected);
     }
+}
+
+#[test]
+fn azure_front_door_fields_follow_delivery_mode_and_relay_keeps_precedence() {
+    let azure = connector(AzureBlobConnector::ID);
+    let descriptor = azure.descriptor();
+    assert!(descriptor.capabilities.custom_download_base_url);
+    let delivery = descriptor
+        .fields
+        .iter()
+        .find(|field| field.name == "download_delivery")
+        .unwrap();
+    assert_eq!(
+        delivery.help_key.as_deref(),
+        Some("azure_download_delivery_desc")
+    );
+    assert!(
+        delivery
+            .select
+            .as_ref()
+            .unwrap()
+            .options
+            .iter()
+            .all(|option| option.description_key.is_some())
+    );
+    for name in ["download_base_url", "azure_cdn_cache_max_age_seconds"] {
+        let field = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == name)
+            .unwrap();
+        assert_eq!(field.visible_when.len(), 1);
+        assert_eq!(field.visible_when[0].field, "download_delivery");
+        assert_eq!(
+            serde_json::to_value(&field.visible_when[0].value).unwrap(),
+            "azure_front_door_sas"
+        );
+    }
+    let mut config = azure_config(ObjectStorageUploadStrategy::RelayStream);
+    config.download_delivery =
+        super::super::drivers::azure_blob::cdn::AzureBlobDownloadDelivery::AzureFrontDoorSas;
+    config.download_base_url = "https://files.example.test".into();
+    config.azure_cdn_cache_max_age_seconds = 300;
+    let policy = super::test_support::policy(
+        AzureBlobConnector::ID,
+        1,
+        serde_json::to_value(config).unwrap(),
+        Default::default(),
+    );
+    assert!(!azure.direct_download_enabled(&policy).unwrap());
 }
 
 #[test]

@@ -194,29 +194,59 @@ Azure Blob
 不要把 Azure Portal 首页 URL、container URL 或 SAS URL 填进 Endpoint。Endpoint 应该类似 `https://<account>.blob.core.windows.net`。Container 单独填到“Bucket / 容器”字段。
 :::
 
-## 自定义域名 endpoint
+## 自定义域名与 Front Door 下载交付
 
-Azure Blob 支持把自定义域名（例如 `https://files.contoso.example`）接入到 Blob endpoint 之前。注意 Azure 的直接 CNAME 映射只提供 HTTP，而 AsterDrive 要求非 loopback endpoint 使用 HTTPS，因此生产可用的自定义域名需要经 Front Door、CDN 或 HTTPS 代理提供 TLS。AsterDrive 允许把这类 HTTPS 自定义域名填进 Endpoint，但 SAS 签名仍按 Storage account name 计算，不会改用自定义域名作为签名主体。
+支持 Azure Front Door Standard/Premium 的客户端 SAS 模式。现有策略缺少新字段时默认使用 Blob 源站，不改变旧配置的下载路由。账户凭据沿用现有配置，不需要额外 CDN 密钥或 `azure_use_cname` 开关。
 
-适用边界：
+| 字段 | 填写方式 |
+| --- | --- |
+| Endpoint | Blob API 地址，例如 `https://myaccount.blob.core.windows.net`，或支持完整 Blob API 的 HTTPS 代理 |
+| 下载方式 | `presigned` 使用所选交付入口；`relay_stream` 始终经 AsterDrive 中继，同时保留交付设置 |
+| 下载交付方式 | `azure_blob_origin`（默认）或 `azure_front_door_sas` |
+| 下载地址 | Front Door 模式必填，例如 `https://files.example.com`，只填 HTTPS 域名，不包含容器、路径或 SAS |
+| CDN 缓存时间（秒） | Front Door 模式支持 `0–31622400`，默认 `0`（不缓存），上限为 366 天 |
 
-| 场景 | 是否适用 | 说明 |
-| --- | --- | --- |
-| 直接 CNAME 到 Blob endpoint | 否 | Azure 直接映射只提供 HTTP；AsterDrive 拒绝非 loopback 的 HTTP endpoint，且 Blob endpoint 的证书只覆盖 `<account>.blob.core.windows.net`，无法为自定义域名完成 HTTPS TLS 验证 |
-| 经 HTTPS 代理 / Front Door | 是 | Front Door/CDN 可提供 TLS 和自定义域名；缓存行为由独立 CDN 功能跟踪 |
-| 静态网站 endpoint | 否 | 静态网站 endpoint 不等价于 Blob API，不能用于私有文件读写 |
-| CDN 边缘缓存/鉴权 | 否 | 由 #689 独立跟踪，本项不承诺 CDN 缓存失效或边缘鉴权 |
+Front Door 只用于用户侧预签名下载和允许直连的预览。上传、SAS PUT、分块、list、copy、后端读取、清理、连接测试和 CORS 管理仍使用 Endpoint。需要同源隔离的内联预览仍走 AsterDrive 中继，下载故障不会把其他操作切换至 Front Door。
 
-Endpoint 校验规则：
+API 的 `connector_config.values` 示例（账户凭据仍单独保存在 `credential` 中）：
 
-- 必须是 `http://` 或 `https://` 绝对 URL
-- 不能包含用户名、密码、query、fragment
-- 不能包含控制字符或 `..` 路径穿越段
-- 只有 loopback 地址（例如本地 Azurite 的 `http://127.0.0.1:10000/<account>` 或 `http://localhost:10000/<account>`）允许 HTTP；其余 endpoint 必须使用 HTTPS
+```json
+{
+  "endpoint": "https://myaccount.blob.core.windows.net",
+  "bucket": "archive",
+  "base_path": "files",
+  "object_storage_upload_strategy": "presigned",
+  "object_storage_download_strategy": "presigned",
+  "download_delivery": "azure_front_door_sas",
+  "download_base_url": "https://files.example.com",
+  "azure_cdn_cache_max_age_seconds": 300
+}
+```
 
-:::caution[不要降低 HTTPS 要求]
-生产环境应使用 HTTPS endpoint。不要为了绕过证书或配置问题改回 HTTP。
-:::
+对象 `report.pdf` 下载地址为 `https://files.example.com/archive/files/report.pdf?...SAS...`。容器只追加一次，SAS canonical resource 始终使用 `/blob/myaccount/archive/files/report.pdf`。中文、空格、字面百分号由驱动编码，文件名、MIME 和缓存覆盖值也参与 SAS 签名。
+
+### Azure 控制台配置
+
+1. 创建 Front Door Standard/Premium，绑定下载域名与 TLS 证书。源站及 Origin host header 使用真实账户的 Blob 主机；Origin path 留空，不改写容器和对象路径。
+2. 完整转发客户端 SAS 和 `rscc`、`rscd`、`rsct`，不删除、改写或注入固定源站 SAS 来代替客户端 SAS。
+3. 选择 **Use Query String**，全部查询参数参与缓存键，包括 SAS 签名、有效期和响应头覆盖；不要仅用对象路径作缓存键。
+4. 缓存规则遵守源站 `Cache-Control`。单独配置并验收下载域名的 CORS、OPTIONS、GET、HEAD 和 Range，上传仍验收 Blob 源站 CORS。
+5. Standard 需要源站网络可达；Premium 可按官方流程配置 Private Link。Private Link 是回源网络隔离，不是用户鉴权。
+
+依据：[Storage Blobs 场景](https://learn.microsoft.com/azure/frontdoor/scenario-storage-blobs)、[Front Door 缓存](https://learn.microsoft.com/azure/frontdoor/front-door-caching)、[Service SAS](https://learn.microsoft.com/rest/api/storageservices/create-service-sas)。
+
+### 缓存与授权边界
+
+- `0` 签入 `rscc=private, max-age=0, must-revalidate`，Front Door 不缓存。
+- 正数 `N` 签入 `rscc=public, max-age=0, s-maxage=N`，允许边缘共享缓存，浏览器缓存仍需重新验证。
+- 缓存保留时间从回源缓存响应时计算，SAS 有效期从签发时计算。缓存命中不会再次向 Blob 校验 SAS，旧链接可能在 SAS 到期后继续命中。不同 SAS 会形成不同缓存项，频繁签发新链接会降低命中率。
+- 权限修改、文件删除/重命名和策略编辑不会立即清除旧缓存或撤销已签发 URL。紧急撤销需手动 Front Door purge；要求逐次向源站验证授权/过期时保持缓存时间 `0`，或另行部署边缘鉴权。本功能不创建边缘鉴权或自动 purge。
+
+### Endpoint 与真实环境验收
+
+Endpoint 必须为完整 HTTP(S) URI，不含凭据、query、fragment、控制字符和 `..` 路径段。除本地 Azurite loopback 外必须 HTTPS；下载地址始终 HTTPS。Azure 裸 CNAME 映射只支持 HTTP，需要 Front Door 或 HTTPS 代理提供 TLS。静态网站 endpoint 不是 Blob API，不能用于私有文件读写。完整 Blob API 代理填 Endpoint，只读 Front Door 域名填下载地址。
+
+本地测试证明配置、SAS、请求路由、响应头和表单行为；Azurite 只证明 Blob API。真实 Front Door 证书、私有回源、CORS、缓存未命中/命中、过期后的缓存命中和 purge 必须使用自己的 Azure 资源分别验收。
 
 ## 5. 保存前先测试连接
 

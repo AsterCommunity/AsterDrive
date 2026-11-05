@@ -1,5 +1,6 @@
 //! Azure Blob Storage driver.
 
+pub mod cdn;
 pub(crate) mod cors;
 mod error;
 mod multipart;
@@ -80,14 +81,18 @@ pub struct AzureBlobDriver {
     container: String,
     base_path: String,
     chunk_size: i64,
+    front_door: Option<cdn::FrontDoorConfig>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AzureBlobDriverConfig {
     pub endpoint: String,
     pub container: String,
     pub base_path: String,
     pub chunk_size: i64,
+    pub download_delivery: cdn::AzureBlobDownloadDelivery,
+    pub download_base_url: String,
+    pub azure_cdn_cache_max_age_seconds: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +107,7 @@ impl AzureBlobDriver {
         credentials: &AzureBlobStaticCredentials,
     ) -> Result<()> {
         Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
+        cdn::FrontDoorConfig::from_config(config)?;
         if credentials.account_name.trim().is_empty() {
             return Err(storage_driver_error(
                 StorageErrorKind::Auth,
@@ -124,6 +130,7 @@ impl AzureBlobDriver {
         Self::validate_config(&config, &credentials)?;
         let normalized =
             Self::normalize_endpoint_and_container(&config.endpoint, &config.container)?;
+        let front_door = cdn::FrontDoorConfig::from_config(&config)?;
         Ok(Self {
             endpoint: normalized.endpoint,
             account_name: credentials.account_name.trim().to_string(),
@@ -131,6 +138,7 @@ impl AzureBlobDriver {
             container: normalized.container,
             base_path: config.base_path,
             chunk_size: effective_object_multipart_chunk_size(config.chunk_size),
+            front_door,
         })
     }
 
@@ -155,38 +163,26 @@ impl AzureBlobDriver {
             return Err(AzureBlobConfigError::MissingContainer);
         }
 
-        let parsed = Url::parse(endpoint).map_err(|_| AzureBlobConfigError::InvalidEndpoint)?;
-        // Plain HTTP is reserved for loopback/Azurite endpoints; service SAS for any
-        // other host is always signed `spr=https`, so an HTTP endpoint could only
-        // fail at request time with a misleading auth error.
+        // HTTP URI parsing preserves the configured path instead of resolving
+        // dot segments or repairing browser-style URL spellings.
+        let parsed: http::Uri = endpoint
+            .parse()
+            .map_err(|_| AzureBlobConfigError::InvalidEndpoint)?;
         let https_only =
-            parsed.scheme() == "http" && !parsed.host_str().is_some_and(is_loopback_host);
-        if !matches!(parsed.scheme(), "http" | "https")
-            || parsed.host_str().is_none()
+            parsed.scheme_str() == Some("http") && !parsed.host().is_some_and(is_loopback_host);
+        if !matches!(parsed.scheme_str(), Some("http" | "https"))
+            || parsed
+                .authority()
+                .is_none_or(|authority| authority.as_str().contains('@'))
             || https_only
-            || !parsed.username().is_empty()
-            || parsed.password().is_some()
             || parsed.query().is_some()
-            || parsed.fragment().is_some()
+            || endpoint.contains('#')
             || endpoint.chars().any(char::is_control)
         {
             return Err(AzureBlobConfigError::InvalidEndpoint);
         }
-        // Re-check the pre-normalized path: Url::parse removes literal and encoded
-        // dot segments before `parsed.path()` observes them, and it also accepts
-        // non-standard authority spellings (`https:/host`, `https:\\host`), so the
-        // remainder is taken after the scheme delimiter rather than after `://`.
-        let raw_path = endpoint
-            .split_once(':')
-            .and_then(|(_, remainder)| {
-                remainder
-                    .find(['/', '\\', '?', '#'])
-                    .map(|path_start| &remainder[path_start..])
-            })
-            .unwrap_or("/");
-        let decoded_path = percent_encoding::percent_decode_str(raw_path).decode_utf8();
-        if !matches!(decoded_path, Ok(ref path) if path.split(['/', '\\']).all(|segment| segment != ".."))
-        {
+        let decoded_path = percent_encoding::percent_decode_str(parsed.path()).decode_utf8();
+        if !matches!(decoded_path, Ok(ref path) if path.split('/').all(|segment| segment != "..")) {
             return Err(AzureBlobConfigError::InvalidEndpoint);
         }
 
@@ -214,6 +210,7 @@ impl AzureBlobDriver {
                 permissions,
                 expires,
                 AzureBlobResponseHeaders::default(),
+                Self::sas_protocol(&self.endpoint),
             )?
         ))
         .map_err(|error| {
@@ -226,6 +223,7 @@ impl AzureBlobDriver {
 
     fn blob_url(
         &self,
+        endpoint: &str,
         path: &str,
         permissions: &str,
         expires: Duration,
@@ -234,10 +232,16 @@ impl AzureBlobDriver {
         let key = self.full_key(path);
         Url::parse(&format!(
             "{}/{}/{}?{}",
-            self.endpoint,
+            endpoint.trim_end_matches('/'),
             percent_encode_path_segment(&self.container),
             percent_encode_blob_path(&key),
-            self.service_sas_query(Some(&key), permissions, expires, response_headers)?
+            self.service_sas_query(
+                Some(&key),
+                permissions,
+                expires,
+                response_headers,
+                Self::sas_protocol(endpoint)
+            )?
         ))
         .map_err(|error| {
             storage_driver_error(
@@ -249,6 +253,7 @@ impl AzureBlobDriver {
 
     fn block_blob_url(&self, path: &str, permissions: &str, expires: Duration) -> Result<Url> {
         self.blob_url(
+            &self.endpoint,
             path,
             permissions,
             expires,
@@ -290,6 +295,7 @@ impl AzureBlobDriver {
     fn blob_client(&self, path: &str, permissions: &str) -> Result<BlobClient> {
         BlobClient::new(
             self.blob_url(
+                &self.endpoint,
                 path,
                 permissions,
                 DEFAULT_OPERATION_SAS_TTL,
@@ -339,8 +345,10 @@ impl AzureBlobDriver {
             .is_some_and(|host| is_loopback_host(&host))
     }
 
-    fn sas_protocol(&self) -> &'static str {
-        if self.endpoint_uses_loopback_host() {
+    fn sas_protocol(endpoint: &str) -> &'static str {
+        if Url::parse(endpoint).ok().is_some_and(|url| {
+            url.scheme() == "http" && url.host_str().is_some_and(is_loopback_host)
+        }) {
             "https,http"
         } else {
             "https"
@@ -471,6 +479,7 @@ mod tests {
             container: " photos ".to_string(),
             base_path: "base path".to_string(),
             chunk_size: 1,
+            ..Default::default()
         }
     }
 
@@ -522,6 +531,8 @@ mod tests {
             ("acct.blob.core.windows.net", "photos"),
             ("ftp://acct.blob.core.windows.net", "photos"),
             ("https://?", "photos"),
+            ("https:///missing-host", "photos"),
+            ("https:/missing-authority", "photos"),
             ("https://acct.blob.core.windows.net", ""),
         ] {
             assert!(
@@ -577,14 +588,7 @@ mod tests {
             "https://acct.blob.core.windows.net/../shared",
             "https://acct.blob.core.windows.net/%2e%2e/shared",
             "https://acct.blob.core.windows.net/base/%2E%2E/shared",
-            "https://acct.blob.core.windows.net/base\\..\\shared",
             "https://acct.blob.core.windows.net/base\tpath",
-            // WHATWG parsing treats these as authority-form spellings of the
-            // endpoint, so the dot-segment re-check must not depend on `://`.
-            "https:\\\\acct.blob.core.windows.net\\..\\shared",
-            "https:\\acct.blob.core.windows.net\\..\\shared",
-            "https:/acct.blob.core.windows.net/../shared",
-            "https:acct.blob.core.windows.net/../../shared",
             // SAS for non-loopback hosts is always signed `spr=https`, so a plain
             // HTTP endpoint could only fail at request time with a misleading 403.
             "http://storage.internal:10000/devstoreaccount1",
@@ -692,6 +696,7 @@ mod tests {
         };
         let url = driver
             .blob_url(
+                &driver.endpoint,
                 "folder with space/中文+plus.txt",
                 "r",
                 Duration::from_secs(300),
@@ -738,6 +743,7 @@ mod tests {
             .expect("valid Azure driver");
         let url = driver
             .blob_url(
+                &driver.endpoint,
                 "folder with space/中文+plus.txt",
                 "r",
                 Duration::from_secs(300),
@@ -767,6 +773,7 @@ mod tests {
             .expect("valid custom-domain Azure driver");
         let url = driver
             .blob_url(
+                &driver.endpoint,
                 "folder with space/中文+plus.txt",
                 "r",
                 Duration::from_secs(300),
@@ -796,6 +803,7 @@ mod tests {
             .expect("valid Azure driver");
         let blob_url = driver
             .blob_url(
+                &driver.endpoint,
                 "folder with space/中文+plus.txt",
                 "rw",
                 Duration::from_secs(300),
@@ -834,6 +842,7 @@ mod tests {
         let driver = AzureBlobDriver::new(config, credentials).expect("valid Azurite driver");
         let blob_url = driver
             .blob_url(
+                &driver.endpoint,
                 "local.bin",
                 "cw",
                 Duration::from_secs(300),

@@ -128,6 +128,7 @@ impl StorageDriver for AzureBlobDriver {
         dest_path: &str,
     ) -> aster_drive_storage::Result<String> {
         let source_url = self.blob_url(
+            &self.endpoint,
             src_path,
             "r",
             DEFAULT_OPERATION_SAS_TTL,

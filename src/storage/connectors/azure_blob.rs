@@ -3,6 +3,9 @@ use async_trait::async_trait;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
+use crate::storage::drivers::azure_blob::cdn::{
+    AzureBlobDownloadDelivery, MAX_CACHE_MAX_AGE_SECONDS,
+};
 use crate::storage::drivers::azure_blob::{
     AzureBlobConfigError, AzureBlobDriver, AzureBlobDriverConfig, AzureBlobStaticCredentials,
 };
@@ -149,6 +152,57 @@ aster_drive_storage::storage_connector_schema! {
             field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
             field
         },
+        #[serde(default)]
+        pub download_delivery: AzureBlobDownloadDelivery => {
+            let mut field = aster_drive_storage::storage_connector_select_field(
+                "download_delivery", StorageConnectorFieldScope::ConnectorConfig, true,
+                vec![
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "azure_blob_origin", label_key: "azure_download_origin", description_key: Some("azure_download_origin_desc") },
+                    aster_drive_storage::StorageConnectorSelectOptionInput { value: "azure_front_door_sas", label_key: "azure_download_front_door", description_key: Some("azure_download_front_door_desc") },
+                ],
+            );
+            field.label_key = "azure_download_delivery".into();
+            field.help_key = Some("azure_download_delivery_desc".into());
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String("azure_blob_origin".into()));
+            field
+        },
+        #[serde(default)]
+        pub download_base_url: String => {
+            let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                name: "download_base_url", scope: StorageConnectorFieldScope::ConnectorConfig,
+                kind: StorageConnectorFieldKind::Text, required: false, secret: false,
+                label_key: "download_base_url", placeholder: Some("https://files.example.com"),
+                help_key: Some("azure_download_base_url_desc"), required_message_key: None,
+                invalid_protocol_message_key: Some("azure_blob_endpoint_protocol_required_error"),
+                allowed_endpoint_protocols: vec!["https:"],
+                allow_endpoint_without_protocol: false, trim_on_blur: true,
+            });
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(String::new()));
+            field.default_mode = aster_drive_storage::StorageConnectorFieldDefaultMode::MissingOrEmptyText;
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false, scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("azure_front_door_sas".into()),
+            }];
+            field.required_when = field.visible_when.clone();
+            field
+        },
+        #[serde(default)]
+        pub azure_cdn_cache_max_age_seconds: u32 => {
+            let mut field = storage_connector_field(
+                "azure_cdn_cache_max_age_seconds", StorageConnectorFieldScope::ConnectorConfig,
+                StorageConnectorFieldKind::Number, false, false,
+            );
+            field.label_key = "azure_cdn_cache_max_age_seconds".into();
+            field.help_key = Some("azure_cdn_cache_max_age_seconds_desc".into());
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(0));
+            field.validation.min_integer = Some(0);
+            field.validation.max_integer = Some(i64::from(MAX_CACHE_MAX_AGE_SECONDS));
+            field.visible_when = vec![aster_drive_storage::StorageConnectorFieldCondition {
+                negate: false, scope: None, field: "download_delivery".into(),
+                value: StorageConnectorFieldDefaultValue::String("azure_front_door_sas".into()),
+            }];
+            field
+        },
         pub object_storage_upload_strategy: ObjectStorageUploadStrategy => transfer_strategy_field(
             "object_storage_upload_strategy", StorageTransferDirection::Upload,
         ),
@@ -187,6 +241,9 @@ impl AzureBlobConnector {
             container: config.bucket,
             base_path: config.base_path,
             chunk_size,
+            download_delivery: config.download_delivery,
+            download_base_url: config.download_base_url,
+            azure_cdn_cache_max_age_seconds: config.azure_cdn_cache_max_age_seconds,
         }
     }
 
@@ -224,8 +281,9 @@ impl AzureBlobConnector {
                 storage_native_processing: false,
                 config_schema_version: 1,
                 credential_schema_version: Some(1),
-                related_issues: vec![328, 329, 734],
+                related_issues: vec![328, 329, 689, 690, 734],
             });
+        descriptor.capabilities.custom_download_base_url = true;
         descriptor.actions.push(configure_cors_action_descriptor());
         descriptor
     }
@@ -282,6 +340,14 @@ impl StorageConnector for AzureBlobConnector {
                 })?;
         config.endpoint = connection.endpoint;
         config.bucket = connection.container;
+        config.download_base_url = config
+            .download_base_url
+            .trim()
+            .trim_end_matches('/')
+            .to_string();
+        crate::storage::drivers::azure_blob::cdn::FrontDoorConfig::from_config(
+            &Self::driver_config(0, config.clone()),
+        )?;
         super::common::encode_normalized_connector_config(
             normalized.connector_id,
             normalized.schema_version,

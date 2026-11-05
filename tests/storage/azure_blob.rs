@@ -45,6 +45,7 @@ fn azure_driver(endpoint: &str, container: &str, base_path: &str) -> AzureBlobDr
             container: container.to_string(),
             base_path: base_path.to_string(),
             chunk_size: 5_242_880,
+            ..Default::default()
         },
         AzureBlobStaticCredentials {
             account_name: AZURITE_ACCOUNT.to_string(),
@@ -680,7 +681,17 @@ async fn test_azure_blob_server_get_targets_configured_host_with_sas_query() {
         request
     });
 
-    let driver = azure_driver(&endpoint, "capture", "");
+    let driver = AzureBlobDriver::new(
+        AzureBlobDriverConfig {
+            endpoint,
+            container: "capture".into(),
+            download_delivery: aster_drive::storage::drivers::azure_blob::cdn::AzureBlobDownloadDelivery::AzureFrontDoorSas,
+            download_base_url: "https://downloads.example.test".into(),
+            azure_cdn_cache_max_age_seconds: 300,
+            ..Default::default()
+        },
+        AzureBlobStaticCredentials { account_name: AZURITE_ACCOUNT.into(), account_key: AZURITE_ACCOUNT_KEY.into() },
+    ).unwrap();
     let body = driver.get("docs/space dir/文件+plus.txt").await.unwrap();
     assert_eq!(body, b"hello");
     let request = capture.await.unwrap();

@@ -2,6 +2,51 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "azure_download_delivery_desc",
+        "Choose the download endpoint for presigned downloads. Uploads and backend operations continue to use the Blob endpoint.",
+        "选择预签名下载的交付入口；上传和后端操作仍使用 Blob Endpoint。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_download_origin_desc",
+        "Download directly from the configured Blob endpoint using SAS.",
+        "通过 SAS 从配置的 Blob Endpoint 直接下载。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_download_front_door_desc",
+        "Download through a separate HTTPS Front Door domain using Blob SAS.",
+        "通过独立的 HTTPS Front Door 域名下载，沿用 Blob SAS 鉴权。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_download_delivery",
+        "Download delivery mode",
+        "下载交付方式"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_download_origin",
+        "Azure Blob origin",
+        "Azure Blob 源站"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_download_front_door",
+        "Azure Front Door",
+        "Azure Front Door"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_download_base_url_desc",
+        "Enter the HTTPS download domain without the container or object path.",
+        "填写 HTTPS 下载域名，不包含容器或对象路径。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cdn_cache_max_age_seconds",
+        "CDN cache time (seconds)",
+        "CDN 缓存时间（秒）"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cdn_cache_max_age_seconds_desc",
+        "0 disables caching. Cache time is independent of SAS expiry.",
+        "0 表示不缓存；缓存时间独立于 SAS 有效期。"
+    ),
+    aster_drive_storage::storage_connector_message!(
         "azure_cors_action",
         "Auto configure Azure Blob CORS",
         "自动配置 Azure Blob CORS"
@@ -45,8 +90,8 @@ pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     ),
     aster_drive_storage::storage_connector_message!(
         "azure_blob_endpoint_hint",
-        "Enter the Azure Blob service endpoint, for example https://<account>.blob.core.windows.net. A custom domain such as https://files.contoso.example must be served by an HTTPS-capable front (Front Door, CDN, or HTTPS proxy); Azure's direct CNAME mapping is HTTP-only. Do not include credentials, query, fragment, or parent path segments, and use HTTPS except for local Azurite loopback endpoints. Use the bucket field for the container name.",
-        "填写 Azure Blob 服务 endpoint，例如 https://<account>.blob.core.windows.net；自定义域名（例如 https://files.contoso.example）须由支持 HTTPS 的前端（Front Door、CDN 或 HTTPS 代理）提供，Azure 直接 CNAME 映射仅有 HTTP。endpoint 不得包含凭据、query、fragment 或上级路径段；除本地 Azurite loopback 地址外必须使用 HTTPS；bucket 字段填写容器名称。",
+        "Enter the Azure Blob service endpoint or an HTTPS custom domain. Enter the container name separately in the bucket field.",
+        "填写 Azure Blob 服务地址或 HTTPS 自定义域名；容器名称单独填写在 bucket 字段。",
     ),
     aster_drive_storage::storage_connector_message!(
         "azure_blob_endpoint_protocol_required_error",
