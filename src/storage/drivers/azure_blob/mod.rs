@@ -1,8 +1,10 @@
 //! Azure Blob Storage driver.
 
+pub(crate) mod cors;
 mod error;
 mod multipart;
 mod presigned;
+mod signing;
 mod storage_driver;
 
 use crate::errors::AsterError;
@@ -376,99 +378,6 @@ impl AzureBlobDriver {
             .encode(Self::block_id(upload_id, part_number)?))
     }
 
-    fn service_sas_query(
-        &self,
-        blob_name: Option<&str>,
-        permissions: &str,
-        expires: Duration,
-        download_options: Option<&DirectDownloadOptions>,
-    ) -> Result<String> {
-        use azure_core::credentials::Secret;
-        use azure_core::hmac::hmac_sha256;
-        use chrono::{SecondsFormat, Utc};
-
-        let starts_on = Utc::now() - chrono::Duration::minutes(5);
-        let expires_on = Utc::now()
-            + chrono::Duration::from_std(expires).map_err(|error| {
-                storage_driver_error(
-                    StorageErrorKind::Misconfigured,
-                    format!("invalid Azure Blob SAS expiry: {error}"),
-                )
-            })?;
-        let signed_start = starts_on.to_rfc3339_opts(SecondsFormat::Secs, true);
-        let signed_expiry = expires_on.to_rfc3339_opts(SecondsFormat::Secs, true);
-        let canonicalized_resource = match blob_name {
-            Some(blob_name) => format!(
-                "/blob/{}/{}/{}",
-                self.account_name, self.container, blob_name
-            ),
-            None => format!("/blob/{}/{}", self.account_name, self.container),
-        };
-        let signed_resource = if blob_name.is_some() { "b" } else { "c" };
-        let signed_protocol = self.sas_protocol();
-        let (cache_control, content_disposition, content_type) = download_options
-            .map(|options| {
-                (
-                    options.response_cache_control.as_deref().unwrap_or(""),
-                    options
-                        .response_content_disposition
-                        .as_deref()
-                        .unwrap_or(""),
-                    options.response_content_type.as_deref().unwrap_or(""),
-                )
-            })
-            .unwrap_or(("", "", ""));
-
-        // Service SAS string-to-sign for version 2020-12-06+.
-        // Empty fields are significant and must remain as blank lines.
-        let string_to_sign = [
-            permissions,             // signed permissions
-            &signed_start,           // signed start
-            &signed_expiry,          // signed expiry
-            &canonicalized_resource, // canonicalized resource
-            "",                      // signed identifier
-            "",                      // signed IP
-            signed_protocol,         // signed protocol
-            AZURE_STORAGE_VERSION,   // signed version
-            signed_resource,         // signed resource
-            "",                      // signed snapshot time
-            "",                      // signed encryption scope
-            cache_control,           // rscc
-            content_disposition,     // rscd
-            "",                      // rsce
-            "",                      // rscl
-            content_type,            // rsct
-        ]
-        .join("\n");
-        let signature = hmac_sha256(&string_to_sign, &Secret::new(self.account_key.clone()))
-            .map_err(|error| {
-                storage_driver_error(
-                    StorageErrorKind::Auth,
-                    format!("sign Azure Blob SAS failed: {error}"),
-                )
-            })?;
-
-        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
-        serializer
-            .append_pair("sv", AZURE_STORAGE_VERSION)
-            .append_pair("spr", signed_protocol)
-            .append_pair("st", &signed_start)
-            .append_pair("se", &signed_expiry)
-            .append_pair("sr", signed_resource)
-            .append_pair("sp", permissions);
-        if !cache_control.is_empty() {
-            serializer.append_pair("rscc", cache_control);
-        }
-        if !content_disposition.is_empty() {
-            serializer.append_pair("rscd", content_disposition);
-        }
-        if !content_type.is_empty() {
-            serializer.append_pair("rsct", content_type);
-        }
-        serializer.append_pair("sig", &signature);
-        Ok(serializer.finish())
-    }
-
     fn map_azure_error(ctx: &str, error: azure_core::Error) -> StorageError {
         let marker = error.to_string();
         let kind = if marker.contains("reader exceeded declared size")
@@ -526,6 +435,28 @@ mod tests {
             base_path: "base path".to_string(),
             chunk_size: 1,
         }
+    }
+
+    #[tokio::test]
+    async fn numbered_browser_request_declares_block_identity_without_a_response_header_parser() {
+        use aster_drive_storage::{BrowserUploadCompletion, MultipartStorageDriver};
+        let driver = AzureBlobDriver::new(sample_config(), sample_credentials()).unwrap();
+        let id = driver.create_multipart_upload("object").await.unwrap();
+        let request = driver
+            .browser_part_request("object", &id, 3, Duration::from_secs(60))
+            .await
+            .unwrap();
+        let Some(BrowserUploadCompletion::Fixed { token }) = request.completion else {
+            panic!("Azure must declare its fixed block identity");
+        };
+        let query = url::Url::parse(&request.url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(query["blockid"], token);
+        assert!(request.response_headers.is_empty());
+        assert!(request.authorization.is_none());
     }
 
     fn sample_credentials() -> AzureBlobStaticCredentials {

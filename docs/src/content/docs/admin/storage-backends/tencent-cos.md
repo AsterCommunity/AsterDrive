@@ -166,11 +166,13 @@ AsterDrive 可以在管理后台为 Tencent COS 策略执行存储动作：
 管理 -> 系统设置 -> 站点配置 -> 公开站点地址
 ```
 
-地址必须是完整的 HTTP(S) 站点来源，例如 `https://drive.example.com`，不要带路径、查询参数或通配符。
+地址必须是完整的 HTTP(S) 站点来源，例如 `https://drive.example.com`，不要带路径、查询参数或通配符。AsterDrive 按浏览器 Origin 规则规范化地址，省略 HTTP 的 `:80` 与 HTTPS 的 `:443`，保留非默认端口并去重；任一地址非法时会在写入前停止。
 
 AsterDrive 会根据这些地址创建或更新自己的 COS CORS 规则，并保留其他已有规则。执行期间不要同时在腾讯云控制台修改同一个 bucket 的 CORS，以免互相覆盖。
 
-用于该策略的腾讯云凭证需要有读取和修改 bucket CORS 的权限。失败时优先检查公开站点地址、Access Key / Secret Key、bucket 地域和 CORS 权限。
+用于该策略的腾讯云凭证需要目标 bucket 上的 `name/cos:GetBucketCORS` 和 `name/cos:PutBucketCORS` 权限。只有明确返回 `NoSuchCORSConfiguration` 时才按未配置处理；其他读取失败不会继续写入。合并后的配置最多 100 条规则，XML 最多 64 KiB（包括转义和文档声明）；超限、未知字段或无法可靠保留的配置会停止操作，不删除无关规则腾位置。错误结果保留状态码、经过筛选的错误码与 RequestId，不回显供应商原始错误消息。失败时优先检查公开站点地址、Access Key / Secret Key、bucket 地域和 CORS 权限。
+
+动作成功表示源站 bucket CORS 已写入，不代表浏览器预检、上传、分片、Range 或响应头读取已通过验收；CDN 的 CORS 需独立配置和验证。
 
 ## 5. 在 AsterDrive 创建 Tencent COS 存储策略
 

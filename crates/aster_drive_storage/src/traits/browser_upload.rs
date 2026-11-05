@@ -40,9 +40,39 @@ pub struct BrowserUploadRequest {
     pub url: String,
     pub method: BrowserUploadMethod,
     pub headers: BTreeMap<String, String>,
+    /// Driver-issued, narrowly scoped upload capability, never an administrator credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization: Option<BrowserUploadAuthorization>,
+    /// Numbered-part completion receipt; sequential session protocols leave this unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion: Option<BrowserUploadCompletion>,
     pub body: Option<BrowserUploadRange>,
     /// Only these response headers may be reported to the driver.
     pub response_headers: Vec<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct BrowserUploadAuthorization {
+    pub scheme: String,
+    pub token: String,
+}
+
+/// Finite, provider-owned receipt rules consumed by the common browser executor.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum BrowserUploadCompletion {
+    ResponseHeader { name: String },
+    Fixed { token: String },
+    ProviderReconciled,
+}
+
+impl std::fmt::Debug for BrowserUploadRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrowserUploadRequest")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Untrusted browser observation. Status zero means the browser could not observe a response.

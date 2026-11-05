@@ -13,10 +13,10 @@ use aster_drive_model::types::{ObjectStorageDownloadStrategy, ObjectStorageUploa
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, StorageConnectorActionId,
-    StorageConnectorActionOutputFieldDescriptor, StorageConnectorActionOutputValueKind,
-    StorageConnectorBadgeRgb, StorageConnectorCustomActionDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
+    StorageConnectorActionOutputValueKind, StorageConnectorBadgeRgb,
+    StorageConnectorCustomActionDescriptorInput, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorPromotionDescriptor,
     StorageConnectorPromotionRequirement, StorageConnectorPromotionValueMatcher,
     StorageConnectorUiDescriptorInput, custom_action_descriptor,
     object_storage_connector_descriptor, storage_connector_field,
@@ -27,7 +27,8 @@ use aster_drive_storage::{
 };
 
 use super::common::{
-    StorageTransferDirection, decode_normalized_connector_action_input, transfer_strategy_field,
+    StorageTransferDirection, action_output_field, boolean_action_output_field,
+    decode_normalized_connector_action_input, transfer_strategy_field,
     unsupported_connector_action_error,
 };
 use super::{
@@ -74,20 +75,18 @@ fn configure_cors_action_descriptor() -> aster_drive_storage::StorageConnectorAc
                 "policy_cos_cors_output_preserved_rule_count",
                 StorageConnectorActionOutputValueKind::Number,
             ),
-            StorageConnectorActionOutputFieldDescriptor {
-                name: "replaced_existing_rule".to_string(),
-                label_key: "policy_cos_cors_output_replaced_existing_rule".to_string(),
-                value_kind: StorageConnectorActionOutputValueKind::Boolean,
-                true_key: Some("policy_cos_cors_output_yes".to_string()),
-                false_key: Some("policy_cos_cors_output_no".to_string()),
-            },
-            StorageConnectorActionOutputFieldDescriptor {
-                name: "response_vary".to_string(),
-                label_key: "policy_cos_cors_output_response_vary".to_string(),
-                value_kind: StorageConnectorActionOutputValueKind::Boolean,
-                true_key: Some("policy_cos_cors_output_yes".to_string()),
-                false_key: Some("policy_cos_cors_output_no".to_string()),
-            },
+            boolean_action_output_field(
+                "replaced_existing_rule",
+                "policy_cos_cors_output_replaced_existing_rule",
+                "policy_cos_cors_output_yes",
+                "policy_cos_cors_output_no",
+            ),
+            boolean_action_output_field(
+                "response_vary",
+                "policy_cos_cors_output_response_vary",
+                "policy_cos_cors_output_yes",
+                "policy_cos_cors_output_no",
+            ),
         ],
         supports_draft: true,
         supports_saved: true,
@@ -113,20 +112,6 @@ fn promote_from_s3_descriptor() -> StorageConnectorPromotionDescriptor {
         target_access_key_field: "tencent_cos_secret_id",
         target_secret_key_field: "tencent_cos_secret_key",
     })
-}
-
-fn action_output_field(
-    name: &str,
-    label_key: &str,
-    value_kind: StorageConnectorActionOutputValueKind,
-) -> StorageConnectorActionOutputFieldDescriptor {
-    StorageConnectorActionOutputFieldDescriptor {
-        name: name.to_string(),
-        label_key: label_key.to_string(),
-        value_kind,
-        true_key: None,
-        false_key: None,
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -379,7 +364,13 @@ async fn configure_tencent_cos_cors_for_policy(
 fn resolve_cos_cors_allowed_origins(
     runtime_config: &crate::config::RuntimeConfig,
 ) -> Result<Vec<String>> {
-    let origins = site_url::public_site_urls(runtime_config);
+    let value = site_url::public_site_url_config_value(runtime_config).ok_or_else(|| {
+        validation_error_with_code(
+            ApiErrorCode::PolicyActionParameterRequired,
+            "public_site_url must be configured before configuring COS CORS",
+        )
+    })?;
+    let origins = site_url::parse_public_site_url_value(&value)?;
     if origins.is_empty() {
         return Err(validation_error_with_code(
             ApiErrorCode::PolicyActionParameterRequired,
@@ -609,3 +600,6 @@ impl StorageConnector for TencentCosConnector {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

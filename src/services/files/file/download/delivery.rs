@@ -46,7 +46,6 @@ pub(crate) async fn resolve_download_delivery(
             storage_path,
             DIRECT_DOWNLOAD_TTL,
             DirectDownloadOptions {
-                allow_provider_response_headers,
                 download_name: Some(file.name.clone()),
                 require_download_name_match:
                     crate::storage::connectors::presigned_download_requires_filename_match(
@@ -56,6 +55,7 @@ pub(crate) async fn resolve_download_delivery(
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(disposition.header_value(&file.name)),
                 response_content_type: Some(file.mime_type.clone()),
+                allow_provider_response_headers,
             },
         )
         .await

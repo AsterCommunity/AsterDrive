@@ -68,3 +68,7 @@ Capability URL、私有协议状态和观察结果不得记录到日志、错误
 - `bun run test:e2e:provider-upload`：真实浏览器与本地跨 origin HTTP peer，覆盖 preflight、暴露 / 隐藏响应头、无凭据、取消，以及自定义 PATCH 协议的完整控制回路。
 
 本地 HTTP peer 和浏览器测试不等于真实 OneDrive / Google 账号验收；真实云 API 验收需要独立记录。
+
+## 原生编号分片请求
+
+Kodo 原生可续传协议使用并发编号分片与显式完成。它进入 provider resumable planner，再通过 `numbered_parts()` 协商复用编号分片调度，不进入顺序浏览器状态机。所有编号分片统一返回 `BrowserUploadRequest`；后端将签名 PUT 或原生授权转换为相同请求，前端不按 presigned/native 分支。`completion` 明确指定响应头、固定 token 或后端权威查询，外部客户端须同步新 schema。可选的 `BrowserUploadAuthorization` 仅承载 driver 签发的短期对象级上传能力；普通 headers 仍禁止携带 Authorization。跨域执行省略 cookie/CSRF、验证凭据和 header 上限，不记录 secret。provider-step 拒绝同源 URL；编号分片兼容管理员配置的同源存储入口（浏览器会按同源规则发送站点 cookie），不主动附加 AD 的 CSRF/认证头。XHR 注册回调中的发送前取消会显式结束请求，不依赖浏览器尚未 send 时不会触发的 abort 事件。原生回执和大小由后端在完成时查询，前端不解析供应商 JSON。共享 XHR 执行器使用显式超时策略：provider-step 指令仍限制为 1–60000ms；编号分片不设整片硬超时，避免慢速大分片重复失败，进度与取消保持可用。

@@ -48,6 +48,8 @@ struct UploadDataPlaneProbe {
     capacity_error_kind: Option<StorageErrorKind>,
     multipart_capabilities: Option<MultipartStorageCapabilities>,
     multipart_create_succeeds: bool,
+    native_numbered: bool,
+    native_parts: Mutex<BTreeMap<i32, Vec<u8>>>,
 }
 
 impl UploadDataPlaneProbe {
@@ -110,7 +112,17 @@ impl StorageDriver for UploadDataPlaneProbe {
             .contains_key(path))
     }
 
-    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        if self.native_numbered {
+            let objects = self.objects.lock().unwrap();
+            let data = objects.get(path).ok_or_else(|| {
+                StorageError::new(StorageErrorKind::NotFound, "native object not completed")
+            })?;
+            return Ok(BlobMetadata {
+                size: u64::try_from(data.len()).unwrap(),
+                content_type: None,
+            });
+        }
         Ok(BlobMetadata {
             size: 0,
             content_type: None,
@@ -472,6 +484,44 @@ impl PresignedUploadStorageDriver for UploadDataPlaneProbe {
 
 #[async_trait]
 impl MultipartStorageDriver for UploadDataPlaneProbe {
+    async fn browser_part_request(
+        &self,
+        path: &str,
+        id: &str,
+        number: i32,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<aster_drive_storage::BrowserUploadRequest> {
+        if self.native_numbered {
+            return Ok(aster_drive_storage::BrowserUploadRequest {
+                url: format!("https://native.example.test/{number}"),
+                method: aster_drive_storage::BrowserUploadMethod::Put,
+                headers: BTreeMap::new(),
+                authorization: Some(aster_drive_storage::BrowserUploadAuthorization {
+                    scheme: "UpToken".into(),
+                    token: "object-only-test-capability".into(),
+                }),
+                completion: Some(aster_drive_storage::BrowserUploadCompletion::ProviderReconciled),
+                body: None,
+                response_headers: Vec::new(),
+            });
+        }
+        let request = self
+            .presigned_upload_part_request(path, id, number, expires)
+            .await?;
+        Ok(aster_drive_storage::BrowserUploadRequest {
+            url: request.url,
+            method: aster_drive_storage::BrowserUploadMethod::Put,
+            headers: request.headers,
+            authorization: None,
+            completion: Some(
+                aster_drive_storage::BrowserUploadCompletion::ResponseHeader {
+                    name: "etag".into(),
+                },
+            ),
+            body: None,
+            response_headers: vec!["etag".into()],
+        })
+    }
     fn capabilities(&self) -> MultipartStorageCapabilities {
         self.multipart_capabilities
             .unwrap_or_else(MultipartStorageCapabilities::conservative_default)
@@ -479,6 +529,9 @@ impl MultipartStorageDriver for UploadDataPlaneProbe {
 
     async fn create_multipart_upload(&self, _path: &str) -> aster_drive_storage::Result<String> {
         self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        if self.native_numbered {
+            self.native_parts.lock().unwrap().clear();
+        }
         if self.multipart_create_succeeds {
             return Ok("probe-multipart-upload".to_string());
         }
@@ -498,11 +551,23 @@ impl MultipartStorageDriver for UploadDataPlaneProbe {
 
     async fn complete_multipart_upload(
         &self,
-        _path: &str,
+        path: &str,
         _upload_id: &str,
-        _parts: Vec<(i32, String)>,
+        parts: Vec<(i32, String)>,
     ) -> aster_drive_storage::Result<()> {
         self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        if self.native_numbered {
+            let mut data = Vec::new();
+            {
+                let guard = self.native_parts.lock().unwrap();
+                for (number, _) in parts {
+                    data.extend_from_slice(&guard[&number]);
+                }
+            }
+            self.objects.lock().unwrap().insert(path.to_string(), data);
+            self.native_parts.lock().unwrap().clear();
+            return Ok(());
+        }
         Err(self.unexpected("MultipartStorageDriver::complete_multipart_upload"))
     }
 
@@ -510,10 +575,17 @@ impl MultipartStorageDriver for UploadDataPlaneProbe {
         &self,
         _path: &str,
         _upload_id: &str,
-        _part_number: i32,
-        _data: &[u8],
+        part_number: i32,
+        data: &[u8],
     ) -> aster_drive_storage::Result<String> {
         self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        if self.native_numbered {
+            self.native_parts
+                .lock()
+                .unwrap()
+                .insert(part_number, data.to_vec());
+            return Ok(format!("native-{part_number}"));
+        }
         Err(self.unexpected("MultipartStorageDriver::upload_multipart_part"))
     }
 
@@ -523,6 +595,10 @@ impl MultipartStorageDriver for UploadDataPlaneProbe {
         _upload_id: &str,
     ) -> aster_drive_storage::Result<()> {
         self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        if self.native_numbered {
+            self.native_parts.lock().unwrap().clear();
+            return Ok(());
+        }
         Err(self.unexpected("MultipartStorageDriver::abort_multipart_upload"))
     }
 
@@ -532,12 +608,27 @@ impl MultipartStorageDriver for UploadDataPlaneProbe {
         _upload_id: &str,
     ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
         self.multipart_calls.fetch_add(1, Ordering::SeqCst);
+        if self.native_numbered {
+            return Ok(self
+                .native_parts
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(number, data)| UploadedMultipartPart {
+                    part_number: *number,
+                    size: i64::try_from(data.len()).unwrap(),
+                })
+                .collect());
+        }
         Err(self.unexpected("MultipartStorageDriver::list_uploaded_part_details"))
     }
 }
 
 #[async_trait]
 impl ProviderResumableUploadDriver for UploadDataPlaneProbe {
+    fn numbered_parts(&self) -> Option<&dyn MultipartStorageDriver> {
+        self.native_numbered.then_some(self)
+    }
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         self.provider_calls.fetch_add(1, Ordering::SeqCst);
         ProviderResumableUploadCapabilities {
@@ -549,7 +640,7 @@ impl ProviderResumableUploadDriver for UploadDataPlaneProbe {
             max_fragment_size: 1,
             fragment_alignment: 1,
             max_simple_upload_size: None,
-            frontend_direct_upload: false,
+            frontend_direct_upload: self.native_numbered,
             implicit_completion: false,
             abort_supported: true,
             status_query_supported: true,
@@ -599,6 +690,22 @@ fn presigned_put_request(
         .iter()
         .fold(client.put(&request.url), |builder, (name, value)| {
             builder.header(name.as_str(), value.as_str())
+        })
+}
+
+fn multipart_put_request(
+    client: &reqwest::Client,
+    request: &aster_drive_storage::BrowserUploadRequest,
+) -> reqwest::RequestBuilder {
+    assert!(
+        request.authorization.is_none(),
+        "S3 test fixtures use signed URLs"
+    );
+    request
+        .headers
+        .iter()
+        .fold(client.put(&request.url), |builder, (name, value)| {
+            builder.header(name, value)
         })
 }
 
@@ -7507,7 +7614,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .unwrap();
     let part_request = urls.get(&1).expect("part 1 request missing");
     let client = reqwest::Client::new();
-    let response = presigned_put_request(&client, part_request)
+    let response = multipart_put_request(&client, part_request)
         .header(reqwest::header::CONTENT_LENGTH, part1.len())
         .body(part1)
         .send()
@@ -8010,7 +8117,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     assert_eq!(urls.len(), 2);
 
     let client = reqwest::Client::new();
-    let resp1 = presigned_put_request(&client, urls.get(&1).unwrap())
+    let resp1 = multipart_put_request(&client, urls.get(&1).unwrap())
         .header(reqwest::header::CONTENT_LENGTH, part1.len())
         .body(part1.to_vec())
         .send()
@@ -8024,7 +8131,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         .map(str::to_string)
         .expect("part 1 etag missing");
 
-    let resp2 = presigned_put_request(&client, urls.get(&2).unwrap())
+    let resp2 = multipart_put_request(&client, urls.get(&2).unwrap())
         .header(reqwest::header::CONTENT_LENGTH, part2.len())
         .body(part2.to_vec())
         .send()
@@ -9032,4 +9139,244 @@ async fn test_admin_download_init_preserves_s3_presigned_current_and_historical_
             .unwrap_or_default()
             .contains("X-Amz")
     }));
+}
+
+#[actix_web::test]
+async fn native_numbered_resumable_pipeline_verifies_publication_quota_recovery_and_cancel() {
+    use aster_drive::db::repository::{revision_repo, upload_session_repo, user_repo};
+    use aster_drive::services::files::upload;
+    use sea_orm::{ActiveModelTrait, Set};
+    for (direct, team_scope) in [(true, false), (false, false), (true, true), (false, true)] {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            "nativeresume",
+            "native-resume@example.test",
+            "password123",
+        )
+        .await
+        .unwrap();
+        let team_id = if team_scope {
+            use aster_drive::services::workspace::team;
+            Some(
+                team::create_team(
+                    &state,
+                    user.id,
+                    team::CreateTeamInput {
+                        name: "Native resumable team".into(),
+                        description: None,
+                    },
+                )
+                .await
+                .unwrap()
+                .id,
+            )
+        } else {
+            None
+        };
+        let policy = policy_repo::find_default(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap();
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+        active.connector_id = Set("asterdrive.storage.qiniu".into());
+        active.chunk_size = Set(1024 * 1024);
+        let config = aster_drive_storage::ConnectorConfigEnvelope::new(
+            aster_drive_storage::ConnectorId::declared("asterdrive.storage.qiniu"),
+            2,
+            serde_json::json!({
+                "bucket":"native-bucket", "base_path":"tenant", "download_origin":"https://origin.example.test", "download_delivery":"origin", "download_base_url":null,
+                "provider_resumable_upload_strategy":if direct {"frontend_direct"} else {"server_relay"}, "object_storage_download_strategy":"relay_stream"
+            }),
+        );
+        active.storage_config = Set(aster_drive_model::types::StoredStoragePolicyConfig(
+            aster_drive_storage::encode_storage_policy_config(config, Default::default()).unwrap(),
+        ));
+        let policy = active.update(state.writer_db()).await.unwrap();
+        reload_policy_snapshot(&state).await;
+        let driver = Arc::new(UploadDataPlaneProbe {
+            native_numbered: true,
+            multipart_create_succeeds: true,
+            multipart_capabilities: Some(MultipartStorageCapabilities {
+                min_part_size: 1024 * 1024,
+                max_part_size: Some(1024 * 1024 * 1024),
+                max_parts: 10000,
+                max_object_size: None,
+                upload_mode: aster_drive_storage::MultipartUploadMode::NativeStreaming,
+            }),
+            ..Default::default()
+        });
+        state
+            .driver_registry
+            .insert_multipart_for_test(policy.id, driver.clone());
+        let size = 1024 * 1024 + 3;
+        let init = match team_id {
+            Some(team_id) => {
+                upload::init_upload_for_team(
+                    &state,
+                    team_id,
+                    user.id,
+                    "native.bin",
+                    size,
+                    None,
+                    None,
+                )
+                .await
+            }
+            None => upload::init_upload(&state, user.id, "native.bin", size, None, None).await,
+        }
+        .unwrap();
+        assert_eq!(
+            init.mode,
+            if direct {
+                aster_drive_model::types::UploadTransport::PresignedMultipart
+            } else {
+                aster_drive_model::types::UploadTransport::Chunked
+            }
+        );
+        assert_eq!(init.upload_scheduling.unwrap().max_chunk_concurrency, 16);
+        let id = init.upload_id.unwrap();
+        let session = upload_session_repo::find_by_id(state.writer_db(), &id)
+            .await
+            .unwrap();
+        assert!(
+            session.provider_session_ciphertext.is_none(),
+            "numbered protocols must not invent a sequential range session"
+        );
+        let key = session.object_temp_key.as_deref().unwrap();
+        let native_id = session.object_multipart_id.as_deref().unwrap();
+        if direct {
+            let requests = match team_id {
+                Some(team_id) => {
+                    upload::presign_parts_for_team(&state, team_id, &id, user.id, vec![1, 2]).await
+                }
+                None => upload::presign_parts(&state, &id, user.id, vec![1, 2]).await,
+            }
+            .unwrap();
+            assert!(requests[&1].authorization.is_some());
+            assert!(matches!(
+                requests[&1].completion,
+                Some(aster_drive_storage::BrowserUploadCompletion::ProviderReconciled)
+            ));
+            driver
+                .upload_multipart_part(key, native_id, 1, &vec![b'a'; 1024 * 1024])
+                .await
+                .unwrap();
+            driver
+                .upload_multipart_part(key, native_id, 2, b"end")
+                .await
+                .unwrap();
+            let recovered = match team_id {
+                Some(team_id) => {
+                    upload::list_recoverable_sessions_for_team(&state, team_id, user.id, None).await
+                }
+                None => upload::list_recoverable_sessions(&state, user.id, None).await,
+            }
+            .unwrap();
+            let recovered = recovered
+                .iter()
+                .find(|session| session.upload_id == id)
+                .unwrap();
+            assert_eq!(
+                recovered.completed_parts.len(),
+                2,
+                "native recovery must not need browser-local receipts"
+            );
+        } else {
+            for (number, data) in [(0, vec![b'a'; 1024 * 1024]), (1, b"end".to_vec())] {
+                match team_id {
+                    Some(team_id) => {
+                        upload::upload_chunk_for_team(&state, team_id, &id, number, user.id, &data)
+                            .await
+                    }
+                    None => upload::upload_chunk(&state, &id, number, user.id, &data).await,
+                }
+                .unwrap();
+            }
+        }
+        let parts = direct.then(|| vec![(1, String::new()), (2, String::new())]);
+        let mut files = Vec::new();
+        for _ in 0..2 {
+            files.push(
+                match team_id {
+                    Some(team_id) => {
+                        upload::complete_upload_for_team(
+                            &state,
+                            team_id,
+                            &id,
+                            user.id,
+                            parts.clone(),
+                        )
+                        .await
+                    }
+                    None => upload::complete_upload(&state, &id, user.id, parts.clone()).await,
+                }
+                .unwrap(),
+            );
+        }
+        let file = &files[0];
+        let again = &files[1];
+        assert_eq!(file.id, again.id);
+        assert_eq!(
+            user_repo::find_by_id(state.writer_db(), user.id)
+                .await
+                .unwrap()
+                .storage_used,
+            if team_id.is_some() { 0 } else { size }
+        );
+        assert_eq!(
+            revision_repo::find_by_file_id(state.writer_db(), file.id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            driver.presigned_calls.load(Ordering::SeqCst),
+            0,
+            "native upload must not invoke the S3 signer"
+        );
+        if let Some(team_id) = team_id {
+            assert_eq!(
+                aster_drive::db::repository::team_repo::find_by_id(state.writer_db(), team_id)
+                    .await
+                    .unwrap()
+                    .storage_used,
+                size
+            );
+        }
+        let cancel = match team_id {
+            Some(team_id) => {
+                upload::init_upload_for_team(
+                    &state,
+                    team_id,
+                    user.id,
+                    "cancel.bin",
+                    size,
+                    None,
+                    None,
+                )
+                .await
+            }
+            None => upload::init_upload(&state, user.id, "cancel.bin", size, None, None).await,
+        }
+        .unwrap()
+        .upload_id
+        .unwrap();
+        match team_id {
+            Some(team_id) => {
+                upload::cancel_upload_for_team(&state, team_id, &cancel, user.id).await
+            }
+            None => upload::cancel_upload(&state, &cancel, user.id).await,
+        }
+        .unwrap();
+        assert!(driver.native_parts.lock().unwrap().is_empty());
+        assert_eq!(
+            user_repo::find_by_id(state.writer_db(), user.id)
+                .await
+                .unwrap()
+                .storage_used,
+            if team_id.is_some() { 0 } else { size }
+        );
+    }
 }

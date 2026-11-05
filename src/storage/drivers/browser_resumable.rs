@@ -63,6 +63,8 @@ pub(super) fn transition(
             .saturating_add(context.fragment_size)
             .min(context.total_size);
         Some(BrowserUploadRequest {
+            authorization: None,
+            completion: None,
             url: context.upload_url.into(),
             method: BrowserUploadMethod::Put,
             headers: BTreeMap::from([

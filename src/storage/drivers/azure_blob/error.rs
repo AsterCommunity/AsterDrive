@@ -11,48 +11,41 @@ impl AzureBlobDriver {
         crate::errors::sanitize_storage_driver_client_message(&error.to_string())
     }
 
-    pub(super) fn classify_azure_error(error: &azure_core::Error) -> StorageErrorKind {
-        if let ErrorKind::HttpResponse {
-            status, error_code, ..
-        } = error.kind()
-        {
-            if let Some(code) = error_code
-                && let Ok(code) = code.parse::<StorageErrorCode>()
-            {
-                return match code {
-                    StorageErrorCode::AuthenticationFailed
-                    | StorageErrorCode::InvalidAuthenticationInfo => StorageErrorKind::Auth,
-                    StorageErrorCode::AuthorizationFailure
-                    | StorageErrorCode::AuthorizationPermissionMismatch
-                    | StorageErrorCode::AuthorizationProtocolMismatch
-                    | StorageErrorCode::AuthorizationResourceTypeMismatch
-                    | StorageErrorCode::AuthorizationServiceMismatch
-                    | StorageErrorCode::AuthorizationSourceIPMismatch
-                    | StorageErrorCode::InsufficientAccountPermissions => {
-                        StorageErrorKind::Permission
-                    }
-                    StorageErrorCode::BlobNotFound | StorageErrorCode::ContainerNotFound => {
-                        StorageErrorKind::NotFound
-                    }
-                    StorageErrorCode::ConditionNotMet
-                    | StorageErrorCode::AppendPositionConditionNotMet
-                    | StorageErrorCode::BlobAlreadyExists => StorageErrorKind::Precondition,
-                    StorageErrorCode::InvalidBlockId
-                    | StorageErrorCode::InvalidBlockList
-                    | StorageErrorCode::InvalidHeaderValue
-                    | StorageErrorCode::InvalidInput
-                    | StorageErrorCode::InvalidQueryParameterValue
-                    | StorageErrorCode::InvalidRange
-                    | StorageErrorCode::InvalidRequestUrl
-                    | StorageErrorCode::InvalidResourceName => StorageErrorKind::Misconfigured,
-                    StorageErrorCode::InternalError | StorageErrorCode::ServerBusy => {
-                        StorageErrorKind::Transient
-                    }
-                    _ => StorageErrorKind::Unknown,
-                };
-            }
-
-            return match *status {
+    pub(super) fn classify_azure_http_error(
+        status: StatusCode,
+        error_code: Option<&str>,
+    ) -> StorageErrorKind {
+        match error_code.and_then(|code| code.parse::<StorageErrorCode>().ok()) {
+            Some(code) if !matches!(code, StorageErrorCode::UnknownValue(_)) => match code {
+                StorageErrorCode::AuthenticationFailed
+                | StorageErrorCode::InvalidAuthenticationInfo => StorageErrorKind::Auth,
+                StorageErrorCode::AuthorizationFailure
+                | StorageErrorCode::AuthorizationPermissionMismatch
+                | StorageErrorCode::AuthorizationProtocolMismatch
+                | StorageErrorCode::AuthorizationResourceTypeMismatch
+                | StorageErrorCode::AuthorizationServiceMismatch
+                | StorageErrorCode::AuthorizationSourceIPMismatch
+                | StorageErrorCode::InsufficientAccountPermissions => StorageErrorKind::Permission,
+                StorageErrorCode::BlobNotFound | StorageErrorCode::ContainerNotFound => {
+                    StorageErrorKind::NotFound
+                }
+                StorageErrorCode::ConditionNotMet
+                | StorageErrorCode::AppendPositionConditionNotMet
+                | StorageErrorCode::BlobAlreadyExists => StorageErrorKind::Precondition,
+                StorageErrorCode::InvalidBlockId
+                | StorageErrorCode::InvalidBlockList
+                | StorageErrorCode::InvalidHeaderValue
+                | StorageErrorCode::InvalidInput
+                | StorageErrorCode::InvalidQueryParameterValue
+                | StorageErrorCode::InvalidRange
+                | StorageErrorCode::InvalidRequestUrl
+                | StorageErrorCode::InvalidResourceName => StorageErrorKind::Misconfigured,
+                StorageErrorCode::InternalError | StorageErrorCode::ServerBusy => {
+                    StorageErrorKind::Transient
+                }
+                _ => StorageErrorKind::Unknown,
+            },
+            _ => match status {
                 StatusCode::Unauthorized => StorageErrorKind::Auth,
                 StatusCode::Forbidden => StorageErrorKind::Permission,
                 StatusCode::NotFound => StorageErrorKind::NotFound,
@@ -63,10 +56,15 @@ impl AzureBlobDriver {
                 | StatusCode::ServiceUnavailable
                 | StatusCode::GatewayTimeout => StorageErrorKind::Transient,
                 _ => StorageErrorKind::Unknown,
-            };
+            },
         }
+    }
 
+    pub(super) fn classify_azure_error(error: &azure_core::Error) -> StorageErrorKind {
         match error.kind() {
+            ErrorKind::HttpResponse {
+                status, error_code, ..
+            } => Self::classify_azure_http_error(*status, error_code.as_deref()),
             ErrorKind::Io => StorageErrorKind::Transient,
             ErrorKind::DataConversion | ErrorKind::Other => StorageErrorKind::Misconfigured,
             _ => StorageErrorKind::Unknown,

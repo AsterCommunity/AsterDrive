@@ -1091,13 +1091,14 @@ fn empty_file_connector_policy_cases(
             "qiniu",
             crate::storage::connectors::test_support::policy(
                 "asterdrive.storage.qiniu",
-                1,
+                2,
                 serde_json::json!({
-                    "endpoint": "https://s3.cn-east-1.qiniucs.com",
+                    "download_origin": "https://origin.example.test",
+                    "download_delivery": "origin",
+                    "download_base_url": null,
                     "bucket": "bucket-name",
                     "base_path": "",
-                    "s3_region": "cn-east-1",
-                    "object_storage_upload_strategy": "presigned",
+                    "provider_resumable_upload_strategy": "frontend_direct",
                     "object_storage_download_strategy": "relay_stream"
                 }),
                 behavior.clone(),

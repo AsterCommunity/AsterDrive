@@ -25,6 +25,7 @@ vi.mock("@/services/uploadService", async (importOriginal) => ({
 		getProgress,
 		presignParts: vi.fn(),
 		presignedUpload: vi.fn(),
+		uploadPartRequest: vi.fn(),
 		uploadChunk: vi.fn(),
 		executeBrowserUpload,
 		coordinateBrowserUpload,
@@ -389,4 +390,80 @@ describe("backend coordinated provider upload", () => {
 			expect(executeBrowserUpload).not.toHaveBeenCalled();
 		},
 	);
+});
+
+describe("provider-independent numbered uploads", () => {
+	it("executes concurrent generic part requests without selecting a provider protocol", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		vi.mocked(uploadService.presignParts).mockImplementation(
+			async (_id, numbers) =>
+				Object.fromEntries(
+					numbers.map((number) => [
+						number,
+						{
+							url: `https://provider.example/part/${number}`,
+							method: "PUT",
+							headers: {},
+							body: null,
+							response_headers: [],
+							authorization: {
+								scheme: "ShortUpload",
+								token: "object-capability",
+							},
+							completion: { source: "provider_reconciled" },
+						},
+					]),
+				),
+		);
+		completeUpload.mockReset();
+		completeUpload.mockResolvedValue({ id: 1 });
+		let active = 0;
+		let peak = 0;
+		vi.mocked(uploadService.uploadPartRequest).mockImplementation(async () => {
+			active++;
+			peak = Math.max(peak, active);
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			active--;
+			return "";
+		});
+		const context: UploadTransportRunnerContext = {
+			abortFlagsRef: { current: new Map() },
+			metadataAbortRef: { current: new Map() },
+			flushProgress: vi.fn(),
+			markFolderForRefresh: vi.fn(),
+			markTaskFailed: vi.fn(),
+			multipartInFlightRef: { current: new Map() },
+			patchTask: vi.fn(),
+			patchTaskThrottled: vi.fn(),
+			uploadRequestRef: { current: new Map() },
+			t: (key) => key,
+			workspace: { kind: "personal" },
+		};
+		const task: UploadTask = {
+			id: "generic",
+			file: new File(["abcdefgh"], "parts.bin"),
+			filename: "parts.bin",
+			relativePath: null,
+			baseFolderId: null,
+			baseFolderName: "Root",
+			totalBytes: 8,
+			mode: "presigned_multipart",
+			status: "uploading",
+			progress: 0,
+			error: null,
+			uploadId: "session",
+		};
+		await createResumableUploadRunners(context).runMultipartUpload(task, {
+			mode: "presigned_multipart",
+			upload_id: "session",
+			chunk_size: 4,
+			total_chunks: 2,
+		});
+		expect(peak).toBe(2);
+		expect(uploadService.uploadPartRequest).toHaveBeenCalledTimes(2);
+		expect(completeUpload).toHaveBeenCalledWith("session", [
+			{ part_number: 1, etag: "" },
+			{ part_number: 2, etag: "" },
+		]);
+	});
 });

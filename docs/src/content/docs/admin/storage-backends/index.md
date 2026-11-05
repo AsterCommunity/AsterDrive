@@ -23,7 +23,7 @@ title: "存储后端"
 | 远程节点 | `asterdrive.storage.remote` | Primary 间共享 | 由另一台 AsterDrive follower 节点保存对象 | [远程节点](/admin/storage-backends/remote-follower/) |
 | OneDrive | `asterdrive.storage.onedrive` | Primary 间共享 | Microsoft 365、OneDrive、SharePoint 和 group drive | [OneDrive](/admin/storage-backends/onedrive/) |
 | Google Drive | `asterdrive.storage.google_drive` | Primary 间共享 | 管理员托管的 Google Drive 与共享盘 blob 存储池 | [Google Drive](/admin/storage-backends/google-drive/) |
-| 七牛云 Kodo | `asterdrive.storage.qiniu` | Primary 间共享 | 带官方 endpoint 诊断的七牛云 Kodo S3 空间 | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) |
+| 七牛云 Kodo | `asterdrive.storage.qiniu` | Primary 间共享 | 七牛云 Kodo 原生可续传上传与私有源站/CDN 交付 | [七牛云 Kodo](/admin/storage-backends/qiniu-kodo/) |
 <!-- storage-connectors:index:end -->
 
 多 Primary（cluster profile）的默认策略必须由所有 Primary 访问；`local` 可以作为默认策略，但部署者必须共享 policy 路径和 `upload_temp_dir`。详见 [存储策略与策略组](/admin/storage-policies/#第一次启动后默认会有什么)。

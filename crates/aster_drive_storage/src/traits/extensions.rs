@@ -398,11 +398,18 @@ pub struct ProviderResumableUploadFragmentOutcome {
 
 /// Provider-native resumable upload support.
 ///
-/// 它故意和 S3-compatible multipart 分开：provider resumable 使用顺序 byte range、
-/// provider-native progress 和隐式完成语义，不伪装成 numbered multipart parts。
+/// 默认以 provider-native range/session 表达顺序恢复。支持独立编号分片的原生
+/// 协议通过 `numbered_parts()` 协商并发调度和显式完成，不伪装成顺序 range，
+/// 也不要求使用 S3 签名。隐式提交与显式完成由 provider 能力明确区分。
 #[async_trait]
 pub trait ProviderResumableUploadDriver: Send + Sync {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities;
+
+    /// Native numbered-part protocol with explicit completion. The upload planner uses
+    /// its existing concurrent multipart lifecycle instead of imposing sequential ranges.
+    fn numbered_parts(&self) -> Option<&dyn crate::MultipartStorageDriver> {
+        None
+    }
 
     /// Optional backend-coordinated browser transport; relay-only drivers need no implementation.
     fn browser_upload(&self) -> Option<&dyn super::browser_upload::BrowserUploadDriver> {
@@ -415,6 +422,23 @@ pub trait ProviderResumableUploadDriver: Send + Sync {
     -> Result<ProviderResumableUploadStatus>;
 
     async fn abort_upload_session(&self, upload_url: &str) -> Result<()>;
+
+    /// Explicit native completion, when the provider does not commit on the last fragment.
+    /// Implicit providers already own a completed object and need no additional request.
+    async fn complete_upload_session(&self, upload_url: &str, expected_size: u64) -> Result<()> {
+        let _ = (upload_url, expected_size);
+        if self
+            .provider_resumable_upload_capabilities()
+            .implicit_completion
+        {
+            Ok(())
+        } else {
+            Err(crate::storage_driver_error(
+                crate::StorageErrorKind::Unsupported,
+                "provider requires explicit upload completion",
+            ))
+        }
+    }
 
     async fn upload_session_fragment_reader(
         &self,

@@ -73,6 +73,46 @@ function form(overrides: Partial<PolicyFormData> = {}): PolicyFormData {
 }
 
 describe("storage policy payload builders", () => {
+	it("preserves descriptor-owned download validity across create, edit and connection tests", () => {
+		const schema = {
+			...descriptor(),
+			connector_id: "asterdrive.storage.qiniu",
+			config_schema_version: 2,
+			fields: [
+				field("download_auth_validity_seconds", "connector_config", {
+					kind: "number",
+					default_value: 180,
+					validation: { min_integer: 1, max_integer: 3600 },
+				}),
+				field("object_storage_download_strategy", "connector_config"),
+			],
+		} as StorageConnectorDescriptor;
+		for (const strategy of ["relay_stream", "presigned"]) {
+			for (const validity of [180, 600, 3600]) {
+				const input = form({
+					connector_id: schema.connector_id,
+					credential_values: {},
+					connector_config_values: {
+						download_auth_validity_seconds: validity,
+						object_storage_download_strategy: strategy,
+					},
+				});
+				const create = buildCreatePolicyPayload(input, schema);
+				const update = buildUpdatePolicyPayload(input, schema);
+				const probe = buildPolicyTestPayload(input, schema);
+				for (const values of [
+					create.connection.connector_config.values,
+					update.connector_config.values,
+					probe.connection.connector_config.values,
+				]) {
+					expect(values).toEqual({
+						download_auth_validity_seconds: validity,
+						object_storage_download_strategy: strategy,
+					});
+				}
+			}
+		}
+	});
 	it("preserves COS CNAME mode and its endpoint across create, edit, and connection tests", () => {
 		const schema = {
 			...descriptor(),
