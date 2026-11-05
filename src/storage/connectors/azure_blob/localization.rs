@@ -2,6 +2,38 @@ use aster_drive_storage::StorageConnectorLocalizationMessage;
 
 pub(super) const MESSAGES: &[StorageConnectorLocalizationMessage<'static>] = &[
     aster_drive_storage::storage_connector_message!(
+        "azure_cors_action",
+        "Auto configure Azure Blob CORS",
+        "自动配置 Azure Blob CORS"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cors_description",
+        "Write AsterDrive's CORS rule to the Blob Service of the entire storage account currently used by this policy, affecting all its containers. Allowed origins come from the configured public site URLs. Other CORS rules and service settings are preserved.",
+        "向当前使用的整个存储账户的 Blob Service 写入 AsterDrive 的 CORS 规则，影响该账户所有容器。允许来源取自系统配置的公开站点地址，保留其他 CORS 规则和服务配置。"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cors_origins",
+        "Site origins",
+        "站点 Origin"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cors_preserved",
+        "Preserved rules",
+        "保留规则数"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cors_request_id",
+        "Azure request ID",
+        "Azure 请求 ID"
+    ),
+    aster_drive_storage::storage_connector_message!(
+        "azure_cors_changed",
+        "Configuration changed",
+        "配置已变更"
+    ),
+    aster_drive_storage::storage_connector_message!("azure_cors_yes", "Yes", "是"),
+    aster_drive_storage::storage_connector_message!("azure_cors_no", "No", "否"),
+    aster_drive_storage::storage_connector_message!(
         "azure_blob_account_key",
         "Storage Account Key",
         "存储账户密钥",

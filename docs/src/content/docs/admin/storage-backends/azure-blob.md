@@ -158,7 +158,7 @@ flowchart LR
   Browser["浏览器"] --> Download["Azure Blob SAS URL"]
 ```
 
-好处是减轻 AsterDrive 节点带宽压力。前提是浏览器能访问 Azure Blob endpoint，并且 container CORS 配置正确。
+好处是减轻 AsterDrive 节点带宽压力。前提是浏览器能访问 Azure Blob endpoint，并且 Blob service CORS 配置正确。
 
 预签名下载使用 AsterDrive 当前文件名和 MIME，并应用下载缓存策略。即使对象在 Azure 中以 UUID 命名，或文件在 AsterDrive 中重命名，重新发起下载也会使用当前文件名，无需移动 Azure 对象。已有 SAS URL 在到期前仍保留签发时的名称。
 
@@ -221,27 +221,40 @@ Azure Blob
 
 ## 6. 配置 CORS
 
-如果你只使用 `relay_stream`，浏览器不会直接请求 Azure Blob，CORS 不是第一优先级。
+如果只使用 `relay_stream`，浏览器不直接请求 Azure Blob，无需为此配置源站 CORS。浏览器 `presigned` 上传、分块上传、下载及 Blob 预览则需要允许站点来源。
 
-如果要使用 `presigned` 上传或下载，需要在 Azure Storage account 的 Blob service CORS 中允许 AsterDrive 站点来源。
+### 自动配置
 
-最少关注：
+1. 在 `管理 -> 系统设置 -> 站点配置 -> 公开站点地址` 配置实际浏览器站点 Origin，例如 `https://drive.example.com`，可以配置多个明确来源。来源按浏览器 Origin 规则规范化，省略 HTTP 的默认端口 `80` 和 HTTPS 的默认端口 `443`，并合并重复来源。
+2. 在 Azure Blob 策略的新建或编辑表单中填写当前连接，点击 **自动配置 Azure Blob CORS**。编辑时留空的凭据复用该策略已保存的值，新建策略必须填写完整凭据。
+3. 核对当前账户、endpoint 和账户级影响范围，使用与 COS 相同的动作确认流程。点击动作打开确认区，确认后由后端读取当前连接与公开站点 Origin 并配置 CORS。
+4. 查看结果中的配置变更状态、保留规则数和 Azure 请求 ID，然后继续浏览器验收。
 
-| 项 | 建议 |
+:::caution[影响账户的所有 Blob 容器]
+CORS 配置属于当前使用的整个存储账户的 Blob Service，影响该账户的所有容器。多个应用共用账户时，请先确认这一影响范围。
+:::
+
+动作使用账户的主 Blob service endpoint（Azure 公有云、中国云、美国政府云及德国云官方域名），使用当前 storage account name + account key 进行 Shared Key 认证。管理请求发送到账户 Blob Service 根路径；本地 Azurite 的 loopback endpoint 可用于协议测试。自定义源站域名、Private Link 专用域名或其他未识别 endpoint 请在 Azure Portal 手工配置。
+
+该配置需要 AsterDrive 服务端有足够权限更改 Blob Service 的 CORS 配置。账户须启用 Shared Key，并在 Azure 网络规则中放行运行 AsterDrive 的服务端或其出口网络访问 Blob Service。当前动作使用账户名和账户密钥进行账户级认证。组织要求使用其他认证方式时，请通过 Azure Portal 按组织策略配置 CORS。权限失败信息包含脱敏 provider code、请求 ID 和权限排查指引。
+
+自动配置先读取现有 CORS，完整保留规则及相对顺序，仅在没有完整等价规则时追加一条规则。完整等价比较包含 Origin、方法、请求头、暴露响应头和缓存时间，忽略列表顺序及 header 名大小写。不会仅凭本站 Origin 认领、更新或删除规则，公开站点地址变化后也不会自动清理旧规则。其他 Blob service 属性通过请求中省略对应 XML 顶层元素保留。
+
+Azure 按规则顺序选择首次匹配 Origin 和方法的规则。如果已有规则会与所需规则重叠，自动动作会停止并提示人工处理，不会重排或改写已有规则。超过 5 条规则、所有规则值合计超过 2 KiB（不含 XML 标签）、未知 CORS 字段、读取失败或解析失败也会在写入前停止。写入后按相同规则顺序和字段语义回读验证；如果 Azure 已接受写入但回读失败，错误会明确说明配置可能已变更，并保留可用的写入请求 ID，请先检查账户配置再重试。多个管理员或外部工具并发修改 CORS 时，服务属性接口没有本动作可用的条件写入保护，请避免同时修改，并检查最终配置。
+
+### 自动规则与手工配置
+
+| 项 | 自动配置值 |
 | --- | --- |
-| Allowed origins | AsterDrive 的公开站点 origin，例如 `https://drive.example.com` |
-| Allowed methods | 至少包含 `PUT`、`GET`、`HEAD` |
-| Allowed headers | 至少允许 `Content-Type`、`x-ms-blob-type`、`x-ms-version`、`Range`，不确定时先用 `*` 验证 |
-| Exposed headers | 建议包含 `ETag`、`Content-Length`、`Content-Range`、`Content-Disposition`、`Accept-Ranges`、`x-ms-request-id` |
-| Max age | 可按你的安全策略设置，例如 `600` |
+| Allowed origins | 规范化后的全部公开站点 Origin，明确列出，不使用 `*` |
+| Allowed methods | `PUT,GET,HEAD`，覆盖单文件与 Block Blob 分块上传及读取 |
+| Allowed headers | `content-type,range,x-ms-blob-type,x-ms-version` |
+| Exposed headers | `ETag,Content-Length,Content-Range,Content-Disposition,Accept-Ranges,x-ms-request-id` |
+| Max age | `600` 秒 |
 
-`Allowed origins` 要填浏览器访问 AsterDrive 的站点 origin，通常来自：
+手工配置也应按这份请求契约允许来源和 header。不要把后端内网地址当成浏览器 Origin。`Exposed headers` 让脚本读取已有响应头，不负责设置下载文件名。
 
-```text
-管理 -> 系统设置 -> 站点配置 -> 公开站点地址
-```
-
-不要填 AsterDrive 后端到 Azure Blob 的内网地址；CORS 判断的是浏览器页面来源。
+源站 CORS 写入成功只证明源站配置已更新。Front Door/CDN 的响应头、OPTIONS 路由与缓存行为必须单独配置和验收，上传使用的 Blob service endpoint 和下载域名也需分别检查。
 
 ## 7. 创建测试策略组
 
