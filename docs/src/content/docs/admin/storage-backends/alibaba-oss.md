@@ -168,7 +168,15 @@ flowchart LR
 
 ## 4. 为 presigned 配置 CORS
 
-浏览器直传至少需要允许 AsterDrive 站点来源执行 `GET`、`HEAD`、`PUT`、`POST` 和 `DELETE`，并允许上传实际携带的请求头。单文件 presigned PUT 会由服务端在 complete 阶段校验对象 metadata 和大小，因此不要求浏览器读取 `ETag`；presigned multipart 的 part 仍需要 `ETag` 才能完成 multipart 对象。使用 multipart 时暴露 `ETag`，只有选定流程会读取时才暴露 `Content-Length` / `Content-Range` 等响应头。具体字段以 OSS 控制台当前 CORS 配置界面为准。
+浏览器直接访问 OSS 的当前链路使用 `PUT` 上传对象或分片，使用 `GET`、`HEAD` 下载或读取对象；分片发起、完成、取消等管理请求由 AsterDrive 后端处理。CORS 需要允许实际上传携带的 `Content-Type`、下载使用的 `Range`，并暴露分片完成必需的 `ETag` 及下载读取的 `Content-Length`、`Content-Range`、`Accept-Ranges`、`Content-Disposition`。单文件 presigned PUT 会由服务端在 complete 阶段校验对象 metadata 和大小，因此不要求浏览器读取 `ETag`；分片上传必须读取每个 part 的 `ETag`。
+
+### 用 AsterDrive 自动配置
+
+在 `管理 -> 系统设置 -> 站点配置` 设置有效的**公开站点地址**后，打开阿里云 OSS 存储策略，点击 **配置 CORS** 并使用通用远端状态变更确认框确认。新策略草稿、编辑草稿和已保存策略均可执行；编辑时 AK/SK 留空会复用该策略已保存的凭据，动作始终使用当前表单的 bucket 和 endpoint。普通保存与测试连接不会配置 CORS。
+
+动作先读取 bucket 原有规则，再追加本站所需规则；完整等价规则不会重复写入。它保留已有规则与顺序，不按 Origin 猜测规则归属或删除旧规则。如果公开站点地址改变，旧 Origin 对应规则可能仍在 bucket 中，管理员须在 OSS 控制台审查并清理。读取失败、无法无损保留的未知字段、超过 20 条规则或 16 KB XML 时不会覆盖配置。执行期间避免在控制台或其他实例同时修改同一 bucket 的 CORS；OSS 整份覆盖接口不能保证外部并发编辑不丢失。
+
+执行凭据需要目标 bucket 的 `oss:GetBucketCors` 与 `oss:PutBucketCors` 权限；权限拒绝时结果仅显示脱敏 provider code 和所需权限。动作只修改 OSS **bucket** CORS，不更改 bucket policy、公开访问、CDN 或防盗链。OSS 源站、独立上传域和 CDN/自定义下载域的浏览器 CORS 要分别验收；写入成功不等于这些路径都已可用。参见阿里云 [GetBucketCors](https://help.aliyun.com/zh/oss/developer-reference/getbucketcors) 与 [PutBucketCors](https://help.aliyun.com/zh/oss/developer-reference/putbucketcors)。
 
 如果连接测试通过但浏览器直传失败，优先检查：
 

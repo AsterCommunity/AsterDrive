@@ -4871,6 +4871,8 @@ export interface components {
         };
         AdminFileBlobListQuery: {
             hash?: string | null;
+            hash_kind?: components["schemas"]["AdminFileBlobHashKind"] | null;
+            health?: components["schemas"]["AdminFileBlobHealth"] | null;
             /** Format: int64 */
             policy_id?: number | null;
             /** Format: int32 */
@@ -4884,6 +4886,8 @@ export interface components {
             sort_by?: components["schemas"]["AdminFileBlobSortBy"] | null;
             sort_order?: components["schemas"]["SortOrder"] | null;
             storage_path?: string | null;
+            /** Format: int64 */
+            uploader_user_id?: number | null;
         };
         AdminFileBlobReferenceFile: {
             created_at: string;
@@ -5084,6 +5088,7 @@ export interface components {
         /** @enum {string} */
         AdminPolicyGroupSortBy: "id" | "name" | "is_enabled" | "is_default" | "created_at" | "updated_at";
         AdminPolicyListQuery: {
+            keyword?: string | null;
             sort_by?: components["schemas"]["AdminPolicySortBy"] | null;
             sort_order?: components["schemas"]["SortOrder"] | null;
         };
@@ -5100,6 +5105,9 @@ export interface components {
         AdminShareListQuery: {
             sort_by?: components["schemas"]["AdminShareSortBy"] | null;
             sort_order?: components["schemas"]["SortOrder"] | null;
+            target_type?: components["schemas"]["EntityType"] | null;
+            /** Format: int64 */
+            user_id?: number | null;
         };
         /** @enum {string} */
         AdminShareSortBy: "id" | "token" | "user_id" | "download_count" | "max_downloads" | "expires_at" | "created_at" | "updated_at";
@@ -5606,6 +5614,23 @@ export interface components {
          * @enum {string}
          */
         BrowserOpenMode: "single_click" | "double_click";
+        BrowserUploadAuthorization: {
+            scheme: string;
+            token: string;
+        };
+        /** @description Finite, provider-owned receipt rules consumed by the common browser executor. */
+        BrowserUploadCompletion: {
+            name: string;
+            /** @enum {string} */
+            source: "response_header";
+        } | {
+            /** @enum {string} */
+            source: "fixed";
+            token: string;
+        } | {
+            /** @enum {string} */
+            source: "provider_reconciled";
+        };
         BrowserUploadInstruction: {
             request: components["schemas"]["BrowserUploadRequest"];
             request_id: string;
@@ -5645,7 +5670,9 @@ export interface components {
         };
         /** @description A capability URL, never an administrator credential. Do not log this value. */
         BrowserUploadRequest: {
+            authorization?: components["schemas"]["BrowserUploadAuthorization"] | null;
             body?: components["schemas"]["BrowserUploadRange"] | null;
+            completion?: components["schemas"]["BrowserUploadCompletion"] | null;
             headers: {
                 [key: string]: string;
             };
@@ -7416,6 +7443,7 @@ export interface components {
                 /** Format: int64 */
                 max_downloads: number;
                 target: components["schemas"]["ShareTarget"];
+                target_name?: string | null;
                 /** Format: int64 */
                 team_id?: number | null;
                 token: string;
@@ -7888,7 +7916,7 @@ export interface components {
          * @enum {string}
          */
         PrefViewMode: "list" | "grid";
-        /** @description Request complete presigned PUT descriptors for multipart upload parts. */
+        /** @description Request browser descriptors for signed or provider-native numbered parts. */
         PresignPartsReq: {
             part_numbers: number[];
         };
@@ -8410,6 +8438,7 @@ export interface components {
             /** Format: int64 */
             max_downloads: number;
             target: components["schemas"]["ShareTarget"];
+            target_name?: string | null;
             /** Format: int64 */
             team_id?: number | null;
             token: string;
@@ -11901,6 +11930,9 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
+                uploader_user_id?: number | null;
+                health?: components["schemas"]["AdminFileBlobHealth"] | null;
+                hash_kind?: components["schemas"]["AdminFileBlobHashKind"] | null;
                 hash?: string | null;
                 policy_id?: number | null;
                 storage_path?: string | null;
@@ -12367,6 +12399,7 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
+                keyword?: string | null;
                 sort_by?: components["schemas"]["AdminPolicySortBy"] | null;
                 sort_order?: components["schemas"]["SortOrder"] | null;
             };
@@ -14972,6 +15005,8 @@ export interface operations {
                 limit?: number | null;
                 /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
+                target_type?: components["schemas"]["EntityType"] | null;
+                user_id?: number | null;
                 sort_by?: components["schemas"]["AdminShareSortBy"] | null;
                 sort_order?: components["schemas"]["SortOrder"] | null;
             };
@@ -19799,7 +19834,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned requests for each part */
+            /** @description Browser requests for signed or native numbered parts */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19809,11 +19844,15 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             [key: string]: {
-                                /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
-                                headers?: {
+                                authorization?: components["schemas"]["BrowserUploadAuthorization"] | null;
+                                body?: components["schemas"]["BrowserUploadRange"] | null;
+                                completion?: components["schemas"]["BrowserUploadCompletion"] | null;
+                                headers: {
                                     [key: string]: string;
                                 };
-                                /** @description 完整签名请求的目标 URL。 */
+                                method: components["schemas"]["BrowserUploadMethod"];
+                                /** @description Only these response headers may be reported to the driver. */
+                                response_headers: string[];
                                 url: string;
                             };
                         };
@@ -23715,6 +23754,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;
@@ -23855,6 +23895,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;
@@ -26227,7 +26268,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Presigned requests */
+            /** @description Browser requests for signed or native numbered parts */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -26237,11 +26278,15 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             [key: string]: {
-                                /** @description 签名时纳入请求契约的 headers；浏览器必须原样转发，不能自行补充。 */
-                                headers?: {
+                                authorization?: components["schemas"]["BrowserUploadAuthorization"] | null;
+                                body?: components["schemas"]["BrowserUploadRange"] | null;
+                                completion?: components["schemas"]["BrowserUploadCompletion"] | null;
+                                headers: {
                                     [key: string]: string;
                                 };
-                                /** @description 完整签名请求的目标 URL。 */
+                                method: components["schemas"]["BrowserUploadMethod"];
+                                /** @description Only these response headers may be reported to the driver. */
+                                response_headers: string[];
                                 url: string;
                             };
                         };
@@ -28899,6 +28944,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;
@@ -29067,6 +29113,7 @@ export interface operations {
                             /** Format: int64 */
                             max_downloads: number;
                             target: components["schemas"]["ShareTarget"];
+                            target_name?: string | null;
                             /** Format: int64 */
                             team_id?: number | null;
                             token: string;

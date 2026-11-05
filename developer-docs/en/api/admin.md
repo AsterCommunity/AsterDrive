@@ -503,9 +503,11 @@ These endpoints are admin-side observability and maintenance surfaces, not busin
 Filters:
 
 - `/admin/files`: `name`, `blob_id`, `policy_id`, `owner_user_id`, `team_id`, `deleted`, `limit`, `offset`, `sort_by`, `sort_order`
-- `/admin/file-blobs`: `hash`, `policy_id`, `storage_path`, `ref_count_min`, `ref_count_max`, `size_min`, `size_max`, `limit`, `offset`, `sort_by`, `sort_order`
+- `/admin/file-blobs`: `hash`, `policy_id`, `storage_path`, `ref_count_min`, `ref_count_max`, `size_min`, `size_max`, `uploader_user_id`, `health`, `hash_kind`, `limit`, `offset`, `sort_by`, `sort_order`
 
-`hash_kind` is derived for observability: 64-hex SHA-256 is `content_sha256`, everything else is `opaque`.
+`uploader_user_id` matches referenced files' `created_by_user_id`, using the same uploader definition as blob details without duplicating rows. `health` accepts `healthy`, `orphan`, `ref_count_mismatch`, or `cleanup_claimed`; actual references include files and active non-current revisions, with cleanup claims taking precedence. `hash_kind` accepts `content_sha256` (exactly 64 ASCII hexadecimal characters, in either case) or `opaque`. Filters execute in SQL before counting and pagination and match the displayed classification.
+
+Size bounds remain bytes in the API. The panel uses independent B / KB / MB / GB / TB display units (powers of 1024) for each bound. The URL stores byte bounds plus `sizeMinUnit` / `sizeMaxUnit`; legacy `sizeUnit` links initialize both units and are normalized to the new format. Text and numeric filters are debounced; paginated user/policy lookups restore selected labels by ID and share a bounded 30-second cache within the current admin route session. Concurrent identical lookups share a request; cancellation only stops the request once its last consumer leaves, and explicit retry bypasses the cache. `GET /admin/policies?keyword=...` searches policy names, ignoring surrounding whitespace and case.
 
 Maintenance request:
 
@@ -617,6 +619,8 @@ Admin team creation can create a team for another user and give that user the in
 | `DELETE` | `/admin/locks/expired` | Delete expired locks |
 | `GET` | `/admin/audit-logs` | Paginated audit logs |
 | `GET` | `/admin/audit-logs/export` | Stream a CSV export using filters and sorting |
+
+`GET /admin/shares` combines `target_type=file|folder` and `user_id` with existing pagination and sorting. The filtered query supplies both items and total, including normal empty pages. `ShareInfo.target_name` is resolved with batch file/folder queries and is `null` for deleted or missing targets; the panel shows “Deleted / unavailable”. Public-share responses and access behavior are unchanged. Panel filters persist in the URL and reset the offset on change.
 
 The export endpoint ignores `limit` and `offset`, reads keyset cursor batches, and rejects matches over 100,000 rows with `operation.resource_limit_exceeded`. CSV output is UTF-8 with RFC 4180 escaping and this fixed column order:
 

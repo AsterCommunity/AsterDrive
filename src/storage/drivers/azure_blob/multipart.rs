@@ -222,6 +222,28 @@ impl SeekableStream for AzureSizedReaderStream {
 
 #[async_trait]
 impl MultipartStorageDriver for AzureBlobDriver {
+    async fn browser_part_request(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<aster_drive_storage::BrowserUploadRequest> {
+        let request = self
+            .presigned_upload_part_request(path, upload_id, part_number, expires)
+            .await?;
+        Ok(aster_drive_storage::BrowserUploadRequest {
+            url: request.url,
+            method: aster_drive_storage::BrowserUploadMethod::Put,
+            headers: request.headers,
+            authorization: None,
+            body: None,
+            response_headers: Vec::new(),
+            completion: Some(aster_drive_storage::BrowserUploadCompletion::Fixed {
+                token: Self::block_id_marker(upload_id, part_number)?,
+            }),
+        })
+    }
     fn capabilities(&self) -> MultipartStorageCapabilities {
         MultipartStorageCapabilities {
             min_part_size: 1,

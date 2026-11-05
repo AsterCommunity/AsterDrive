@@ -113,6 +113,9 @@ pub async fn initialize_database_state(
     cfg: &crate::config::Config,
     mode: NodeRuntimeMode,
 ) -> Result<crate::storage::connectors::StorageConnectorRegistry> {
+    // TODO(qiniu-native-0.8.0): remove the one-time V1 online conversion entry
+    // after the native Kodo upgrade window closes.
+    crate::storage::connectors::qiniu::upgrade::convert(database, cfg).await?;
     Migrator::up(database, None)
         .await
         .map_aster_err(AsterError::database_operation)?;

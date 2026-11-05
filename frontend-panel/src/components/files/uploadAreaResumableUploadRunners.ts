@@ -8,9 +8,9 @@ import { getApiErrorMessage } from "@/hooks/useApiError";
 import { appendCompletedPart, removeSession } from "@/lib/uploadPersistence";
 import { runBrowserUpload } from "@/services/browserUploadResource";
 import {
+	type BrowserUploadRequest,
 	type CompletedPart,
 	type InitUploadResponse,
-	type PresignedUploadRequest,
 	type UploadProgressResponse,
 	uploadService,
 } from "@/services/uploadService";
@@ -290,12 +290,12 @@ export function createResumableUploadRunners({
 		).filter((partNumber) => !completedSet.has(partNumber));
 		const pendingPartNumbers = [...queue];
 
-		let requestCache: Record<number, PresignedUploadRequest> = {};
+		let requestCache: Record<number, BrowserUploadRequest> = {};
 		const inFlightPresignBatches = new Map<number, Promise<void>>();
 
 		const getPartRequest = async (
 			partNumber: number,
-		): Promise<PresignedUploadRequest> => {
+		): Promise<BrowserUploadRequest> => {
 			if (requestCache[partNumber]) return requestCache[partNumber];
 
 			const inFlightBatch = inFlightPresignBatches.get(partNumber);
@@ -379,14 +379,11 @@ export function createResumableUploadRunners({
 								uploadRequestRef,
 								task.id,
 								(onCreateXhr) =>
-									uploadService.presignedUpload(
-										request.url,
+									uploadService.uploadPartRequest(
+										request,
 										blob,
 										reportProgress,
-										{
-											headers: request.headers,
-											onCreateXhr,
-										},
+										{ onCreateXhr },
 									),
 							),
 						);

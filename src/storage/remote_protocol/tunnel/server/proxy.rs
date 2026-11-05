@@ -14,6 +14,7 @@ use super::{
     REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelBroker, RemoteTunnelHttpResponse,
     RemoteTunnelOwnerDirectory, RemoteTunnelRegistry, RemoteTunnelStreamHttpResponse,
 };
+use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
@@ -119,6 +120,7 @@ impl ClusterRemoteTunnelBroker {
         let mut request = self
             .client
             .post(url)
+            .header(reqwest::header::USER_AGENT, OUTBOUND_HTTP_USER_AGENT)
             .header(INTERNAL_AUTH_ACCESS_KEY_HEADER, self.directory.runtime_id())
             .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
             .header(INTERNAL_AUTH_NONCE_HEADER, nonce)

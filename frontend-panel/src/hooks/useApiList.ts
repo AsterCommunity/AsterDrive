@@ -34,6 +34,9 @@ export function useApiList<T>(
 
 	useEffect(() => {
 		void load().catch(() => {});
+		return () => {
+			requestIdRef.current += 1;
+		};
 	}, [load]);
 
 	return { items, setItems, total, setTotal, loading, reload: load };

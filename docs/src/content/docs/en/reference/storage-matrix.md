@@ -22,7 +22,7 @@ Per-backend onboarding steps live in the [Storage Backends](/en/admin/storage-ba
 | [Remote](/en/admin/storage-backends/remote-follower/) | Shared across Primary instances | Presigned | Yes | Yes | No | None |
 | [OneDrive](/en/admin/storage-backends/onedrive/) | Shared across Primary instances | Provider-direct | Yes | Yes | No | Delegated OAuth |
 | [Google Drive](/en/admin/storage-backends/google-drive/) | Shared across Primary instances | Provider-direct | No | Yes | No | Delegated OAuth |
-| [Qiniu Kodo](/en/admin/storage-backends/qiniu-kodo/) | Shared across Primary instances | Presigned | Yes | No | No | Static secret |
+| [Qiniu Kodo](/en/admin/storage-backends/qiniu-kodo/) | Shared across Primary instances | Provider-direct | Yes | No | No | Static secret |
 <!-- storage-connectors:matrix:end -->
 
 The table shows each connector's static capability ceiling; policy settings and deployment topology can narrow the usable paths. For example, remote-node `presigned` transfer requires direct mode and a browser-reachable follower `base_url`, while its capacity result depends on the remote storage target.

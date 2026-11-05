@@ -25,6 +25,26 @@ pub(super) async fn complete_provider_resumable_upload(
         .policy_snapshot()
         .get_policy_or_err(session.policy_id)?;
     let driver = state.driver_registry().get_driver(&policy)?;
+    if let Some(provider) = driver.extensions().provider_resumable
+        && !provider
+            .provider_resumable_upload_capabilities()
+            .implicit_completion
+    {
+        let secret = crate::services::files::upload::session::provider::decrypt_provider_session(
+            state, &session,
+        )?;
+        provider
+            .complete_upload_session(
+                &secret.upload_url,
+                u64::try_from(session.total_size).map_err(|_| {
+                    upload_assembly_error_with_code(
+                        ApiErrorCode::UploadSessionCorrupted,
+                        "invalid native upload size",
+                    )
+                })?,
+            )
+            .await?;
+    }
     let actual_size = ensure_uploaded_object_size(
         driver.as_ref(),
         temp_key,

@@ -26,6 +26,31 @@ const mockState = vi.hoisted(() => ({
 	listFiles: vi.fn(),
 }));
 
+vi.mock("@/components/admin/AdminSearchFilter", () => ({
+	AdminSearchFilter: ({
+		label,
+		value,
+		onChange,
+	}: {
+		label: string;
+		value?: number;
+		onChange: (value?: number) => void;
+	}) => (
+		<select
+			aria-label={label}
+			value={value ?? ""}
+			onChange={(event) =>
+				onChange(event.target.value ? Number(event.target.value) : undefined)
+			}
+		>
+			<option value="">All</option>
+			<option value="3">Archive policy</option>
+			<option value="9">Root user</option>
+			<option value="42">Other user</option>
+		</select>
+	),
+}));
+
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
 		t: (key: string, options?: Record<string, unknown>) => {
@@ -674,7 +699,7 @@ describe("AdminFilesPage", () => {
 		expect(screen.getAllByText("admin_deleted_live").length).toBeGreaterThan(0);
 		expect(screen.queryByText("__all__")).not.toBeInTheDocument();
 
-		fireEvent.change(screen.getByPlaceholderText("admin_policy_id"), {
+		fireEvent.change(screen.getByLabelText("filter_policy"), {
 			target: { value: "3" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "select:deleted" }));
@@ -1591,4 +1616,314 @@ it("refreshes the same open Blob after maintenance without changing its URL", as
 		await screen.findByText("refreshed-after-maintenance"),
 	).toBeInTheDocument();
 	expect(screen.getByTestId("location-search")).toHaveTextContent("blobId=31");
+});
+
+it("debounces raw file input before changing URL and resets the page once", async () => {
+	mockState.listFiles.mockResolvedValue({ items: [createFile()], total: 100 });
+	renderPage("files", "/admin/files?offset=20");
+	await screen.findByText("report.txt");
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	const input = screen.getByPlaceholderText("admin_file_name_filter");
+	const before = mockState.listFiles.mock.calls.length;
+	fireEvent.change(input, { target: { value: "r" } });
+	fireEvent.change(input, { target: { value: "re" } });
+	fireEvent.change(input, { target: { value: "report " } });
+	expect(input).toHaveValue("report ");
+	expect(mockState.listFiles).toHaveBeenCalledTimes(before);
+	await waitFor(() =>
+		expect(mockState.listFiles).toHaveBeenCalledTimes(before + 1),
+	);
+	expect(mockState.listFiles).toHaveBeenLastCalledWith(
+		expect.objectContaining({ name: "report", offset: 0 }),
+	);
+	expect(input).toHaveValue("report ");
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"name=report",
+	);
+});
+
+it("restores binary size units and combines Blob health, hash and uploader filters", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeUnit=MB&sizeMin=1572864&sizeMax=3145728&health=orphan&hashKind=opaque&uploaderUserId=9",
+	);
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				size_min: 1572864,
+				size_max: 3145728,
+				health: "orphan",
+				hash_kind: "opaque",
+				uploader_user_id: 9,
+			}),
+		),
+	);
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1.5");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("3");
+	const before = mockState.listBlobs.mock.calls.length;
+	fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1536");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("3");
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 400));
+	});
+	expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+	fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				health: undefined,
+				hash_kind: undefined,
+				uploader_user_id: undefined,
+				size_min: undefined,
+				size_max: undefined,
+			}),
+		),
+	);
+	expect(screen.getByTestId("location-search")).toHaveTextContent("");
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("");
+});
+
+it("preserves pending Blob filters when converting units and debounces one combined query", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeUnit=MB&sizeMin=1048576&sizeMax=2097152",
+	);
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	const hash = screen.getByPlaceholderText("admin_blob_hash_filter");
+	const path = screen.getByPlaceholderText("admin_storage_path");
+	const refs = screen.getByPlaceholderText("admin_ref_count_min");
+	const before = mockState.listBlobs.mock.calls.length;
+	vi.useFakeTimers();
+	try {
+		fireEvent.change(hash, { target: { value: " pending-hash " } });
+		fireEvent.change(path, { target: { value: " archive/ " } });
+		fireEvent.change(refs, { target: { value: "2" } });
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+
+		expect(hash).toHaveValue(" pending-hash ");
+		expect(path).toHaveValue(" archive/ ");
+		expect(refs).toHaveValue("2");
+		expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1024");
+		expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("2");
+		await act(async () => vi.advanceTimersByTimeAsync(50));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before + 1);
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				hash: "pending-hash",
+				storage_path: "archive/",
+				ref_count_min: 2,
+				size_min: 1048576,
+				size_max: 2097152,
+			}),
+		);
+		expect(hash).toHaveValue(" pending-hash ");
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeMinUnit=KB",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it("converts pending decimal bounds across units without submitting an older draft", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeUnit=MB&sizeMin=1048576&sizeMax=3145728",
+	);
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	const min = screen.getByPlaceholderText("admin_size_min");
+	const max = screen.getByPlaceholderText("admin_size_max");
+	const before = mockState.listBlobs.mock.calls.length;
+	vi.useFakeTimers();
+	try {
+		fireEvent.change(min, { target: { value: "1.5" } });
+		fireEvent.change(max, { target: { value: "2.25" } });
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+		expect(min).toHaveValue("1536");
+		expect(max).toHaveValue("2.25");
+		fireEvent.click(screen.getAllByRole("button", { name: "select:B" })[0]);
+		expect(min).toHaveValue("1572864");
+		expect(max).toHaveValue("2.25");
+		await act(async () => vi.advanceTimersByTimeAsync(50));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+		await act(async () => vi.advanceTimersByTimeAsync(300));
+		expect(mockState.listBlobs).toHaveBeenCalledTimes(before + 1);
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({ size_min: 1572864, size_max: 2359296 }),
+		);
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeMin=1572864",
+		);
+	} finally {
+		vi.useRealTimers();
+	}
+});
+
+it.each(["clear", "navigate"] as const)(
+	"does not revive pending filters or units after %s",
+	async (action) => {
+		renderPage("blobs", "/admin/file-blobs?sizeUnit=MB&sizeMin=1048576");
+		await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+		fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+		vi.useFakeTimers();
+		try {
+			fireEvent.change(screen.getByPlaceholderText("admin_blob_hash_filter"), {
+				target: { value: "pending-hash" },
+			});
+			fireEvent.click(screen.getAllByRole("button", { name: "select:KB" })[0]);
+			fireEvent.click(
+				screen.getByRole("button", {
+					name: action === "clear" ? "clear_filters" : "other-blob",
+				}),
+			);
+			await act(async () => vi.advanceTimersByTimeAsync(500));
+			expect(screen.getByPlaceholderText("admin_blob_hash_filter")).toHaveValue(
+				action === "clear" ? "" : "retained",
+			);
+			expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("");
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					hash: action === "clear" ? undefined : "retained",
+					size_min: undefined,
+				}),
+			);
+			expect(screen.getByTestId("location-search")).not.toHaveTextContent(
+				"sizeMinUnit",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	},
+);
+
+it("combines Blob filter changes and waits for a valid size range before querying", async () => {
+	mockState.listBlobs.mockResolvedValue({ items: [createBlob()], total: 100 });
+	renderPage("blobs", "/admin/file-blobs?offset=20");
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	fireEvent.change(screen.getByLabelText("filter_uploader"), {
+		target: { value: "9" },
+	});
+	fireEvent.click(screen.getByRole("button", { name: "select:orphan" }));
+	fireEvent.click(screen.getByRole("button", { name: "select:opaque" }));
+	fireEvent.change(screen.getByPlaceholderText("admin_storage_path"), {
+		target: { value: " archive/ " },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_ref_count_min"), {
+		target: { value: "0" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_ref_count_max"), {
+		target: { value: "2" },
+	});
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				uploader_user_id: 9,
+				health: "orphan",
+				hash_kind: "opaque",
+				storage_path: "archive/",
+				ref_count_min: 0,
+				ref_count_max: 2,
+				offset: 0,
+			}),
+		),
+	);
+	const before = mockState.listBlobs.mock.calls.length;
+	fireEvent.change(screen.getByPlaceholderText("admin_size_min"), {
+		target: { value: "20" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_size_max"), {
+		target: { value: "10" },
+	});
+	expect(screen.getAllByText("filter_size_invalid").length).toBeGreaterThan(0);
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 400));
+	});
+	expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+	fireEvent.change(screen.getByPlaceholderText("admin_size_max"), {
+		target: { value: "30" },
+	});
+	await waitFor(() =>
+		expect(mockState.listBlobs).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				size_min: 20,
+				size_max: 30,
+				storage_path: "archive/",
+				uploader_user_id: 9,
+			}),
+		),
+	);
+	expect(screen.queryByText("filter_size_invalid")).not.toBeInTheDocument();
+});
+
+it("combines file owner, Blob and team identities and resets pagination", async () => {
+	mockState.listFiles.mockResolvedValue({ items: [createFile()], total: 100 });
+	renderPage("files", "/admin/files?offset=20");
+	await screen.findByText("report.txt");
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	fireEvent.change(screen.getByLabelText("filter_owner"), {
+		target: { value: "9" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_blob_id"), {
+		target: { value: "31" },
+	});
+	fireEvent.change(screen.getByPlaceholderText("admin_team_id"), {
+		target: { value: "7" },
+	});
+	await waitFor(() =>
+		expect(mockState.listFiles).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				owner_user_id: 9,
+				blob_id: 31,
+				team_id: 7,
+				offset: 0,
+			}),
+		),
+	);
+	fireEvent.click(screen.getByRole("button", { name: "clear_filters" }));
+	await waitFor(() =>
+		expect(mockState.listFiles).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				owner_user_id: undefined,
+				blob_id: undefined,
+				team_id: undefined,
+				offset: 0,
+			}),
+		),
+	);
+	expect(screen.getByPlaceholderText("admin_team_id")).toHaveValue("");
+});
+
+it("restores independent size units and converts only the chosen bound", async () => {
+	renderPage(
+		"blobs",
+		"/admin/file-blobs?sizeMinUnit=KB&sizeMaxUnit=MB&sizeMin=1536&sizeMax=3145728",
+	);
+	await waitFor(() => expect(mockState.listBlobs).toHaveBeenCalled());
+	fireEvent.click(screen.getByRole("button", { name: /show_filters/ }));
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1.5");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue("3");
+	const before = mockState.listBlobs.mock.calls.length;
+	fireEvent.click(screen.getAllByRole("button", { name: "select:GB" })[1]);
+	expect(screen.getByPlaceholderText("admin_size_min")).toHaveValue("1.5");
+	expect(screen.getByPlaceholderText("admin_size_max")).toHaveValue(
+		"0.0029296875",
+	);
+	await waitFor(() =>
+		expect(screen.getByTestId("location-search")).toHaveTextContent(
+			"sizeMaxUnit=GB",
+		),
+	);
+	expect(mockState.listBlobs).toHaveBeenCalledTimes(before);
+	expect(screen.getByTestId("location-search")).toHaveTextContent(
+		"sizeMinUnit=KB",
+	);
 });

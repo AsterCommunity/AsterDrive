@@ -73,6 +73,8 @@ mod tests {
     #[test]
     fn google_acknowledgements_require_a_visible_valid_contiguous_range() {
         let request = BrowserUploadRequest {
+            authorization: None,
+            completion: None,
             url: "https://upload.invalid".into(),
             method: BrowserUploadMethod::Put,
             headers: BTreeMap::new(),

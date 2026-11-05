@@ -77,6 +77,15 @@ vi.mock("@/pages/admin/AdminRemoteNodeDetailPage", () => ({
 vi.mock("@/pages/admin/AdminExternalAuthPage", () => ({
 	default: "AdminExternalAuthPage",
 }));
+vi.mock("@/pages/admin/AdminExternalAuthCreatePage", () => ({
+	default: "AdminExternalAuthCreatePage",
+}));
+vi.mock("@/pages/admin/AdminExternalAuthDetailPage", () => ({
+	default: "AdminExternalAuthDetailPage",
+}));
+vi.mock("@/pages/admin/AdminPolicyGroupEditPage", () => ({
+	default: "AdminPolicyGroupEditPage",
+}));
 vi.mock("@/pages/admin/AdminPolicyGroupsPage", () => ({
 	default: "AdminPolicyGroupsPage",
 }));

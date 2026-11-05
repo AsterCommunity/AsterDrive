@@ -15,6 +15,7 @@ import type {
 	BrowserUploadInstruction,
 	BrowserUploadObservation,
 	BrowserUploadReport,
+	BrowserUploadRequest,
 	BrowserUploadStep,
 	ChunkUploadResponse,
 	CompletedPart,
@@ -32,6 +33,7 @@ import { CSRF_HEADER_NAME, getCsrfToken } from "./csrf";
 import { ApiError, api } from "./http";
 
 export type {
+	BrowserUploadRequest,
 	ChunkUploadResponse,
 	CompletedPart,
 	InitUploadResponse,
@@ -76,7 +78,7 @@ type ProviderResumableUploadOptions = {
 };
 
 function isRetryableHttpStatus(status: number): boolean {
-	return status === 408 || status === 429 || status >= 500;
+	return status === 408 || status === 429 || (status >= 500 && status < 600);
 }
 
 function parseApiMessage(responseText: string): string | null {
@@ -144,6 +146,152 @@ export function buildUploadPath(workspace: Workspace, path: string) {
 }
 
 export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
+	const executeBrowserRequest = (
+		request: BrowserUploadRequest,
+		file: Blob,
+		limits: {
+			responseBodyLimit: number;
+			timeout:
+				| { kind: "provider_step"; milliseconds: number }
+				| { kind: "numbered_part" };
+		},
+		options: ProviderResumableUploadOptions = {},
+	): Promise<BrowserUploadObservation> =>
+		new Promise((resolve, reject) => {
+			const { responseBodyLimit, timeout } = limits;
+			// Provider steps have an explicitly bounded reconciliation window.
+			// Numbered parts retain the original unlimited transfer lifetime.
+			let timeoutMs: number;
+			switch (timeout.kind) {
+				case "provider_step":
+					timeoutMs = timeout.milliseconds;
+					if (
+						!Number.isSafeInteger(timeoutMs) ||
+						timeoutMs <= 0 ||
+						timeoutMs > 60000
+					) {
+						reject(
+							new UploadRequestError("invalid browser upload instruction"),
+						);
+						return;
+					}
+					break;
+				case "numbered_part":
+					timeoutMs = 0;
+					break;
+			}
+			const range = request.body;
+			const url = new URL(request.url, location.href);
+			const forbiddenHeader = (name: string) =>
+				/^(authorization|proxy-authorization|cookie2?|host|origin|referer|content-length|connection|transfer-encoding|accept-encoding|x-csrf-token|set-cookie|sec-.*|proxy-.*|access-control-.*)$/i.test(
+					name,
+				);
+			if (
+				!["http:", "https:"].includes(url.protocol) ||
+				(timeout.kind === "provider_step" && url.origin === location.origin) ||
+				url.username ||
+				url.password ||
+				url.hash ||
+				!["GET", "PUT", "POST", "PATCH", "DELETE"].includes(request.method) ||
+				!Number.isSafeInteger(file.size) ||
+				!Number.isSafeInteger(responseBodyLimit) ||
+				responseBodyLimit <= 0 ||
+				responseBodyLimit > 65536 ||
+				Object.keys(request.headers).some(forbiddenHeader) ||
+				request.response_headers.some(forbiddenHeader) ||
+				(range &&
+					(!Number.isSafeInteger(range.start) ||
+						!Number.isSafeInteger(range.end) ||
+						range.start < 0 ||
+						range.end <= range.start ||
+						range.end > file.size ||
+						request.method === "GET"))
+			) {
+				reject(new UploadRequestError("invalid browser upload instruction"));
+				return;
+			}
+			const xhr = new XMLHttpRequest();
+			xhr.open(request.method, url.href);
+			xhr.withCredentials = false;
+			xhr.timeout = timeoutMs;
+			for (const [name, value] of Object.entries(request.headers))
+				xhr.setRequestHeader(name, value);
+			if (request.authorization) {
+				const { scheme, token } = request.authorization;
+				if (
+					!/^[A-Za-z][A-Za-z0-9_-]*$/.test(scheme) ||
+					scheme.length > 64 ||
+					!token ||
+					token.length > 8192 ||
+					/[\r\n]/.test(token)
+				) {
+					reject(new UploadRequestError("invalid upload capability"));
+					return;
+				}
+				xhr.setRequestHeader("Authorization", `${scheme} ${token}`);
+			}
+			let settled = false;
+			const observe = (networkFailure = false, oversized = false) => {
+				if (settled) return;
+				settled = true;
+				const headers: Record<string, string> = {};
+				if (!networkFailure)
+					for (const name of request.response_headers) {
+						const value = xhr.getResponseHeader(name);
+						if (value !== null) headers[name.toLowerCase()] = value;
+					}
+				const bytes = new TextEncoder().encode(
+					networkFailure ? "" : xhr.responseText,
+				);
+				const truncated = oversized || bytes.length > responseBodyLimit;
+				const body = truncated
+					? new TextDecoder().decode(
+							bytes.slice(0, Math.max(0, responseBodyLimit - 3)),
+						)
+					: networkFailure
+						? ""
+						: xhr.responseText;
+				resolve({
+					status: networkFailure ? 0 : xhr.status,
+					headers,
+					body,
+					body_truncated: truncated,
+				});
+			};
+			xhr.onload = () => observe();
+			xhr.onerror = () => observe(true);
+			xhr.ontimeout = () => observe(true);
+			xhr.onprogress = (event) => {
+				if (event.loaded > responseBodyLimit) {
+					observe(true, true);
+					xhr.abort();
+				}
+			};
+			const cancel = () => {
+				if (settled) return;
+				settled = true;
+				reject(new UploadRequestError("upload aborted", { isAborted: true }));
+			};
+			xhr.onabort = cancel;
+			let sent = false;
+			const abort = xhr.abort.bind(xhr);
+			xhr.abort = () => {
+				// OPENED XHR aborts before send() do not dispatch an abort event.
+				if (!sent) cancel();
+				abort();
+			};
+			xhr.upload.onprogress = (event) => {
+				if (event.lengthComputable)
+					options.onProgress?.(event.loaded, event.total);
+			};
+			options.onCreateXhr?.(xhr);
+			// An onCreateXhr cancellation can happen before send().
+			if (!settled) {
+				sent = true;
+				xhr.send(range ? file.slice(range.start, range.end) : null);
+			}
+		});
+
 	return {
 		initUpload: (data: {
 			filename: string;
@@ -359,7 +507,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			),
 
 		presignParts: (uploadId: string, partNumbers: number[]) =>
-			api.post<Record<number, PresignedUploadRequest>>(
+			api.post<Record<number, BrowserUploadRequest>>(
 				buildUploadPath(workspace, `/files/upload/${uploadId}/presign-parts`),
 				{
 					part_numbers: partNumbers,
@@ -489,102 +637,80 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 			file: Blob,
 			options: ProviderResumableUploadOptions = {},
 		): Promise<BrowserUploadObservation> =>
-			new Promise((resolve, reject) => {
-				const request = instruction.request;
-				const range = request.body;
-				const url = new URL(request.url, location.href);
-				const forbiddenHeader = (name: string) =>
-					/^(authorization|proxy-authorization|cookie2?|host|origin|referer|content-length|connection|transfer-encoding|accept-encoding|x-csrf-token|set-cookie|sec-.*|proxy-.*|access-control-.*)$/i.test(
-						name,
-					);
-				if (
-					!["http:", "https:"].includes(url.protocol) ||
-					url.origin === location.origin ||
-					url.username ||
-					url.password ||
-					url.hash ||
-					!["GET", "PUT", "POST", "PATCH", "DELETE"].includes(request.method) ||
-					!Number.isSafeInteger(file.size) ||
-					!Number.isSafeInteger(instruction.response_body_limit) ||
-					instruction.response_body_limit <= 0 ||
-					instruction.response_body_limit > 65536 ||
-					!Number.isSafeInteger(instruction.timeout_ms) ||
-					instruction.timeout_ms <= 0 ||
-					instruction.timeout_ms > 60000 ||
-					Object.keys(request.headers).some(forbiddenHeader) ||
-					request.response_headers.some(forbiddenHeader) ||
-					(range &&
-						(!Number.isSafeInteger(range.start) ||
-							!Number.isSafeInteger(range.end) ||
-							range.start < 0 ||
-							range.end <= range.start ||
-							range.end > file.size ||
-							request.method === "GET"))
-				) {
-					reject(new UploadRequestError("invalid browser upload instruction"));
-					return;
+			executeBrowserRequest(
+				instruction.request,
+				file,
+				{
+					responseBodyLimit: instruction.response_body_limit,
+					timeout: {
+						kind: "provider_step",
+						milliseconds: instruction.timeout_ms,
+					},
+				},
+				options,
+			),
+		uploadPartRequest: async (
+			request: BrowserUploadRequest,
+			file: Blob,
+			onProgress?: (loaded: number, total: number) => void,
+			options: ProviderResumableUploadOptions = {},
+		): Promise<string> => {
+			const completion = request.completion;
+			if (!completion)
+				throw new UploadRequestError("Missing multipart completion contract", {
+					retryable: false,
+				});
+			if (
+				completion.source === "response_header" &&
+				!request.response_headers.some(
+					(name) => name.toLowerCase() === completion.name.toLowerCase(),
+				)
+			)
+				throw new UploadRequestError(
+					"Invalid multipart response header contract",
+					{ retryable: false },
+				);
+			const observation = await executeBrowserRequest(
+				{ ...request, body: { start: 0, end: file.size } },
+				file,
+				{ responseBodyLimit: 65536, timeout: { kind: "numbered_part" } },
+				{ ...options, onProgress },
+			);
+			if (
+				observation.body_truncated ||
+				observation.status < 200 ||
+				observation.status >= 300
+			)
+				throw new UploadRequestError("Object part upload failed", {
+					status: observation.status,
+					retryable:
+						observation.status === 0 ||
+						isRetryableHttpStatus(observation.status),
+				});
+			switch (completion.source) {
+				case "response_header": {
+					const token = observation.headers[completion.name.toLowerCase()];
+					if (!token)
+						throw new UploadRequestError(
+							"Object part response is missing its completion header; check CORS",
+							{ retryable: false, status: observation.status },
+						);
+					return token;
 				}
-				const xhr = new XMLHttpRequest();
-				xhr.open(request.method, url.href);
-				xhr.withCredentials = false;
-				xhr.timeout = instruction.timeout_ms;
-				for (const [name, value] of Object.entries(request.headers))
-					xhr.setRequestHeader(name, value);
-				let settled = false;
-				const observe = (networkFailure = false, oversized = false) => {
-					if (settled) return;
-					settled = true;
-					const headers: Record<string, string> = {};
-					if (!networkFailure)
-						for (const name of request.response_headers) {
-							const value = xhr.getResponseHeader(name);
-							if (value !== null) headers[name.toLowerCase()] = value;
-						}
-					const bytes = new TextEncoder().encode(
-						networkFailure ? "" : xhr.responseText,
-					);
-					const truncated =
-						oversized || bytes.length > instruction.response_body_limit;
-					const body = truncated
-						? new TextDecoder().decode(
-								bytes.slice(
-									0,
-									Math.max(0, instruction.response_body_limit - 3),
-								),
-							)
-						: networkFailure
-							? ""
-							: xhr.responseText;
-					resolve({
-						status: networkFailure ? 0 : xhr.status,
-						headers,
-						body,
-						body_truncated: truncated,
-					});
-				};
-				xhr.onload = () => observe();
-				xhr.onerror = () => observe(true);
-				xhr.ontimeout = () => observe(true);
-				xhr.onprogress = (event) => {
-					if (event.loaded > instruction.response_body_limit) {
-						observe(true, true);
-						xhr.abort();
-					}
-				};
-				xhr.onabort = () => {
-					if (settled) return;
-					settled = true;
-					reject(new UploadRequestError("upload aborted", { isAborted: true }));
-				};
-				xhr.upload.onprogress = (event) => {
-					if (event.lengthComputable)
-						options.onProgress?.(event.loaded, event.total);
-				};
-				options.onCreateXhr?.(xhr);
-				// An onCreateXhr cancellation can happen before send().
-				if (!settled)
-					xhr.send(range ? file.slice(range.start, range.end) : null);
-			}),
+				case "fixed":
+					if (
+						!completion.token ||
+						completion.token.length > 1024 ||
+						/[\r\n]/.test(completion.token)
+					)
+						throw new UploadRequestError("Invalid fixed part receipt", {
+							retryable: false,
+						});
+					return completion.token;
+				case "provider_reconciled":
+					return "";
+			}
+		},
 	};
 }
 

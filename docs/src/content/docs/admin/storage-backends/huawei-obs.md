@@ -147,6 +147,13 @@ Type A 使用 `auth_key=timestamp-rand-0-sha256`，参数名可按控制台配�
 
 ## 3. 配置 OBS CORS
 
+管理员可在新建草稿、编辑草稿或已保存策略的动作区显式点击 **配置 CORS**，确认通用远端状态变更提示后执行。先在系统设置配置有效的 **公开站点地址**；后端严格解析为 Origin，不默认使用 `*`。编辑时留空的 AK/SK 可保留已保存凭据，但目标使用当前草稿，不会写到旧 bucket。普通保存和“测试连接”不会配置 CORS。
+
+凭据除对象读写权限外，自动配置仅新增目标 bucket 的 `obs:bucket:GetBucketCORS` 与 `obs:bucket:PutBucketCORS` 权限，该动作不调用删除接口，但华为的 `PutBucketCORS` 授权项本身也允许删除 CORS；不需要公开读、bucket policy 或 CDN 管理权限。动作先读再合并，保留既有规则、ID 和顺序；已满足当前请求则不重复写入。若早期匹配规则缺少 ETag 等响应头，或有未知 XML 字段、超出自动合并器的 100 条规则／64 KiB 安全上限，则拒绝写回，提示手工处理，不清空重建。避免与控制台同时修改 CORS；完整文档替换不提供跨控制台原子合并。
+
+结果显示 bucket（配置范围）、规范化来源、是否变更、保留规则数及可用的 OBS RequestId。官方模式访问 bucket 的区域 OBS endpoint；CNAME 模式访问已直接绑定 OBS 的 endpoint，不能使用 CDN 加速域名。独立的 CDN 下载地址不参与管理请求。协议依据、固定官方 SDK revision、签名向量与本地／真实云边界见 [OBS CORS 契约与证据](https://drive.docs.astercosm.com/developer/design/huawei-obs-cors-contract/)；配置源站 CORS 不会修改 CDN 响应头、缓存或鉴权。
+
+
 只使用 `relay_stream` 时，浏览器不会直接请求 OBS，CORS 可以稍后处理。使用 `presigned` 上传或下载前，至少确认：
 
 通用的 `presigned` CORS 原则见 [S3 / MinIO / R2 教程的 CORS 章节](/admin/storage-backends/s3/)；华为云 OBS 控制台字段对应关系见下面的 OBS 专用表格。
@@ -161,11 +168,11 @@ Type A 使用 `auth_key=timestamp-rand-0-sha256`，参数名可按控制台配�
 
 | OBS 字段 | 建议值 |
 | --- | --- |
-| 允许的来源 | AsterDrive 页面实际 origin；排查阶段可以使用 `*` |
+| 允许的来源 | AsterDrive 页面实际 Origin，例如 `https://drive.example.com` |
 | 允许的方法 | `GET`、`HEAD`、`PUT` |
-| 允许的头域 | `Content-Type`；排查阶段可以临时使用 `*` |
-| 补充头域 | `ETag`；Range 下载可再加入 `Content-Length`、`Content-Range`、`Accept-Ranges` |
-| 缓存时间 | `3600` |
+| 允许的头域 | `Content-Type`、`Range` |
+| 补充头域 | `ETag`、`Content-Length`、`Content-Range`、`Accept-Ranges`、`Content-Disposition` |
+| 缓存时间 | `600` |
 
 `ETag` 是上传响应头，应放在“补充头域”，不是当前预检需要的请求头。不要把 AWS S3 的 `x-amz-*` 头照搬到 OBS 规则；当前浏览器预检最少需要允许 `Content-Type`。如果控制台显示 `OPTIONS` 预检 403，优先检查来源、`PUT` 和 `Content-Type` 是否同时匹配。
 

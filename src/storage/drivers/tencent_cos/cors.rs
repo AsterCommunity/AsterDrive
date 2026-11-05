@@ -1,3 +1,8 @@
+//! Tencent Cloud COS bucket CORS protocol.
+//!
+//! Provider references: [`GET Bucket cors`](https://cloud.tencent.com/document/product/436/8274)
+//! and [`PUT Bucket cors`](https://cloud.tencent.com/document/product/436/8279).
+
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,12 +26,14 @@ const CORS_XML_CONTENT_TYPE: &str = "application/xml";
 const CONTENT_MD5_HEADER: &str = "Content-MD5";
 const COS_CORS_XML_MAX_BYTES: usize = 64 * 1024;
 const COS_ERROR_XML_MAX_BYTES: usize = 16 * 1024;
+const COS_CORS_MAX_RULES: usize = 100;
+const COS_CORS_MAX_ELEMENTS: usize = 8192;
 
 fn cors_xml_options() -> ParseOptions {
     ParseOptions::new()
         .max_size(COS_CORS_XML_MAX_BYTES)
         .max_depth(16)
-        .max_elements(500)
+        .max_elements(COS_CORS_MAX_ELEMENTS)
 }
 
 fn error_xml_options() -> ParseOptions {
@@ -68,16 +75,14 @@ impl TencentCosDriver {
         allowed_origins: &[String],
     ) -> Result<TencentCosCorsApplyResult> {
         let mut existing = self.get_bucket_cors().await?;
+        validate_rule_order(&existing.rules, allowed_origins)?;
         let preserved_rule_count = existing
             .rules
             .iter()
             .filter(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID))
             .count();
         let replaced_existing_rule = preserved_rule_count != existing.rules.len();
-        existing
-            .rules
-            .retain(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID));
-        existing.rules.push(asterdrive_cors_rule(allowed_origins));
+        replace_asterdrive_rule(&mut existing.rules, allowed_origins);
         existing.response_vary = Some(true);
 
         let request_id = self.put_bucket_cors(&existing).await?;
@@ -103,13 +108,12 @@ impl TencentCosDriver {
             .await
             .map_aster_err_ctx("COS GET Bucket cors", AsterError::storage_driver_error)?;
         let status = response.status();
+        let request_id = response
+            .headers()
+            .get("x-cos-request-id")
+            .and_then(|value| value.to_str().ok())
+            .and_then(safe_cos_error_identifier);
         let body_limit = match status {
-            StatusCode::NOT_FOUND => {
-                return Ok(CosCorsConfiguration {
-                    rules: Vec::new(),
-                    response_vary: None,
-                });
-            }
             status if status.is_success() => COS_CORS_XML_MAX_BYTES,
             _ => COS_ERROR_XML_MAX_BYTES,
         };
@@ -119,16 +123,39 @@ impl TencentCosDriver {
             body_limit,
             AsterError::storage_driver_error,
         )
-        .await?;
+        .await
+        .map_err(|error| {
+            if status.is_success() {
+                error
+            } else {
+                cos_cors_response_error(status, "", "GET Bucket cors", request_id.as_deref())
+            }
+        })?;
+        // Error status and request identity remain authoritative even when an
+        // intermediary returns a binary or otherwise malformed response body.
+        if !status.is_success() {
+            let body = String::from_utf8_lossy(&body);
+            if status == StatusCode::NOT_FOUND
+                && extract_xml_tag(&body, "Code").as_deref() == Some("NoSuchCORSConfiguration")
+            {
+                return Ok(CosCorsConfiguration {
+                    rules: Vec::new(),
+                    response_vary: None,
+                });
+            }
+            return Err(cos_cors_response_error(
+                status,
+                &body,
+                "GET Bucket cors",
+                request_id.as_deref(),
+            ));
+        }
         let body = String::from_utf8(body).map_aster_err_ctx(
             "decode COS GET Bucket cors response",
             AsterError::storage_driver_error,
         )?;
 
-        match status {
-            status if status.is_success() => parse_cors_configuration(&body),
-            _ => Err(cos_cors_response_error(status, &body, "GET Bucket cors")),
-        }
+        parse_cors_configuration(&body)
     }
 
     async fn put_bucket_cors(&self, config: &CosCorsConfiguration) -> Result<Option<String>> {
@@ -158,7 +185,7 @@ impl TencentCosDriver {
             .headers()
             .get("x-cos-request-id")
             .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
+            .and_then(safe_cos_error_identifier);
         if status.is_success() {
             return Ok(request_id);
         }
@@ -168,13 +195,18 @@ impl TencentCosDriver {
             COS_ERROR_XML_MAX_BYTES,
             AsterError::storage_driver_error,
         )
-        .await?;
-        let body = String::from_utf8(body).map_aster_err_ctx(
-            "decode COS PUT Bucket cors response",
-            AsterError::storage_driver_error,
-        )?;
+        .await
+        .map_err(|_| {
+            cos_cors_response_error(status, "", "PUT Bucket cors", request_id.as_deref())
+        })?;
+        let body = String::from_utf8_lossy(&body);
 
-        Err(cos_cors_response_error(status, &body, "PUT Bucket cors"))
+        Err(cos_cors_response_error(
+            status,
+            &body,
+            "PUT Bucket cors",
+            request_id.as_deref(),
+        ))
     }
 }
 
@@ -202,7 +234,100 @@ pub(crate) fn asterdrive_cors_rule(allowed_origins: &[String]) -> CosCorsRule {
     }
 }
 
+const COS_REQUIRED_EXPOSE_HEADERS: &[&str] = &[
+    "ETag",
+    "Content-Range",
+    "Content-Disposition",
+    "Accept-Ranges",
+];
+
+fn wildcard_matches(pattern: &str, value: &str) -> bool {
+    match pattern.split_once('*') {
+        Some((prefix, suffix)) => {
+            !suffix.contains('*')
+                && value.len() >= prefix.len() + suffix.len()
+                && value.starts_with(prefix)
+                && value.ends_with(suffix)
+        }
+        None => pattern.eq_ignore_ascii_case(value),
+    }
+}
+
+fn rule_matches(rule: &CosCorsRule, origin: &str, method: &str, headers: &[&str]) -> bool {
+    rule.allowed_origins
+        .iter()
+        .any(|pattern| wildcard_matches(pattern, origin))
+        && rule
+            .allowed_methods
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(method))
+        && headers.iter().all(|header| {
+            rule.allowed_headers
+                .iter()
+                .any(|candidate| candidate == "*" || candidate.eq_ignore_ascii_case(header))
+        })
+}
+
+fn exposes_required_headers(rule: &CosCorsRule, method: &str) -> bool {
+    let required = match method {
+        "PUT" => &COS_REQUIRED_EXPOSE_HEADERS[..1],
+        "GET" | "HEAD" => COS_REQUIRED_EXPOSE_HEADERS,
+        _ => &[],
+    };
+    required.iter().all(|header| {
+        rule.expose_headers
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(header))
+    })
+}
+
+fn validate_rule_order(rules: &[CosCorsRule], origins: &[String]) -> Result<()> {
+    let requests: &[(&str, &[&str])] = &[
+        // Presigned multipart parts have no required request headers; the
+        // browser's preflight can omit Access-Control-Request-Headers entirely.
+        ("PUT", &[]),
+        ("PUT", &["content-type"]),
+        ("GET", &[]),
+        ("GET", &["range"]),
+        ("HEAD", &[]),
+    ];
+    for origin in origins {
+        for (method, headers) in requests {
+            let matching = rules
+                .iter()
+                .take_while(|rule| rule.id.as_deref() != Some(ASTERDRIVE_COS_CORS_RULE_ID))
+                .find(|rule| rule_matches(rule, origin, method, headers));
+            if let Some(rule) = matching
+                && !exposes_required_headers(rule, method)
+            {
+                return Err(AsterError::from(storage_driver_error(
+                    StorageErrorKind::Precondition,
+                    "an earlier matching COS CORS rule lacks required exposed headers; adjust that rule in the Tencent COS console (no rules were written)",
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn replace_asterdrive_rule(rules: &mut Vec<CosCorsRule>, origins: &[String]) {
+    let desired = asterdrive_cors_rule(origins);
+    if let Some(index) = rules
+        .iter()
+        .position(|rule| rule.id.as_deref() == Some(ASTERDRIVE_COS_CORS_RULE_ID))
+    {
+        rules[index] = desired;
+    } else {
+        rules.push(desired);
+    }
+}
+
 pub(crate) fn build_cors_configuration_xml(config: &CosCorsConfiguration) -> Result<String> {
+    if config.rules.len() > COS_CORS_MAX_RULES {
+        return Err(AsterError::storage_driver_error(
+            "COS CORS supports at most 100 rules; existing rules were not changed",
+        ));
+    }
     let mut bytes = Vec::new();
     let mut writer = XmlStreamWriter::with_options(
         &mut bytes,
@@ -232,6 +357,11 @@ pub(crate) fn build_cors_configuration_xml(config: &CosCorsConfiguration) -> Res
     writer
         .finish()
         .map_aster_err_ctx("finalize COS CORS XML", AsterError::storage_driver_error)?;
+    if bytes.len() > COS_CORS_XML_MAX_BYTES {
+        return Err(AsterError::storage_driver_error(
+            "COS CORS XML exceeds 64 KiB; existing rules were not changed",
+        ));
+    }
     String::from_utf8(bytes)
         .map_aster_err_ctx("encode COS CORS XML", AsterError::storage_driver_error)
 }
@@ -248,18 +378,39 @@ pub(crate) fn parse_cors_configuration(body: &str) -> Result<CosCorsConfiguratio
     }
 
     let mut rules = Vec::new();
-    for child in root.children() {
-        if let NodeRef::Element(child) = child
-            && child.name() == "CORSRule"
-        {
-            rules.push(parse_cors_rule(&child));
+    let mut response_vary = None;
+    for child in root.child_elements() {
+        match child.name() {
+            "CORSRule" => rules.push(parse_cors_rule(&child)?),
+            "ResponseVary"
+                if response_vary.is_none() && child.child_elements().next().is_none() =>
+            {
+                response_vary = match element_text(&child).as_deref() {
+                    Some(value) if value.eq_ignore_ascii_case("true") => Some(true),
+                    Some(value) if value.eq_ignore_ascii_case("false") => Some(false),
+                    _ => {
+                        return Err(AsterError::storage_driver_error(
+                            "invalid COS CORS ResponseVary",
+                        ));
+                    }
+                };
+            }
+            _ => {
+                return Err(AsterError::storage_driver_error(
+                    "unsupported or duplicate COS CORS field; existing configuration was not changed",
+                ));
+            }
         }
+    }
+    if rules.len() > COS_CORS_MAX_RULES {
+        return Err(AsterError::storage_driver_error(
+            "COS CORS supports at most 100 rules",
+        ));
     }
 
     Ok(CosCorsConfiguration {
         rules,
-        response_vary: child_text(&root, "ResponseVary")
-            .map(|value| value.eq_ignore_ascii_case("true")),
+        response_vary,
     })
 }
 
@@ -300,16 +451,54 @@ fn write_cors_rule(
     Ok(())
 }
 
-fn parse_cors_rule(element: &ElementRef<'_, Arc<[u8]>>) -> CosCorsRule {
-    CosCorsRule {
+fn parse_cors_rule(element: &ElementRef<'_, Arc<[u8]>>) -> Result<CosCorsRule> {
+    for child in element.child_elements() {
+        if !matches!(
+            child.name(),
+            "ID" | "AllowedOrigin"
+                | "AllowedMethod"
+                | "AllowedHeader"
+                | "ExposeHeader"
+                | "MaxAgeSeconds"
+        ) || child.child_elements().next().is_some()
+        {
+            return Err(AsterError::storage_driver_error(
+                "unsupported COS CORS rule field; existing configuration was not changed",
+            ));
+        }
+    }
+    for name in ["ID", "MaxAgeSeconds"] {
+        if element
+            .child_elements()
+            .filter(|child| child.name() == name)
+            .count()
+            > 1
+        {
+            return Err(AsterError::storage_driver_error(
+                "duplicate COS CORS rule field",
+            ));
+        }
+    }
+    let rule = CosCorsRule {
         id: child_text(element, "ID"),
         allowed_origins: child_texts(element, "AllowedOrigin"),
         allowed_methods: child_texts(element, "AllowedMethod"),
         allowed_headers: child_texts(element, "AllowedHeader"),
         expose_headers: child_texts(element, "ExposeHeader"),
         max_age_seconds: child_text(element, "MaxAgeSeconds")
-            .and_then(|value| value.parse::<u32>().ok()),
+            .map(|value| {
+                value
+                    .parse::<u32>()
+                    .map_err(|_| AsterError::storage_driver_error("invalid COS CORS MaxAgeSeconds"))
+            })
+            .transpose()?,
+    };
+    if rule.allowed_origins.is_empty() || rule.allowed_methods.is_empty() {
+        return Err(AsterError::storage_driver_error(
+            "COS CORS rule requires origins and methods",
+        ));
     }
+    Ok(rule)
 }
 
 fn child_texts(element: &ElementRef<'_, Arc<[u8]>>, name: &str) -> Vec<String> {
@@ -343,40 +532,53 @@ fn content_md5_base64(body: &[u8]) -> String {
     BASE64_STANDARD.encode(Md5::digest(body))
 }
 
-fn cos_cors_response_error(status: StatusCode, body: &str, action: &str) -> AsterError {
-    let code = extract_xml_tag(body, "Code");
-    let message = extract_xml_tag(body, "Message").unwrap_or_else(|| {
-        body.trim()
-            .chars()
-            .take(300)
-            .collect::<String>()
-            .trim()
-            .to_string()
-    });
-    let request_id = extract_xml_tag(body, "RequestId")
+fn safe_cos_error_identifier(value: &str) -> Option<String> {
+    (!value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_=/.".contains(&b)))
+    .then(|| value.to_string())
+}
+
+fn cos_cors_response_error(
+    status: StatusCode,
+    body: &str,
+    action: &str,
+    header_request_id: Option<&str>,
+) -> AsterError {
+    let code = extract_xml_tag(body, "Code").and_then(|value| safe_cos_error_identifier(&value));
+    // Provider messages and raw bodies may echo credentials or signed URLs.
+    let request_id = header_request_id
+        .and_then(safe_cos_error_identifier)
+        .or_else(|| {
+            extract_xml_tag(body, "RequestId").and_then(|value| safe_cos_error_identifier(&value))
+        })
         .map(|id| format!(" request_id={id}"))
         .unwrap_or_default();
     let error_code = code.map(|code| format!(" code={code}")).unwrap_or_default();
-    let detail = if message.is_empty() {
-        format!("Tencent COS {action} failed with HTTP {status}{error_code}{request_id}")
-    } else {
-        format!("Tencent COS {action} failed with HTTP {status}{error_code}{request_id}: {message}")
-    };
+    let detail = format!("Tencent COS {action} failed with HTTP {status}{error_code}{request_id}");
 
     let kind = match status {
         StatusCode::BAD_REQUEST => StorageErrorKind::Misconfigured,
         StatusCode::UNAUTHORIZED => StorageErrorKind::Auth,
         StatusCode::FORBIDDEN => StorageErrorKind::Permission,
+        StatusCode::NOT_FOUND => StorageErrorKind::NotFound,
         StatusCode::PRECONDITION_FAILED | StatusCode::CONFLICT => StorageErrorKind::Precondition,
         StatusCode::TOO_MANY_REQUESTS => StorageErrorKind::RateLimited,
         status if status.is_server_error() => StorageErrorKind::Transient,
         _ => StorageErrorKind::Unknown,
     };
     if kind == StorageErrorKind::Permission {
+        let permission = if action == "GET Bucket cors" {
+            "name/cos:GetBucketCORS"
+        } else {
+            "name/cos:PutBucketCORS"
+        };
         storage_driver_error_with_code(
             kind,
             ApiErrorCode::StoragePermission,
-            format!("{detail}. The Tencent COS credential needs name/cos:PutBucketCORS."),
+            format!("{detail}. The Tencent COS credential needs {permission}."),
         )
     } else {
         AsterError::from(storage_driver_error(kind, detail))
@@ -403,268 +605,9 @@ fn find_xml_tag_text(element: &ElementRef<'_, Arc<[u8]>>, tag: &str) -> Option<S
 }
 
 #[cfg(test)]
-mod tests {
-    use reqwest::StatusCode;
+#[path = "cors/http_tests.rs"]
+mod http_tests;
 
-    use crate::api::api_error_code::ApiErrorCode;
-
-    use super::{
-        ASTERDRIVE_COS_CORS_RULE_ID, COS_CORS_XML_MAX_BYTES, COS_ERROR_XML_MAX_BYTES,
-        CosCorsConfiguration, asterdrive_cors_rule, build_cors_configuration_xml,
-        content_md5_base64, cos_cors_response_error, extract_xml_tag, parse_cors_configuration,
-    };
-
-    #[test]
-    fn asterdrive_cors_xml_contains_browser_direct_access_headers() {
-        let config = CosCorsConfiguration {
-            rules: vec![asterdrive_cors_rule(&[
-                "https://drive.example.com".to_string(),
-                "https://admin.example.com".to_string(),
-            ])],
-            response_vary: Some(true),
-        };
-
-        let xml = build_cors_configuration_xml(&config).expect("CORS XML");
-
-        assert!(xml.contains("<ID>asterdrive-presigned-access</ID>"));
-        assert!(xml.contains("<AllowedOrigin>https://drive.example.com</AllowedOrigin>"));
-        assert!(xml.contains("<AllowedOrigin>https://admin.example.com</AllowedOrigin>"));
-        assert!(xml.contains("<AllowedMethod>PUT</AllowedMethod>"));
-        assert!(xml.contains("<AllowedMethod>GET</AllowedMethod>"));
-        assert!(xml.contains("<AllowedMethod>HEAD</AllowedMethod>"));
-        assert!(xml.contains("<AllowedHeader>*</AllowedHeader>"));
-        assert!(xml.contains("<ExposeHeader>ETag</ExposeHeader>"));
-        assert!(xml.contains("<ExposeHeader>Content-Range</ExposeHeader>"));
-        assert!(xml.contains("<ExposeHeader>Content-Disposition</ExposeHeader>"));
-        assert!(xml.contains("<MaxAgeSeconds>600</MaxAgeSeconds>"));
-        assert!(xml.contains("<ResponseVary>true</ResponseVary>"));
-    }
-
-    #[test]
-    fn parses_and_preserves_existing_cos_cors_rules() {
-        let xml = r#"
-<CORSConfiguration>
-  <CORSRule>
-    <ID>other-app</ID>
-    <AllowedOrigin>https://other.example.com</AllowedOrigin>
-    <AllowedMethod>GET</AllowedMethod>
-    <AllowedHeader>Authorization</AllowedHeader>
-    <ExposeHeader>ETag</ExposeHeader>
-    <MaxAgeSeconds>300</MaxAgeSeconds>
-  </CORSRule>
-  <ResponseVary>false</ResponseVary>
-</CORSConfiguration>
-"#;
-
-        let parsed = parse_cors_configuration(xml).expect("parse CORS XML");
-
-        assert_eq!(parsed.rules.len(), 1);
-        assert_eq!(parsed.rules[0].id.as_deref(), Some("other-app"));
-        assert_eq!(
-            parsed.rules[0].allowed_origins,
-            vec!["https://other.example.com".to_string()]
-        );
-        assert_eq!(parsed.response_vary, Some(false));
-        assert_ne!(
-            parsed.rules[0].id.as_deref(),
-            Some(ASTERDRIVE_COS_CORS_RULE_ID)
-        );
-    }
-
-    #[test]
-    fn parses_namespaced_cos_cors_xml_and_ignores_blank_values() {
-        let xml = r#"
-<cos:CORSConfiguration xmlns:cos="http://cos.example.com/doc">
-  <cos:CORSRule>
-    <cos:ID>  </cos:ID>
-    <cos:AllowedOrigin>https://drive.example.com</cos:AllowedOrigin>
-    <cos:AllowedOrigin>  </cos:AllowedOrigin>
-    <cos:AllowedMethod>PUT</cos:AllowedMethod>
-    <cos:AllowedHeader>*</cos:AllowedHeader>
-    <cos:ExposeHeader>x-cos-request-id</cos:ExposeHeader>
-    <cos:MaxAgeSeconds>not-a-number</cos:MaxAgeSeconds>
-  </cos:CORSRule>
-  <cos:ResponseVary>TRUE</cos:ResponseVary>
-</cos:CORSConfiguration>
-"#;
-
-        let parsed = parse_cors_configuration(xml).expect("parse namespaced CORS XML");
-
-        assert_eq!(parsed.rules.len(), 1);
-        assert_eq!(parsed.rules[0].id, None);
-        assert_eq!(
-            parsed.rules[0].allowed_origins,
-            vec!["https://drive.example.com".to_string()]
-        );
-        assert_eq!(parsed.rules[0].max_age_seconds, None);
-        assert_eq!(parsed.response_vary, Some(true));
-    }
-
-    #[test]
-    fn cors_xml_roundtrip_escapes_text_and_preserves_all_fields() {
-        let config = CosCorsConfiguration {
-            rules: vec![super::CosCorsRule {
-                id: Some("rule<&>\"'".to_string()),
-                allowed_origins: vec!["https://example.com/?a=1&b=<two>".to_string()],
-                allowed_methods: vec!["PUT".to_string()],
-                allowed_headers: vec!["x-test<&>".to_string()],
-                expose_headers: vec!["ETag".to_string()],
-                max_age_seconds: Some(123),
-            }],
-            response_vary: Some(false),
-        };
-
-        let xml = build_cors_configuration_xml(&config).expect("CORS XML should serialize");
-        assert!(xml.contains("&lt;"));
-        assert!(xml.contains("&amp;"));
-        assert_eq!(
-            parse_cors_configuration(&xml).expect("serialized CORS XML should parse"),
-            config
-        );
-    }
-
-    #[test]
-    fn cors_xml_enforces_size_depth_element_and_declaration_boundaries() {
-        let size_prefix = "<CORSConfiguration><!--";
-        let size_suffix = "--></CORSConfiguration>";
-        let exact_size = format!(
-            "{size_prefix}{}{size_suffix}",
-            "x".repeat(COS_CORS_XML_MAX_BYTES - size_prefix.len() - size_suffix.len())
-        );
-        assert_eq!(exact_size.len(), COS_CORS_XML_MAX_BYTES);
-        parse_cors_configuration(&exact_size)
-            .expect("COS CORS XML at exact size limit should parse");
-        let over_size = format!("{exact_size} ");
-        let error = parse_cors_configuration(&over_size)
-            .expect_err("COS CORS XML over size limit should fail");
-        assert!(error.message().contains("byte limit"));
-
-        let exact_depth = format!(
-            "<CORSConfiguration>{}{}</CORSConfiguration>",
-            "<n>".repeat(15),
-            "</n>".repeat(15)
-        );
-        parse_cors_configuration(&exact_depth)
-            .expect("COS CORS XML at exact depth limit should parse");
-        let over_depth = format!(
-            "<CORSConfiguration>{}{}</CORSConfiguration>",
-            "<n>".repeat(16),
-            "</n>".repeat(16)
-        );
-        let error = parse_cors_configuration(&over_depth)
-            .expect_err("COS CORS XML over depth limit should fail");
-        assert!(error.message().contains("nesting depth"));
-
-        let exact_elements = format!(
-            "<CORSConfiguration>{}</CORSConfiguration>",
-            "<n/>".repeat(499)
-        );
-        parse_cors_configuration(&exact_elements)
-            .expect("COS CORS XML at exact element limit should parse");
-        let over_elements = format!(
-            "<CORSConfiguration>{}</CORSConfiguration>",
-            "<n/>".repeat(500)
-        );
-        let error = parse_cors_configuration(&over_elements)
-            .expect_err("COS CORS XML over element limit should fail");
-        assert!(error.message().contains("element count"));
-
-        for (name, xml, expected) in [
-            (
-                "DTD",
-                "<!DOCTYPE CORSConfiguration [<!ENTITY x 'boom'>]><CORSConfiguration>&x;</CORSConfiguration>".to_string(),
-                "DTD and custom entity",
-            ),
-            (
-                "standalone entity",
-                "<!ENTITY x 'boom'><CORSConfiguration/>".to_string(),
-                "DTD and custom entity",
-            ),
-            (
-                "malformed",
-                "<CORSConfiguration><CORSRule></CORSConfiguration>".to_string(),
-                "XML",
-            ),
-            (
-                "trailing document",
-                "<CORSConfiguration/><extra/>".to_string(),
-                "XML",
-            ),
-        ] {
-            let error = parse_cors_configuration(&xml).expect_err(name);
-            assert!(
-                error.message().contains(expected),
-                "{name} boundary returned unexpected error: {}",
-                error.message()
-            );
-        }
-    }
-
-    #[test]
-    fn cos_error_xml_enforces_exact_size_and_declaration_boundaries() {
-        let prefix = "<Error><Code>AccessDenied</Code><!--";
-        let suffix = "--></Error>";
-        let exact = format!(
-            "{prefix}{}{suffix}",
-            "x".repeat(COS_ERROR_XML_MAX_BYTES - prefix.len() - suffix.len())
-        );
-        assert_eq!(exact.len(), COS_ERROR_XML_MAX_BYTES);
-        assert_eq!(
-            extract_xml_tag(&exact, "Code").as_deref(),
-            Some("AccessDenied")
-        );
-
-        let over = format!("{exact} ");
-        assert_eq!(extract_xml_tag(&over, "Code"), None);
-        assert_eq!(
-            extract_xml_tag(
-                "<!DOCTYPE Error [<!ENTITY x 'expanded'>]><Error><Message>&x;</Message></Error>",
-                "Message",
-            ),
-            None
-        );
-    }
-
-    #[test]
-    fn rejects_xml_with_unexpected_root() {
-        let error = parse_cors_configuration("<Error><Code>NoSuchCORSConfiguration</Code></Error>")
-            .expect_err("unexpected root should fail");
-
-        assert!(error.message().contains("root is not CORSConfiguration"));
-    }
-
-    #[test]
-    fn maps_cos_cors_permission_error_to_storage_permission_code() {
-        let error = cos_cors_response_error(
-            StatusCode::FORBIDDEN,
-            r#"<Error><Code>AccessDenied</Code><Message>Forbidden.</Message><RequestId>req-1</RequestId></Error>"#,
-            "PUT Bucket cors",
-        );
-
-        assert_eq!(
-            error.api_error_code_override(),
-            Some(ApiErrorCode::StoragePermission)
-        );
-        assert!(error.message().contains("name/cos:PutBucketCORS"));
-        assert!(error.message().contains("request_id=req-1"));
-    }
-
-    #[test]
-    fn maps_cos_cors_bad_request_to_storage_misconfigured_code() {
-        let error = cos_cors_response_error(
-            StatusCode::BAD_REQUEST,
-            r#"<Error><Code>InvalidRequest</Code><Message>Missing required header for this request: Content-MD5</Message><RequestId>req-2</RequestId></Error>"#,
-            "PUT Bucket cors",
-        );
-
-        assert_eq!(error.api_error_code(), ApiErrorCode::StorageMisconfigured);
-        assert!(error.message().contains("Missing required header"));
-        assert!(error.message().contains("code=InvalidRequest"));
-        assert!(error.message().contains("request_id=req-2"));
-    }
-
-    #[test]
-    fn content_md5_base64_matches_cos_required_header_format() {
-        assert_eq!(content_md5_base64(b"hello"), "XUFAKrxLKna5cZ2REBfFkg==");
-    }
-}
+#[cfg(test)]
+#[path = "cors/tests.rs"]
+mod tests;

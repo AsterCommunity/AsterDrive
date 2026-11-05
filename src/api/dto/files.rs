@@ -256,7 +256,7 @@ pub struct CompletedPartReq {
     pub etag: String,
 }
 
-/// Request complete presigned PUT descriptors for multipart upload parts.
+/// Request browser descriptors for signed or provider-native numbered parts.
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PresignPartsReq {
