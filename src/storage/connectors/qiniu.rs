@@ -219,7 +219,9 @@ impl QiniuConnector {
                 related_issues: vec![702],
             });
         descriptor.capabilities.custom_download_base_url = true;
-        descriptor.actions.push(cors::action_descriptor());
+        descriptor
+            .actions
+            .push(cors::configure_cors_action_descriptor());
         descriptor.capabilities.object_storage_transfer_strategy = false;
         descriptor.upload_workflows.presigned_upload = false;
         descriptor.upload_workflows.provider_resumable_upload = true;

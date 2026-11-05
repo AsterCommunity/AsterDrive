@@ -2,11 +2,12 @@ use super::*;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::errors::validation_error_with_code;
+use crate::storage::connectors::common::{action_output_field, boolean_action_output_field};
 use aster_drive_storage::StorageConnectorActionSchema;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionId,
-    StorageConnectorActionOutputFieldDescriptor, StorageConnectorActionOutputValueKind as Kind,
-    StorageConnectorCustomActionDescriptorInput, custom_action_descriptor,
+    StorageConnectorActionOutputValueKind as Kind, StorageConnectorCustomActionDescriptorInput,
+    custom_action_descriptor,
 };
 
 const ACTION_ID: &str = "configure_qiniu_cors";
@@ -14,30 +15,24 @@ aster_drive_storage::storage_connector_action_schema! {
     struct ConfigureQiniuCorsInput {}
 }
 
-pub(super) fn action_descriptor() -> StorageConnectorActionDescriptor {
+pub(super) fn configure_cors_action_descriptor() -> StorageConnectorActionDescriptor {
     custom_action_descriptor(StorageConnectorCustomActionDescriptorInput {
         action_id: StorageConnectorActionId::declared(ACTION_ID),
         label_key: "qiniu_cors_action",
         description_key: "qiniu_cors_description",
         fields: ConfigureQiniuCorsInput::action_fields(),
-        output_fields: [
-            ("bucket", "qiniu_native_bucket", Kind::Text),
-            ("allowed_origins", "qiniu_cors_origins", Kind::StringList),
-            ("changed", "qiniu_cors_changed", Kind::Boolean),
-            ("preserved_rule_count", "qiniu_cors_preserved", Kind::Number),
-            ("request_id", "qiniu_cors_request_id", Kind::Text),
-        ]
-        .into_iter()
-        .map(
-            |(name, label_key, value_kind)| StorageConnectorActionOutputFieldDescriptor {
-                name: name.into(),
-                label_key: label_key.into(),
-                value_kind,
-                true_key: (value_kind == Kind::Boolean).then(|| "qiniu_cors_yes".into()),
-                false_key: (value_kind == Kind::Boolean).then(|| "qiniu_cors_no".into()),
-            },
-        )
-        .collect(),
+        output_fields: vec![
+            action_output_field("bucket", "qiniu_native_bucket", Kind::Text),
+            action_output_field("allowed_origins", "qiniu_cors_origins", Kind::StringList),
+            boolean_action_output_field(
+                "changed",
+                "qiniu_cors_changed",
+                "qiniu_cors_yes",
+                "qiniu_cors_no",
+            ),
+            action_output_field("preserved_rule_count", "qiniu_cors_preserved", Kind::Number),
+            action_output_field("request_id", "qiniu_cors_request_id", Kind::Text),
+        ],
         supports_draft: true,
         supports_saved: true,
         requires_authorization: false,
@@ -58,7 +53,7 @@ pub(super) fn validate_action(
     }
     let _: ConfigureQiniuCorsInput =
         super::super::common::decode_normalized_connector_action_input(
-            &action_descriptor(),
+            &configure_cors_action_descriptor(),
             values,
         )?;
     Ok(())
