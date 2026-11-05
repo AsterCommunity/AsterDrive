@@ -20,7 +20,8 @@ An endpoint that merely resembles S3 does not provide native OSS behavior. OSS V
 
 | Task | Location |
 | --- | --- |
-| Create the bucket, AccessKey, and CORS rules | Alibaba Cloud OSS console |
+| Create the bucket and AccessKey | Alibaba Cloud OSS console |
+| Configure bucket CORS | `Admin -> Storage Policies -> Alibaba Cloud OSS policy -> Configure CORS` |
 | Create the policy | `Admin -> Storage Policies -> New Policy -> Alibaba Cloud OSS` |
 | Assign users or teams | `Admin -> Policy Groups` |
 | Compare `relay_stream` and `presigned` | [Storage Capability Matrix](/en/reference/storage-matrix/) |
@@ -168,7 +169,15 @@ Start with `relay_stream` for connection testing and end-to-end validation. Afte
 
 ## 4. Configure CORS for Presigned Transfers
 
-Browser direct transfers normally need the AsterDrive site origin to use `GET`, `HEAD`, `PUT`, `POST`, and `DELETE`, and send the headers used by uploads. Single-object presigned PUT completion verifies object metadata and size server-side, so it does not require browser access to `ETag`; presigned multipart parts still require `ETag` to complete the multipart object. Expose `ETag` when using multipart, and expose `Content-Length` / `Content-Range` when the selected workflow reads them. Use the current OSS console CORS form as the authority for exact field names.
+The current browser-to-OSS paths use `PUT` for object and part uploads and `GET` / `HEAD` for object reads. AsterDrive handles multipart initiation, completion, and cancellation on the backend. Allow upload `Content-Type` and download `Range`; expose `ETag` for multipart completion and `Content-Length`, `Content-Range`, `Accept-Ranges`, and `Content-Disposition` for downloads. Single-object presigned PUT completion verifies metadata and size on the server, so it does not need browser access to `ETag`.
+
+### Configure CORS from AsterDrive
+
+Set a valid **Public site URL** under `Admin -> System Settings -> Site`, open the Alibaba Cloud OSS policy, and choose **Configure CORS**. Confirm with the standard remote-state change prompt. The action supports new drafts, edited drafts, and saved policies. Blank AK/SK fields on an edited draft reuse that policy's saved credentials; the action always uses the current form's bucket and endpoint. Saving a policy or testing its connection never writes CORS.
+
+The action reads existing bucket rules before appending the AsterDrive rule. It skips the write when a fully equivalent rule exists, preserves unrelated rules and order, and does not claim or delete a rule merely because it contains the site origin. If the Public site URL changes, an old-origin rule may remain; review and remove it manually in OSS. Read failures, unsupported fields that cannot be preserved, more than 20 rules, or XML larger than 16 KB stop the write. Avoid editing the same bucket CORS concurrently elsewhere: OSS replaces the complete configuration and cannot guarantee preservation against external concurrent writes.
+
+Grant `oss:GetBucketCors` and `oss:PutBucketCors` on the target bucket to the action's AccessKey. Permission errors show only a sanitized provider code and actionable permission hint. The action changes bucket CORS only; it does not change bucket policy, public access, CDN, or hotlink protection. Validate OSS origin, separate upload domains, and CDN/custom download domains independently in a real browser. A successful write does not prove every browser path works. See Alibaba Cloud [GetBucketCors](https://help.aliyun.com/zh/oss/developer-reference/getbucketcors) and [PutBucketCors](https://help.aliyun.com/zh/oss/developer-reference/putbucketcors).
 
 If the connection test succeeds but browser direct transfer fails, check:
 

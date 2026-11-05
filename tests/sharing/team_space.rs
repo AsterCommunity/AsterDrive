@@ -1777,6 +1777,7 @@ async fn test_team_shares_support_public_folder_access_and_team_management() {
     let share_id = body["data"]["id"].as_i64().unwrap();
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
     assert_eq!(body["data"]["team_id"], team_id);
+    assert_eq!(body["data"]["target_name"], "Docs");
 
     let req = test::TestRequest::get()
         .uri(&format!("/api/v1/teams/{team_id}/folders"))
@@ -1893,6 +1894,8 @@ async fn test_team_shares_support_public_folder_access_and_team_management() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["target_name"], "Docs");
 
     let req = test::TestRequest::delete()
         .uri(&format!("/api/v1/teams/{team_id}/shares/{share_id}"))

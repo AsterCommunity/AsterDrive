@@ -68,6 +68,35 @@ describe("adminService", () => {
 		);
 	});
 
+	it("sends lookup cancellation and the new list filters to their owning APIs", () => {
+		const config = { signal: new AbortController().signal };
+		adminUserService.list({ keyword: "alice", limit: 20, offset: 20 }, config);
+		adminUserService.get(5, config);
+		adminPolicyService.list(
+			{ keyword: "Archive", limit: 20, offset: 40 },
+			config,
+		);
+		adminPolicyService.get(7, config);
+		adminShareService.list({ user_id: 5, target_type: "folder", offset: 20 });
+		adminFileService.listBlobs({
+			uploader_user_id: 5,
+			health: "orphan",
+			hash_kind: "content_sha256",
+			size_min: 1536,
+			size_max: 3072,
+		});
+		expect(mockState.get.mock.calls).toEqual([
+			["/admin/users?limit=20&offset=20&keyword=alice", config],
+			["/admin/users/5", config],
+			["/admin/policies?limit=20&offset=40&keyword=Archive", config],
+			["/admin/policies/7", config],
+			["/admin/shares?offset=20&target_type=folder&user_id=5"],
+			[
+				"/admin/file-blobs?uploader_user_id=5&health=orphan&hash_kind=content_sha256&size_min=1536&size_max=3072",
+			],
+		]);
+	});
+
 	it("builds list endpoints with optional query strings", () => {
 		adminUserService.list({
 			limit: 20,
@@ -93,10 +122,12 @@ describe("adminService", () => {
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			1,
 			"/admin/users?limit=20&offset=40&keyword=alice&role=admin&status=active&sort_by=username&sort_order=asc",
+			undefined,
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			2,
 			"/admin/policies?limit=5&offset=10&sort_by=name",
+			undefined,
 		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			3,
@@ -140,12 +171,16 @@ describe("adminService", () => {
 		adminConfigService.list();
 
 		expect(mockState.get).toHaveBeenNthCalledWith(1, "/admin/system-info");
-		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/users");
+		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/users", undefined);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			3,
 			"/admin/users/invitations",
 		);
-		expect(mockState.get).toHaveBeenNthCalledWith(4, "/admin/policies");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			4,
+			"/admin/policies",
+			undefined,
+		);
 		expect(mockState.get).toHaveBeenNthCalledWith(
 			5,
 			"/admin/policies/storage-drivers",
@@ -469,7 +504,11 @@ describe("adminService", () => {
 			1,
 			"/admin/overview?days=30&timezone=Asia%2FShanghai&event_limit=16",
 		);
-		expect(mockState.get).toHaveBeenNthCalledWith(2, "/admin/users/5");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			2,
+			"/admin/users/5",
+			undefined,
+		);
 		expect(mockState.post).toHaveBeenNthCalledWith(1, "/admin/users", {
 			username: "alice",
 			email: "alice@example.com",
@@ -493,7 +532,11 @@ describe("adminService", () => {
 		expect(mockState.delete).toHaveBeenNthCalledWith(1, "/admin/users/5/mfa");
 		expect(mockState.delete).toHaveBeenNthCalledWith(2, "/admin/users/5");
 
-		expect(mockState.get).toHaveBeenNthCalledWith(3, "/admin/policies/3");
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			3,
+			"/admin/policies/3",
+			undefined,
+		);
 		expect(mockState.post).toHaveBeenNthCalledWith(3, "/admin/policies", {
 			name: "Primary",
 			driver_type: "s3",

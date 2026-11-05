@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useSearchParams } from "react-router-dom";
+import {
+	Link,
+	useLocation,
+	useNavigationType,
+	useSearchParams,
+} from "react-router-dom";
 import { toast } from "sonner";
+import { AdminNumberUnitInput } from "@/components/admin/AdminNumberUnitInput";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
+import { AdminSearchFilter } from "@/components/admin/AdminSearchFilter";
 import { AdminFileDownloads } from "@/components/admin/content-access/AdminFileDownloads";
 import { AdminFilterToolbar } from "@/components/common/AdminFilterToolbar";
 import {
@@ -49,6 +56,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
+import { useDebouncedQueryDraft } from "@/hooks/useDebouncedQueryDraft";
 import {
 	useManagedAdminList,
 	useManagedAdminListDetailDialog,
@@ -59,6 +67,13 @@ import {
 	useManagedListQueryState,
 } from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
+import {
+	BYTE_FILTER_UNITS,
+	type ByteFilterUnit,
+	formatByteSizeInput,
+	parseByteFilterUnit,
+	parseByteSizeInput,
+} from "@/lib/byteSizeFilter";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateAbsoluteWithOffset } from "@/lib/format";
 import {
@@ -73,6 +88,7 @@ import { adminFileService } from "@/services/adminService";
 import type { AdminFileBlobSortBy, AdminFileSortBy } from "@/types/adminSort";
 import type {
 	AdminFileBlobDetail,
+	AdminFileBlobHashKind,
 	AdminFileBlobHealth,
 	AdminFileBlobInfo,
 	AdminFileDetail,
@@ -83,6 +99,11 @@ import type {
 type AdminFilesPageKind = "files" | "blobs";
 type DeletedFilter = "__all__" | "live" | "deleted";
 type ManagedFileQuery = {
+	uploaderUserId?: number;
+	health: AdminFileBlobHealth | "__all__";
+	hashKind: AdminFileBlobHashKind | "__all__";
+	sizeMinUnit: ByteFilterUnit;
+	sizeMaxUnit: ByteFilterUnit;
 	deleted: DeletedFilter;
 	offset: number;
 	ownerUserId?: number;
@@ -99,6 +120,14 @@ type ManagedFileQuery = {
 	teamId?: number;
 	text: string;
 };
+
+const BLOB_HEALTH_OPTIONS = [
+	"healthy",
+	"orphan",
+	"ref_count_mismatch",
+	"cleanup_claimed",
+] as const;
+const BLOB_HASH_OPTIONS = ["content_sha256", "opaque"] as const;
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20 as const;
@@ -185,6 +214,11 @@ function createManagedFileQueryDefaults(
 ): ManagedFileQuery {
 	const isFiles = kind === "files";
 	return {
+		uploaderUserId: undefined,
+		health: "__all__",
+		hashKind: "__all__",
+		sizeMinUnit: "B",
+		sizeMaxUnit: "B",
 		deleted: "__all__",
 		offset: 0,
 		ownerUserId: undefined,
@@ -210,6 +244,51 @@ function createManagedFileQuerySchema(
 	const defaultSortBy = isFiles ? DEFAULT_FILE_SORT_BY : DEFAULT_BLOB_SORT_BY;
 
 	return {
+		uploaderUserId: {
+			keys: ["uploaderUserId"],
+			parse: (params) => parseOptionalNumber(params.get("uploaderUserId")),
+			serialize: (value) => (!isFiles ? value : undefined),
+		},
+		health: {
+			keys: ["health"],
+			parse: (params) =>
+				BLOB_HEALTH_OPTIONS.includes(
+					params.get("health") as AdminFileBlobHealth,
+				)
+					? (params.get("health") as AdminFileBlobHealth)
+					: "__all__",
+			serialize: (value) =>
+				!isFiles && value !== "__all__" ? value : undefined,
+		},
+		hashKind: {
+			keys: ["hashKind"],
+			parse: (params) =>
+				BLOB_HASH_OPTIONS.includes(
+					params.get("hashKind") as AdminFileBlobHashKind,
+				)
+					? (params.get("hashKind") as AdminFileBlobHashKind)
+					: "__all__",
+			serialize: (value) =>
+				!isFiles && value !== "__all__" ? value : undefined,
+		},
+		sizeMinUnit: {
+			keys: ["sizeMinUnit", "sizeUnit"],
+			parse: (params) =>
+				parseByteFilterUnit(
+					params.get("sizeMinUnit") ?? params.get("sizeUnit"),
+				),
+			serialize: (value) =>
+				!isFiles && value !== "B" ? { sizeMinUnit: value } : undefined,
+		},
+		sizeMaxUnit: {
+			keys: ["sizeMaxUnit"],
+			parse: (params) =>
+				parseByteFilterUnit(
+					params.get("sizeMaxUnit") ?? params.get("sizeUnit"),
+				),
+			serialize: (value) => (!isFiles && value !== "B" ? value : undefined),
+		},
+
 		deleted: {
 			keys: ["deleted"],
 			parse: (searchParams) => parseDeletedFilter(searchParams.get("deleted")),
@@ -724,6 +803,8 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		() => createManagedFileQuerySchema(kind),
 		[kind],
 	);
+	const location = useLocation();
+	const navigationType = useNavigationType();
 	const { query: fileQuery, setQuery: setFileQuery } = useManagedListQueryState(
 		{
 			defaults: managedFileQueryDefaults,
@@ -749,6 +830,116 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		teamId,
 		text,
 	} = fileQuery;
+	const { health, hashKind, uploaderUserId } = fileQuery;
+	const healthOptions = [
+		{ value: "__all__", label: t("filter_health_all") },
+		...BLOB_HEALTH_OPTIONS.map((value) => ({
+			value,
+			label: t(blobHealthLabelKey(value)),
+		})),
+	];
+	const hashOptions = [
+		{ value: "__all__", label: t("filter_hash_all") },
+		...BLOB_HASH_OPTIONS.map((value) => ({
+			value,
+			label: t(
+				value === "content_sha256"
+					? "admin_hash_kind_content"
+					: "admin_hash_kind_opaque",
+			),
+		})),
+	];
+	const { sizeMinUnit, sizeMaxUnit, ...listQuery } = fileQuery;
+	const toDraft = () => ({
+		text,
+		storagePath,
+		secondaryId: optionalNumberValue(secondaryId),
+		teamId: optionalNumberValue(teamId),
+		refCountMin: optionalNumberValue(refCountMin),
+		refCountMax: optionalNumberValue(refCountMax),
+		sizeMin: formatByteSizeInput(sizeMin, sizeMinUnit),
+		sizeMax: formatByteSizeInput(sizeMax, sizeMaxUnit),
+		sizeMinUnit,
+		sizeMaxUnit,
+	});
+	const {
+		draft,
+		setDraft,
+		resetDraft,
+		pending: draftPending,
+	} = useDebouncedQueryDraft({
+		initial: toDraft(),
+		sourceKey: `${kind}:${location.key}`,
+		preserveUnchanged: navigationType === "REPLACE",
+		normalize: (value) => {
+			const min = parseByteSizeInput(value.sizeMin, value.sizeMinUnit);
+			const max = parseByteSizeInput(value.sizeMax, value.sizeMaxUnit);
+			if (
+				min === null ||
+				max === null ||
+				(min != null && max != null && min > max)
+			)
+				return null;
+			for (const key of [
+				"secondaryId",
+				"teamId",
+				"refCountMin",
+				"refCountMax",
+			] as const) {
+				if (value[key].trim() && parseOptionalNumber(value[key]) == null)
+					return null;
+			}
+			return {
+				...value,
+				text: value.text.trim(),
+				storagePath: value.storagePath.trim(),
+				secondaryId: optionalNumberValue(
+					parseOptionalNumber(value.secondaryId),
+				),
+				teamId: optionalNumberValue(parseOptionalNumber(value.teamId)),
+				refCountMin: optionalNumberValue(
+					parseOptionalNumber(value.refCountMin),
+				),
+				refCountMax: optionalNumberValue(
+					parseOptionalNumber(value.refCountMax),
+				),
+				sizeMin: formatByteSizeInput(min, value.sizeMinUnit),
+				sizeMax: formatByteSizeInput(max, value.sizeMaxUnit),
+			};
+		},
+		onCommit: (value) =>
+			setFileQuery({
+				offset: 0,
+				sizeMinUnit: value.sizeMinUnit,
+				sizeMaxUnit: value.sizeMaxUnit,
+				text: value.text,
+				storagePath: value.storagePath,
+				secondaryId: parseOptionalNumber(value.secondaryId),
+				teamId: parseOptionalNumber(value.teamId),
+				refCountMin: parseOptionalNumber(value.refCountMin),
+				refCountMax: parseOptionalNumber(value.refCountMax),
+				sizeMin:
+					parseByteSizeInput(value.sizeMin, value.sizeMinUnit) ?? undefined,
+				sizeMax:
+					parseByteSizeInput(value.sizeMax, value.sizeMaxUnit) ?? undefined,
+			}),
+	});
+	const sizeMinBytes = parseByteSizeInput(draft.sizeMin, draft.sizeMinUnit);
+	const sizeMaxBytes = parseByteSizeInput(draft.sizeMax, draft.sizeMaxUnit);
+	const invalidSizeRange =
+		sizeMinBytes != null && sizeMaxBytes != null && sizeMinBytes > sizeMaxBytes;
+	const changeSizeUnit = (
+		field: "sizeMin" | "sizeMax",
+		unit: ByteFilterUnit,
+	) => {
+		const bytes = field === "sizeMin" ? sizeMinBytes : sizeMaxBytes;
+		if (bytes === null) return;
+		setDraft({
+			...draft,
+			[`${field}Unit`]: unit,
+			[field]: formatByteSizeInput(bytes, unit),
+		});
+	};
 	const fileDetailDialog = useManagedAdminListDetailDialog<AdminFileDetail>();
 	const blobDetailDialog =
 		useManagedAdminListDetailDialog<AdminFileBlobDetail>();
@@ -828,7 +1019,11 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		(!isFiles && refCountMin != null ? 1 : 0) +
 		(!isFiles && refCountMax != null ? 1 : 0) +
 		(!isFiles && sizeMin != null ? 1 : 0) +
-		(!isFiles && sizeMax != null ? 1 : 0);
+		(!isFiles && sizeMax != null ? 1 : 0) +
+		(!isFiles && uploaderUserId != null ? 1 : 0) +
+		(!isFiles && health !== "__all__" ? 1 : 0) +
+		(!isFiles && hashKind !== "__all__" ? 1 : 0) +
+		(draftPending ? 1 : 0);
 
 	const {
 		currentPage,
@@ -838,7 +1033,10 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		reload,
 		total,
 		totalPages,
-	} = useManagedAdminList<AdminFileInfo | AdminFileBlobInfo, ManagedFileQuery>({
+	} = useManagedAdminList<
+		AdminFileInfo | AdminFileBlobInfo,
+		Omit<ManagedFileQuery, "sizeMinUnit" | "sizeMaxUnit">
+	>({
 		deps: [isFiles],
 		loadPage: (query) =>
 			isFiles
@@ -858,6 +1056,10 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 						limit: query.pageSize,
 						offset: query.offset,
 						hash: query.text.trim() || undefined,
+						uploader_user_id: query.uploaderUserId,
+						health: query.health === "__all__" ? undefined : query.health,
+						hash_kind:
+							query.hashKind === "__all__" ? undefined : query.hashKind,
 						policy_id: query.policyId,
 						storage_path: query.storagePath.trim() || undefined,
 						ref_count_min: query.refCountMin,
@@ -867,7 +1069,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 						sort_by: query.sortBy as AdminFileBlobSortBy,
 						sort_order: query.sortOrder,
 					}),
-		query: fileQuery,
+		query: listQuery,
 		setOffset,
 	});
 
@@ -886,7 +1088,13 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		[setFileQuery],
 	);
 	const resetFilters = () => {
+		resetDraft();
 		setFileQuery({
+			uploaderUserId: undefined,
+			health: "__all__",
+			hashKind: "__all__",
+			sizeMinUnit: "B",
+			sizeMaxUnit: "B",
 			deleted: "__all__",
 			offset: 0,
 			ownerUserId: undefined,
@@ -1134,9 +1342,9 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 									className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
 								/>
 								<Input
-									value={text}
+									value={draft.text}
 									onChange={(event) => {
-										setFileQuery({ offset: 0, text: event.target.value });
+										setDraft({ ...draft, text: event.target.value });
 									}}
 									placeholder={
 										isFiles
@@ -1146,48 +1354,40 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 									className={`${ADMIN_CONTROL_HEIGHT_CLASS} pl-9`}
 								/>
 							</div>
-							<Input
-								value={optionalNumberValue(policyId)}
-								onChange={(event) => {
+							<AdminSearchFilter
+								kind="policies"
+								value={policyId}
+								label={t("filter_policy")}
+								onChange={(policyId) => setFileQuery({ offset: 0, policyId })}
+							/>
+							<AdminSearchFilter
+								kind="users"
+								value={isFiles ? ownerUserId : uploaderUserId}
+								label={t(isFiles ? "filter_owner" : "filter_uploader")}
+								onChange={(userId) =>
 									setFileQuery({
 										offset: 0,
-										policyId: parseOptionalNumber(event.target.value),
-									});
-								}}
-								placeholder={t("admin_policy_id")}
-								className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
+										...(isFiles
+											? { ownerUserId: userId }
+											: { uploaderUserId: userId }),
+									})
+								}
 							/>
+
 							{isFiles ? (
 								<>
 									<Input
-										value={optionalNumberValue(secondaryId)}
+										value={draft.secondaryId}
 										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												secondaryId: parseOptionalNumber(event.target.value),
-											});
+											setDraft({ ...draft, secondaryId: event.target.value });
 										}}
 										placeholder={t("admin_blob_id")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
 									/>
 									<Input
-										value={optionalNumberValue(ownerUserId)}
+										value={draft.teamId}
 										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												ownerUserId: parseOptionalNumber(event.target.value),
-											});
-										}}
-										placeholder={t("admin_owner_user_id")}
-										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
-									/>
-									<Input
-										value={optionalNumberValue(teamId)}
-										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												teamId: parseOptionalNumber(event.target.value),
-											});
+											setDraft({ ...draft, teamId: event.target.value });
 										}}
 										placeholder={t("admin_team_id")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
@@ -1222,60 +1422,118 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 							) : (
 								<>
 									<Input
-										value={storagePath}
+										value={draft.storagePath}
 										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												storagePath: event.target.value,
-											});
+											setDraft({ ...draft, storagePath: event.target.value });
 										}}
 										placeholder={t("admin_storage_path")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-48`}
 									/>
 									<Input
-										value={optionalNumberValue(refCountMin)}
+										value={draft.refCountMin}
 										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												refCountMin: parseOptionalNumber(event.target.value),
-											});
+											setDraft({ ...draft, refCountMin: event.target.value });
 										}}
 										placeholder={t("admin_ref_count_min")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
 									/>
 									<Input
-										value={optionalNumberValue(refCountMax)}
+										value={draft.refCountMax}
 										onChange={(event) => {
-											setFileQuery({
-												offset: 0,
-												refCountMax: parseOptionalNumber(event.target.value),
-											});
+											setDraft({ ...draft, refCountMax: event.target.value });
 										}}
 										placeholder={t("admin_ref_count_max")}
 										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-36`}
 									/>
-									<Input
-										value={optionalNumberValue(sizeMin)}
-										onChange={(event) => {
+									{(["sizeMin", "sizeMax"] as const).map((field) => (
+										<AdminNumberUnitInput
+											key={field}
+											className="w-full sm:w-56"
+											inline
+											value={draft[field]}
+											unit={draft[`${field}Unit`]}
+											units={BYTE_FILTER_UNITS}
+											step="any"
+											placeholder={t(
+												field === "sizeMin"
+													? "admin_size_min"
+													: "admin_size_max",
+											)}
+											unitAriaLabel={t(
+												field === "sizeMin"
+													? "filter_size_min_unit"
+													: "filter_size_max_unit",
+											)}
+											onValueChange={(value) =>
+												setDraft({ ...draft, [field]: value })
+											}
+											onUnitChange={(unit) => changeSizeUnit(field, unit)}
+											errorMessage={
+												parseByteSizeInput(
+													draft[field],
+													draft[`${field}Unit`],
+												) === null || invalidSizeRange
+													? t("filter_size_invalid")
+													: null
+											}
+										/>
+									))}
+									<Select
+										items={healthOptions}
+										value={health}
+										onValueChange={(value) =>
 											setFileQuery({
 												offset: 0,
-												sizeMin: parseOptionalNumber(event.target.value),
-											});
-										}}
-										placeholder={t("admin_size_min")}
-										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
-									/>
-									<Input
-										value={optionalNumberValue(sizeMax)}
-										onChange={(event) => {
+												health: BLOB_HEALTH_OPTIONS.includes(
+													value as AdminFileBlobHealth,
+												)
+													? (value as AdminFileBlobHealth)
+													: "__all__",
+											})
+										}
+									>
+										<SelectTrigger
+											width="fit"
+											aria-label={t("admin_blob_health")}
+										>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{healthOptions.map(({ value, label }) => (
+												<SelectItem key={value} value={value}>
+													{label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									<Select
+										items={hashOptions}
+										value={hashKind}
+										onValueChange={(value) =>
 											setFileQuery({
 												offset: 0,
-												sizeMax: parseOptionalNumber(event.target.value),
-											});
-										}}
-										placeholder={t("admin_size_max")}
-										className={`${ADMIN_CONTROL_HEIGHT_CLASS} w-32`}
-									/>
+												hashKind: BLOB_HASH_OPTIONS.includes(
+													value as AdminFileBlobHashKind,
+												)
+													? (value as AdminFileBlobHashKind)
+													: "__all__",
+											})
+										}
+									>
+										<SelectTrigger
+											width="fit"
+											aria-label={t("admin_hash_kind")}
+										>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{hashOptions.map(({ value, label }) => (
+												<SelectItem key={value} value={value}>
+													{label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
 								</>
 							)}
 						</AdminFilterToolbar>

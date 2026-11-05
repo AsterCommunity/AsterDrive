@@ -57,7 +57,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/admin/policies` | 列出全部存储策略 |
+| `GET` | `/admin/policies` | 分页列出存储策略；`keyword` 按名称搜索，忽略首尾空白与大小写 |
 | `POST` | `/admin/policies` | 创建存储策略 |
 | `GET` | `/admin/policies/{id}` | 读取策略详情 |
 | `GET` | `/admin/policies/{id}/capacity` | 读取策略容量观测状态 |
@@ -525,8 +525,12 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 当前实现注意点：
 
 - `GET /admin/files` 支持 `name`、`blob_id`、`policy_id`、`owner_user_id`、`team_id`、`deleted`、`limit`、`offset`、`sort_by`、`sort_order`
-- `GET /admin/file-blobs` 支持 `hash`、`policy_id`、`storage_path`、`ref_count_min`、`ref_count_max`、`size_min`、`size_max`、`limit`、`offset`、`sort_by`、`sort_order`
-- `hash_kind` 只是观测派生字段：64 位十六进制 SHA-256 记为 `content_sha256`，其他值记为 `opaque`
+- `GET /admin/file-blobs` 支持 `hash`、`policy_id`、`storage_path`、`ref_count_min`、`ref_count_max`、`size_min`、`size_max`、`uploader_user_id`、`health`、`hash_kind`、`limit`、`offset`、`sort_by`、`sort_order`
+- `uploader_user_id` 按引用文件的 `created_by_user_id` 过滤，与详情上传者口径一致；同一上传者多次引用不会重复返回 blob
+- `health` 可选 `healthy`、`orphan`、`ref_count_mismatch`、`cleanup_claimed`；实际引用为文件引用加有效非当前版本引用，清理认领状态优先于计数异常。过滤在 SQL 层执行，分页与 total 使用相同条件
+- `hash_kind` 可选 `content_sha256`、`opaque`：64 个 ASCII 十六进制字符（大小写均可）为 `content_sha256`，其余为 `opaque`；过滤与展示使用相同口径
+- `size_min` / `size_max` 始终以字节传输。管理面板支持 B / KB / MB / GB / TB（1024 进制），min / max 各自独立选择展示单位，URL 保存字节边界及 `sizeMinUnit` / `sizeMaxUnit`；旧 `sizeUnit` 链接初始化两个单位后规范化为新格式
+- 面板文本和数值输入防抖提交查询；策略及用户通过分页搜索下拉选择，URL 恢复时补查选中项名称。查找结果在当前后台路由会话内使用有界的 30 秒缓存，相同并发查找共用请求；最后一个使用者取消后才取消底层请求，显式重试绕过缓存
 - `POST /admin/file-blobs/maintenance` 请求体为 `{ "action": "...", "blob_ids": [...] }`，`blob_ids` 可省略；提供时必须非空且当前最多 1000 个
 - `action` 支持 `integrity_check`、`ref_count_reconcile`、`orphan_cleanup`
 - `integrity_check` 只检查对象是否存在以及对象大小是否和 blob 记录一致，不修改 blob
@@ -1019,12 +1023,9 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 | `GET` | `/admin/shares` | 查看全站分享 |
 | `DELETE` | `/admin/shares/{id}` | 管理员删除任意分享 |
 
-`GET /admin/shares` 支持：
+`GET /admin/shares` 支持 `limit`、`offset`、`sort_by`、`sort_order`，以及可组合的 `target_type=file|folder` 和 `user_id`。过滤在 SQL 层执行，空结果正常返回空页，`total` 与过滤后的结果一致。
 
-- `limit`
-- `offset`
-- `sort_by`
-- `sort_order`
+返回的 `ShareInfo.target_name` 是可选目标名称，按文件 / 文件夹 ID 批量装配；已删除或缺失的目标返回 `null`，面板显示“已删除 / 不可用”。公开分享的响应类型和访问行为保持不变。面板筛选同步 URL，修改筛选回到第一页。
 
 ## 审计日志
 

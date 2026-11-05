@@ -631,6 +631,29 @@ async fn test_admin_files_and_file_blobs_observability() {
     );
     let by_blob_ids = json_i64_values(by_blob_body["data"]["items"].as_array().unwrap(), "id");
     assert_eq!(by_blob_ids, vec![report_id, copy_id]);
+    let uploader = filtered_files[0]["created_by_user_id"].as_i64().unwrap();
+    let hash = filtered_files[0]["blob"]["hash"].as_str().unwrap();
+    let uploader_page: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!("/api/v1/admin/file-blobs?uploader_user_id={uploader}&hash={hash}&limit=1")
+    );
+    assert_eq!(uploader_page["data"]["total"], 1);
+    assert_eq!(uploader_page["data"]["items"][0]["id"], blob_id);
+    let uploader_next: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!(
+            "/api/v1/admin/file-blobs?uploader_user_id={uploader}&hash={hash}&limit=1&offset=1"
+        )
+    );
+    assert_eq!(uploader_next["data"]["total"], 1);
+    assert!(
+        uploader_next["data"]["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     let update_req = test::TestRequest::put()
         .uri(&format!("/api/v1/files/{report_id}/content"))
@@ -831,7 +854,7 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
     )
     .await
     .unwrap();
-    file_revision::ActiveModel {
+    let version_ref = file_revision::ActiveModel {
         public_id: Set(uuid::Uuid::new_v4().to_string()),
         history_id: Set(revision_history.id),
         sequence: Set(99),
@@ -858,7 +881,7 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
     .await
     .expect("version-only ref should insert");
     let mut revision_history = revision_history.into_active_model();
-    revision_history.next_sequence = Set(100);
+    revision_history.next_sequence = Set(101);
     revision_history
         .update(state.writer_db())
         .await
@@ -945,6 +968,19 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
     .insert(state.writer_db())
     .await
     .expect("orphan blob should insert");
+    // Retired history must not keep a blob healthy in either SQL filters or badges.
+    let mut retired_ref = version_ref.into_active_model();
+    retired_ref.id = sea_orm::ActiveValue::NotSet;
+    retired_ref.public_id = Set(uuid::Uuid::new_v4().to_string());
+    retired_ref.sequence = Set(100);
+    retired_ref.blob_id = Set(Some(orphan_blob.id));
+    retired_ref.logical_size = Set(66);
+    retired_ref.etag = Set(uuid::Uuid::new_v4().simple().to_string());
+    retired_ref.retired_at = Set(Some(now));
+    retired_ref
+        .insert(state.writer_db())
+        .await
+        .expect("retired revision fixture should insert");
     let orphan_detail: Value = admin_get_json!(
         app,
         admin_token,
@@ -985,6 +1021,57 @@ async fn test_admin_file_blob_health_states_and_reference_boundaries() {
         .find(|blob| blob["id"] == orphan_blob.id)
         .unwrap();
     assert_blob_ref_health(orphan_item, 0, 0, 0, "orphan");
+    for health in ["healthy", "orphan", "ref_count_mismatch", "cleanup_claimed"] {
+        let expected = blobs
+            .iter()
+            .filter(|blob| blob["health"] == health)
+            .map(|blob| blob["id"].as_i64().unwrap())
+            .collect::<Vec<_>>();
+        let filtered: Value = admin_get_json!(
+            app,
+            admin_token,
+            &format!(
+                "/api/v1/admin/file-blobs?policy_id={}&health={health}&sort_by=id&sort_order=asc&limit=1",
+                default_policy.id
+            )
+        );
+        assert_eq!(filtered["data"]["total"], expected.len(), "{health}");
+        assert_eq!(
+            json_i64_values(filtered["data"]["items"].as_array().unwrap(), "id"),
+            expected.iter().take(1).copied().collect::<Vec<_>>()
+        );
+        let second: Value = admin_get_json!(
+            app,
+            admin_token,
+            &format!(
+                "/api/v1/admin/file-blobs?policy_id={}&health={health}&sort_by=id&sort_order=asc&limit=1&offset=1",
+                default_policy.id
+            )
+        );
+        assert_eq!(second["data"]["total"], expected.len());
+        assert_eq!(
+            json_i64_values(second["data"]["items"].as_array().unwrap(), "id"),
+            expected.iter().skip(1).take(1).copied().collect::<Vec<_>>()
+        );
+    }
+    let uploader_id = mismatch_detail["data"]["files"][0]["created_by_user_id"]
+        .as_i64()
+        .unwrap();
+    let filtered: Value = admin_get_json!(
+        app,
+        admin_token,
+        &format!(
+            "/api/v1/admin/file-blobs?uploader_user_id={uploader_id}&health=ref_count_mismatch&hash_kind=opaque"
+        )
+    );
+    assert_eq!(filtered["data"]["total"], 1);
+    assert_eq!(filtered["data"]["items"][0]["id"], mismatch_blob.id);
+    let empty: Value = admin_get_json!(
+        app,
+        admin_token,
+        "/api/v1/admin/file-blobs?uploader_user_id=9223372036854775807"
+    );
+    assert_eq!(empty["data"]["total"], 0);
 }
 
 #[actix_web::test]
@@ -5341,4 +5428,227 @@ async fn test_admin_update_user_rejects_negative_storage_quota() {
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["msg"], "storage_quota must be non-negative");
+}
+
+#[actix_web::test]
+async fn test_admin_blob_hash_kind_sql_matches_rendered_classification() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    // Isolated synthetic fixture: PostgreSQL/MySQL normally reject length 65
+    // before classification. Widen only this test database to compare all of
+    // the issue's boundary inputs; production schema and migrations stay intact.
+    use sea_orm::{ConnectionTrait, DbBackend};
+    let ddl = match state.writer_db().get_database_backend() {
+        DbBackend::Postgres => Some("ALTER TABLE file_blobs ALTER COLUMN hash TYPE VARCHAR(256)"),
+        DbBackend::MySql => Some("ALTER TABLE file_blobs MODIFY COLUMN hash VARCHAR(256) NOT NULL"),
+        _ => None,
+    };
+    if let Some(ddl) = ddl {
+        state.writer_db().execute_unprepared(ddl).await.unwrap();
+    }
+    let policy = policy_repo::find_default(state.reader_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut expected_content = Vec::new();
+    let mut expected_opaque = Vec::new();
+    for (index, hash) in [
+        "a".repeat(64),
+        "B".repeat(64),
+        "aB09".repeat(16),
+        "c".repeat(63),
+        "d".repeat(65),
+        format!("{}g", "e".repeat(63)),
+        format!("{}é", "f".repeat(63)),
+        "ｇ".repeat(64),
+        format!("{}\n", "1".repeat(64)),
+        format!("{} ", "2".repeat(63)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let is_content = hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit());
+        let now = Utc::now();
+        let blob = file_blob::ActiveModel {
+            hash: Set(hash),
+            size: Set(index as i64 + 1),
+            policy_id: Set(policy.id),
+            storage_path: Set(Some(format!("hash-kind-fixture/{index}"))),
+            ref_count: Set(0),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(state.writer_db())
+        .await
+        .unwrap();
+        if is_content {
+            expected_content.push(blob.id);
+        } else {
+            expected_opaque.push(blob.id);
+        }
+    }
+    for (kind, expected) in [
+        ("content_sha256", expected_content),
+        ("opaque", expected_opaque),
+    ] {
+        let page: Value = admin_get_json!(
+            app,
+            token,
+            &format!(
+                "/api/v1/admin/file-blobs?storage_path=hash-kind-fixture&hash_kind={kind}&sort_by=id&sort_order=asc&limit=100"
+            )
+        );
+        assert_eq!(page["data"]["total"], expected.len());
+        let items = page["data"]["items"].as_array().unwrap();
+        assert_eq!(json_i64_values(items, "id"), expected);
+        assert!(items.iter().all(|item| item["hash_kind"] == kind));
+    }
+    for query in ["hash_kind=invalid", "health=invalid"] {
+        let response = test::call_service(
+            &app,
+            admin_get_request(&token, &format!("/api/v1/admin/file-blobs?{query}")).to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), 400);
+    }
+}
+
+#[actix_web::test]
+async fn test_admin_policy_keyword_filters_before_pagination() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+    for name in ["Lookup Alpha", "Lookup Beta", "Unrelated"] {
+        let req = test::TestRequest::post().uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({"name": name, "connection": common::local_connection_json("/tmp/asterdrive-lookup-test")})).to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 201);
+    }
+    let page: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/policies?keyword=%20lOoKuP%20&sort_by=name&sort_order=asc&limit=1&offset=1"
+    );
+    assert_eq!(page["data"]["total"], 2);
+    assert_eq!(page["data"]["items"][0]["name"], "Lookup Beta");
+    let empty: Value = admin_get_json!(app, token, "/api/v1/admin/policies?keyword=missing");
+    assert_eq!(empty["data"]["total"], 0);
+}
+
+#[actix_web::test]
+async fn test_admin_share_filters_and_batch_target_names() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    admin_create_user!(
+        app,
+        token,
+        "sharelookup",
+        "sharelookup@example.com",
+        "password123"
+    );
+    let (other, _) = login_user!(app, "sharelookup", "password123");
+    let mut file_ids = Vec::new();
+    for (auth, name) in [
+        (&token, "admin-share-name.txt"),
+        (&other, "user-share-name.txt"),
+    ] {
+        let file_id = upload_test_file_named!(app, auth, name);
+        file_ids.push(file_id);
+        let req = test::TestRequest::post()
+            .uri("/api/v1/shares")
+            .insert_header(("Cookie", common::access_cookie_header(auth)))
+            .insert_header(common::csrf_header_for(auth))
+            .set_json(serde_json::json!({"target":{"type":"file","id":file_id}}))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 201);
+    }
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"name":"share-folder-name"}))
+        .to_request();
+    let response = test::call_service(&app, req).await;
+    assert_eq!(response.status(), 201);
+    let folder: Value = test::read_body_json(response).await;
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({"target":{"type":"folder","id":folder["data"]["id"]}}))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 201);
+    let all: Value = admin_get_json!(app, token, "/api/v1/admin/shares?sort_by=id&sort_order=asc");
+    let items = all["data"]["items"].as_array().unwrap();
+    assert_eq!(all["data"]["total"], 3);
+    assert_eq!(
+        json_string_values(items, "target_name"),
+        vec![
+            "admin-share-name.txt",
+            "user-share-name.txt",
+            "share-folder-name"
+        ]
+    );
+    let admin_id = items[0]["user"]["id"].as_i64().unwrap();
+    let files: Value = admin_get_json!(
+        app,
+        token,
+        &format!("/api/v1/admin/shares?target_type=file&user_id={admin_id}&limit=1")
+    );
+    assert_eq!(files["data"]["total"], 1);
+    assert_eq!(
+        files["data"]["items"][0]["target_name"],
+        "admin-share-name.txt"
+    );
+    let folders: Value = admin_get_json!(
+        app,
+        token,
+        &format!("/api/v1/admin/shares?target_type=folder&user_id={admin_id}")
+    );
+    assert_eq!(folders["data"]["total"], 1);
+    assert_eq!(
+        folders["data"]["items"][0]["target_name"],
+        "share-folder-name"
+    );
+    let next: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/shares?target_type=file&sort_by=id&sort_order=asc&limit=1&offset=1"
+    );
+    assert_eq!(next["data"]["total"], 2);
+    assert_eq!(
+        next["data"]["items"][0]["target_name"],
+        "user-share-name.txt"
+    );
+    let empty: Value = admin_get_json!(
+        app,
+        token,
+        "/api/v1/admin/shares?user_id=9223372036854775807"
+    );
+    assert_eq!(empty["data"]["total"], 0);
+    // A soft-deleted target still exists in the database, but is unavailable in the admin list.
+    file::ActiveModel {
+        id: Set(file_ids[0]),
+        deleted_at: Set(Some(Utc::now())),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .unwrap();
+    let deleted: Value = admin_get_json!(
+        app,
+        token,
+        &format!("/api/v1/admin/shares?target_type=file&user_id={admin_id}")
+    );
+    assert!(deleted["data"]["items"][0]["target_name"].is_null());
+    let invalid = test::call_service(
+        &app,
+        admin_get_request(&token, "/api/v1/admin/shares?target_type=invalid").to_request(),
+    )
+    .await;
+    assert_eq!(invalid.status(), 400);
 }

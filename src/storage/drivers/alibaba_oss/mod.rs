@@ -5,6 +5,7 @@
 //! presigned URL 始终由 public endpoint client 生成。
 
 pub mod cdn;
+pub(crate) mod cors;
 mod signing;
 #[cfg(test)]
 mod tests;
@@ -225,6 +226,21 @@ impl AlibabaOssDriver {
             public_driver,
             download_delivery,
         })
+    }
+
+    /// Configure bucket CORS only for an explicitly requested admin action.
+    /// The management client is created here, rather than during ordinary
+    /// object-driver construction, so read/write paths do not inherit its
+    /// endpoint or HTTP-client lifecycle.
+    pub(crate) async fn configure_asterdrive_cors(
+        config: &AlibabaOssDriverConfig,
+        credentials: &AlibabaOssStaticCredentials,
+        origins: &[String],
+    ) -> crate::errors::Result<cors::OssCorsApplyResult> {
+        Self::validate_config(config, credentials)?;
+        cors::OssCorsClient::new(config, credentials)?
+            .configure(origins)
+            .await
     }
 
     pub fn backend_s3_driver(&self) -> Arc<S3Driver> {

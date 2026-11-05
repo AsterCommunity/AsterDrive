@@ -14,6 +14,8 @@
 - [对象命名与 OneDrive 直接下载](./storage-object-naming-and-onedrive-direct-download.md)：object key、provider path 和直接下载边界。
 - [对象存储自定义认证与 AWS SDK 复用边界](./object-storage-custom-auth.md)：COS/OSS 原生 signer、presigned 和 S3 operation 复用约束。
 
+- [华为 OBS CORS 契约与证据](./huawei-obs-cors-contract.md)：原生签名、CNAME 管理目标、无损合并、权限与本地／真实云验证边界。
+
 ## 上传完成
 
 - [上传完成契约矩阵](./upload-finalization-contracts.md)：relay、multipart、presigned 和 provider resumable 路径的最终落账契约。

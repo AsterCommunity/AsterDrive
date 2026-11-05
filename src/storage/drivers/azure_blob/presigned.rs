@@ -13,7 +13,7 @@ use aster_drive_storage::traits::extensions::{
 };
 use aster_drive_storage::{DirectDownloadRequest, PresignedUploadRequest};
 
-use super::AzureBlobDriver;
+use super::{AzureBlobDriver, AzureBlobResponseHeaders};
 
 #[async_trait]
 impl DirectDownloadStorageDriver for AzureBlobDriver {
@@ -23,8 +23,26 @@ impl DirectDownloadStorageDriver for AzureBlobDriver {
         expires: Duration,
         options: DirectDownloadOptions,
     ) -> aster_drive_storage::Result<Option<DirectDownloadRequest>> {
+        let cache_control =
+            self.front_door
+                .as_ref()
+                .map(|config| match config.cache_max_age_seconds {
+                    0 => "private, max-age=0, must-revalidate".to_string(),
+                    seconds => format!("public, max-age=0, s-maxage={seconds}"),
+                });
+        let endpoint = self
+            .front_door
+            .as_ref()
+            .map_or(self.endpoint.as_str(), |config| config.base_url.as_str());
+        let response_headers = AzureBlobResponseHeaders {
+            cache_control: cache_control
+                .as_deref()
+                .or(options.response_cache_control.as_deref()),
+            content_disposition: options.response_content_disposition.as_deref(),
+            content_type: options.response_content_type.as_deref(),
+        };
         Ok(Some(DirectDownloadRequest::temporary_url(
-            self.blob_url(path, "r", expires, Some(&options))?
+            self.blob_url(endpoint, path, "r", expires, response_headers)?
                 .to_string(),
             expires,
         )))
@@ -39,7 +57,14 @@ impl PresignedUploadStorageDriver for AzureBlobDriver {
         expires: Duration,
     ) -> aster_drive_storage::Result<Option<PresignedUploadRequest>> {
         Ok(Some(PresignedUploadRequest::new(
-            self.blob_url(path, "cw", expires, None)?.to_string(),
+            self.blob_url(
+                &self.endpoint,
+                path,
+                "cw",
+                expires,
+                AzureBlobResponseHeaders::default(),
+            )?
+            .to_string(),
             BTreeMap::from([("x-ms-blob-type".to_string(), "BlockBlob".to_string())]),
         )))
     }

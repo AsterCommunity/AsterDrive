@@ -98,6 +98,7 @@ async fn test_shares_crud() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["target_name"], "test.txt");
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
     let share_id = body["data"]["id"].as_i64().unwrap();
 
@@ -498,6 +499,7 @@ async fn test_share_update_replaces_password_and_limits_without_changing_token()
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["target_name"], "test.txt");
     let share_id = body["data"]["id"].as_i64().unwrap();
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
 
@@ -514,6 +516,7 @@ async fn test_share_update_replaces_password_and_limits_without_changing_token()
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["target_name"], "test.txt");
     assert_eq!(body["data"]["id"], share_id);
     assert_eq!(body["data"]["token"], share_token);
     assert!(body["data"].get("password").is_none());
@@ -1867,6 +1870,7 @@ async fn test_share_folder() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["target_name"], "Shared Folder");
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
 
     // 公开查看分享信息

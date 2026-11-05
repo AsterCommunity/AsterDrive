@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { StorageConnectorDescriptor, StoragePolicy } from "@/types/api";
+import type {
+	StorageConnectorActionDescriptor,
+	StorageConnectorDescriptor,
+	StoragePolicy,
+} from "@/types/api";
 import { getPolicyConnectionTestKey } from "./connectionNormalization";
 import { emptyForm } from "./formTypes";
 import {
@@ -111,6 +115,15 @@ const customAction = {
 	requires_saved_policy: false,
 } as const;
 
+const ossCorsAction: StorageConnectorActionDescriptor = {
+	...customAction,
+	action_id: "configure_alibaba_oss_cors",
+	endpoints: [
+		"execute_draft_storage_policy_action",
+		"execute_saved_storage_policy_action",
+	],
+};
+
 function policy(overrides: Partial<StoragePolicy> = {}): StoragePolicy {
 	return {
 		allowed_types: [],
@@ -140,6 +153,52 @@ const localForm = {
 };
 
 describe("policy action selection", () => {
+	it("routes OSS CORS to current draft values and unchanged saved policies", () => {
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				ossCorsAction,
+				"draft",
+				null,
+			),
+		).toBe("draft");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				ossCorsAction,
+				"draft",
+				42,
+			),
+		).toBe("draft");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				ossCorsAction,
+				"saved",
+				42,
+			),
+		).toBe("saved");
+	});
+	it("routes OBS CORS to current draft values and unchanged saved policies", () => {
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				{ ...ossCorsAction, action_id: "configure_huawei_obs_cors" },
+				"draft",
+				null,
+			),
+		).toBe("draft");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				{ ...ossCorsAction, action_id: "configure_huawei_obs_cors" },
+				"draft",
+				42,
+			),
+		).toBe("draft");
+		expect(
+			selectStorageConnectorCustomActionExecutionMode(
+				{ ...ossCorsAction, action_id: "configure_huawei_obs_cors" },
+				"saved",
+				42,
+			),
+		).toBe("saved");
+	});
 	it("uses draft values for new policies and changed edits", () => {
 		const localDescriptor = descriptor("asterdrive.storage.local", [
 			draftAction,

@@ -119,6 +119,7 @@ pub async fn list_policies(
         page.offset(),
         query.sort_by(),
         query.sort_order(),
+        query.keyword.as_deref(),
     )
     .await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(policies)))

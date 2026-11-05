@@ -1,5 +1,7 @@
 //! Azure Blob 存储驱动集成测试（使用 testcontainers + Azurite）
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use aster_drive::storage::drivers::azure_blob::{
@@ -13,7 +15,8 @@ use base64::Engine as _;
 use chrono::Utc;
 use reqwest::StatusCode;
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::TcpStream;
 
 const AZURITE_IMAGE: &str = "mcr.microsoft.com/azure-storage/azurite";
 const AZURITE_TAG: &str = "3.35.0";
@@ -42,6 +45,7 @@ fn azure_driver(endpoint: &str, container: &str, base_path: &str) -> AzureBlobDr
             container: container.to_string(),
             base_path: base_path.to_string(),
             chunk_size: 5_242_880,
+            ..Default::default()
         },
         AzureBlobStaticCredentials {
             account_name: AZURITE_ACCOUNT.to_string(),
@@ -274,13 +278,64 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         .resolve_download_url(
             "direct/presigned.bin",
             Duration::from_secs(300),
-            DirectDownloadOptions::default(),
+            DirectDownloadOptions {
+                allow_provider_response_headers: false,
+                download_name: Some("下载 文件.txt".to_string()),
+                require_download_name_match: false,
+                response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
+                response_content_disposition: Some(
+                    "attachment; filename=\"fallback.txt\"; filename*=UTF-8''%E4%B8%8B%E8%BD%BD%20%E6%96%87%E4%BB%B6.txt".to_string(),
+                ),
+                response_content_type: Some("text/plain".to_string()),
+            },
         )
         .await
         .unwrap()
         .expect("azure presigned get");
+    let presigned_get_query: std::collections::HashMap<_, _> = url::Url::parse(&presigned_get.url)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(
+        presigned_get_query.get("rscc").map(String::as_str),
+        Some("private, max-age=0, must-revalidate")
+    );
+    assert_eq!(
+        presigned_get_query.get("rscd").map(String::as_str),
+        Some(
+            "attachment; filename=\"fallback.txt\"; filename*=UTF-8''%E4%B8%8B%E8%BD%BD%20%E6%96%87%E4%BB%B6.txt"
+        )
+    );
+    assert_eq!(
+        presigned_get_query.get("rsct").map(String::as_str),
+        Some("text/plain")
+    );
     let get_resp = reqwest::get(&presigned_get.url).await.unwrap();
     assert!(get_resp.status().is_success());
+    assert_eq!(
+        get_resp
+            .headers()
+            .get("cache-control")
+            .and_then(|value| value.to_str().ok()),
+        Some("private, max-age=0, must-revalidate")
+    );
+    assert_eq!(
+        get_resp
+            .headers()
+            .get("content-disposition")
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            "attachment; filename=\"fallback.txt\"; filename*=UTF-8''%E4%B8%8B%E8%BD%BD%20%E6%96%87%E4%BB%B6.txt"
+        )
+    );
+    assert_eq!(
+        get_resp
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/plain")
+    );
     assert_eq!(get_resp.bytes().await.unwrap().as_ref(), b"presigned body");
 
     // The same opaque object must download under the current logical name,
@@ -586,4 +641,146 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
     .unwrap();
     assert!(decoded_marker.starts_with("aster-"));
     assert!(decoded_marker.ends_with("-part-0000000002"));
+}
+
+/// Read one HTTP request up to the end of its headers.
+async fn read_request_head(stream: &mut TcpStream) -> String {
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 1024];
+    loop {
+        let n = stream
+            .read(&mut chunk)
+            .await
+            .expect("capture listener should read the request");
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+#[tokio::test]
+async fn test_azure_blob_server_get_targets_configured_host_with_sas_query() {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("capture listener should bind");
+    let port = listener.local_addr().unwrap().port();
+    let endpoint = format!("http://127.0.0.1:{port}/{AZURITE_ACCOUNT}");
+
+    let capture = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("capture accept");
+        let request = read_request_head(&mut stream).await;
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+            .await
+            .expect("capture listener should answer");
+        request
+    });
+
+    let driver = AzureBlobDriver::new(
+        AzureBlobDriverConfig {
+            endpoint,
+            container: "capture".into(),
+            download_delivery: aster_drive::storage::drivers::azure_blob::cdn::AzureBlobDownloadDelivery::AzureFrontDoorSas,
+            download_base_url: "https://downloads.example.test".into(),
+            azure_cdn_cache_max_age_seconds: 300,
+            ..Default::default()
+        },
+        AzureBlobStaticCredentials { account_name: AZURITE_ACCOUNT.into(), account_key: AZURITE_ACCOUNT_KEY.into() },
+    ).unwrap();
+    let body = driver.get("docs/space dir/文件+plus.txt").await.unwrap();
+    assert_eq!(body, b"hello");
+    let request = capture.await.unwrap();
+    let (request_line, headers) = request.split_once("\r\n").expect("request head");
+    assert!(
+        request_line.starts_with("GET /devstoreaccount1/capture/docs/space%20dir/"),
+        "request line should address the configured endpoint host and percent-encode the blob path: {request_line}"
+    );
+    assert!(
+        request_line.contains("%E6%96%87%E4%BB%B6%2Bplus%2Etxt?"),
+        "blob path Unicode must stay encoded in the request line: {request_line}"
+    );
+    assert!(
+        request_line.contains("sp=r"),
+        "relay GET must stay read-only: {request_line}"
+    );
+    assert!(
+        request_line.contains("sr=b"),
+        "relay GET must address the blob resource: {request_line}"
+    );
+    assert!(
+        request_line.contains("sig="),
+        "relay GET must be SAS-authenticated: {request_line}"
+    );
+    assert!(
+        !request_line.contains("rscc="),
+        "relay GET must not carry download-only response-header overrides"
+    );
+    assert!(
+        !request_line.contains("rscd="),
+        "relay GET must not carry download-only response-header overrides"
+    );
+    assert!(
+        !request_line.contains("rsct="),
+        "relay GET must not carry download-only response-header overrides"
+    );
+    let lowered = headers.to_ascii_lowercase();
+    assert!(
+        lowered.contains(&format!("host: 127.0.0.1:{port}\r\n")),
+        "request must target the configured host, headers: {headers}"
+    );
+    assert!(
+        !lowered.contains("authorization:"),
+        "relay GET must authenticate through the signed query instead of a header credential"
+    );
+    assert!(
+        !request.contains(AZURITE_ACCOUNT_KEY),
+        "the account key must never appear in the outgoing request"
+    );
+}
+
+#[tokio::test]
+async fn test_azure_blob_server_get_does_not_follow_redirects() {
+    let redirect_target = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("redirect target should bind");
+    let target_port = redirect_target.local_addr().unwrap().port();
+    let followed = Arc::new(AtomicBool::new(false));
+    let followed_flag = followed.clone();
+    tokio::spawn(async move {
+        while let Ok((_, _)) = redirect_target.accept().await {
+            followed_flag.store(true, Ordering::SeqCst);
+        }
+    });
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("redirecting listener should bind");
+    let port = listener.local_addr().unwrap().port();
+    let endpoint = format!("http://127.0.0.1:{port}/{AZURITE_ACCOUNT}");
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let _ = read_request_head(&mut stream).await;
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{target_port}/leak\r\nContent-Length: 0\r\n\r\n"
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+
+    let driver = azure_driver(&endpoint, "capture", "");
+    driver
+        .get("docs/redirect.txt")
+        .await
+        .expect_err("a 302 answer must surface as a driver error");
+    // Give an (incorrect) redirect-following implementation time to fire.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !followed.load(Ordering::SeqCst),
+        "the Azure SDK client must not follow redirects: the signed URL would be re-sent to the redirect target"
+    );
 }
