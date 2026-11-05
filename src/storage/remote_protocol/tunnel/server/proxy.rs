@@ -59,10 +59,7 @@ impl ClusterRemoteTunnelBroker {
         Self {
             local,
             directory,
-            client: reqwest::Client::builder()
-                .user_agent(OUTBOUND_HTTP_USER_AGENT)
-                .build()
-                .expect("AsterDrive outbound user-agent must be valid"),
+            client: reqwest::Client::new(),
         }
     }
 
@@ -123,6 +120,7 @@ impl ClusterRemoteTunnelBroker {
         let mut request = self
             .client
             .post(url)
+            .header(reqwest::header::USER_AGENT, OUTBOUND_HTTP_USER_AGENT)
             .header(INTERNAL_AUTH_ACCESS_KEY_HEADER, self.directory.runtime_id())
             .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
             .header(INTERNAL_AUTH_NONCE_HEADER, nonce)

@@ -295,8 +295,13 @@ fn rule_matches(rule: &CorsRule, origin: &str, method: &str, headers: &[&str]) -
         })
 }
 
-fn exposes_required_headers(rule: &CorsRule) -> bool {
-    REQUIRED_EXPOSE_HEADERS.iter().all(|required| {
+fn exposes_required_headers(rule: &CorsRule, method: &str) -> bool {
+    let required_headers: &[&str] = match method {
+        "PUT" => &["ETag"],
+        "GET" | "HEAD" => REQUIRED_EXPOSE_HEADERS,
+        _ => &[],
+    };
+    required_headers.iter().all(|required| {
         rule.expose_headers
             .iter()
             .any(|exposed| exposed.eq_ignore_ascii_case(required))
@@ -321,9 +326,7 @@ fn needs_rule(rules: &[CorsRule], origins: &[String]) -> Result<bool> {
                 .find(|rule| rule_matches(rule, origin, method, headers));
             match matching {
                 None => missing = true,
-                Some(rule)
-                    if matches!(*method, "GET" | "HEAD") && !exposes_required_headers(rule) =>
-                {
+                Some(rule) if !exposes_required_headers(rule, method) => {
                     return Err(storage_driver_error(
                         StorageErrorKind::Precondition,
                         "an earlier matching OSS CORS rule lacks required exposed headers; adjust that rule in the Alibaba Cloud console (no rules were written)",
@@ -957,13 +960,23 @@ mod tests {
             expose_headers: vec!["Content-Length".into()],
             max_age_seconds: Some(60),
         };
-        let error = needs_rule(&[shadowing.clone()], &["https://drive.example".into()])
-            .expect_err("a first matching rule without ETag must block the write");
+        let error = needs_rule(
+            std::slice::from_ref(&shadowing),
+            &["https://drive.example".into()],
+        )
+        .expect_err("a first matching rule without ETag must block the write");
         assert!(error.to_string().contains("earlier matching OSS CORS rule"));
 
         let desired = desired_rule(&["https://drive.example".into()]);
         let error = needs_rule(&[shadowing, desired], &["https://drive.example".into()])
             .expect_err("a later equivalent rule cannot bypass an earlier shadowing rule");
+        assert!(error.to_string().contains("no rules were written"));
+
+        let mut put_shadow = desired_rule(&["https://drive.example".into()]);
+        put_shadow.expose_headers.retain(|header| header != "ETag");
+        put_shadow.methods = vec!["PUT".into()];
+        let error = needs_rule(&[put_shadow], &["https://drive.example".into()])
+            .expect_err("a matching PUT rule without ETag must block multipart uploads");
         assert!(error.to_string().contains("no rules were written"));
     }
 

@@ -35,6 +35,27 @@ fn asterdrive_cors_xml_contains_browser_direct_access_headers() {
 }
 
 #[test]
+fn existing_matching_cos_rule_cannot_shadow_required_headers() {
+    let mut shadow = asterdrive_cors_rule(&["https://drive.example.com".to_string()]);
+    shadow.id = Some("other-app".into());
+    shadow.allowed_methods = vec!["PUT".into()];
+    shadow.expose_headers.clear();
+    assert!(super::validate_rule_order(&[shadow], &["https://drive.example.com".into()]).is_err());
+}
+
+#[test]
+fn replacing_owned_cos_rule_keeps_its_existing_position() {
+    let mut owned = asterdrive_cors_rule(&["https://old.example.com".to_string()]);
+    owned.id = Some(ASTERDRIVE_COS_CORS_RULE_ID.to_string());
+    let other = asterdrive_cors_rule(&["https://other.example.com".to_string()]);
+    let mut rules = vec![owned, other];
+    super::replace_asterdrive_rule(&mut rules, &["https://drive.example.com".to_string()]);
+    assert_eq!(rules[0].id.as_deref(), Some(ASTERDRIVE_COS_CORS_RULE_ID));
+    assert_eq!(rules[0].allowed_origins, vec!["https://drive.example.com"]);
+    assert_eq!(rules[1].allowed_origins, vec!["https://other.example.com"]);
+}
+
+#[test]
 fn parses_and_preserves_existing_cos_cors_rules() {
     let xml = r#"
 <CORSConfiguration>
