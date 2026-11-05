@@ -1,6 +1,7 @@
 //! Kodo native wire contracts: qiniu/go-sdk f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e.
 //! See auth/credentials.go and storagev2/internal/api-specs/ at that revision.
 mod auth;
+pub(crate) mod cors;
 mod download;
 mod http;
 mod multipart;
@@ -59,6 +60,8 @@ pub struct QiniuDriver {
     /// progress-aware idle detection and bounds the small acknowledgement instead.
     upload_client: reqwest::Client,
     region_query: Url,
+    /// Bucket configuration uses UC, independently of upload/RS/download hosts.
+    bucket_api: Url,
     endpoints: std::sync::Arc<Mutex<Option<Endpoints>>>,
 }
 struct Endpoints {
@@ -146,6 +149,8 @@ impl QiniuDriver {
             upload_client,
             region_query: Url::parse("https://uc.qbox.me/v4/query")
                 .map_err(|_| invalid("invalid region query URL"))?,
+            bucket_api: Url::parse("https://uc.qiniuapi.com")
+                .map_err(|_| invalid("invalid bucket configuration URL"))?,
             endpoints: std::sync::Arc::new(Mutex::new(None)),
         })
     }

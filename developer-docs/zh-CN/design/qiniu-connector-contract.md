@@ -47,6 +47,10 @@ Qiniu connector 的 schema V2 完整替换 V1 S3 wrapper，不使用七牛 Rust 
 
 ## 安全与验证
 
+空间 CORS 由 connector action `configure_qiniu_cors` 调用 driver，沿用 COS 的通用确认框，不引入专用目标/Origin 确认 schema。执行时使用当前草稿/保存配置、对应 AK/SK 和严格解析的公开站点地址；留空凭据复用须检查 policy 的 connector 归属。管理协议固定参考同一 SDK revision 的 `api_get_bucket_cors_rules.go`、`api_set_bucket_cors_rules.go`、对应 JSON 模型与 `http_client.go`：独立 UC `https://uc.qiniuapi.com`，GET/POST `/corsRules/{get,set}/{bucket}`，`Qiniu` v2 签名覆盖实际 JSON Content-Type 与请求体，不借用 RS/上传/下载入口。普通保存和连接测试不写 CORS。
+
+规则无稳定 ID，保留全部原规则及顺序，仅追加缺少的能力；已有第一匹配规则阻碍 GET/HEAD 暴露所需响应头时拒绝写入，不移动或认领它。覆盖配置满足需求时零写入，未知字段/非法模型/读取失败不视为空配置。限制 10 条规则；64 KiB 为本地管理 JSON 防御上限，非声称供应商限制。写后回读比较完整顺序和语义；写入后回读失败明确表示远端可能已经变更。API 不支持 CAS，禁止承诺防止外部并发覆盖。首次从空规则写入会改变供应商默认允许跨域的行为，UI 描述和用户教程必须说明空间范围与真实浏览器/CDN 验收边界。
+
 AK/SK、token、完整 URL 和 provider 原始错误体不得进入日志/Debug/审计。错误保留 HTTP provider code、经过筛选的 X-Reqid 和稳定 StorageErrorKind；reqwest error 的 URL 被丢弃。浏览器仅获得本次对象的短期上传能力。原生 CDN 使用私有 bucket 的 e/token 鉴权；不叠加时间戳防盗链，真实缓存 HIT/MISS、过期与密钥轮换仍需供应商验收。
 
 验证覆盖签名独立向量、原生请求、stat/list/copy/delete、GET/HEAD/Range、大小不符、重试/恢复、取消/过期、失败清理、有界流、schema/凭据、SQLite migration 原子失败与不可逆边界、远端配置确认、前端执行器与既有 provider 回归。OpenAPI、前端 SDK 和 storage docs 通过正式流程生成。真实云测试缺少输入时明确跳过，不能将 mock 或编译通过当成供应商验收。
