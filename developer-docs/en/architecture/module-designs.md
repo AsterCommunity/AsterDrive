@@ -654,19 +654,22 @@ So the repository implements it as an offline CLI: the command handles user inte
 Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence so foundational tables are copied before the tables that depend on them, for example:
 
 - `managed_followers`
+- `remote_tunnel_owners`
 - `storage_policies`
-- `storage_connector_application_configs`
-- `storage_policy_credentials`
+- `storage_policy_connector_credentials`
 - `storage_policy_groups`
-- `storage_policy_group_items`
+- `storage_policy_group_rules`
+- `storage_policy_group_rule_targets`
 - `follower_enrollment_sessions`
 - `users`
 - `storage_policy_authorization_flows`
 - `user_profiles`
 - `user_invitations`
 - `auth_sessions`
+- `admin_content_accesses`
 - `passkeys`
 - `mfa_factors`
+- `mfa_totp_used_steps`
 - `mfa_recovery_codes`
 - `mfa_login_flows`
 - `mfa_email_codes`
@@ -679,6 +682,7 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 - `file_blobs`
 - `blob_media_metadata`
 - `files`
+- `file_create_idempotencies`
 - `file_revision_histories`
 - `file_revisions`
 - `file_revision_properties`
@@ -692,14 +696,19 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 - `external_auth_email_verification_flows`
 - `master_bindings`
 - `remote_storage_targets`
+- `remote_storage_target_credentials`
 - `system_config`
 - `audit_logs`
+- `workspace_activities`
 - `mail_outbox`
 - `background_tasks`
+- `task_resource_publications`
+- `folder_tree_operation_members`
 - `runtime_leases`
 - `scheduled_tasks`
 - `storage_migration_checkpoints`
 - `entity_properties`
+- `resource_lock_namespaces`
 - `resource_locks`
 - `wopi_sessions`
 

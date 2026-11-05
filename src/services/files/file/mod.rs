@@ -80,6 +80,7 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     idempotency_key: Option<&str>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let (parsed_path, name, name_mode, actor_username, canonical_relative_path) =
         match relative_path {
             Some(path) => {

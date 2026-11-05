@@ -15,6 +15,9 @@ use crate::runtime::SharedRuntimeState;
 pub const CONFIG_RELOAD_NAMESPACE: &str = "aster_drive";
 pub const STORAGE_TOPOLOGY_RELOAD_KEY: &str = "__aster_drive.storage_topology";
 const USER_POLICY_GROUP_RELOAD_KEY_PREFIX: &str = "__aster_drive.user_policy_group.";
+// Redis pub/sub is a prompt reload hint, not durable delivery. Every enabled
+// instance independently repairs missed placement/assignment hints off the hot path.
+const POLICY_SNAPSHOT_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 const RELOAD_PUBLISH_ATTEMPTS: u32 = 3;
 const RELOAD_PUBLISH_INITIAL_DELAY: Duration = Duration::from_millis(50);
 const RELOAD_PUBLISH_MAX_DELAY: Duration = Duration::from_millis(200);
@@ -177,6 +180,11 @@ pub async fn run_config_reload_subscription<S>(
 where
     S: SharedRuntimeState + Send + Sync + 'static,
 {
+    if !runtime.enabled() {
+        shutdown.cancelled().await;
+        return Ok(());
+    }
+    let periodic_state = state.clone();
     let metrics = state.metrics().clone();
     let reload_observer = move |observation: ConfigReloadObservation| {
         metrics.record_config_reload(
@@ -197,77 +205,105 @@ where
     };
     let reconcile_state = state.clone();
 
-    runtime
-        .run_reload_subscription_with_reconcile_and_observers(
-            shutdown,
-            move || {
-                let state = reconcile_state.clone();
-                async move {
-                    tracing::debug!(
-                        "reconciling runtime config after config sync subscription connected"
-                    );
-                    state
-                        .runtime_config()
-                        .reload(state.writer_db())
-                        .await
-                        .map_err(|error| {
-                            aster_forge_config::ConfigCoreError::store(error.to_string())
-                        })?;
+    let subscription = runtime.run_reload_subscription_with_reconcile_and_observers(
+        shutdown.clone(),
+        move || {
+            let state = reconcile_state.clone();
+            async move {
+                tracing::debug!(
+                    "reconciling runtime config after config sync subscription connected"
+                );
+                state
+                    .runtime_config()
+                    .reload(state.writer_db())
+                    .await
+                    .map_err(|error| {
+                        aster_forge_config::ConfigCoreError::store(error.to_string())
+                    })?;
+                reconcile_storage_topology(state.as_ref())
+                    .await
+                    .map_err(|error| {
+                        aster_forge_config::ConfigCoreError::store(error.to_string())
+                    })?;
+                super::system::invalidate_all_dependent_public_config_caches();
+                Ok(())
+            }
+        },
+        move |message| {
+            let state = state.clone();
+            async move {
+                tracing::debug!(
+                    keys = ?message.keys,
+                    origin_runtime_id = %message.origin_runtime_id,
+                    "reloading runtime config after remote config sync notification"
+                );
+                state
+                    .runtime_config()
+                    .reload(state.writer_db())
+                    .await
+                    .map_err(|error| {
+                        aster_forge_config::ConfigCoreError::store(error.to_string())
+                    })?;
+                if message
+                    .keys
+                    .iter()
+                    .any(|key| key == STORAGE_TOPOLOGY_RELOAD_KEY)
+                {
                     reconcile_storage_topology(state.as_ref())
                         .await
                         .map_err(|error| {
                             aster_forge_config::ConfigCoreError::store(error.to_string())
                         })?;
+                }
+                reconcile_user_policy_groups(state.as_ref(), &message.keys)
+                    .await
+                    .map_err(|error| {
+                        aster_forge_config::ConfigCoreError::store(error.to_string())
+                    })?;
+                if message.keys.is_empty() {
                     super::system::invalidate_all_dependent_public_config_caches();
-                    Ok(())
-                }
-            },
-            move |message| {
-                let state = state.clone();
-                async move {
-                    tracing::debug!(
-                        keys = ?message.keys,
-                        origin_runtime_id = %message.origin_runtime_id,
-                        "reloading runtime config after remote config sync notification"
-                    );
-                    state
-                        .runtime_config()
-                        .reload(state.writer_db())
-                        .await
-                        .map_err(|error| {
-                            aster_forge_config::ConfigCoreError::store(error.to_string())
-                        })?;
-                    if message
-                        .keys
-                        .iter()
-                        .any(|key| key == STORAGE_TOPOLOGY_RELOAD_KEY)
-                    {
-                        reconcile_storage_topology(state.as_ref())
-                            .await
-                            .map_err(|error| {
-                                aster_forge_config::ConfigCoreError::store(error.to_string())
-                            })?;
+                } else {
+                    for key in &message.keys {
+                        super::system::invalidate_dependent_public_config_caches(key);
                     }
-                    reconcile_user_policy_groups(state.as_ref(), &message.keys)
-                        .await
-                        .map_err(|error| {
-                            aster_forge_config::ConfigCoreError::store(error.to_string())
-                        })?;
-                    if message.keys.is_empty() {
-                        super::system::invalidate_all_dependent_public_config_caches();
-                    } else {
-                        for key in &message.keys {
-                            super::system::invalidate_dependent_public_config_caches(key);
-                        }
-                    }
-                    Ok(())
                 }
-            },
-            Some(&reload_observer),
-            Some(&connection_observer),
-        )
-        .await
-        .map_err(map_config_core_error)
+                Ok(())
+            }
+        },
+        Some(&reload_observer),
+        Some(&connection_observer),
+    );
+    let periodic_reconciliation = async move {
+        let mut reconcile_tick = tokio::time::interval_at(
+            tokio::time::Instant::now() + POLICY_SNAPSHOT_RECONCILE_INTERVAL,
+            POLICY_SNAPSHOT_RECONCILE_INTERVAL,
+        );
+        reconcile_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            reconcile_tick.tick().await;
+            // Refresh the immutable routing snapshot only. Do not tear down
+            // cached drivers or reload/decrypt credentials on every timer tick.
+            if let Err(error) = periodic_state
+                .driver_registry()
+                .reload_policy_snapshot(
+                    periodic_state.policy_snapshot(),
+                    periodic_state.writer_db(),
+                )
+                .await
+            {
+                tracing::warn!(error = %error,
+                    "periodic storage policy snapshot reconciliation failed; retrying next interval");
+            }
+        }
+    };
+    // Poll both futures while either is awaiting DB I/O. Pausing the subscriber
+    // during a timer reload could retain the only SQLite pool connection.
+    tokio::select! {
+        biased;
+        () = shutdown.cancelled() => Ok(()),
+        result = subscription => result.map_err(map_config_core_error),
+        () = periodic_reconciliation => Ok(()),
+    }
 }
 
 pub(crate) fn map_config_core_error(error: aster_forge_config::ConfigCoreError) -> AsterError {
@@ -567,6 +603,27 @@ mod tests {
         })
         .await
         .expect("storage topology notification should reload policy snapshot");
+
+        // A healthy subscriber cannot observe a publisher-only transport failure.
+        // Commit a new team without publishing anything: periodic reconciliation
+        // must discover it while the original subscription remains connected.
+        use sea_orm::ConnectionTrait;
+        db.execute_unprepared("INSERT INTO users (id, username, email, password_hash, created_at, updated_at) VALUES (744, 'silent-owner', 'silent-owner@example.test', 'hash', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)")
+            .await.unwrap();
+        let group_id = policy_snapshot.system_default_policy_group().unwrap().id;
+        db.execute_unprepared(&format!("INSERT INTO teams (id, name, description, created_by, policy_group_id, created_at, updated_at) VALUES (744, 'Silent team', '', 744, {group_id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+            .await.unwrap();
+        assert_eq!(policy_snapshot.resolve_team_policy_group_id(744), None);
+        tokio::time::timeout(Duration::from_secs(40), async {
+            loop {
+                if policy_snapshot.resolve_team_policy_group_id(744) == Some(group_id) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("missed publisher notification must recover without reconnect or another message");
 
         shutdown.cancel();
         worker

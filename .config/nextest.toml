@@ -6,6 +6,12 @@ retries = 0
 filter = 'package(=aster_drive) & binary(=operations) & test(/^cli::database_migration::test_root_binary_database_migrate_(sqlite_to_postgres_happy_path|postgres_to_mysql_with_progress|mysql_to_sqlite_happy_path)$/)'
 test-group = "database-migrations"
 
+# These start real server processes on genuinely empty schemas. Serialize them
+# with cross-database CLI copies rather than competing for the MySQL DDL cache.
+[[profile.default.overrides]]
+filter = 'package(=aster_drive) & binary(=operations) & test(/^cli::fresh_install::fresh_deployment_/)'
+test-group = "database-migrations"
+
 [test-groups.database-migrations]
 max-threads = 1
 

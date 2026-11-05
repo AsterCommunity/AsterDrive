@@ -1433,7 +1433,7 @@ async fn assert_remote_node_telemetry_rename_round_trip(database_url: String, ba
         ))
         .await
         .expect("legacy telemetry fixture should insert");
-    CurrentMigrator::up(&database, None)
+    CurrentMigrator::up(&database, Some(1))
         .await
         .expect("database should apply telemetry rename");
 
@@ -1461,9 +1461,7 @@ async fn assert_remote_node_telemetry_rename_round_trip(database_url: String, ba
         "2026-08-20T02:03:04+00:00"
     );
 
-    let rollback_steps =
-        u32::try_from(migrations.len() - rename_index).expect("rollback step count should fit u32");
-    CurrentMigrator::down(&database, Some(rollback_steps))
+    CurrentMigrator::down(&database, Some(1))
         .await
         .expect("database should roll back telemetry rename");
     let row = database

@@ -795,19 +795,15 @@ async fn migration_preserves_existing_resources_and_does_not_invent_modifiers() 
     let id = common::create_empty_file_via_api(&app, &token, "historical-657.txt", None).await;
     let before = file_repo::find_by_id(state.writer_db(), id).await.unwrap();
     let migrations = CurrentMigrator::migrations();
-    let activity_migration = migrations
+    let migration = migrations
         .iter()
-        .position(|migration| migration.name() == "m20261030_000001_workspace_activities")
+        .find(|migration| migration.name() == "m20261030_000001_workspace_activities")
         .expect("workspace activity migration should be registered");
-    // Later migrations must not change which historical schema this test exercises.
-    let rollback_steps = u32::try_from(migrations.len() - activity_migration)
-        .expect("migration rollback step count should fit u32");
-    CurrentMigrator::down(state.writer_db(), Some(rollback_steps))
-        .await
-        .unwrap();
-    CurrentMigrator::up(state.writer_db(), Some(rollback_steps))
-        .await
-        .unwrap();
+    // Exercise this historical migration directly; later irreversible schema
+    // cleanup must not become a prerequisite for its preservation test.
+    let manager = aster_drive_migration::SchemaManager::new(state.writer_db());
+    migration.down(&manager).await.unwrap();
+    migration.up(&manager).await.unwrap();
     let after = file_repo::find_by_id(state.writer_db(), id).await.unwrap();
     assert_eq!(after.name, before.name);
     assert_eq!(after.created_by_user_id, before.created_by_user_id);

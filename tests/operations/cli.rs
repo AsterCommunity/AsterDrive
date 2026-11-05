@@ -236,6 +236,9 @@ mod database_migration;
 mod doctor;
 #[path = "cli_cases/fast_paths.rs"]
 mod fast_paths;
+#[cfg(unix)]
+#[path = "cli_cases/fresh_install.rs"]
+mod fresh_install;
 #[path = "cli_cases/help.rs"]
 mod help;
 #[path = "cli_cases/input_and_redaction.rs"]

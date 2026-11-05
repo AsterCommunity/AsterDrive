@@ -7,8 +7,8 @@ use actix_web::{App, HttpServer, web};
 use aster_drive::config::{RateLimitConfig, RateLimitTier, WebDavConfig};
 use aster_drive::db::repository::{file_repo, folder_repo, lock_repo, property_repo, user_repo};
 use aster_drive::runtime::PrimaryAppState;
-use aster_drive_model::entities::{audit_log, folder, team, team_member, user, webdav_account};
-use aster_drive_model::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
+use aster_drive_model::entities::{audit_log, folder, user, webdav_account};
+use aster_drive_model::types::{AuditAction, EntityType, UserRole, UserStatus};
 use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_db::system_config;
 use aster_forge_webdav::{DavEventOutcome, DavXmlElement as Element};
@@ -487,33 +487,18 @@ async fn seed_real_team_webdav_accounts(
         .policy_snapshot
         .set_user_policy_group(user.id, default_policy_group.id);
 
-    let team = team::ActiveModel {
-        name: Set("Real Team WebDAV".to_string()),
-        description: Set("WebDAV team workspace".to_string()),
-        created_by: Set(user.id),
-        storage_used: Set(0),
-        storage_quota: Set(0),
-        policy_group_id: Set(Some(default_policy_group.id)),
-        created_at: Set(now),
-        updated_at: Set(now),
-        archived_at: Set(None),
-        ..Default::default()
-    }
-    .insert(state.writer_db())
+    // Use the product creation path so both membership and the routing snapshot
+    // are published, matching real deployments after compatibility readers retire.
+    let team = aster_drive::services::workspace::team::create_team(
+        state,
+        user.id,
+        aster_drive::services::workspace::team::CreateTeamInput {
+            name: "Real Team WebDAV".to_string(),
+            description: Some("WebDAV team workspace".to_string()),
+        },
+    )
     .await
-    .expect("real team WebDAV team should be inserted");
-
-    team_member::ActiveModel {
-        team_id: Set(team.id),
-        user_id: Set(user.id),
-        role: Set(TeamMemberRole::Owner),
-        created_at: Set(now),
-        updated_at: Set(now),
-        ..Default::default()
-    }
-    .insert(state.writer_db())
-    .await
-    .expect("real team WebDAV owner membership should be inserted");
+    .expect("real team WebDAV team should be created");
 
     let personal_username = webdav_test_username("real-team-personal");
     let personal_password = webdav_test_password("REAL_TEAM_PERSONAL");

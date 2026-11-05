@@ -137,6 +137,12 @@ async fn init_upload_for_scope_impl(
     scope: WorkspaceStorageScope,
     params: InitUploadParams<'_>,
 ) -> Result<InitUploadResponse> {
+    crate::services::workspace::storage::require_scope_access_with_db(
+        state,
+        state.writer_db(),
+        scope,
+    )
+    .await?;
     tracing::debug!(
         scope = ?scope,
         folder_id = params.folder_id,
