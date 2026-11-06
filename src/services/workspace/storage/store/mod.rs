@@ -15,9 +15,9 @@ use crate::services::events::storage_change;
 use aster_drive_model::entities::file;
 
 use super::{
-    BlobPolicyRequest, CreateFileFromBlobWithMimeParams, NewFileMode, ParsedUploadPath,
+    BlobPolicyRequest, CreateFileFromBlobParams, NewFileMode, NewFileNameMode, ParsedUploadPath,
     PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
-    cleanup_preuploaded_blob_upload, create_file_from_blob_with_mime, ensure_upload_parent_path_on,
+    cleanup_preuploaded_blob_upload, create_file_from_blob, ensure_upload_parent_path_on,
     lock_folder_access_on, lock_storage_usage, persist_preuploaded_blob,
     resolve_verified_folder_policy_hint_on, update_storage_used, verify_file_access,
 };
@@ -57,6 +57,7 @@ const FILE_CREATE_IDEMPOTENCY_RETENTION: Duration = Duration::hours(24);
 #[derive(Clone)]
 pub(crate) struct StoreFromTempParams<'a> {
     pub scope: WorkspaceStorageScope,
+    pub access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub temp_path: &'a str,
@@ -78,6 +79,7 @@ impl<'a> StoreFromTempParams<'a> {
     ) -> Self {
         Self {
             scope,
+            access_constraints: Default::default(),
             folder_id,
             filename,
             temp_path,
@@ -88,6 +90,15 @@ impl<'a> StoreFromTempParams<'a> {
             expected_current_revision_id: None,
             expected_current_revision_etag: None,
         }
+    }
+
+    /// 长流的认证依据必须传入最终发布，不能重新退化成无约束的 actor ID。
+    pub(crate) fn with_access_constraints(
+        mut self,
+        constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
+    ) -> Self {
+        self.access_constraints = constraints;
+        self
     }
 
     pub(crate) fn overwrite(mut self, existing_file_id: i64) -> Self {
@@ -130,6 +141,7 @@ pub(crate) struct StoreFromTempHints<'a> {
 pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub activity_source: crate::services::workspace::activity::ActivitySource,
     pub scope: WorkspaceStorageScope,
+    pub access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub mime_type: Option<&'a str>,
@@ -270,6 +282,12 @@ async fn create_empty_transactional(
             let relative_parent = transaction_relative_parent.clone();
             let state = transaction_state.clone();
             Box::pin(async move {
+            // 重放同样会返回当前文件元数据，必须先验证 actor 的当前资格。
+            // 不能让 idempotency 命中绕过授权或在旧成员退出团队后继续泄露结果。
+            let access = crate::services::workspace::scope::authorize_workspace_on(
+                txn, scope, crate::services::workspace::scope::WorkspaceOperation::CreateFile,
+                &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+            ).await?;
             crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace).await?;
             lock_storage_usage(txn, scope).await?;
             let idempotency_scope = match scope {
@@ -320,6 +338,7 @@ async fn create_empty_transactional(
                             }
                             Err(error) => return Err(error),
                         };
+                        access.file(&file).await?;
                         return Ok(EmptyFileCreateResult {
                             file,
                             replayed: true,
@@ -341,7 +360,7 @@ async fn create_empty_transactional(
             }
             let base_folder = match folder_id {
                 Some(folder_id) => {
-                    let folder = lock_folder_access_on(txn, &state, scope, folder_id).await?;
+                    let folder = lock_folder_access_on(txn, scope, folder_id).await?;
                     Some(resolve_verified_folder_policy_hint_on(txn, scope, folder).await?)
                 }
                 None => None,
@@ -404,7 +423,7 @@ async fn create_empty_transactional(
                 policy.id,
             )?;
             let blob = transaction_prepared.persist_blob_on(txn).await?;
-            let file = transaction_prepared.create_file_on(txn, &blob).await?;
+            let file = transaction_prepared.create_file_on(txn, &blob, &crate::services::files::lock::SubmittedLockCredentials::none()).await?;
             if let Some(claim) = idempotency_claim {
                 file_create_idempotency_repo::complete(txn, claim, file.id).await?;
             }
@@ -441,6 +460,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     let StorePreuploadedNondedupParams {
         activity_source,
         scope,
+        access_constraints,
         folder_id,
         filename,
         mime_type,
@@ -536,6 +556,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     });
 
     let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_access_constraints = access_constraints.clone();
     let transaction_verified_blob = verified_blob.clone();
     let transaction_overwrite_ctx = overwrite_ctx.clone();
     let transaction_mime = mime.clone();
@@ -548,6 +569,7 @@ pub(crate) async fn store_preuploaded_nondedup(
         state.writer_db(),
         &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
+            let access_constraints = transaction_access_constraints.clone();
             let verified_blob = transaction_verified_blob.clone();
             let overwrite_ctx = transaction_overwrite_ctx.clone();
             let mime = transaction_mime.clone();
@@ -567,6 +589,14 @@ pub(crate) async fn store_preuploaded_nondedup(
                 };
                 crate::services::files::lock::lock_workspace_for_mutation_on(txn, workspace)
                     .await?;
+                // 凭据和挂载限制跨越上传 body 后仍必须有效；不能只信任打开时的判断。
+                let access = crate::services::workspace::scope::authorize_workspace_on(
+                    txn,
+                    scope,
+                    crate::services::workspace::scope::WorkspaceOperation::UpdateContent,
+                    &access_constraints,
+                )
+                .await?;
                 lock_storage_usage(txn, scope).await?;
                 if storage_delta > 0 {
                     check_quota(txn, scope, storage_delta).await?;
@@ -588,6 +618,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                         &lock_credentials,
                     )
                     .await?;
+                    access.file(&current_file).await?;
                     let existing_id = current_file.id;
                     let expected_revision_id =
                         crate::db::repository::revision_repo::lock_history_by_file_id(
@@ -658,25 +689,20 @@ pub(crate) async fn store_preuploaded_nondedup(
                     }
                     updated
                 } else {
-                    let submitted = lock_credentials.submitted();
-                    crate::services::files::lock::enforce_collection_membership_mutation_on(
-                        txn, workspace, folder_id, &submitted,
-                    )
-                    .await?;
-                    let created = create_file_from_blob_with_mime(
-                        txn,
-                        CreateFileFromBlobWithMimeParams {
-                            activity_source,
-                            scope,
-                            folder_id,
-                            filename: &filename,
-                            mime_type: &mime,
-                            blob: &blob,
-                            now,
-                            actor_username: actor_username.as_deref(),
-                            exact_name: false,
-                        },
-                    )
+                    let creation = access
+                        .for_file_creation(folder_id, &lock_credentials.submitted())
+                        .await?;
+                    let created = create_file_from_blob(CreateFileFromBlobParams {
+                        creation: &creation,
+                        activity_source,
+                        creation_action: aster_drive_model::types::AuditAction::FileUpload,
+                        filename: &filename,
+                        mime_type: Some(&mime),
+                        blob: &blob,
+                        now,
+                        actor_username: actor_username.as_deref(),
+                        name_mode: NewFileNameMode::ResolveUnique,
+                    })
                     .await?;
                     if storage_delta != 0 {
                         update_storage_used(txn, scope, storage_delta).await?;

@@ -1,4 +1,4 @@
-use super::load_workspace;
+use crate::services::workspace::scope::{AdminContentOperation, authorize_admin_content_access};
 use crate::{
     db::repository::{file_repo, folder_repo},
     errors::Result,
@@ -8,7 +8,7 @@ use crate::{
         files::folder::{
             self, FolderAncestorItem, FolderContents, FolderListParams, FolderListingResult,
         },
-        workspace::scope::{WorkspaceResourceScope, ensure_folder_resource_scope},
+        workspace::scope::WorkspaceResourceScope,
     },
 };
 use serde::Serialize;
@@ -43,8 +43,15 @@ pub async fn list_workspace(
             "invalid workspace navigation",
         ));
     }
-    let payload = load_workspace(state, claims, &query.access_id).await?;
-    let scope = super::require_target(state, &payload.scope).await?;
+    let grant = authorize_admin_content_access(
+        state,
+        claims,
+        &query.access_id,
+        AdminContentOperation::Inspect,
+    )
+    .await?;
+    grant.workspace()?;
+    let scope = grant.read.scope();
     let mut ancestors = Vec::new();
     let mut id = query.folder_id;
     let mut seen = std::collections::HashSet::new();
@@ -55,7 +62,7 @@ pub async fn list_workspace(
             ));
         }
         let item = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
-        ensure_folder_resource_scope(&item, scope)?;
+        grant.read.folder_on(state.writer_db(), &item).await?;
         // A deleted folder may be navigated only in the explicit deleted view.
         if item.deleted_at.is_some() && !query.deleted {
             return Err(crate::errors::AsterError::folder_not_found(
@@ -134,15 +141,13 @@ pub async fn get_file(
     access_id: &str,
     file_id: i64,
 ) -> Result<crate::services::workspace::models::FileInfo> {
-    let payload = load_workspace(state, claims, access_id).await?;
+    let grant =
+        authorize_admin_content_access(state, claims, access_id, AdminContentOperation::Inspect)
+            .await?;
+    grant.workspace()?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
 
-    crate::services::files::file::build_authorized_file_info(
-        state,
-        super::require_target(state, &payload.scope).await?,
-        file,
-    )
-    .await
+    crate::services::files::file::build_authorized_file_info(state, &grant.read, file).await
 }
 
 pub async fn list_versions(
@@ -152,13 +157,14 @@ pub async fn list_versions(
     file_id: i64,
     query: crate::services::workspace::models::FileVersionListQuery,
 ) -> Result<Vec<crate::services::workspace::models::FileVersion>> {
-    let payload = load_workspace(state, claims, access_id).await?;
+    let grant =
+        authorize_admin_content_access(state, claims, access_id, AdminContentOperation::Inspect)
+            .await?;
+    grant.workspace()?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
-    crate::services::workspace::scope::ensure_file_resource_scope(
-        &file,
-        super::require_target(state, &payload.scope).await?,
-    )?;
-    crate::services::content::version::list_authorized_versions(state, file_id, query).await
+    grant.read.file_on(state.writer_db(), &file).await?;
+    crate::services::content::version::list_authorized_versions(state, &grant.read, file_id, query)
+        .await
 }
 
 /// The target's entire recycle bin, independent of the currently browsed directory.
@@ -168,8 +174,10 @@ pub async fn list_trash(
     access_id: &str,
     query: crate::api::pagination::TrashListQuery,
 ) -> Result<crate::services::files::trash::TrashContents> {
-    let payload = load_workspace(state, claims, access_id).await?;
-    let scope = super::require_target(state, &payload.scope).await?;
+    let grant =
+        authorize_admin_content_access(state, claims, access_id, AdminContentOperation::Inspect)
+            .await?;
+    grant.workspace()?;
     let has_cursor = query.file_after_expires_at.is_some() || query.file_after_id.is_some();
     if query.file_after_id.is_some_and(|id| id <= 0)
         || (has_cursor && query.file_cursor().is_none())
@@ -183,7 +191,7 @@ pub async fn list_trash(
     });
     crate::services::files::trash::list_authorized_trash(
         state,
-        scope,
+        &grant.read,
         query.folder_limit(),
         query.folder_offset(),
         query.file_limit(),
@@ -199,12 +207,12 @@ pub async fn get_thumbnail(
     access_id: &str,
     file_id: i64,
 ) -> Result<Option<crate::services::files::file::ThumbnailResult>> {
-    let payload = load_workspace(state, claims, access_id).await?;
+    let grant =
+        authorize_admin_content_access(state, claims, access_id, AdminContentOperation::Inspect)
+            .await?;
+    grant.workspace()?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
-    crate::services::workspace::scope::ensure_file_resource_scope(
-        &file,
-        super::require_target(state, &payload.scope).await?,
-    )?;
+    grant.read.file_on(state.writer_db(), &file).await?;
     crate::services::files::file::thumbnail_for_file(state, &file).await
 }
 
@@ -228,10 +236,13 @@ pub async fn get_folder(
     access_id: &str,
     folder_id: i64,
 ) -> Result<AdminFolderInfo> {
-    let payload = load_workspace(state, claims, access_id).await?;
-    let scope = super::require_target(state, &payload.scope).await?;
+    let grant =
+        authorize_admin_content_access(state, claims, access_id, AdminContentOperation::Inspect)
+            .await?;
+    grant.workspace()?;
+    let scope = grant.read.scope();
     let model = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
-    ensure_folder_resource_scope(&model, scope)?;
+    grant.read.folder_on(state.writer_db(), &model).await?;
     let deleted = model.deleted_at.is_some();
     let (file_scope, folder_scope) = match scope {
         WorkspaceResourceScope::Personal { user_id } => (

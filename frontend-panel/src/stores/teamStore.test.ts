@@ -141,4 +141,33 @@ describe("teamStore", () => {
 			loadedForUserId: 7,
 		});
 	});
+
+	it("discards a previous account response without clearing the new request", async () => {
+		const oldRequest = createDeferred<Array<{ id: number; name: string }>>();
+		const newRequest = createDeferred<Array<{ id: number; name: string }>>();
+		mockState.list
+			.mockReturnValueOnce(oldRequest.promise)
+			.mockReturnValueOnce(newRequest.promise);
+		const { useTeamStore } = await loadTeamStore();
+		const oldLoad = useTeamStore.getState().ensureLoaded(7);
+		await vi.waitFor(() => expect(mockState.list).toHaveBeenCalledTimes(1));
+		useTeamStore.getState().clear();
+		const newLoad = useTeamStore.getState().ensureLoaded(9);
+		await vi.waitFor(() => expect(mockState.list).toHaveBeenCalledTimes(2));
+		oldRequest.resolve([{ id: 1, name: "Private old team" }]);
+		await oldLoad;
+		expect(useTeamStore.getState()).toMatchObject({
+			teams: [],
+			loading: true,
+			loadedForUserId: null,
+		});
+		const sharedLoad = useTeamStore.getState().ensureLoaded(9);
+		newRequest.resolve([{ id: 2, name: "New team" }]);
+		await Promise.all([newLoad, sharedLoad]);
+		expect(mockState.list).toHaveBeenCalledTimes(2);
+		expect(useTeamStore.getState()).toMatchObject({
+			teams: [{ id: 2, name: "New team" }],
+			loadedForUserId: 9,
+		});
+	});
 });

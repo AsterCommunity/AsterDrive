@@ -1,8 +1,8 @@
 //! 仓储模块：`webdav_account_repo`。
 
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
+    QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
 use crate::errors::{AsterError, Result};
@@ -15,6 +15,20 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<webdav_accou
         .await
         .map_err(AsterError::from)?
         .ok_or_else(|| AsterError::record_not_found(format!("webdav_account #{id}")))
+}
+
+/// Current credential facts for request admission and transactional publication.
+pub(crate) async fn find_for_authorization<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    for_update: bool,
+) -> Result<Option<webdav_account::Model>> {
+    let query = WebdavAccount::find_by_id(id);
+    let query = match (for_update, db.get_database_backend()) {
+        (true, DbBackend::Postgres | DbBackend::MySql) => query.lock_exclusive(),
+        _ => query,
+    };
+    query.one(db).await.map_err(AsterError::from)
 }
 
 pub async fn find_by_username(

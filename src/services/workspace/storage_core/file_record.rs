@@ -3,7 +3,9 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
-use crate::services::workspace::scope::{WorkspaceStorageScope, load_scope_actor_username};
+use crate::services::workspace::scope::{
+    AuthorizedFileCreation, WorkspaceStorageScope, load_scope_actor_username,
+};
 use aster_drive_model::entities::{file, file_blob};
 
 const MAX_AUTO_NAME_RETRIES: usize = 32;
@@ -14,11 +16,10 @@ pub(crate) enum NewFileNameMode {
     Exact,
 }
 
-pub(crate) struct CreateFileFromBlobParams<'a> {
-    pub scope: WorkspaceStorageScope,
+pub(crate) struct CreateFileFromBlobParams<'a, 'db, C: ConnectionTrait> {
+    pub creation: &'a AuthorizedFileCreation<'db, C>,
     pub activity_source: crate::services::workspace::activity::ActivitySource,
     pub creation_action: aster_drive_model::types::AuditAction,
-    pub folder_id: Option<i64>,
     pub filename: &'a str,
     pub blob: &'a file_blob::Model,
     pub now: chrono::DateTime<Utc>,
@@ -27,15 +28,13 @@ pub(crate) struct CreateFileFromBlobParams<'a> {
     pub mime_type: Option<&'a str>,
 }
 
-pub(crate) async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
-    db: &C,
-    params: CreateFileFromBlobParams<'_>,
+pub(crate) async fn create_file_from_blob<C: ConnectionTrait>(
+    params: CreateFileFromBlobParams<'_, '_, C>,
 ) -> Result<file::Model> {
     let CreateFileFromBlobParams {
-        scope,
+        creation,
         activity_source,
         creation_action,
-        folder_id,
         filename,
         blob,
         now,
@@ -43,6 +42,11 @@ pub(crate) async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
         actor_username,
         mime_type,
     } = params;
+    // 数据库、workspace 和父集合只能来自同一份已验证提交凭证。
+    // 禁止额外接收可替换的 scope/folder_id，否则会再次出现校验与落账目标分离。
+    let db = creation.db();
+    let scope = creation.scope();
+    let folder_id = creation.folder_id();
     let normalized_filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
     let created_by_username = match actor_username {
         Some(username) => username.to_string(),
@@ -147,107 +151,4 @@ pub(crate) async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
         "failed to allocate a unique file name for '{}'",
         normalized_filename
     )))
-}
-
-pub(crate) async fn create_new_file_from_blob<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    folder_id: Option<i64>,
-    filename: &str,
-    blob: &file_blob::Model,
-    now: chrono::DateTime<Utc>,
-    creation_action: aster_drive_model::types::AuditAction,
-) -> Result<file::Model> {
-    create_file_from_blob_with_name_mode(
-        db,
-        CreateFileFromBlobParams {
-            creation_action,
-            scope,
-            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
-            folder_id,
-            filename,
-            blob,
-            now,
-            name_mode: NewFileNameMode::ResolveUnique,
-            actor_username: None,
-            mime_type: None,
-        },
-    )
-    .await
-}
-
-pub(crate) async fn create_new_file_from_blob_with_actor_username<C: ConnectionTrait>(
-    db: &C,
-    scope: WorkspaceStorageScope,
-    folder_id: Option<i64>,
-    filename: &str,
-    blob: &file_blob::Model,
-    now: chrono::DateTime<Utc>,
-    actor_username: &str,
-) -> Result<file::Model> {
-    create_file_from_blob_with_name_mode(
-        db,
-        CreateFileFromBlobParams {
-            creation_action: aster_drive_model::types::AuditAction::FileUpload,
-            scope,
-            activity_source: crate::services::workspace::activity::ActivitySource::Rest,
-            folder_id,
-            filename,
-            blob,
-            now,
-            name_mode: NewFileNameMode::ResolveUnique,
-            actor_username: Some(actor_username),
-            mime_type: None,
-        },
-    )
-    .await
-}
-
-pub(crate) struct CreateFileFromBlobWithMimeParams<'a> {
-    pub scope: WorkspaceStorageScope,
-    pub activity_source: crate::services::workspace::activity::ActivitySource,
-    pub folder_id: Option<i64>,
-    pub filename: &'a str,
-    pub mime_type: &'a str,
-    pub blob: &'a file_blob::Model,
-    pub now: chrono::DateTime<Utc>,
-    pub actor_username: Option<&'a str>,
-    pub exact_name: bool,
-}
-
-pub(crate) async fn create_file_from_blob_with_mime<C: ConnectionTrait>(
-    db: &C,
-    params: CreateFileFromBlobWithMimeParams<'_>,
-) -> Result<file::Model> {
-    let CreateFileFromBlobWithMimeParams {
-        scope,
-        activity_source,
-        folder_id,
-        filename,
-        mime_type,
-        blob,
-        now,
-        actor_username,
-        exact_name,
-    } = params;
-    create_file_from_blob_with_name_mode(
-        db,
-        CreateFileFromBlobParams {
-            creation_action: aster_drive_model::types::AuditAction::FileUpload,
-            scope,
-            activity_source,
-            folder_id,
-            filename,
-            blob,
-            now,
-            name_mode: if exact_name {
-                NewFileNameMode::Exact
-            } else {
-                NewFileNameMode::ResolveUnique
-            },
-            actor_username,
-            mime_type: Some(mime_type),
-        },
-    )
-    .await
 }

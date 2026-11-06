@@ -76,7 +76,7 @@ pub async fn lock_file(
                 // WOPI lock 是“文件 + opaque lock ID”，不是“文件 + 用户/app”。
                 // 官方 key concepts 明确要求 lock 不能绑定到特定用户。
                 if payload.lock == lock_value {
-                    refresh_lock_model(state, active_lock.lock).await?;
+                    refresh_lock_model(state, &resolved, active_lock.lock).await?;
                     log_wopi_lock_action(
                         state,
                         request_info,
@@ -151,7 +151,7 @@ pub async fn unlock_and_relock_file(
 
     match active_lock.payload {
         Some(payload) if payload.lock == old_lock => {
-            replace_wopi_lock_model(state, active_lock.lock, &resolved.payload, &new_lock).await?;
+            replace_wopi_lock_model(state, &resolved, active_lock.lock, &new_lock).await?;
             log_wopi_lock_action(
                 state,
                 request_info,
@@ -197,7 +197,7 @@ pub async fn refresh_lock(
 
     match active_lock.payload {
         Some(payload) if payload.lock == lock_value => {
-            refresh_lock_model(state, active_lock.lock).await?;
+            refresh_lock_model(state, &resolved, active_lock.lock).await?;
             log_wopi_lock_action(
                 state,
                 request_info,
@@ -243,6 +243,15 @@ pub async fn unlock_file(
 
     match active_lock.payload {
         Some(payload) if payload.lock == lock_value => {
+            crate::services::workspace::scope::authorize_workspace_on(
+                state.writer_db(),
+                super::session::scope_from_payload(&resolved.payload),
+                crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+                &resolved.access_constraints,
+            )
+            .await?
+            .for_resource_lock(active_lock.lock.clone())
+            .await?;
             lock::unlock_by_token_on(state.writer_db(), &active_lock.lock.token).await?;
             log_wopi_lock_action(
                 state,
@@ -469,8 +478,18 @@ where
 
 async fn refresh_lock_model(
     state: &impl SharedRuntimeState,
+    resolved: &super::session::ResolvedWopiAccess,
     lock: resource_lock::Model,
 ) -> Result<()> {
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        super::session::scope_from_payload(&resolved.payload),
+        crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+        &resolved.access_constraints,
+    )
+    .await?
+    .for_resource_lock(lock.clone())
+    .await?;
     lock::refresh_by_token_on(
         state.writer_db(),
         &lock.token,
@@ -482,15 +501,24 @@ async fn refresh_lock_model(
 
 async fn replace_wopi_lock_model(
     state: &impl SharedRuntimeState,
+    resolved: &super::session::ResolvedWopiAccess,
     lock: resource_lock::Model,
-    payload: &WopiAccessTokenPayload,
     requested_lock: &str,
 ) -> Result<()> {
     // app_key 仍保留在 owner_info 里做审计/排障，但 lock 是否匹配只比较 opaque lock ID。
     let owner_info = lock::ResourceLockOwnerInfo::Wopi(lock::WopiLockOwnerInfo {
-        app_key: payload.app_key.clone(),
+        app_key: resolved.payload.app_key.clone(),
         lock: requested_lock.to_string(),
     });
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        super::session::scope_from_payload(&resolved.payload),
+        crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+        &resolved.access_constraints,
+    )
+    .await?
+    .for_resource_lock(lock.clone())
+    .await?;
     lock::replace_owner_info_and_timeout_by_token_on(
         state.writer_db(),
         &lock.token,

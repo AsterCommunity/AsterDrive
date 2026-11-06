@@ -65,14 +65,14 @@ pub struct AdminDownloadInfo {
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct AccessScope {
+pub(crate) struct AccessScope {
     pub scope_kind: AdminScopeKind,
     pub target_id: i64,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct WorkspaceAccess {
+pub(crate) struct WorkspaceAccess {
     pub scope: AccessScope,
     pub reason: AdminAccessReason,
     pub remark: Option<String>,
@@ -80,7 +80,7 @@ pub(super) struct WorkspaceAccess {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum AccessPayload {
+pub(crate) enum AccessPayload {
     Workspace(WorkspaceAccess),
     Download {
         scope: AccessScope,

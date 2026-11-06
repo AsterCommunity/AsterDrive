@@ -341,6 +341,7 @@ async fn known_size_s3_write_with_precondition_uses_transactional_temp_upload() 
     let mut write_handle = AsterDavWriteHandle::for_write_with_audit(
         state.clone(),
         DavWriteOpenContext {
+            access_constraints: Default::default(),
             scope: crate::services::workspace::storage::WorkspaceStorageScope::Personal {
                 user_id: user.id,
             },
@@ -516,6 +517,7 @@ async fn known_size_temp_write_rejects_declared_overflow_during_write() {
     let mut handle = AsterDavWriteHandle::for_write_with_audit(
         state,
         DavWriteOpenContext {
+            access_constraints: Default::default(),
             scope: crate::services::workspace::storage::WorkspaceStorageScope::Personal {
                 user_id: user.id,
             },

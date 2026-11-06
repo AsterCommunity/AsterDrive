@@ -5,13 +5,20 @@ import {
 	isStaleRefreshTokenError,
 } from "@/lib/authErrors";
 import {
+	getAuthOperationGeneration,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
+import {
 	isCrossTabRefreshAuthFailure,
 	runWithCrossTabRefreshLock,
 } from "@/lib/crossTabRefresh";
 import { logger } from "@/lib/logger";
 import { cancelPreferenceSync } from "@/lib/preferenceSync";
 import { authService } from "@/services/authService";
+import { clearAccountDownloads } from "@/services/downloadCoordinator";
 import { useDisplayTimeZoneStore } from "@/stores/displayTimeZoneStore";
+import { useFileStore } from "@/stores/fileStore";
+import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
 import { useTeamStore } from "@/stores/teamStore";
 import { useThemeStore } from "@/stores/themeStore";
 import type {
@@ -209,6 +216,7 @@ interface AuthState {
 const initialCachedUser = getCachedUser();
 const initialOfflineUser = cachedUserToOfflineUser(initialCachedUser);
 const initialExpiresAt = getStoredExpiresAt();
+setAuthOperationOwner(initialOfflineUser?.id ?? null);
 const LOGGED_OUT_STATE = {
 	isAuthenticated: false,
 	isChecking: false,
@@ -229,6 +237,10 @@ const LOGGED_OUT_STATE = {
 function applyLoggedOutState(
 	setAuthState: (state: Partial<AuthState>) => void,
 ) {
+	// 身份先失效、请求先取消；不能等服务端 logout 返回后才停止旧操作。
+	setAuthOperationOwner(null);
+	inFlightRefresh = null;
+	inFlightFullRefreshUser = null;
 	cancelPreferenceSync();
 	void import("@/hooks/useBlobUrl")
 		.then(({ clearBlobUrlCache, clearPersistedBlobUrlCache }) => {
@@ -241,6 +253,10 @@ function applyLoggedOutState(
 	clearRefreshTimer();
 	// teamStore 是独立的子状态，登出时直接清空
 	useTeamStore.getState().clear();
+	// 私有 metadata 与媒体生命周期跟随账号；file reset 同时 abort 请求并使旧响应失效。
+	useFileStore.getState().resetWorkspaceState();
+	useMusicPlayerStore.getState().clear();
+	clearAccountDownloads();
 	setStoredExpiresAt(null);
 	setCachedUser(null);
 	setAuthState(LOGGED_OUT_STATE);
@@ -271,11 +287,13 @@ async function bootstrapCurrentSession(
 	setAuthState: (state: Partial<AuthState>) => void,
 	publicProbe: boolean,
 ) {
+	const startedGeneration = getAuthOperationGeneration();
 	setAuthState({ isChecking: true, bootOffline: false });
 	try {
 		const user = publicProbe
 			? await authService.probeCurrentSession()
 			: await authService.me();
+		if (startedGeneration !== getAuthOperationGeneration()) return;
 		const expiresAt = commitAuthenticatedUser(user, getState, setAuthState);
 
 		if (publicProbe) return;
@@ -289,6 +307,7 @@ async function bootstrapCurrentSession(
 			getState().startAutoRefresh();
 		}
 	} catch (error) {
+		if (startedGeneration !== getAuthOperationGeneration()) return;
 		if (isSessionAuthFailure(error)) {
 			applyLoggedOutState(setAuthState);
 			return;
@@ -390,8 +409,11 @@ function updateCachedSessionExpiry(expiresAt: number) {
 async function syncSessionFromMe(
 	getState: () => AuthState,
 	setAuthState: (state: Partial<AuthState>) => void,
+	startedGeneration: number,
 ) {
+	if (startedGeneration !== getAuthOperationGeneration()) return;
 	const user = await authService.me(["session"]);
+	if (startedGeneration !== getAuthOperationGeneration()) return;
 	const expiresAt = getExpiresAtFromUser(user) ?? Date.now() + REFRESH_RETRY_MS;
 	const expiresAtSeconds = updateCachedSessionExpiry(expiresAt);
 	const currentUser = getState().user;
@@ -417,6 +439,9 @@ async function syncSessionFromMe(
 // authStore 只管自身状态，跨 store 写入统一通过此 subscription 完成，
 // 而不是在每个 login / checkAuth / refreshUser 中重复调用。
 function handleAuthStateChange(state: AuthState, prevState: AuthState) {
+	setAuthOperationOwner(
+		state.isAuthenticated ? (state.user?.id ?? null) : null,
+	);
 	if (state.user !== prevState.user && state.isAuthenticated) {
 		if (state.user?.preferences) {
 			applyServerPreferences(state.user.preferences);
@@ -436,6 +461,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	expiresAt: initialExpiresAt,
 
 	login: async (identifier, password) => {
+		setAuthOperationOwner(null, true);
+		const startedGeneration = getAuthOperationGeneration();
 		const session = await authService.login(identifier, password);
 		if (
 			session.status !== "authenticated" &&
@@ -444,6 +471,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			throw new Error("MFA verification is required before session sync");
 		}
 		const user = await authService.me();
+		if (startedGeneration !== getAuthOperationGeneration()) return;
 		setCachedUser(user);
 		set({
 			isAuthenticated: true,
@@ -457,12 +485,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
 	logout: async () => {
 		get().stopAutoRefresh();
+		applyLoggedOutState(set);
 		try {
 			await authService.logout();
 		} catch {
 			// logout 失败不阻塞
 		}
-		applyLoggedOutState(set);
 	},
 
 	checkAuth: async () => {
@@ -488,18 +516,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	refreshToken: async () => {
 		if (inFlightRefresh) return inFlightRefresh;
 
+		const startedGeneration = getAuthOperationGeneration();
 		inFlightRefresh = (async () => {
 			try {
 				const refreshedLocally = await runWithCrossTabRefreshLock(
 					async () => {
+						if (startedGeneration !== getAuthOperationGeneration()) return;
 						try {
 							const session = await authService.refreshToken();
+							if (startedGeneration !== getAuthOperationGeneration()) return;
 							get().syncSession(session.expiresIn);
 						} catch (error) {
 							if (!isStaleRefreshTokenError(error)) {
 								throw error;
 							}
-							await syncSessionFromMe(get, set);
+							await syncSessionFromMe(get, set, startedGeneration);
 						}
 					},
 					{
@@ -510,9 +541,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 					},
 				);
 				if (!refreshedLocally) {
-					await syncSessionFromMe(get, set);
+					await syncSessionFromMe(get, set, startedGeneration);
 				}
 			} catch (error) {
+				if (startedGeneration !== getAuthOperationGeneration()) return;
 				if (
 					isCrossTabRefreshAuthFailure(error) ||
 					isSessionAuthFailure(error)
@@ -524,7 +556,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 				}
 				throw error;
 			} finally {
-				inFlightRefresh = null;
+				if (startedGeneration === getAuthOperationGeneration()) {
+					inFlightRefresh = null;
+				}
 			}
 		})();
 
@@ -539,12 +573,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 			return inFlightFullRefreshUser;
 		}
 
+		const startedGeneration = getAuthOperationGeneration();
 		const refresh = (async () => {
 			const startedProfileGeneration = profileMutationGeneration;
 			try {
 				const response = isPartialRefresh
 					? await authService.me(selectedFields)
 					: await authService.me();
+				if (startedGeneration !== getAuthOperationGeneration()) return;
 				let user = isPartialRefresh
 					? mergePartialUser(
 							get().user,

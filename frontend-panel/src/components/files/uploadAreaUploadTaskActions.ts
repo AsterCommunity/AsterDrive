@@ -7,17 +7,14 @@ import {
 	removeSession,
 	saveSession,
 } from "@/lib/uploadPersistence";
-import type { Workspace } from "@/lib/workspace";
-import {
-	type InitUploadResponse,
-	uploadService,
-} from "@/services/uploadService";
+import type { InitUploadResponse } from "@/services/uploadService";
 import { ApiErrorCode } from "@/types/api-helpers";
 import {
 	shouldRemovePersistedSession,
 	TERMINAL_UPLOAD_STATUS_SET,
 	type UploadAreaManagerTranslationFn,
 	type UploadTask,
+	uploadServiceForTask,
 } from "./uploadAreaManagerShared";
 import {
 	abortUploadRequests,
@@ -50,7 +47,6 @@ export interface UploadTaskActionsContext extends UploadTransportRunners {
 	t: UploadAreaManagerTranslationFn;
 	tasksRef: MutableRefObject<UploadTask[]>;
 	uploadRequestRef: UploadRequestRef;
-	workspace: Workspace;
 }
 
 interface RunQueuedUploadTaskContext extends UploadTaskActionsContext {
@@ -60,18 +56,19 @@ interface RunQueuedUploadTaskContext extends UploadTaskActionsContext {
 type StreamReconciliation =
 	| {
 			state: "completed";
-			file: Awaited<ReturnType<typeof uploadService.completeUpload>>;
+			file: import("@/types/api").FileInfo;
 	  }
 	| { state: "active" }
 	| { state: "missing" };
 
 /** Reconcile ambiguous network failures before destructive stream actions. */
 async function reconcileStreamSession(
+	task: UploadTask,
 	uploadId: string,
 ): Promise<StreamReconciliation> {
 	for (let attempt = 0; attempt < 20; attempt += 1) {
 		try {
-			const file = await uploadService.completeUpload(uploadId);
+			const file = await uploadServiceForTask(task).completeUpload(uploadId);
 			if (!file) return { state: "active" };
 			return { state: "completed", file };
 		} catch (error) {
@@ -104,11 +101,7 @@ interface ClearTerminalUploadTasksContext {
 	tasksRef: MutableRefObject<UploadTask[]>;
 }
 
-function createSavedSession(
-	task: UploadTask,
-	init: InitUploadResponse,
-	workspace: Workspace,
-) {
+function createSavedSession(task: UploadTask, init: InitUploadResponse) {
 	return {
 		uploadId: init.upload_id as string,
 		filename: task.file?.name ?? task.filename,
@@ -119,7 +112,8 @@ function createSavedSession(
 		baseFolderName: task.baseFolderName,
 		relativePath: task.relativePath,
 		savedAt: Date.now(),
-		workspace,
+		workspace: task.binding.workspace,
+		accountId: task.binding.accountId,
 		mode:
 			init.mode === "stream"
 				? ("stream" as const)
@@ -145,7 +139,6 @@ export async function runQueuedUploadTask(
 		runPresignedUpload,
 		runProviderResumableUpload,
 		tasksRef,
-		workspace,
 	}: RunQueuedUploadTaskContext,
 ) {
 	const task = tasksRef.current.find((item) => item.id === taskId);
@@ -172,7 +165,7 @@ export async function runQueuedUploadTask(
 				filename: file?.name ?? task.filename,
 				baseFolderId: task.baseFolderId,
 				relativePath: task.relativePath,
-				workspace,
+				binding: task.binding,
 				requests: metadataAbortRef.current,
 			});
 			if (result === "aborted") return;
@@ -197,7 +190,9 @@ export async function runQueuedUploadTask(
 				task.mode === "provider_resumable")
 		) {
 			try {
-				const progress = await uploadService.getProgress(task.uploadId);
+				const progress = await uploadServiceForTask(task).getProgress(
+					task.uploadId,
+				);
 				const plan = getResumePlan(task.mode, progress.status);
 				if (plan === "restart") {
 					removeSession(task.uploadId);
@@ -209,9 +204,10 @@ export async function runQueuedUploadTask(
 					});
 				}
 				if (plan !== "restart") {
-					const saved = loadSessions(workspace).find(
-						(session) => session.uploadId === task.uploadId,
-					);
+					const saved = loadSessions(
+						task.binding.accountId,
+						task.binding.workspace,
+					).find((session) => session.uploadId === task.uploadId);
 					if (plan === "complete") {
 						await resumeCompletionTask(
 							task,
@@ -291,7 +287,7 @@ export async function runQueuedUploadTask(
 			}
 		}
 
-		const init = await uploadService.initUpload({
+		const init = await uploadServiceForTask(task).initUpload({
 			// `file` is proven above for every non-empty task.
 			filename: file?.name ?? task.filename,
 			total_size: file?.size ?? task.totalBytes,
@@ -307,7 +303,7 @@ export async function runQueuedUploadTask(
 				init.mode === "provider_resumable") &&
 			init.upload_id
 		) {
-			saveSession(createSavedSession(task, init, workspace));
+			saveSession(createSavedSession(task, init));
 		}
 
 		if (init.mode === "chunked") {
@@ -361,7 +357,7 @@ export async function cancelUploadTask(
 		abortUploadRequests(uploadRequestRef, taskId);
 		if (task.uploadId) {
 			try {
-				const reconciled = await reconcileStreamSession(task.uploadId);
+				const reconciled = await reconcileStreamSession(task, task.uploadId);
 				if (reconciled.state === "completed") {
 					removeSession(task.uploadId);
 					markFolderForRefresh?.(task);
@@ -378,7 +374,7 @@ export async function cancelUploadTask(
 				return;
 			}
 			try {
-				await uploadService.cancelUpload(task.uploadId);
+				await uploadServiceForTask(task).cancelUpload(task.uploadId);
 			} catch {}
 			removeSession(task.uploadId);
 		}
@@ -390,7 +386,7 @@ export async function cancelUploadTask(
 		abortUploadRequests(uploadRequestRef, taskId);
 		if (task.uploadId) {
 			try {
-				await uploadService.cancelUpload(task.uploadId);
+				await uploadServiceForTask(task).cancelUpload(task.uploadId);
 			} catch {}
 		}
 		patchTask(taskId, { status: "cancelled", error: null });
@@ -400,7 +396,7 @@ export async function cancelUploadTask(
 	if (task.status === "pending_file") {
 		if (task.uploadId) {
 			try {
-				await uploadService.cancelUpload(task.uploadId);
+				await uploadServiceForTask(task).cancelUpload(task.uploadId);
 			} catch {}
 			removeSession(task.uploadId);
 		}
@@ -421,7 +417,7 @@ export async function cancelUploadTask(
 	abortFlagsRef.current.set(taskId, true);
 	if (task.uploadId) {
 		try {
-			await uploadService.cancelUpload(task.uploadId);
+			await uploadServiceForTask(task).cancelUpload(task.uploadId);
 		} catch {}
 		removeSession(task.uploadId);
 	}
@@ -453,7 +449,10 @@ export async function clearTerminalUploadTasks(
 				if (task.status === "failed" && task.uploadId) {
 					if (task.mode === "stream") {
 						try {
-							const reconciled = await reconcileStreamSession(task.uploadId);
+							const reconciled = await reconcileStreamSession(
+								task,
+								task.uploadId,
+							);
 							if (reconciled.state === "completed") {
 								removeSession(task.uploadId);
 								markFolderForRefresh?.(task);
@@ -465,7 +464,7 @@ export async function clearTerminalUploadTasks(
 						}
 					}
 					try {
-						await uploadService.cancelUpload(task.uploadId);
+						await uploadServiceForTask(task).cancelUpload(task.uploadId);
 					} catch {}
 				}
 				const currentTask = tasksRef.current.find(
@@ -511,7 +510,6 @@ export async function retryUploadTask(
 		setUploadPanelOpen,
 		tasksRef,
 		taskOperationLocks,
-		workspace,
 	}: UploadTaskActionsContext,
 ) {
 	if (!tryAcquireTaskOperation(taskOperationLocks, taskId, "retry")) return;
@@ -520,9 +518,10 @@ export async function retryUploadTask(
 		if (!task || (task.status === "failed" && task.retryable === false)) return;
 
 		if (!task.file && task.uploadId) {
-			const saved = loadSessions(workspace).find(
-				(session) => session.uploadId === task.uploadId,
-			);
+			const saved = loadSessions(
+				task.binding.accountId,
+				task.binding.workspace,
+			).find((session) => session.uploadId === task.uploadId);
 			await resumeCompletionTask(
 				task,
 				task.mode === "presigned_multipart"
@@ -535,7 +534,7 @@ export async function retryUploadTask(
 
 		if (task.uploadId) {
 			if (task.mode === "stream") {
-				const reconciled = await reconcileStreamSession(task.uploadId);
+				const reconciled = await reconcileStreamSession(task, task.uploadId);
 				if (reconciled.state === "completed") {
 					removeSession(task.uploadId);
 					markFolderForRefresh?.(task);
@@ -556,7 +555,9 @@ export async function retryUploadTask(
 			) {
 				await cancelMultipartSession(task);
 			} else {
-				void uploadService.cancelUpload(task.uploadId).catch(() => undefined);
+				void uploadServiceForTask(task)
+					.cancelUpload(task.uploadId)
+					.catch(() => undefined);
 				removeSession(task.uploadId);
 			}
 		}

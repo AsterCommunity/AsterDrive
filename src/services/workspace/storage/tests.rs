@@ -1245,7 +1245,7 @@ async fn empty_file_idempotency_replays_same_result_and_rejects_request_drift() 
 }
 
 #[tokio::test]
-async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state() {
+async fn empty_file_idempotency_rechecks_visibility_and_retains_committed_identity() {
     let (state, _temp_root, policy, user) = build_test_state().await;
     replace_test_policy(&state, &policy, policy.clone()).await;
     let now = Utc::now();
@@ -1287,6 +1287,24 @@ async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state
         .await
         .expect("virtual-empty blob should exist");
 
+    let denied = create_empty_with_idempotency(
+        &state,
+        scope,
+        Some(folder.id),
+        "folder-replay.txt",
+        EmptyFileNameMode::Exact,
+        Some(("folder-replay-key", "folder-replay-fingerprint")),
+    )
+    .await
+    .expect_err("replay cannot disclose a result under an unavailable parent");
+    assert!(matches!(
+        denied,
+        crate::errors::AsterError::FolderNotFound(_)
+    ));
+    // 恢复可见性后仍返回同一已提交结果，不重新创建文件或消耗 blob 引用。
+    folder_repo::restore_many(state.writer_db(), &[folder.id])
+        .await
+        .unwrap();
     let replay = create_empty_with_idempotency(
         &state,
         scope,
@@ -1296,8 +1314,7 @@ async fn empty_file_idempotency_replays_before_revalidating_changed_folder_state
         Some(("folder-replay-key", "folder-replay-fingerprint")),
     )
     .await
-    .expect("replay should return the committed result before folder revalidation");
-
+    .expect("visible idempotent result should remain replayable");
     assert!(replay.replayed);
     assert_eq!(replay.file.id, first.file.id);
     assert_eq!(replay.file.blob_id, first.file.blob_id);
@@ -2067,6 +2084,7 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let err = store_preuploaded_nondedup(
         &state,
         StorePreuploadedNondedupParams {
+            access_constraints: Default::default(),
             activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             scope,
             folder_id: None,
@@ -2356,6 +2374,127 @@ async fn conditional_create_rejects_file_appearing_while_body_is_staged() {
 }
 
 #[tokio::test]
+async fn team_publication_rechecks_membership_revoked_during_provider_staging() {
+    let (state, temp_root, policy, user) = build_test_state().await;
+    let now = Utc::now();
+    let team = team::ActiveModel {
+        name: Set("Conditional Storage Team".to_string()),
+        description: Set("Team conditional write test".to_string()),
+        created_by: Set(user.id),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        policy_group_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        archived_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team.id),
+        user_id: Set(user.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    let scope = WorkspaceStorageScope::Team {
+        team_id: team.id,
+        actor_user_id: user.id,
+    };
+    let local = crate::storage::connectors::resolve_local_filesystem_projection(
+        state.driver_registry.connectors(),
+        &policy,
+    )
+    .unwrap()
+    .expect("conditional team policy should use the local connector");
+    let uploads_root = PathBuf::from(local.base_path);
+    let before = snapshot_dir_tree(&uploads_root).unwrap();
+    let (blocking_driver, entered_rx, release_put_file) = BlockingPutFileDriver::new(&policy);
+    state
+        .driver_registry
+        .insert_for_test(policy.id, Arc::new(blocking_driver));
+
+    let conditional_temp = temp_root.join("conditional-team-missing.bin");
+    let conditional_payload = b"conditional team payload";
+    tokio::fs::write(&conditional_temp, conditional_payload)
+        .await
+        .unwrap();
+    let state_for_store = state.clone();
+    let policy_for_store = policy.clone();
+    let conditional_path = conditional_temp.to_string_lossy().into_owned();
+    let store_task = tokio::spawn(async move {
+        let mut params = StoreFromTempParams::new(
+            scope,
+            None,
+            "revoked-team-publication.txt",
+            &conditional_path,
+            conditional_payload.len() as i64,
+        );
+        params.file_precondition = Some(FileWritePrecondition::Missing);
+        store_from_temp_exact_name_with_hints(
+            &state_for_store,
+            params,
+            StoreFromTempHints {
+                resolved_policy: Some(policy_for_store),
+                ..Default::default()
+            },
+        )
+        .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .expect("conditional team create should stage its blob")
+        .expect("staging entry signal should be sent");
+
+    // Provider 已完成准入，但最终 DB 发布还未开始。撤权先提交后，释放 staging
+    // barrier，证明发布不沿用之前的资格，也不插入 file/blob 或消耗团队配额。
+    aster_drive_model::entities::team_member::Entity::delete_many()
+        .filter(aster_drive_model::entities::team_member::Column::TeamId.eq(team.id))
+        .filter(aster_drive_model::entities::team_member::Column::UserId.eq(user.id))
+        .exec(state.writer_db())
+        .await
+        .unwrap();
+    release_put_file.notify_one();
+    let error = tokio::time::timeout(Duration::from_secs(2), store_task)
+        .await
+        .unwrap()
+        .unwrap()
+        .err()
+        .unwrap();
+    assert_eq!(error.api_error_code(), ApiErrorCode::TeamNotMember);
+    assert!(
+        file_repo::find_by_name_in_team_folder(
+            state.writer_db(),
+            team.id,
+            None,
+            "revoked-team-publication.txt"
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(
+        crate::db::repository::team_repo::find_by_id(state.writer_db(), team.id)
+            .await
+            .unwrap()
+            .storage_used,
+        0
+    );
+    assert_eq!(
+        snapshot_dir_tree(&uploads_root).unwrap(),
+        before,
+        "staged provider content is cleaned after denied publication"
+    );
+}
+
+#[tokio::test]
 async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
     let (state, temp_root, policy, user) = build_test_state().await;
     let now = Utc::now();
@@ -2369,6 +2508,17 @@ async fn conditional_team_create_rejects_file_appearing_while_body_is_staged() {
         created_at: Set(now),
         updated_at: Set(now),
         archived_at: Set(None),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team.id),
+        user_id: Set(user.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
         ..Default::default()
     }
     .insert(state.writer_db())

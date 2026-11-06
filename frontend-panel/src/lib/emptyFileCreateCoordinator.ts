@@ -1,5 +1,8 @@
+import {
+	assertCurrentAuthOperation,
+	type UploadOperationBinding,
+} from "@/lib/authOperationOwner";
 import { removePendingEmptyFile } from "@/lib/uploadPersistence";
-import type { Workspace } from "@/lib/workspace";
 import { createFileService } from "@/services/fileService";
 
 interface CreatePendingEmptyFileOptions {
@@ -8,7 +11,7 @@ interface CreatePendingEmptyFileOptions {
 	filename: string;
 	baseFolderId: number | null;
 	relativePath: string | null;
-	workspace: Workspace;
+	binding: UploadOperationBinding;
 	requests: Map<string, AbortController>;
 }
 
@@ -23,22 +26,24 @@ export async function createPendingEmptyFile({
 	filename,
 	baseFolderId,
 	relativePath,
-	workspace,
+	binding,
 	requests,
 }: CreatePendingEmptyFileOptions): Promise<"completed" | "aborted"> {
+	assertCurrentAuthOperation(binding);
 	const controller = new AbortController();
 	requests.set(taskId, controller);
 	try {
-		await createFileService(workspace).createEmptyFile(
+		await createFileService(binding.workspace).createEmptyFile(
 			filename,
 			baseFolderId,
 			relativePath ?? undefined,
 			{
-				signal: controller.signal,
+				signal: AbortSignal.any([controller.signal, binding.signal]),
 				idempotencyKey,
 			},
 		);
-		if (controller.signal.aborted) return "aborted";
+		if (controller.signal.aborted || binding.signal.aborted) return "aborted";
+		assertCurrentAuthOperation(binding);
 		removePendingEmptyFile(taskId);
 		return "completed";
 	} catch (error) {

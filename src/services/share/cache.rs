@@ -129,7 +129,7 @@ pub(super) async fn load_share_record_by_token(
         .get::<CachedShareTokenLookup>(&cache_key)
         .await
     {
-        match share_repo::find_by_id(state.reader_db(), cached.id).await {
+        match share_repo::find_by_id(state.writer_db(), cached.id).await {
             Ok(share) if share.token == token => {
                 tracing::debug!(share_id = share.id, "share token lookup cache hit");
                 return Ok(share);
@@ -153,7 +153,7 @@ pub(super) async fn load_share_record_by_token(
         }
     }
 
-    let share = share_repo::find_by_token(state.reader_db(), token)
+    let share = share_repo::find_by_token(state.writer_db(), token)
         .await?
         .ok_or_else(|| AsterError::share_not_found(format!("token={token}")))?;
 

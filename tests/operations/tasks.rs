@@ -2888,6 +2888,14 @@ async fn test_record_runtime_task_run_keeps_health_failure_history_before_recove
 #[actix_web::test]
 async fn test_dispatch_due_marks_manual_retryable_task_failed_without_auto_retry() {
     let state = common::setup().await;
+    common::create_test_account(
+        &state,
+        "retry-authority",
+        "retry-authority@example.test",
+        "password123",
+    )
+    .await
+    .unwrap();
     let task = insert_pending_dispatch_task(&state, BackgroundTaskKind::ArchiveCompress, 3).await;
 
     let stats = task::dispatch_due(&state)
@@ -3864,6 +3872,121 @@ async fn test_archive_download_rejects_estimated_output_too_large() {
             .expect("error response should have msg")
             .contains("estimated output size"),
         "estimated output-size limit should be surfaced"
+    );
+}
+
+#[actix_web::test]
+async fn manual_retry_of_administrative_task_rechecks_current_authority() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (_initial_token, _) = register_and_login!(app);
+    let actor_id = common::create_test_account_via_api(
+        &app,
+        state.writer_db(),
+        &state.mail_sender,
+        "formeradmin",
+        "formeradmin@example.test",
+        "password123",
+    )
+    .await;
+    let actor = aster_drive::db::repository::user_repo::find_by_id(state.writer_db(), actor_id)
+        .await
+        .unwrap();
+    let mut active = actor.clone().into_active_model();
+    active.role = Set(aster_drive_model::types::UserRole::Admin);
+    active.update(state.writer_db()).await.unwrap();
+    let token = login_user!(app, "formeradmin", "password123");
+    let now = Utc::now();
+    let payload_json = serde_json::to_string(
+        &aster_drive::services::task::types::StoragePolicyForcedPurgeTaskPayload {
+            policy_id: 1,
+            policy_name: "Lost policy".into(),
+            policy_updated_at: now,
+            impact_digest: "fixture-digest".into(),
+            reason: "fixture confirmation".into(),
+        },
+    )
+    .unwrap();
+    let task = background_task_repo::create(
+        state.writer_db(),
+        background_task::ActiveModel {
+            kind: Set(BackgroundTaskKind::StoragePolicyForcedPurge),
+            status: Set(BackgroundTaskStatus::Failed),
+            creator_user_id: Set(Some(actor.id)),
+            team_id: Set(None),
+            share_id: Set(None),
+            display_name: Set("retry-bundle.zip".to_string()),
+            payload_json: Set(StoredTaskPayload(payload_json)),
+            result_json: Set(None),
+            steps_json: Set(None),
+            progress_current: Set(0),
+            progress_total: Set(0),
+            status_text: Set(None),
+            attempt_count: Set(1),
+            max_attempts: Set(1),
+            next_run_at: Set(now - Duration::seconds(1)),
+            processing_token: Set(0),
+            processing_started_at: Set(None),
+            last_heartbeat_at: Set(None),
+            lease_expires_at: Set(None),
+            started_at: Set(Some(now - Duration::minutes(2))),
+            finished_at: Set(Some(now - Duration::minutes(1))),
+            last_error: Set(Some("transient failure".to_string())),
+            failure_can_retry: Set(Some(true)),
+            expires_at: Set(now + Duration::hours(1)),
+            created_at: Set(now - Duration::minutes(2)),
+            updated_at: Set(now - Duration::minutes(1)),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("failed task should be inserted");
+
+    let mut demoted = actor.clone().into_active_model();
+    demoted.role = Set(aster_drive_model::types::UserRole::User);
+    demoted.update(state.writer_db()).await.unwrap();
+    let before = background_task_repo::find_by_id(state.writer_db(), task.id)
+        .await
+        .unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/tasks/{}/retry", task.id))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "creator ownership must not retain administrator authority"
+    );
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["code"], "auth.admin_required");
+    assert_eq!(
+        background_task_repo::find_by_id(state.writer_db(), task.id)
+            .await
+            .unwrap(),
+        before,
+        "denied retry must not reset task state, lease, attempts or timestamps"
+    );
+    let mut restored = actor.into_active_model();
+    restored.role = Set(aster_drive_model::types::UserRole::Admin);
+    restored.update(state.writer_db()).await.unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/tasks/{}/retry", task.id))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "current administrator retains explicit retry authority"
     );
 }
 

@@ -24,9 +24,22 @@ async fn restore_file_in_scope(
     id: i64,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "restoring file from trash");
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     super::coordination::admit_mutation_on(&txn, scope).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Restore,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let file = file_repo::find_by_id(&txn, id).await?;
     storage::ensure_file_scope(&file, scope)?;
     if file.deleted_at.is_none() {
@@ -45,6 +58,12 @@ async fn restore_file_in_scope(
         }
     }
 
+    access
+        .collection(
+            restored_parent_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
     let current = file_repo::lock_by_id(&txn, id).await?;
     storage::ensure_file_scope(&current, scope)?;
     if current.deleted_at.is_none() {
@@ -104,9 +123,22 @@ async fn restore_folder_in_scope(
     traversal_limits: Option<folder_ops::FolderTreeTraversalLimits>,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id = id, "restoring folder from trash");
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     super::coordination::admit_mutation_on(&txn, scope).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Restore,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let folder = folder_repo::find_by_id(&txn, id).await?;
     storage::ensure_folder_scope(&folder, scope)?;
     if folder.deleted_at.is_none() {
@@ -128,6 +160,32 @@ async fn restore_folder_in_scope(
         }
     }
 
+    access
+        .collection(
+            restored_parent_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+    let workspace = crate::services::files::lock::LockWorkspace::from_folder(&folder)?;
+    let children = folder_repo::find_by_ids(&txn, &child_folder_ids).await?;
+    let mut restored_collections: Vec<_> = files
+        .iter()
+        .map(|file| file.folder_id)
+        .chain(children.iter().map(|child| child.parent_id))
+        .collect();
+    restored_collections.sort_unstable();
+    restored_collections.dedup();
+    // 内部父目录可能正在同一事务恢复；其 deleted 状态不是拒绝恢复的理由，
+    // 但仍须检查活跃的集合锁。外部最终父集合已经通过上面的范围/生命周期校验。
+    for parent in restored_collections {
+        crate::services::files::lock::enforce_collection_membership_mutation_on(
+            &txn,
+            workspace,
+            parent,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+    }
     let root_before = folder.clone();
     let mut active: folder::ActiveModel = folder.into();
     let folder_name = active.name.clone().take().unwrap_or_default();

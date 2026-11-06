@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **存储 provider 协议证据** — 为全部内置 connector 增加中英文官方协议索引、内容复核日期与 SDK/transport 精确版本；`make storage-docs-check` 检查字段/关键协议与引用漂移，独立周检保留链接报告。本地 fixture 与真实云验收分开记录。
 
+### Security
+
+- **Workspace 与资源授权** — 统一文件服务、上传发布、WebDAV、WOPI、分享、任务与受控管理员读取的当前身份、委托范围和操作检查。阻止团队成员校验遗漏、旧凭据缓存继续授权、跨挂载锁操作、集合锁绕过及管理员降权后的特权任务重试；上传队列与恢复绑定原账号和 workspace。登出清理私有列表、播放和下载状态，拒绝旧账号的迟到响应回填。保留协议 token／前置条件及既有能力有效期契约。(#745)
+
 ## [v0.7.1] - 2026-11-06
 
 ### Added

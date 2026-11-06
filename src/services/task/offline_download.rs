@@ -66,7 +66,13 @@ pub(crate) async fn create_offline_download_task_in_scope(
     scope: WorkspaceStorageScope,
     params: CreateOfflineDownloadTaskParams,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let request = normalize_offline_download_request(params)?;
     if operations::offline_download_enabled_engines(state.runtime_config()).is_empty() {
         return Err(AsterError::validation_error(
@@ -99,6 +105,15 @@ pub(super) async fn process_offline_download_task(
     task: &background_task::Model,
     context: TaskExecutionContext,
 ) -> Result<()> {
+    // 延迟执行不能继承排队时的团队资格；在读取重放结果、创建临时目录或网络请求前
+    // 先检查当前 actor。真正发布时 storage transaction 仍会重新取得 mutation grant。
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        task_scope(task)?,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let lease_guard = context.lease_guard().clone();
     context.ensure_active()?;
     let publication =

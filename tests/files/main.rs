@@ -5,6 +5,7 @@
 mod common;
 
 mod archive_preview;
+mod authorization_contract;
 mod batch;
 mod directory_upload;
 mod edit;

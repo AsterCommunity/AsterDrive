@@ -41,6 +41,59 @@ describe("useAuthStore", () => {
 		vi.useRealTimers();
 	});
 
+	it("clears private listings, pending downloads and playback before logout completes", async () => {
+		let finishLogout!: () => void;
+		const pendingLogout = new Promise<void>((resolve) => {
+			finishLogout = resolve;
+		});
+		server.use(
+			http.post("*/api/v1/auth/logout", async () => {
+				await pendingLogout;
+				return HttpResponse.json(apiResponse(null));
+			}),
+		);
+		const { useAuthStore, useFileStore } = await loadStores();
+		const { useDownloadStore } = await import("@/stores/downloadStore");
+		const { useMusicPlayerStore } = await import("@/stores/musicPlayerStore");
+		const controller = new AbortController();
+		useFileStore.setState({
+			lastFolderContents: {
+				folderId: null,
+				folders: [],
+				sortBy: "name",
+				sortOrder: "asc",
+				workspaceRevision: 0,
+			},
+			_workspaceRequestController: controller,
+		});
+		useDownloadStore.getState().requestSelection({
+			workspace: { kind: "personal" },
+			files: [{ id: 7, name: "private.txt" }],
+			folders: [],
+		});
+		useMusicPlayerStore.getState().playTrack({
+			id: "private",
+			mimeType: "audio/mpeg",
+			name: "private.mp3",
+			path: "/files/7/download",
+		});
+		const logout = useAuthStore.getState().logout();
+		expect(controller.signal.aborted).toBe(true);
+		expect(useFileStore.getState().lastFolderContents).toBeNull();
+		expect(useDownloadStore.getState()).toMatchObject({
+			pendingSelection: null,
+			tasks: [],
+		});
+		expect(useMusicPlayerStore.getState()).toMatchObject({
+			queue: [],
+			activeTrackId: null,
+			isPlaying: false,
+			playRequested: false,
+		});
+		finishLogout();
+		await logout;
+	});
+
 	it("logs in, caches the user, and applies server preferences", async () => {
 		changeLanguage.mockClear();
 

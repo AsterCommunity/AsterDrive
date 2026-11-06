@@ -61,6 +61,28 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
 
 pub(super) async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
     let db = build_dispatch_test_db().await;
+    // Existing dispatch fixtures model owner-backed tasks as creator #1. Provision that actor
+    // explicitly so the new worker-time authority check exercises a real active user instead of
+    // silently depending on a missing foreign-row sentinel.
+    let now = Utc::now();
+    user::ActiveModel {
+        id: Set(1),
+        username: Set("dispatch-owner".to_owned()),
+        email: Set("dispatch-owner@example.test".to_owned()),
+        password_hash: Set("not-used".to_owned()),
+        role: Set(UserRole::User),
+        status: Set(UserStatus::Active),
+        session_version: Set(0),
+        email_verified_at: Set(Some(now)),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("dispatch owner should exist for worker authorization");
     let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
@@ -111,7 +133,10 @@ pub(super) async fn insert_dispatch_test_task(
     background_task::ActiveModel {
         kind: Set(kind),
         status: Set(status),
-        creator_user_id: Set(None),
+        creator_user_id: Set(match kind {
+            BackgroundTaskKind::ArchiveCompress => Some(1),
+            _ => None,
+        }),
         team_id: Set(None),
         share_id: Set(None),
         display_name: Set(format!("dispatch-claim-{created_offset_secs}")),
@@ -1255,6 +1280,52 @@ async fn reused_temp_file_receipts_refresh_scoped_quota_without_replaying_storag
     use crate::services::{events::storage_change::StorageChangeKind, workspace::storage};
     use sea_orm::PaginatorTrait;
     let state = build_dispatch_test_state().await;
+    // Recovery receipt 是幂等写入证据，不能替代当前 actor/workspace 资格。
+    // 使用真实用户、团队和成员关系，让本测试继续只验证重放与 quota event 语义。
+    let now = Utc::now();
+    user::ActiveModel {
+        id: Set(11),
+        username: Set("receipt-owner".into()),
+        email: Set("receipt-owner@example.test".into()),
+        password_hash: Set("not-used".into()),
+        role: Set(UserRole::User),
+        status: Set(UserStatus::Active),
+        session_version: Set(0),
+        email_verified_at: Set(Some(now)),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::team::ActiveModel {
+        id: Set(42),
+        name: Set("receipt-team".into()),
+        description: Set(String::new()),
+        created_by: Set(11),
+        storage_used: Set(0),
+        storage_quota: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(42),
+        user_id: Set(11),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
     for scope in [
         WorkspaceStorageScope::Personal { user_id: 11 },
         WorkspaceStorageScope::Team {

@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+	captureUploadOperation,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
 import type { UploadTask } from "./uploadAreaManagerShared";
 import {
 	mergeRestoredUploadTasks,
@@ -8,6 +12,7 @@ import {
 function task(id: string): UploadTask {
 	return {
 		id,
+		binding: captureUploadOperation({ kind: "personal" }),
 		file: null,
 		filename: `${id}.txt`,
 		relativePath: null,
@@ -45,3 +50,5 @@ describe("mergeRestoredUploadTasks", () => {
 		]);
 	});
 });
+
+beforeEach(() => setAuthOperationOwner(1, true));

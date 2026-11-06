@@ -228,6 +228,7 @@ pub(crate) async fn ingest_stream(
     store_preuploaded_nondedup(
         state,
         StorePreuploadedNondedupParams {
+            access_constraints: Default::default(),
             activity_source: crate::services::workspace::activity::ActivitySource::Rest,
             scope,
             folder_id,

@@ -1,5 +1,12 @@
+import {
+	assertCurrentAuthOperation,
+	type UploadOperationBinding,
+} from "@/lib/authOperationOwner";
 import { ApiError } from "@/services/http";
-import { type CompletedPart, uploadService } from "@/services/uploadService";
+import {
+	type CompletedPart,
+	createUploadService,
+} from "@/services/uploadService";
 import type { FileInfo } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 import type { UploadTransport } from "./uploadResume";
@@ -15,6 +22,8 @@ export type UploadStatus =
 	| "cancelled";
 
 export interface UploadTask {
+	/** 目标和账号在入队时冻结，页面导航不会重定向后续分片或 complete。 */
+	readonly binding: UploadOperationBinding;
 	id: string;
 	file: File | null;
 	filename: string;
@@ -95,6 +104,7 @@ export async function mapAllSettledWithConcurrency<T, R>(
 }
 
 export async function completeWithRetry(
+	task: UploadTask,
 	uploadId: string,
 	parts?: CompletedPart[],
 ): Promise<FileInfo> {
@@ -103,7 +113,7 @@ export async function completeWithRetry(
 
 	for (let i = 0; i < MAX_POLL; i++) {
 		try {
-			return await uploadService.completeUpload(uploadId, parts);
+			return await uploadServiceForTask(task).completeUpload(uploadId, parts);
 		} catch (error) {
 			if (
 				error instanceof ApiError &&
@@ -129,15 +139,18 @@ export function createQueuedUploadTask({
 	baseFolderName,
 	file,
 	relativePath,
+	binding,
 }: {
 	baseFolderId: number | null;
 	baseFolderName: string;
 	file: File;
+	binding: UploadOperationBinding;
 	relativePath: string | null;
 }): UploadTask {
 	const id = createTaskId();
 	return {
 		id,
+		binding,
 		file,
 		filename: file.name,
 		relativePath,
@@ -154,4 +167,32 @@ export function createQueuedUploadTask({
 			? { emptyFileIdempotencyKey: `empty-upload:${id}` }
 			: {}),
 	};
+}
+
+/** 请求前与 await 后都核对同一身份。signal 使底层 HTTP/XHR 在退出时中止；
+ * promise guard 则阻止迟到 init 响应继续启动下一阶段或污染新账号的任务状态。 */
+export function uploadServiceForTask(
+	task: UploadTask,
+): ReturnType<typeof createUploadService> {
+	assertCurrentAuthOperation(task.binding);
+	const service = createUploadService(
+		task.binding.workspace,
+		task.binding.signal,
+	);
+	return new Proxy(service, {
+		get(target, property) {
+			const method = Reflect.get(target, property);
+			return (...args: unknown[]) => {
+				assertCurrentAuthOperation(task.binding);
+				const result = Reflect.apply(method, target, args);
+				if (result instanceof Promise) {
+					return result.then((value: unknown) => {
+						assertCurrentAuthOperation(task.binding);
+						return value;
+					});
+				}
+				return result;
+			};
+		},
+	});
 }

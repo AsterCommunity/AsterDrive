@@ -1,5 +1,4 @@
 import type { MutableRefObject } from "react";
-import type { Workspace } from "@/lib/workspace";
 import type {
 	CompletedPart,
 	InitUploadResponse,
@@ -20,7 +19,6 @@ export interface UploadTransportRunnerContext {
 	patchTaskThrottled: (taskId: string, patch: Partial<UploadTask>) => void;
 	uploadRequestRef: MutableRefObject<Map<string, Set<XMLHttpRequest>>>;
 	t: UploadAreaManagerTranslationFn;
-	workspace: Workspace;
 }
 
 export interface UploadTransportRunners {

@@ -6,7 +6,7 @@ use crate::{
     runtime::TaskRuntimeState,
     services::{
         ops::audit::{self, AuditContext},
-        workspace::storage::{self, WorkspaceStorageScope},
+        workspace::storage::WorkspaceStorageScope,
     },
 };
 use aster_drive_model::{
@@ -28,7 +28,13 @@ pub(crate) async fn request(
     ctx: &AuditContext,
 ) -> Result<TaskInfo> {
     let changed = transaction::with_transaction(state.writer_db(), async |txn| {
-        storage::require_scope_access_with_db(state, txn, scope).await?;
+        crate::services::workspace::scope::authorize_workspace_on(
+            txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::CancelTask,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         let mut query = background_task::Entity::find_by_id(id);
         if txn.get_database_backend() != sea_orm::DbBackend::Sqlite {
             query = query.lock_exclusive();
@@ -44,6 +50,12 @@ pub(crate) async fn request(
                 "system maintenance cannot be canceled through a workspace",
             ));
         }
+        crate::services::workspace::scope::require_task_control_on(
+            txn,
+            scope.actor_user_id(),
+            task.kind,
+        )
+        .await?;
         let queued = matches!(
             task.status,
             BackgroundTaskStatus::Pending | BackgroundTaskStatus::Retry

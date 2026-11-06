@@ -25,3 +25,5 @@
 - [资源锁系统重构契约](./resource-lock-system.md)：统一 REST、WebDAV、WOPI 和管理员锁生命周期，删除持久化 `is_locked`，并定义 workspace namespace、权威事务与 generation-keyed 只读缓存。
 
 修改这些链路时，应同时检查对应 API、OpenAPI、前端生成类型和相关测试，不要在产品层重新硬编码 connector 能力。
+
+- [Workspace 与资源操作授权](workspace-authorization.md)

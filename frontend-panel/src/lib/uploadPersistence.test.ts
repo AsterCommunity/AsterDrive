@@ -17,6 +17,8 @@ function createSession(
 ): ResumableSession {
 	return {
 		uploadId: "upload-1",
+		accountId: 1,
+		workspace: { kind: "personal" },
 		filename: "hello.txt",
 		totalSize: 12,
 		totalChunks: 3,
@@ -38,6 +40,30 @@ describe("uploadPersistence", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("partitions personal replay records by account and discards unknown legacy owners", () => {
+		const entry = {
+			taskId: "first-account",
+			idempotencyKey: "replay",
+			filename: "private.txt",
+			baseFolderId: null,
+			baseFolderName: "Root",
+			relativePath: null,
+			savedAt: Date.now(),
+			workspace: { kind: "personal" as const },
+			accountId: 11,
+		};
+		savePendingEmptyFiles([entry]);
+		expect(loadPendingEmptyFiles(12, { kind: "personal" })).toEqual([]);
+		expect(loadPendingEmptyFiles(11, { kind: "personal" })).toHaveLength(1);
+		const { accountId: _legacyOwner, ...legacy } = entry;
+		localStorage.setItem(
+			"aster_pending_empty_file_creates",
+			JSON.stringify([legacy]),
+		);
+		expect(loadPendingEmptyFiles(11, { kind: "personal" })).toEqual([]);
+		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
+	});
+
 	it("saves, replaces, and removes sessions by upload id", () => {
 		saveSession(createSession());
 		saveSession(
@@ -53,7 +79,7 @@ describe("uploadPersistence", () => {
 			}),
 		);
 
-		expect(loadSessions()).toEqual([
+		expect(loadSessions(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({
 				uploadId: "upload-2",
 				filename: "world.txt",
@@ -66,7 +92,7 @@ describe("uploadPersistence", () => {
 
 		removeSession("upload-2");
 
-		expect(loadSessions()).toEqual([
+		expect(loadSessions(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({
 				uploadId: "upload-1",
 				filename: "hello-v2.txt",
@@ -91,7 +117,7 @@ describe("uploadPersistence", () => {
 			etag: "etag-2-duplicate",
 		});
 
-		expect(loadSessions()).toEqual([
+		expect(loadSessions(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({
 				completedParts: [
 					{ part_number: 1, etag: "etag-1" },
@@ -118,12 +144,12 @@ describe("uploadPersistence", () => {
 			}),
 		);
 
-		expect(loadSessions()).toEqual([
+		expect(loadSessions(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({
 				uploadId: "fresh",
 			}),
 		]);
-		expect(loadSessions()).toEqual([
+		expect(loadSessions(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({
 				uploadId: "fresh",
 			}),
@@ -135,7 +161,7 @@ describe("uploadPersistence", () => {
 
 		clearAllSessions();
 
-		expect(loadSessions()).toEqual([]);
+		expect(loadSessions(1, { kind: "personal" })).toEqual([]);
 	});
 
 	it("filters sessions by workspace when requested", () => {
@@ -147,8 +173,8 @@ describe("uploadPersistence", () => {
 			}),
 		);
 
-		expect(loadSessions()).toHaveLength(2);
-		expect(loadSessions(TEAM_WORKSPACE)).toEqual([
+		expect(loadSessions(1, { kind: "personal" })).toHaveLength(1);
+		expect(loadSessions(1, TEAM_WORKSPACE)).toEqual([
 			expect.objectContaining({
 				uploadId: "team-1",
 			}),
@@ -159,6 +185,8 @@ describe("uploadPersistence", () => {
 		savePendingEmptyFiles([
 			{
 				taskId: "empty-personal",
+				accountId: 1,
+				workspace: { kind: "personal" },
 				idempotencyKey: "key-personal",
 				filename: "empty.txt",
 				baseFolderId: null,
@@ -170,6 +198,7 @@ describe("uploadPersistence", () => {
 		savePendingEmptyFiles([
 			{
 				taskId: "empty-team",
+				accountId: 1,
 				idempotencyKey: "key-team",
 				filename: "nested.txt",
 				baseFolderId: 5,
@@ -180,15 +209,17 @@ describe("uploadPersistence", () => {
 			},
 		]);
 
-		expect(loadPendingEmptyFiles(TEAM_WORKSPACE)).toEqual([
+		expect(loadPendingEmptyFiles(1, TEAM_WORKSPACE)).toEqual([
 			expect.objectContaining({
 				taskId: "empty-team",
+				accountId: 1,
+				workspace: TEAM_WORKSPACE,
 				idempotencyKey: "key-team",
 			}),
 		]);
 		removePendingEmptyFile("empty-team");
-		expect(loadPendingEmptyFiles(TEAM_WORKSPACE)).toEqual([]);
-		expect(loadPendingEmptyFiles()).toHaveLength(1);
+		expect(loadPendingEmptyFiles(1, TEAM_WORKSPACE)).toEqual([]);
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toHaveLength(1);
 	});
 
 	it("persists a large empty-file batch with one storage write", () => {
@@ -197,6 +228,7 @@ describe("uploadPersistence", () => {
 			JSON.stringify([
 				{
 					taskId: "preserved",
+					accountId: 1,
 					idempotencyKey: "preserved-key",
 					filename: "preserved.txt",
 					baseFolderId: null,
@@ -207,6 +239,7 @@ describe("uploadPersistence", () => {
 				},
 				{
 					taskId: "empty-0",
+					accountId: 1,
 					idempotencyKey: "stale-key",
 					filename: "stale.txt",
 					baseFolderId: null,
@@ -221,6 +254,8 @@ describe("uploadPersistence", () => {
 		const savedAt = Date.now();
 		const batch = Array.from({ length: 1_000 }, (_, index) => ({
 			taskId: `empty-${index}`,
+			accountId: 1,
+			workspace: { kind: "personal" },
 			idempotencyKey: `key-${index}`,
 			filename: `${index}.txt`,
 			baseFolderId: null,
@@ -232,9 +267,11 @@ describe("uploadPersistence", () => {
 		savePendingEmptyFiles(batch);
 
 		expect(setItemSpy).toHaveBeenCalledTimes(1);
-		expect(loadPendingEmptyFiles()).toHaveLength(1_001);
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toHaveLength(1_001);
 		expect(
-			loadPendingEmptyFiles().find((entry) => entry.taskId === "empty-0"),
+			loadPendingEmptyFiles(1, { kind: "personal" }).find(
+				(entry) => entry.taskId === "empty-0",
+			),
 		).toEqual(expect.objectContaining({ idempotencyKey: "key-0" }));
 	});
 
@@ -244,6 +281,8 @@ describe("uploadPersistence", () => {
 			JSON.stringify([
 				{
 					taskId: "valid",
+					accountId: 1,
+					workspace: { kind: "personal" },
 					idempotencyKey: "valid-key",
 					filename: "valid.txt",
 					baseFolderId: null,
@@ -253,6 +292,8 @@ describe("uploadPersistence", () => {
 				},
 				{
 					taskId: "missing-key",
+					accountId: 1,
+					workspace: { kind: "personal" },
 					filename: "missing-key.txt",
 					baseFolderId: null,
 					baseFolderName: "Root",
@@ -261,6 +302,7 @@ describe("uploadPersistence", () => {
 				},
 				{
 					taskId: "invalid-workspace",
+					accountId: 1,
 					idempotencyKey: "invalid-workspace-key",
 					filename: "invalid-workspace.txt",
 					baseFolderId: null,
@@ -273,9 +315,11 @@ describe("uploadPersistence", () => {
 			]),
 		);
 
-		expect(loadPendingEmptyFiles({ kind: "personal" })).toEqual([
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({
 				taskId: "valid",
+				accountId: 1,
+				workspace: { kind: "personal" },
 				idempotencyKey: "valid-key",
 			}),
 		]);
@@ -288,11 +332,11 @@ describe("uploadPersistence", () => {
 
 	it("clears malformed pending empty-file payloads without interrupting uploads", () => {
 		localStorage.setItem("aster_pending_empty_file_creates", "{}");
-		expect(loadPendingEmptyFiles()).toEqual([]);
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toEqual([]);
 		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
 
 		localStorage.setItem("aster_pending_empty_file_creates", "{");
-		expect(loadPendingEmptyFiles()).toEqual([]);
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toEqual([]);
 		expect(localStorage.getItem("aster_pending_empty_file_creates")).toBeNull();
 
 		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
@@ -302,6 +346,8 @@ describe("uploadPersistence", () => {
 			savePendingEmptyFiles([
 				{
 					taskId: "write-failure",
+					accountId: 1,
+					workspace: { kind: "personal" },
 					idempotencyKey: "write-failure-key",
 					filename: "write-failure.txt",
 					baseFolderId: null,
@@ -323,6 +369,8 @@ describe("uploadPersistence", () => {
 			savePendingEmptyFiles([
 				{
 					taskId,
+					accountId: 1,
+					workspace: { kind: "personal" },
 					idempotencyKey: `${taskId}-key`,
 					filename: `${taskId}.txt`,
 					baseFolderId: null,
@@ -333,7 +381,7 @@ describe("uploadPersistence", () => {
 			]);
 		}
 
-		expect(loadPendingEmptyFiles()).toEqual([
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({ taskId: "fresh-empty" }),
 		]);
 	});
@@ -346,6 +394,8 @@ describe("uploadPersistence", () => {
 			JSON.stringify([
 				{
 					taskId: "expired-empty",
+					accountId: 1,
+					workspace: { kind: "personal" },
 					idempotencyKey: "expired-key",
 					filename: "expired.txt",
 					baseFolderId: null,
@@ -359,6 +409,8 @@ describe("uploadPersistence", () => {
 		savePendingEmptyFiles([
 			{
 				taskId: "fresh-empty",
+				accountId: 1,
+				workspace: { kind: "personal" },
 				idempotencyKey: "fresh-key",
 				filename: "fresh.txt",
 				baseFolderId: null,
@@ -368,7 +420,7 @@ describe("uploadPersistence", () => {
 			},
 		]);
 
-		expect(loadPendingEmptyFiles()).toEqual([
+		expect(loadPendingEmptyFiles(1, { kind: "personal" })).toEqual([
 			expect.objectContaining({ taskId: "fresh-empty" }),
 		]);
 	});

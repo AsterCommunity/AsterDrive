@@ -20,6 +20,7 @@ use aster_drive_storage::StorageDriver;
 
 pub(super) struct PreparedStoreFromTemp {
     pub scope: WorkspaceStorageScope,
+    pub access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub folder_id: Option<i64>,
     pub filename: String,
     pub temp_path: String,
@@ -65,6 +66,7 @@ pub(super) async fn prepare_store_from_temp(
 ) -> Result<PreparedStoreFromTemp> {
     let StoreFromTempParams {
         scope,
+        access_constraints,
         folder_id,
         filename,
         temp_path,
@@ -86,6 +88,21 @@ pub(super) async fn prepare_store_from_temp(
         task_publication,
     } = hints;
     operation_context.checkpoint()?;
+    // 暂存前也验证准入，避免已失权的延迟任务先触发 provider I/O；最终发布仍重新验证。
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &access_constraints,
+    )
+    .await?;
+    match existing_file_id {
+        Some(file_id) => {
+            let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
+            access.file(&file).await?;
+        }
+        None => access.parent(folder_id).await?,
+    }
 
     tracing::debug!(
         scope = ?scope,
@@ -195,6 +212,7 @@ pub(super) async fn prepare_store_from_temp(
 
     Ok(PreparedStoreFromTemp {
         scope,
+        access_constraints,
         folder_id,
         filename: filename.clone(),
         temp_path: temp_path.to_string(),

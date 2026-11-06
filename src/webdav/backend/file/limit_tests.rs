@@ -26,6 +26,7 @@ async fn set_policy_limit(state: &PrimaryAppState, policy: storage_policy::Model
 
 fn context(user_id: i64, name: &str) -> DavWriteOpenContext {
     DavWriteOpenContext {
+        access_constraints: Default::default(),
         scope: WorkspaceStorageScope::Personal { user_id },
         folder_id: None,
         filename: name.into(),
@@ -39,6 +40,69 @@ fn context(user_id: i64, name: &str) -> DavWriteOpenContext {
             ip_address: None,
             user_agent: None,
         },
+    }
+}
+
+/// 接收 body 时不长期持有数据库锁。发布事务必须按当前 ancestry 再查受限 root，
+/// temp/direct 两条链路都不能因保存了旧 folder_id 而把文件写到挂载外。
+#[tokio::test]
+async fn constrained_temp_and_direct_publication_rejects_parent_moved_outside_root() {
+    for direct in [false, true] {
+        let (state, user, _, driver) = build_s3_direct_test_state().await;
+        let root = crate::services::files::folder::create(&state, user.id, "mount", None)
+            .await
+            .unwrap();
+        let target =
+            crate::services::files::folder::create(&state, user.id, "target", Some(root.id))
+                .await
+                .unwrap();
+        let outside = crate::services::files::folder::create(&state, user.id, "outside", None)
+            .await
+            .unwrap();
+        let mut request = context(user.id, "restricted.txt");
+        request.folder_id = Some(target.id);
+        request.access_constraints =
+            crate::services::workspace::scope::WorkspaceAccessConstraints::for_root(Some(root.id));
+        request.declared_size = match direct {
+            true => Some(4),
+            false => None,
+        };
+        let mut handle = AsterDavWriteHandle::for_write_with_audit(state.clone(), request)
+            .await
+            .unwrap();
+        handle
+            .write_bytes(Bytes::from_static(b"data"))
+            .await
+            .unwrap();
+        crate::services::files::folder::move_folder(&state, target.id, user.id, Some(outside.id))
+            .await
+            .unwrap();
+        assert!(
+            handle.finish().await.is_err(),
+            "moved parent must fail closed in mode direct={direct}"
+        );
+        assert!(
+            file_repo::find_by_name_in_folder(
+                state.writer_db(),
+                user.id,
+                Some(target.id),
+                "restricted.txt"
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        assert_eq!(
+            crate::db::repository::user_repo::find_by_id(state.writer_db(), user.id)
+                .await
+                .unwrap()
+                .storage_used,
+            0
+        );
+        assert!(
+            driver.objects.lock().unwrap().is_empty(),
+            "rejected staging must clean its provider object"
+        );
     }
 }
 

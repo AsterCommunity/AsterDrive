@@ -62,6 +62,7 @@ pub(crate) struct WopiAccessTokenPayload {
 pub(crate) struct ResolvedWopiAccess {
     pub(crate) file: file::Model,
     pub(crate) payload: WopiAccessTokenPayload,
+    pub(crate) access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
 }
 
 fn wopi_session_cache_key(token_hash: &str) -> String {
@@ -287,7 +288,17 @@ pub(crate) async fn resolve_access_token(
     // 最终仍回到统一文件 scope 校验：WOPI 只是另一个接入层，不应绕开个人/团队边界。
     let file = storage::verify_file_access(state, scope_from_payload(&payload), file_id).await?;
 
-    Ok(ResolvedWopiAccess { file, payload })
+    let access_constraints =
+        crate::services::workspace::scope::WorkspaceAccessConstraints::for_wopi_session(
+            session.id,
+            session.session_version,
+            session.file_id,
+        );
+    Ok(ResolvedWopiAccess {
+        file,
+        payload,
+        access_constraints,
+    })
 }
 
 pub(crate) fn scope_from_payload(payload: &WopiAccessTokenPayload) -> WorkspaceStorageScope {

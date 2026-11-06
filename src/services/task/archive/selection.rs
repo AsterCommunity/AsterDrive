@@ -422,7 +422,13 @@ async fn ensure_archive_selection_request_in_scope(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<()> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     batch::validate_batch_ids(file_ids, folder_ids)?;
 
     let file_map: HashMap<i64, file::Model> = file_repo::find_by_ids(state.writer_db(), file_ids)

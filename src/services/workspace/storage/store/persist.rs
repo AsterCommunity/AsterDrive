@@ -22,6 +22,7 @@ pub(super) async fn persist_temp_store(
 ) -> Result<(file::Model, bool)> {
     let PreparedStoreFromTemp {
         scope,
+        access_constraints,
         folder_id,
         filename,
         temp_path,
@@ -91,6 +92,7 @@ pub(super) async fn persist_temp_store(
     }
 
     let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_access_constraints = access_constraints.clone();
     let transaction_operation_context = operation_context.clone();
     let transaction_verified_blob = verified_blob.clone();
     let transaction_filename = filename.clone();
@@ -108,6 +110,7 @@ pub(super) async fn persist_temp_store(
         state.writer_db(),
         &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
+            let access_constraints = transaction_access_constraints.clone();
             let operation_context = transaction_operation_context.clone();
             let verified_blob = transaction_verified_blob.clone();
             let filename = transaction_filename.clone();
@@ -123,9 +126,18 @@ pub(super) async fn persist_temp_store(
             let now = transaction_now;
             let publication = task_publication.clone();
             Box::pin(async move {
+                // 每次重试重新授权，绝不把第一次事务的授权证明带进重试事务。
+                let access = crate::services::workspace::scope::authorize_workspace_on(
+                    txn,
+                    scope,
+                    crate::services::workspace::scope::WorkspaceOperation::UpdateContent,
+                    &access_constraints,
+                )
+                .await?;
                 if let Some(publication) = &publication {
                     publication.lock_owner(txn).await?;
                     if let Some(file) = publication.find_file(txn).await? {
+                        access.file(&file).await?;
                         return Ok((file, false));
                     }
                 }
@@ -173,9 +185,8 @@ pub(super) async fn persist_temp_store(
                 let blob = persist_temp_blob(txn, &verified_blob).await?;
                 operation_context.checkpoint()?;
                 let result = super::write_record::write_file_record_from_temp(
-                    txn,
+                    access,
                     WriteFileRecordFromTempParams {
-                        scope,
                         activity_source: operation_context.activity_source(),
                         activity_action: operation_context.content_action(),
                         folder_id,

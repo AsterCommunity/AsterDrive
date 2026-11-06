@@ -50,7 +50,7 @@ function setTestCookie(cookie: string) {
 	document.cookie = cookie;
 }
 
-class MockXMLHttpRequest {
+class MockXMLHttpRequest extends EventTarget {
 	static instances: MockXMLHttpRequest[] = [];
 
 	headers: Record<string, string> = {};
@@ -79,6 +79,7 @@ class MockXMLHttpRequest {
 	withCredentials = false;
 
 	constructor() {
+		super();
 		MockXMLHttpRequest.instances.push(this);
 	}
 
@@ -126,6 +127,56 @@ describe("uploadService", () => {
 			value: MockXMLHttpRequest,
 		});
 		setTestCookie("aster_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/");
+	});
+
+	it("binds init, progress, complete and cancel to an operation's cancellation signal", async () => {
+		const { createUploadService } = await import("@/services/uploadService");
+		const controller = new AbortController();
+		const service = createUploadService(
+			{ kind: "team", teamId: 19 },
+			controller.signal,
+		);
+		mockState.post.mockResolvedValue({ upload_id: "owned", mode: "chunked" });
+		mockState.get.mockResolvedValue({ status: "uploading" });
+		mockState.clientPost.mockResolvedValue({
+			data: { code: "success", data: { id: 9 } },
+		});
+		await service.initUpload({ filename: "owned.txt", total_size: 4 });
+		await service.getProgress("owned");
+		await service.cancelUpload("owned");
+		expect(mockState.post).toHaveBeenCalledWith(
+			"/teams/19/files/upload/init",
+			expect.anything(),
+			expect.objectContaining({ signal: controller.signal }),
+		);
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/teams/19/files/upload/owned",
+			expect.objectContaining({ signal: controller.signal }),
+		);
+		expect(mockState.delete).toHaveBeenCalledWith(
+			"/teams/19/files/upload/owned",
+			expect.objectContaining({ signal: controller.signal }),
+		);
+		controller.abort();
+		const previousRequests = mockState.get.mock.calls.length;
+		expect(() => service.getProgress("owned")).toThrow();
+		expect(mockState.get).toHaveBeenCalledTimes(previousRequests);
+	});
+
+	it("aborts a running XHR when its owning login ends", async () => {
+		const { createUploadService } = await import("@/services/uploadService");
+		const controller = new AbortController();
+		const service = createUploadService(
+			{ kind: "personal" },
+			controller.signal,
+		);
+		const request = service.presignedUpload(
+			"https://provider.example/object",
+			new Blob(["data"]),
+		);
+		const rejected = expect(request).rejects.toMatchObject({ isAborted: true });
+		controller.abort();
+		await rejected;
 	});
 
 	it("uses the expected init/cancel/progress/presign endpoints for the personal workspace", async () => {

@@ -232,6 +232,21 @@ async fn create_frontier_children_from_plans_in_scope(
         })
         .collect();
     let txn = aster_forge_db::transaction::begin(db).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Copy,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    for parent_id in &dest_parent_ids {
+        access
+            .collection(
+                Some(*parent_id),
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+    }
     folder_repo::create_many(&txn, models).await?;
 
     let created_children = match scope {
@@ -413,6 +428,19 @@ async fn copy_folder_tree_between_scopes(
     let preserve_policy_id = same_workspace_resource(source_scope, dest_scope);
 
     let creation_txn = aster_forge_db::transaction::begin(db).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &creation_txn,
+        dest_scope,
+        crate::services::workspace::scope::WorkspaceOperation::Copy,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    access
+        .collection(
+            dest_parent_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
     let activity = match options.activity {
         Some(ref context) => context.clone(),
         None => {

@@ -144,13 +144,15 @@ pub async fn webdav_handler(
         auth_result.root_folder_id,
         audit_ctx.clone(),
         webdav.payload_limit,
-    );
+    )
+    .with_access_constraints(auth_result.access_constraints.clone());
     let lock_system = backend::lock::DbLockSystem::new_with_audit(
         state.get_ref().clone(),
         auth_result.scope,
         auth_result.root_folder_id,
         audit_ctx,
-    );
+    )
+    .with_access_constraints(auth_result.access_constraints);
     let request_target = match aster_forge_webdav::actix::request_target(&req, &webdav.prefix) {
         Ok(target) => target,
         Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
@@ -261,6 +263,7 @@ pub async fn webdav_handler(
                     lock_system.as_ref(),
                     &webdav.prefix,
                     request_body.xml(),
+                    &request_headers,
                 )
                 .await
             }

@@ -7045,6 +7045,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
 
 #[actix_web::test]
 async fn test_sqlite_reader_queries_stay_independent_but_auth_waits_for_writer_revocation() {
+    use aster_drive::runtime::SharedRuntimeState;
     use aster_forge_utils::raii::TempDirGuard;
     use sea_orm::{ConnectionTrait, TransactionTrait};
 
@@ -7093,36 +7094,43 @@ async fn test_sqlite_reader_queries_stay_independent_but_auth_waits_for_writer_r
     tokio::pin!(authentication);
     assert!(futures::poll!(&mut authentication).is_pending());
 
-    // Read-only product work remains on the reader after a caller has authenticated. This
-    // checks the data routing boundary separately from the stronger authorization requirement.
+    // Projection 查询仍走 reader；service 自己还必须从 writer 验证当前产品资格。
     let query: aster_drive::api::pagination::FolderListQuery =
         serde_json::from_value(serde_json::json!({})).unwrap();
     let params = aster_drive::services::files::folder::FolderListParams::from(&query);
     timeout(
         Duration::from_secs(5),
-        aster_drive::services::files::folder::list(&state, user.id, None, &params),
+        aster_drive::db::repository::folder_repo::find_children(state.reader_db(), user.id, None),
     )
     .await
     .expect("folder data query should not wait for the writer pool")
     .expect("folder data query should succeed");
-    let progress = timeout(
-        Duration::from_secs(5),
-        aster_drive::services::files::upload::get_progress(&state, &upload_id, user.id),
-    )
-    .await
-    .expect("upload progress data query should not wait for the writer pool")
-    .expect("upload progress data query should succeed");
-    assert_eq!(progress.upload_id, upload_id);
-    assert_eq!(progress.received_count, 2);
+    let listing = aster_drive::services::files::folder::list(&state, user.id, None, &params);
+    tokio::pin!(listing);
+    assert!(futures::poll!(&mut listing).is_pending());
+    // Progress 入口还要校验当前 actor/workspace，授权不能从 reader 的旧快照放行。
+    // session/receipt projection 可读 reader，但整个 service 不再是免授权的纯查询。
+    let progress = aster_drive::services::files::upload::get_progress(&state, &upload_id, user.id);
+    tokio::pin!(progress);
+    assert!(futures::poll!(&mut progress).is_pending());
 
     aster_drive::db::repository::user_repo::bump_session_version(&txn, user.id)
         .await
         .unwrap();
     txn.commit().await.unwrap();
-    let error = timeout(Duration::from_secs(5), authentication)
-        .await
-        .expect("authentication must finish after writer release")
-        .expect_err("committed revocation must reject the queued old access token");
+    // 三个 future 已进入同一单连接 writer 的等待队列，必须共同推进，不能让
+    // 先获连接的认证 future 停在未 poll 状态、反过来饿死后面的业务授权查询。
+    let (authentication, listing, progress) = timeout(Duration::from_secs(5), async {
+        tokio::join!(authentication, listing, progress)
+    })
+    .await
+    .expect("queued authority checks must finish after writer release");
+    listing.expect("active owner can list after the authority check");
+    let progress = progress.expect("the active owner can read progress after the authority check");
+    assert_eq!(progress.upload_id, upload_id);
+    assert_eq!(progress.received_count, 2);
+    let error =
+        authentication.expect_err("committed revocation must reject the queued old access token");
     assert!(matches!(
         error,
         aster_drive::errors::AsterError::AuthTokenInvalid(_)

@@ -30,6 +30,7 @@ pub struct AsterDavWriteHandle {
 
 pub(crate) struct DavWriteOpenContext {
     pub(crate) scope: WorkspaceStorageScope,
+    pub(crate) access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     pub(crate) folder_id: Option<i64>,
     pub(crate) filename: String,
     pub(crate) existing_file_id: Option<i64>,
@@ -74,6 +75,7 @@ enum WriteMode {
     Write {
         state: PrimaryAppState,
         scope: WorkspaceStorageScope,
+        access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
         folder_id: Option<i64>,
         filename: String,
         existing_file_id: Option<i64>,
@@ -90,6 +92,7 @@ enum WriteMode {
     WriteDirect {
         state: PrimaryAppState,
         scope: WorkspaceStorageScope,
+        access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
         folder_id: Option<i64>,
         filename: String,
         existing_file_id: Option<i64>,
@@ -120,6 +123,7 @@ impl AsterDavWriteHandle {
             state,
             DavWriteOpenContext {
                 scope: WorkspaceStorageScope::Personal { user_id },
+                access_constraints: Default::default(),
                 folder_id,
                 filename,
                 existing_file_id,
@@ -143,6 +147,7 @@ impl AsterDavWriteHandle {
     ) -> Result<Self, FsError> {
         let DavWriteOpenContext {
             scope,
+            access_constraints,
             folder_id,
             filename,
             existing_file_id,
@@ -289,6 +294,7 @@ impl AsterDavWriteHandle {
                     mode: WriteMode::WriteDirect {
                         state,
                         scope,
+                        access_constraints,
                         folder_id,
                         filename,
                         existing_file_id,
@@ -323,6 +329,7 @@ impl AsterDavWriteHandle {
             mode: WriteMode::Write {
                 state,
                 scope,
+                access_constraints,
                 folder_id,
                 filename,
                 existing_file_id,
@@ -538,6 +545,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
             WriteMode::Write {
                 state,
                 scope,
+                access_constraints,
                 folder_id,
                 filename,
                 existing_file_id,
@@ -586,6 +594,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                 let stored = storage::store_from_temp_with_hints(
                     state,
                     storage::StoreFromTempParams {
+                        access_constraints: access_constraints.clone(),
                         scope: *scope,
                         folder_id: *folder_id,
                         filename,
@@ -635,6 +644,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
             WriteMode::WriteDirect {
                 state,
                 scope,
+                access_constraints,
                 folder_id,
                 filename,
                 existing_file_id,
@@ -692,6 +702,7 @@ impl DavWriteHandle for AsterDavWriteHandle {
                 let stored = storage::store_preuploaded_nondedup(
                     state,
                     storage::StorePreuploadedNondedupParams {
+                        access_constraints: access_constraints.clone(),
                         activity_source:
                             crate::services::workspace::activity::ActivitySource::Webdav,
                         scope: *scope,

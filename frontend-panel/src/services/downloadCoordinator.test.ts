@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cancelDownloadTask,
+	clearAccountDownloads,
 	filenameFromContentDisposition,
 	retryDownloadTask,
 	startAuthenticatedFileDownload,
@@ -234,6 +235,38 @@ describe("downloadCoordinator", () => {
 			completedItems: 1,
 			warning: undefined,
 		});
+	});
+
+	it("logout cancels pending file selection and removes its retry closure", async () => {
+		let finishPicker!: (value: {
+			createWritable: () => Promise<never>;
+		}) => void;
+		const picker = vi.fn(
+			() =>
+				new Promise<{ createWritable: () => Promise<never> }>((resolve) => {
+					finishPicker = resolve;
+				}),
+		);
+		Object.defineProperty(window, "showSaveFilePicker", {
+			configurable: true,
+			value: picker,
+		});
+		const running = startProxyFileDownload(
+			{ kind: "personal" },
+			{ id: 7, name: "private.txt" },
+		);
+		const oldTaskId = useDownloadStore.getState().tasks[0].id;
+		clearAccountDownloads();
+		finishPicker({
+			createWritable: vi
+				.fn()
+				.mockRejectedValue(new DOMException("closed", "AbortError")),
+		});
+		await running;
+		retryDownloadTask(oldTaskId);
+		expect(picker).toHaveBeenCalledTimes(1);
+		expect(useDownloadStore.getState().tasks).toEqual([]);
+		expect(mocks.resolveResourceHandle).not.toHaveBeenCalled();
 	});
 
 	it("saves a CDN Blob download under the current file name without response overrides", async () => {

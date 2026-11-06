@@ -345,6 +345,13 @@ async fn persist_chunked_upload(
             let actor_username = transaction_actor_username.clone();
             let now = transaction_now;
             Box::pin(async move {
+                crate::services::workspace::scope::authorize_workspace_on(
+                    txn,
+                    workspace_scope_from_session(&session),
+                    crate::services::workspace::scope::WorkspaceOperation::CreateFile,
+                    &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+                )
+                .await?;
                 storage::lock_storage_usage(txn, workspace_scope_from_session(&session)).await?;
 
                 let blob = match verified.source() {
@@ -424,6 +431,13 @@ async fn persist_verified_chunked_upload(
             let actor_username = transaction_actor_username.clone();
             let now = transaction_now;
             Box::pin(async move {
+                crate::services::workspace::scope::authorize_workspace_on(
+                    txn,
+                    workspace_scope_from_session(&session),
+                    crate::services::workspace::scope::WorkspaceOperation::CreateFile,
+                    &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+                )
+                .await?;
                 storage::lock_storage_usage(txn, workspace_scope_from_session(&session)).await?;
                 let blob = match verified.source() {
                     VerifiedUploadSource::PreuploadedNonDedup { prepared } => {

@@ -12,10 +12,7 @@ mod policy;
 mod quota;
 
 pub(crate) use blob::{create_nondedup_blob_with_key, create_opaque_nondedup_blob};
-pub(crate) use file_record::{
-    CreateFileFromBlobParams, NewFileNameMode, create_file_from_blob_with_name_mode,
-};
-pub(crate) use file_record::{CreateFileFromBlobWithMimeParams, create_file_from_blob_with_mime};
+pub(crate) use file_record::{CreateFileFromBlobParams, NewFileNameMode, create_file_from_blob};
 pub(crate) use finalize::{
     FinalizeUploadSessionFileParams, finalize_upload_session_blob_with_actor_username,
     finalize_upload_session_file,

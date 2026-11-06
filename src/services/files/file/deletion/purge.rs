@@ -32,7 +32,13 @@ pub(crate) async fn purge_in_scope(
     scope: WorkspaceStorageScope,
     id: i64,
 ) -> Result<()> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     let file = file_repo::find_by_id(state.writer_db(), id).await?;
     storage::ensure_file_scope(&file, scope)?;

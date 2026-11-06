@@ -23,3 +23,5 @@ These documents explain domain boundaries that cross routes, services, repositor
 - [Resource lock system refactor contract](./resource-lock-system.md): the shared REST, WebDAV, WOPI, and administrative lifecycle; removal of persisted `is_locked`; workspace namespaces; authoritative transactions; and generation-keyed read caching.
 
 When changing these paths, review the corresponding API, OpenAPI schema, generated frontend types, and focused tests. Do not recreate connector capability matrices in the product layer.
+
+- [Workspace and resource authorization](workspace-authorization.md)

@@ -4,9 +4,12 @@ import {
 } from "@/components/files/uploadResume";
 import { removeSession } from "@/lib/uploadPersistence";
 import type { InitUploadResponse } from "@/services/uploadService";
-import { UploadRequestError, uploadService } from "@/services/uploadService";
+import { UploadRequestError } from "@/services/uploadService";
 import type { UploadTask } from "./uploadAreaManagerShared";
-import { completeWithRetry } from "./uploadAreaManagerShared";
+import {
+	completeWithRetry,
+	uploadServiceForTask,
+} from "./uploadAreaManagerShared";
 import type {
 	UploadTransportRunnerContext,
 	UploadTransportRunners,
@@ -48,7 +51,7 @@ export function createSimpleUploadRunners({
 
 		try {
 			await withTrackedUploadRequest(uploadRequestRef, task.id, (onCreateXhr) =>
-				uploadService.streamUploadBody(
+				uploadServiceForTask(task).streamUploadBody(
 					uploadId,
 					file,
 					(loaded, total) => {
@@ -113,7 +116,7 @@ export function createSimpleUploadRunners({
 							...speedTracker.sample(loaded),
 						});
 					};
-					return uploadService.presignedUpload(
+					return uploadServiceForTask(task).presignedUpload(
 						presignedRequest.url,
 						file,
 						onProgress,
@@ -132,7 +135,7 @@ export function createSimpleUploadRunners({
 				progress: getProcessingProgress(task.mode),
 				...speedTracker.stop(file.size),
 			});
-			await completeWithRetry(uploadId);
+			await completeWithRetry(task, uploadId);
 			patchTask(task.id, {
 				status: "completed",
 				progress: 100,

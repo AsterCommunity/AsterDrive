@@ -16,6 +16,119 @@ async fn stored_resources(db: &sea_orm::DatabaseConnection) -> [u64; 4] {
     ]
 }
 
+/// Resource ownership alone must never authorize another team's metadata mutation.
+#[actix_web::test]
+async fn team_folder_icon_rejects_nonmembers_and_removed_members_without_mutation() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (owner_token, _) = register_and_login!(app);
+    let owner =
+        aster_drive::db::repository::user_repo::find_by_username(state.writer_db(), "testuser")
+            .await
+            .unwrap()
+            .unwrap();
+    let outside_id = admin_create_user!(
+        app,
+        owner_token,
+        "iconoutside",
+        "iconoutside@example.test",
+        "password123"
+    );
+    let (outside_token, _) = login_user!(app, "iconoutside", "password123");
+    let target = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Icon authorization".into(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&format!("/api/v1/teams/{}/folders", target.id))
+            .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+            .insert_header(common::csrf_header_for(&owner_token))
+            .set_json(json!({"name":"private-folder"}))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let folder_id = body["data"]["id"].as_i64().unwrap();
+    for removed in [false, true] {
+        if removed {
+            team::add_member(
+                &state,
+                target.id,
+                owner.id,
+                team::AddTeamMemberInput {
+                    user_id: Some(outside_id),
+                    identifier: None,
+                    role: aster_drive_model::types::TeamMemberRole::Member,
+                },
+            )
+            .await
+            .unwrap();
+            let response = test::call_service(
+                &app,
+                test::TestRequest::put()
+                    .uri(&format!(
+                        "/api/v1/teams/{}/folders/{folder_id}/icon",
+                        target.id
+                    ))
+                    .insert_header(("Cookie", common::access_cookie_header(&outside_token)))
+                    .insert_header(common::csrf_header_for(&outside_token))
+                    .set_json(json!({"kind":"builtin","key":"documents"}))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(
+                response.status(),
+                200,
+                "authorized members retain metadata access"
+            );
+            team::remove_member(&state, target.id, owner.id, outside_id)
+                .await
+                .unwrap();
+        }
+        let before =
+            aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder_id)
+                .await
+                .unwrap();
+        let response = test::call_service(
+            &app,
+            test::TestRequest::put()
+                .uri(&format!(
+                    "/api/v1/teams/{}/folders/{folder_id}/icon",
+                    target.id
+                ))
+                .insert_header(("Cookie", common::access_cookie_header(&outside_token)))
+                .insert_header(common::csrf_header_for(&outside_token))
+                .set_json(json!({"kind":"emoji","value":"📚"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            403,
+            "nonmember/removed member must be denied"
+        );
+        let body: Value = test::read_body_json(response).await;
+        assert_eq!(body["code"], "team.not_member");
+        let after =
+            aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder_id)
+                .await
+                .unwrap();
+        assert_eq!(
+            after, before,
+            "rejection must not mutate metadata or activity"
+        );
+    }
+}
+
 /// Verify team root writes reject nonmembers and removed members before side effects.
 #[actix_web::test]
 async fn team_root_writes_reject_nonmembers_and_removed_members_before_side_effects() {

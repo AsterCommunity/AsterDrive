@@ -221,6 +221,7 @@ pub async fn store_from_temp(
     storage::store_from_temp_internal(
         state,
         StoreFromTempParams {
+            access_constraints: Default::default(),
             scope: WorkspaceStorageScope::Personal { user_id },
             folder_id: request.folder_id,
             filename: request.filename,
@@ -401,6 +402,7 @@ pub(crate) async fn update_content_in_scope(
 pub(crate) async fn update_content_stream_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
+    access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     file_id: i64,
     payload: &mut Payload,
     declared_size: Option<i64>,
@@ -472,6 +474,7 @@ pub(crate) async fn update_content_stream_in_scope(
     let result = storage::store_from_temp_with_hints(
         state,
         StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
+            .with_access_constraints(access_constraints)
             .overwrite(file_id)
             .with_lock_credentials(lock_credentials)
             .with_expected_revision(expected_revision)

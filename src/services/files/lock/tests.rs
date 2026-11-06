@@ -265,6 +265,19 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
     .await
     .expect("lock test team should insert");
 
+    // 该 fixture 的 team workspace 代表真实已授权成员，不能再仅凭 created_by
+    // 伪造访问资格；测试要验证锁/配额行为，而非绕过产品授权入口。
+    aster_drive_model::entities::team_member::ActiveModel {
+        team_id: Set(team.id),
+        user_id: Set(user.id),
+        role: Set(aster_drive_model::types::TeamMemberRole::Owner),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(&db)
+    .await
+    .expect("lock fixture owner membership should insert");
     let folder = folder::ActiveModel {
         name: Set("docs".to_string()),
         parent_id: Set(None),

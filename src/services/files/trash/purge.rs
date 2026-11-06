@@ -9,9 +9,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    events::storage_change,
-    files::file,
-    workspace::storage::{self, WorkspaceStorageScope},
+    events::storage_change, files::file, workspace::storage::WorkspaceStorageScope,
 };
 
 /// 永久删除单个文件
@@ -101,7 +99,13 @@ pub(crate) async fn purge_all_in_scope_silent(
     lease: Option<aster_forge_tasks::TaskLease>,
 ) -> Result<PurgeAllSummary> {
     tracing::debug!(scope = ?scope, "purging all trash contents");
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let mut summary = PurgeAllSummary::default();
 
     let mut folder_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)> = None;

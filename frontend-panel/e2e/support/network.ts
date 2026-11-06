@@ -134,6 +134,7 @@ export async function saveResumableSession(
 		workspace: { kind: "personal" } | { kind: "team"; teamId: number };
 	},
 ) {
+	const owner = await apiJsonInPage<{ id: number }>(page, "/api/v1/auth/me");
 	await page.evaluate(
 		({ session, storageKey }) => {
 			const raw = window.localStorage.getItem(storageKey);
@@ -153,7 +154,7 @@ export async function saveResumableSession(
 			window.localStorage.setItem(storageKey, JSON.stringify(next));
 		},
 		{
-			session,
+			session: { ...session, accountId: owner.id },
 			storageKey: RESUMABLE_UPLOADS_KEY,
 		},
 	);

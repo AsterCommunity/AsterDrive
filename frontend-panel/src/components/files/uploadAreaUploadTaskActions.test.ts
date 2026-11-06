@@ -1,5 +1,9 @@
 import type { Dispatch, SetStateAction } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	captureUploadOperation,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
 import type { UploadTask } from "./uploadAreaManagerShared";
 
 const {
@@ -27,6 +31,12 @@ const {
 }));
 
 vi.mock("@/services/uploadService", () => ({
+	createUploadService: vi.fn(() => ({
+		cancelUpload,
+		completeUpload,
+		initUpload,
+		getProgress,
+	})),
 	uploadService: { cancelUpload, completeUpload, initUpload, getProgress },
 }));
 
@@ -59,6 +69,7 @@ function task(
 ): UploadTask {
 	return {
 		id,
+		binding: captureUploadOperation({ kind: "personal" }),
 		file: null,
 		filename: `${id}.bin`,
 		relativePath: null,
@@ -777,4 +788,64 @@ describe("runQueuedUploadTask", () => {
 
 		expect(markTaskFailed).toHaveBeenCalledWith("queued", error);
 	});
+});
+
+beforeEach(() => setAuthOperationOwner(1, true));
+
+it("keeps every request on the task's selected workspace after navigation", async () => {
+	const { uploadServiceForTask } = await import("./uploadAreaManagerShared");
+	const { createUploadService } = await import("@/services/uploadService");
+	cancelUpload.mockResolvedValue(undefined);
+	const selected = task("bound", "queued", "session");
+	const bound = {
+		...selected,
+		binding: captureUploadOperation({ kind: "team", teamId: 31 }),
+	};
+	vi.mocked(createUploadService).mockClear();
+	getProgress.mockResolvedValue({ status: "uploading" });
+	await uploadServiceForTask(bound).getProgress("session");
+	await uploadServiceForTask(bound).cancelUpload("session");
+	for (const [workspace, signal] of vi.mocked(createUploadService).mock.calls) {
+		expect(workspace).toEqual({ kind: "team", teamId: 31 });
+		expect(signal).toBe(bound.binding.signal);
+	}
+});
+
+it("does not dispatch another stage when init returns after an account switch", async () => {
+	let resolve!: (value: unknown) => void;
+	initUpload.mockImplementationOnce(
+		() =>
+			new Promise((done) => {
+				resolve = done;
+			}),
+	);
+	const selected = task("late-init", "queued", null);
+	selected.file = new File(["data"], "private.txt");
+	const runChunkedUpload = vi.fn();
+	const runStreamUpload = vi.fn();
+	const failed = vi.fn();
+	const pending = runQueuedUploadTask(selected.id, {
+		markTaskFailed: failed,
+		patchTask: vi.fn(),
+		runChunkedUpload,
+		runStreamUpload,
+		runMultipartUpload: vi.fn(),
+		runPresignedUpload: vi.fn(),
+		runProviderResumableUpload: vi.fn(),
+		tasksRef: { current: [selected] },
+	} as unknown as UploadTaskActionsContext);
+	setAuthOperationOwner(2);
+	resolve({
+		mode: "chunked",
+		upload_id: "old-account-session",
+		chunk_size: 4,
+		total_chunks: 1,
+	});
+	await pending;
+	expect(runChunkedUpload).not.toHaveBeenCalled();
+	expect(runStreamUpload).not.toHaveBeenCalled();
+	expect(failed).toHaveBeenCalledWith(
+		selected.id,
+		expect.objectContaining({ name: "AbortError" }),
+	);
 });

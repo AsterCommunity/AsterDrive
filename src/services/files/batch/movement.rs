@@ -275,38 +275,17 @@ pub(crate) async fn batch_move_in_scope(
             .collect();
 
         let txn = transaction::begin(state.writer_db()).await?;
-        let workspace = match scope {
-            WorkspaceStorageScope::Personal { user_id } => {
-                crate::services::files::lock::LockWorkspace::Personal { user_id }
-            }
-            WorkspaceStorageScope::Team { team_id, .. } => {
-                crate::services::files::lock::LockWorkspace::Team { team_id }
-            }
-        };
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            &txn,
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::Move,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         if let Some(target_folder_id) = target_folder_id {
             let target = folder_repo::lock_by_id(&txn, target_folder_id).await?;
+            access.folder(&target).await?;
             storage::ensure_active_folder_scope(&target, scope)?;
-        }
-        let source_and_target_parents: BTreeSet<Option<i64>> = file_ids_to_move
-            .iter()
-            .filter_map(|id| file_map.get(id).map(|file| file.folder_id))
-            .chain(
-                folder_ids_to_move
-                    .iter()
-                    .filter_map(|id| folder_map.get(id).map(|folder| folder.parent_id)),
-            )
-            .chain(std::iter::once(target_folder_id))
-            .collect();
-        // The mutation phase is one atomic transaction. A membership lock found during
-        // revalidation aborts the whole batch instead of reporting a partial commit.
-        for parent_id in source_and_target_parents {
-            crate::services::files::lock::enforce_collection_membership_mutation_on(
-                &txn,
-                workspace,
-                parent_id,
-                &crate::services::files::lock::SubmittedLockCredentials::none(),
-            )
-            .await?;
         }
         let mut locked_file_ids = file_ids_to_move.clone();
         locked_file_ids.sort_unstable();
@@ -325,6 +304,22 @@ pub(crate) async fn batch_move_in_scope(
         let before_folders =
             revalidate_batch_folder_move(&txn, scope, &folder_ids_to_move, target_folder_id)
                 .await?;
+        // 成员移出集合必须以事务内锁定后的当前 parent 为准。请求前的 file_map
+        // 可能已被并发 MOVE 改变，不能让旧 parent 的校验覆盖另一个当前集合。
+        let parents: BTreeSet<_> = before_files
+            .iter()
+            .map(|file| file.folder_id)
+            .chain(before_folders.iter().map(|folder| folder.parent_id))
+            .chain(std::iter::once(target_folder_id))
+            .collect();
+        for parent in parents {
+            access
+                .collection(
+                    parent,
+                    &crate::services::files::lock::SubmittedLockCredentials::none(),
+                )
+                .await?;
+        }
         let activity = crate::services::workspace::activity::ActivityContext::actor(
             &txn,
             scope.actor_user_id(),

@@ -118,7 +118,13 @@ pub(crate) async fn list_tasks_paginated_in_scope(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<TaskInfo>> {
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     let limit = limit.clamp(1, operations::task_list_max_limit(state.runtime_config()));
     let (tasks, total) = match scope {
@@ -192,7 +198,13 @@ pub(crate) async fn get_task_in_scope(
     scope: WorkspaceStorageScope,
     task_id: i64,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     ensure_task_in_scope(&task, scope)?;
     build_task_info_with_lookup(state, task).await
@@ -203,16 +215,23 @@ pub(crate) async fn retry_task_in_scope(
     scope: WorkspaceStorageScope,
     task_id: i64,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     ensure_task_in_scope(&task, scope)?;
-    retry_task_record(state, &task).await?;
+    retry_task_record(state, scope, &task).await?;
 
     get_task_in_scope(state, scope, task_id).await
 }
 
 async fn retry_task_record(
     state: &impl TaskRuntimeState,
+    scope: WorkspaceStorageScope,
     task: &background_task::Model,
 ) -> Result<()> {
     if !matches!(
@@ -231,6 +250,13 @@ async fn retry_task_record(
         ));
     }
 
+    // 准入必须先于临时目录清理，不能让无权重试的人先触发文件系统副作用。
+    crate::services::workspace::scope::require_task_control_on(
+        state.writer_db(),
+        scope.actor_user_id(),
+        task.kind,
+    )
+    .await?;
     cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await?;
     // 手动重试会复用同一条任务记录，而不是新建“子任务”。
     // 这样前端和审计侧只需要跟踪一个稳定 task_id。
@@ -239,6 +265,19 @@ async fn retry_task_record(
 
     let now = Utc::now();
     let txn = aster_forge_db::transaction::begin(state.writer_db()).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::RetryTask,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    crate::services::workspace::scope::require_task_control_on(
+        &txn,
+        scope.actor_user_id(),
+        task.kind,
+    )
+    .await?;
     match task.kind {
         BackgroundTaskKind::TrashPurgeAll => {
             crate::services::files::trash::coordination::lock_scope_on(

@@ -76,6 +76,15 @@ interface ExpandedSelection {
 
 const activeControllers = new Map<string, AbortController>();
 const retryActions = new Map<string, () => void>();
+
+/** 登出同步撤销下载生命周期；迟到 progress 只更新已存在的 task，无法重建清空的列表。 */
+export function clearAccountDownloads() {
+	for (const controller of activeControllers.values()) controller.abort();
+	activeControllers.clear();
+	retryActions.clear();
+	useDownloadStore.setState({ pendingSelection: null, tasks: [] });
+}
+
 const DIRECTORY_CONCURRENCY = 3;
 const LIST_PAGE_SIZE = 1000;
 

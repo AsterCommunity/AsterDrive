@@ -1,6 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { useCallback, useMemo, useRef } from "react";
-import type { Workspace } from "@/lib/workspace";
 import type {
 	UploadAreaManagerTranslationFn,
 	UploadTask,
@@ -28,7 +27,6 @@ interface UseUploadAreaUploadsOptions {
 	t: UploadAreaManagerTranslationFn;
 	tasksRef: MutableRefObject<UploadTask[]>;
 	uploadRequestRef: UploadRequestRef;
-	workspace: Workspace;
 }
 
 export function useUploadAreaUploads({
@@ -45,7 +43,6 @@ export function useUploadAreaUploads({
 	t,
 	tasksRef,
 	uploadRequestRef,
-	workspace,
 }: UseUploadAreaUploadsOptions) {
 	const taskOperationLocksRef = useRef(new Map<string, "clear" | "retry">());
 	const modeRunners = useMemo(
@@ -61,7 +58,6 @@ export function useUploadAreaUploads({
 				patchTaskThrottled,
 				uploadRequestRef,
 				t,
-				workspace,
 			}),
 		[
 			abortFlagsRef,
@@ -74,7 +70,6 @@ export function useUploadAreaUploads({
 			patchTaskThrottled,
 			uploadRequestRef,
 			t,
-			workspace,
 		],
 	);
 
@@ -93,7 +88,6 @@ export function useUploadAreaUploads({
 				t,
 				tasksRef,
 				uploadRequestRef,
-				workspace,
 			});
 		},
 		[
@@ -108,7 +102,6 @@ export function useUploadAreaUploads({
 			t,
 			tasksRef,
 			uploadRequestRef,
-			workspace,
 		],
 	);
 
@@ -127,7 +120,6 @@ export function useUploadAreaUploads({
 				t,
 				tasksRef,
 				uploadRequestRef,
-				workspace,
 			});
 		},
 		[
@@ -142,7 +134,6 @@ export function useUploadAreaUploads({
 			t,
 			tasksRef,
 			uploadRequestRef,
-			workspace,
 		],
 	);
 
@@ -173,7 +164,6 @@ export function useUploadAreaUploads({
 				taskOperationLocks: taskOperationLocksRef.current,
 				tasksRef,
 				uploadRequestRef,
-				workspace,
 			});
 		},
 		[
@@ -188,7 +178,6 @@ export function useUploadAreaUploads({
 			t,
 			tasksRef,
 			uploadRequestRef,
-			workspace,
 		],
 	);
 

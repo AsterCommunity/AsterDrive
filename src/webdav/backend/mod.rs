@@ -51,6 +51,7 @@ pub struct AsterDavFs {
     state: PrimaryAppState,
     webdav_account_id: Option<i64>,
     scope: WorkspaceStorageScope,
+    access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     /// 限制访问范围：None = 用户全部文件，Some(id) = 只能访问该文件夹及子目录
     root_folder_id: Option<i64>,
     audit_ctx: AuditContext,
@@ -156,6 +157,10 @@ impl AsterDavFs {
             state,
             webdav_account_id,
             scope,
+            access_constraints:
+                crate::services::workspace::scope::WorkspaceAccessConstraints::for_root(
+                    root_folder_id,
+                ),
             root_folder_id,
             audit_ctx,
             payload_limit,
@@ -168,6 +173,15 @@ impl AsterDavFs {
 
     fn app_state(&self) -> PrimaryAppState {
         self.state.clone()
+    }
+
+    /// 认证来源随本次协议操作传递到发布事务，不把 credential 限制折成 user_id。
+    pub(crate) fn with_access_constraints(
+        mut self,
+        constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
+    ) -> Self {
+        self.access_constraints = constraints;
+        self
     }
 
     fn scope(&self) -> WorkspaceStorageScope {
@@ -666,6 +680,7 @@ impl AsterDavFs {
             self.app_state(),
             DavWriteOpenContext {
                 scope: self.scope,
+                access_constraints: self.access_constraints.clone(),
                 folder_id: parent_id,
                 filename,
                 existing_file_id,
@@ -888,6 +903,7 @@ impl DavFileSystem for AsterDavFs {
                     file_ops::update_in_scope(
                         &state,
                         self.scope(),
+                        self.access_constraints.clone(),
                         f.id,
                         Some(dest_name),
                         dest_parent_id.into(),
@@ -1205,6 +1221,19 @@ impl DavFileSystem for AsterDavFs {
         path: &'a DavPath,
         patches: Vec<(bool, DavProp)>,
     ) -> FsFuture<'a, Vec<(http::StatusCode, DavProp)>> {
+        // 必需的协议 trait adapter：没有请求条件的直接调用使用“未提交 token”策略。
+        // HTTP 用例把 If/header 条件交给同一个 owning 实现，在实际事务内复核。
+        self.patch_properties(path, patches, None)
+    }
+}
+
+impl AsterDavFs {
+    pub(crate) fn patch_properties<'a>(
+        &'a self,
+        path: &'a DavPath,
+        patches: Vec<(bool, DavProp)>,
+        conditions: Option<DavMutationConditions<'a>>,
+    ) -> FsFuture<'a, Vec<(http::StatusCode, DavProp)>> {
         Box::pin(async move {
             let (entity_type, entity_id) =
                 resolve_entity(&self.state, self.scope, path, self.root_folder_id)
@@ -1225,6 +1254,55 @@ impl DavFileSystem for AsterDavFs {
             let txn = transaction::begin(self.state.writer_db())
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
+
+            let access = crate::services::workspace::scope::authorize_workspace_on(
+                &txn,
+                self.scope,
+                crate::services::workspace::scope::WorkspaceOperation::UpdateMetadata,
+                &self.access_constraints,
+            )
+            .await
+            .map_err(to_fs_error)?;
+            let credentials = match &conditions {
+                Some(conditions) => lock::submitted_credentials_on(
+                    &txn,
+                    self.scope,
+                    self.root_folder_id,
+                    conditions,
+                )
+                .await
+                .map_err(to_fs_error)?,
+                None => crate::services::files::lock::LockMutationCredentials::None,
+            };
+            match entity_type {
+                EntityType::File => {
+                    let file = file_repo::find_by_id(&txn, entity_id)
+                        .await
+                        .map_err(to_fs_error)?;
+                    access.file(&file).await.map_err(to_fs_error)?;
+                    crate::services::files::lock::enforce_file_mutation_on(
+                        &txn,
+                        &file,
+                        &credentials.submitted(),
+                    )
+                    .await
+                    .map_err(to_fs_error)?;
+                }
+                EntityType::Folder => {
+                    let folder = folder_repo::find_by_id(&txn, entity_id)
+                        .await
+                        .map_err(to_fs_error)?;
+                    access.folder(&folder).await.map_err(to_fs_error)?;
+                    crate::services::files::lock::enforce_folder_mutation_on(
+                        &txn,
+                        &folder,
+                        aster_drive_model::types::LockDepth::Resource,
+                        &credentials.submitted(),
+                    )
+                    .await
+                    .map_err(to_fs_error)?;
+                }
+            }
 
             let before_activity =
                 crate::services::workspace::activity::ResourceSnapshot::lock_authorized(
@@ -1643,7 +1721,7 @@ async fn delete_existing_destination_for_overwrite(
             &txn,
             scope,
             existing.id,
-            false,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
             crate::services::workspace::activity::ActivitySource::Webdav,
         )
         .await
@@ -1708,7 +1786,12 @@ fn map_product_mutation_error(error: crate::errors::AsterError) -> AsterDavMutat
     if error.api_error_code() == crate::api::api_error_code::ApiErrorCode::TrashPurgeInProgress {
         AsterDavMutationError::Conflict
     } else {
-        AsterDavMutationError::FileSystem(to_fs_error(error))
+        match error {
+            crate::errors::AsterError::ResourceLocked(_) => {
+                AsterDavMutationError::Locked(DavPath::root())
+            }
+            error => AsterDavMutationError::FileSystem(to_fs_error(error)),
+        }
     }
 }
 
@@ -1759,9 +1842,17 @@ async fn revalidate_atomic_target<C: ConnectionTrait>(
     conditions: &DavMutationConditions<'_>,
 ) -> Result<(), AsterDavMutationError> {
     if target.check_locks {
-        lock::revalidate_mutation_locks(db, namespace_id, target.path, target.deep, conditions)
-            .await
-            .map_err(map_atomic_lock_error)?;
+        lock::revalidate_mutation_locks(
+            db,
+            namespace_id,
+            scope,
+            root_folder_id,
+            target.path,
+            target.deep,
+            conditions,
+        )
+        .await
+        .map_err(map_atomic_lock_error)?;
     }
     if target.path != conditions.http_target {
         return Ok(());

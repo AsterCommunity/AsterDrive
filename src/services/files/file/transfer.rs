@@ -176,6 +176,19 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
     let now = chrono::Utc::now();
 
     let txn = transaction::begin(state.writer_db()).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Copy,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    access
+        .collection(
+            dest_folder_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
     storage::lock_storage_usage(&txn, scope).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
 
@@ -293,13 +306,21 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
     dest_name: &str,
     source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
-    let new_file = duplicate_file_record_without_initial_revision_in_scope_on(
+    let access = crate::services::workspace::scope::authorize_workspace_on(
         db,
         scope,
-        src,
-        dest_folder_id,
-        dest_name,
-        source,
+        crate::services::workspace::scope::WorkspaceOperation::Copy,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    let creation = access
+        .for_file_creation(
+            dest_folder_id,
+            &crate::services::files::lock::SubmittedLockCredentials::none(),
+        )
+        .await?;
+    let new_file = duplicate_file_record_without_initial_revision_in_scope_on(
+        &creation, src, dest_name, source,
     )
     .await?;
 
@@ -320,13 +341,16 @@ pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
 pub(crate) async fn duplicate_file_record_without_initial_revision_in_scope_on<
     C: ConnectionTrait,
 >(
-    db: &C,
-    scope: WorkspaceStorageScope,
+    creation: &crate::services::workspace::scope::AuthorizedFileCreation<'_, C>,
     src: &file::Model,
-    dest_folder_id: Option<i64>,
     dest_name: &str,
     source: crate::services::workspace::activity::ActivitySource,
 ) -> Result<file::Model> {
+    // 源读取权限由复制用例校验；目标创建权限由这个不可改写的提交证明约束。
+    // 两个 workspace 可以不同，不能为了复用 helper 假装源文件属于目标空间。
+    let db = creation.db();
+    let scope = creation.scope();
+    let dest_folder_id = creation.folder_id();
     let blob = file_repo::find_blob_by_id(db, src.blob_id).await?;
     let now = Utc::now();
     let blob_size = blob.size;
@@ -455,6 +479,25 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     storage::check_quota(state.writer_db(), scope, total_size).await?;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Copy,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    let mut affected_collections: Vec<_> =
+        copy_specs.iter().map(|spec| spec.dest_folder_id).collect();
+    affected_collections.sort_unstable();
+    affected_collections.dedup();
+    for parent_id in affected_collections {
+        access
+            .collection(
+                Some(parent_id),
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+    }
     storage::lock_storage_usage(&txn, scope).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
     storage::check_quota(&txn, scope, total_size).await?;

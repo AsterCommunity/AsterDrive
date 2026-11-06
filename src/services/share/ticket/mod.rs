@@ -10,10 +10,7 @@ use utoipa::ToSchema;
 use crate::config::site_url;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{
-    task,
-    workspace::storage::{self, WorkspaceStorageScope},
-};
+use crate::services::{task, workspace::storage::WorkspaceStorageScope};
 
 const STREAM_TICKET_TTL_SECS: i64 = 5 * 60;
 
@@ -124,7 +121,13 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
     }
 
     ensure_scope_matches_ticket(scope, &payload)?;
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
 
     match payload.kind {
         StreamTicketKind::ArchiveDownload {

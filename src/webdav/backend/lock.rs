@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use aster_forge_webdav::DavXmlElement;
 use chrono::Utc;
-use sea_orm::ConnectionTrait;
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, Set};
 
 use crate::config::webdav;
 use crate::db::repository::{
@@ -32,7 +32,8 @@ use aster_forge_webdav::{
     href_for_relative, submitted_lock_tokens,
 };
 
-const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
+mod canonical;
+pub(crate) use canonical::submitted_credentials_on;
 
 #[derive(Debug)]
 enum LockAcquireTransactionError {
@@ -70,6 +71,7 @@ impl std::fmt::Display for LockAcquireTransactionError {
 pub struct DbLockSystem {
     state: PrimaryAppState,
     scope: WorkspaceStorageScope,
+    access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     root_folder_id: Option<i64>,
     audit_ctx: AuditContext,
     #[cfg(test)]
@@ -82,6 +84,10 @@ impl DbLockSystem {
         Box::new(Self {
             state,
             scope: WorkspaceStorageScope::Personal { user_id },
+            access_constraints:
+                crate::services::workspace::scope::WorkspaceAccessConstraints::for_root(
+                    root_folder_id,
+                ),
             root_folder_id,
             audit_ctx: AuditContext {
                 user_id,
@@ -102,11 +108,173 @@ impl DbLockSystem {
         Box::new(Self {
             state,
             scope,
+            access_constraints:
+                crate::services::workspace::scope::WorkspaceAccessConstraints::for_root(
+                    root_folder_id,
+                ),
             root_folder_id,
             audit_ctx,
             #[cfg(test)]
             lock_transaction_test_barrier: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
+    }
+
+    pub(crate) fn with_access_constraints(
+        mut self: Box<Self>,
+        constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
+    ) -> Box<Self> {
+        self.access_constraints = constraints;
+        self
+    }
+
+    /// 先限定请求 workspace，再以 canonical target 求交集，最后才投影响应路径。
+    /// 挂载外祖先的深度锁仍约束写入，但不能借 discovery 泄露其 token。
+    async fn matching_locks(
+        &self,
+        path: &DavPath,
+        deep: bool,
+        visible_only: bool,
+    ) -> Result<Vec<resource_lock::Model>, DavBackendError> {
+        let db = self.state.writer_db();
+        crate::services::workspace::scope::authorize_workspace_on(
+            db,
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(|error| match error {
+            crate::errors::AsterError::AuthForbidden(_) => {
+                DavBackendError::new(DavBackendErrorKind::Forbidden)
+            }
+            _ => DavBackendError::new(DavBackendErrorKind::Internal),
+        })?;
+        let namespace = match find_lock_namespace(db, self.scope)
+            .await
+            .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+        {
+            Some(namespace) => namespace,
+            None => return Ok(Vec::new()),
+        };
+        let initial = resolve_path_to_entity(db, self.scope, self.root_folder_id, path)
+            .await
+            .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?;
+        let missing_target = matches!(initial, LockPathTarget::Missing);
+        let resolved = match initial {
+            LockPathTarget::Missing => match path.parent() {
+                Some(parent) => {
+                    resolve_path_to_entity(db, self.scope, self.root_folder_id, &parent)
+                        .await
+                        .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+                }
+                None => LockPathTarget::Root,
+            },
+            target => target,
+        };
+        let target = webdav_lock_target(self.scope, self.root_folder_id, resolved, deep);
+        let mut result = Vec::new();
+        for lock in lock_repo::find_all_by_namespace(db, namespace.id)
+            .await
+            .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+        {
+            if lock.timeout_at.is_some_and(|expires| expires <= Utc::now()) {
+                continue;
+            }
+            // 不存在子资源上的 If 状态不能直接借父集合 Resource 锁变成 true。
+            // 父集合的 membership 另作目标检查；只有 Infinity 锁继承到此 Request-URI。
+            if missing_target && lock.depth == LockDepth::Resource {
+                continue;
+            }
+            if !crate::services::files::lock::lock_overlaps_target_on(db, &lock, target)
+                .await
+                .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+            {
+                continue;
+            }
+            match canonical::project_lock_on(db, self.scope, self.root_folder_id, &lock)
+                .await
+                .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+            {
+                Some(lock) => result.push(lock),
+                None => match visible_only {
+                    true => {}
+                    // 不可见祖先依然拒绝 mutation；冲突响应不披露挂载外的真实路径/token。
+                    false => result.push(resource_lock::Model {
+                        token: String::new(),
+                        lockroot_path: Some("/".to_owned()),
+                        ..lock
+                    }),
+                },
+            }
+        }
+        result.sort_by_key(|lock| lock.id);
+        Ok(result)
+    }
+
+    /// 授权与 token 更新共享 writer transaction。token 字符串本身不授予访问别的
+    /// workspace/挂载根的权力，也不允许用一次事务外预检替代最终绑定。
+    async fn mutate_token(
+        &self,
+        path: &DavPath,
+        token: &str,
+        mutation: crate::services::files::lock::AuthorizedLockMutation,
+    ) -> Result<resource_lock::Model, DavLockError> {
+        let txn = transaction::begin(self.state.writer_db())
+            .await
+            .map_err(|_| DavLockError::Backend)?;
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            &txn,
+            self.scope,
+            crate::services::workspace::scope::WorkspaceOperation::ManageLock,
+            &self.access_constraints,
+        )
+        .await
+        .map_err(|error| match error {
+            crate::errors::AsterError::AuthForbidden(_)
+            | crate::errors::AsterError::RecordNotFound(_)
+            | crate::errors::AsterError::FileNotFound(_)
+            | crate::errors::AsterError::FolderNotFound(_) => DavLockError::TokenMismatch,
+            error => {
+                tracing::warn!(error = %error, "lock authorization backend failed");
+                DavLockError::Backend
+            }
+        })?;
+        let current = lock_repo::find_by_token(&txn, token)
+            .await
+            .map_err(|_| DavLockError::Backend)?
+            .ok_or(DavLockError::TokenMismatch)?;
+        let grant =
+            access
+                .for_resource_lock(current.clone())
+                .await
+                .map_err(|error| match error {
+                    crate::errors::AsterError::AuthForbidden(_)
+                    | crate::errors::AsterError::RecordNotFound(_)
+                    | crate::errors::AsterError::FileNotFound(_)
+                    | crate::errors::AsterError::FolderNotFound(_) => DavLockError::TokenMismatch,
+                    error => {
+                        tracing::warn!(error = %error, "lock authorization backend failed");
+                        DavLockError::Backend
+                    }
+                })?;
+        let projected = canonical::project_lock_on(&txn, self.scope, self.root_folder_id, &current)
+            .await
+            .map_err(|_| DavLockError::Backend)?
+            .ok_or(DavLockError::TokenMismatch)?;
+        if !unlock_request_targets_lock_scope(
+            projected.path(),
+            projected.deep(),
+            &normalize_path(path),
+        ) {
+            return Err(DavLockError::TokenMismatch);
+        }
+        let lock = crate::services::files::lock::mutate_authorized_lock_on(grant, mutation)
+            .await
+            .map_err(|_| DavLockError::Backend)?;
+        transaction::commit(txn)
+            .await
+            .map_err(|_| DavLockError::Backend)?;
+        Ok(lock)
     }
 
     #[cfg(test)]
@@ -362,6 +530,9 @@ crate::services::workspace::activity::ActivitySource::Webdav,
                         txn, workspace,
                     )
                     .await?;
+                    crate::services::workspace::scope::authorize_workspace_on(
+                        txn, self.scope, crate::services::workspace::scope::WorkspaceOperation::ManageLock, &self.access_constraints,
+                    ).await?;
                     self.ensure_lock_quota(txn, Utc::now())
                         .await
                         .map_err(|error| match error {
@@ -414,7 +585,7 @@ crate::services::workspace::activity::ActivitySource::Webdav,
                                 .await
                                 .map_err(LockAcquireTransactionError::from)?;
                             let created = prepared
-                                .create_file_on(txn, &blob)
+                                .create_file_on(txn, &blob, &submitted.submitted())
                                 .await
                                 .map_err(LockAcquireTransactionError::from)?;
                             (
@@ -498,25 +669,12 @@ crate::services::workspace::activity::ActivitySource::Webdav,
                     }
                     Err(LockAcquireTransactionError::Product(error)) => {
                         if matches!(error, crate::errors::AsterError::ResourceLocked(_)) {
+                            // 冲突响应也必须遵守 canonical namespace/root 可见性，
+                            // 不能在错误分支退回历史 path 查询而泄露另一个挂载的 token。
                             let conflict =
-                                match find_lock_namespace(self.state.writer_db(), self.scope).await
-                                {
-                                    Ok(Some(namespace)) => find_overlapping_locks(
-                                        self.state.writer_db(),
-                                        namespace.id,
-                                        &path_str,
-                                        deep,
-                                    )
-                                    .await
-                                    .ok()
-                                    .and_then(|locks| {
-                                        locks.into_iter().find(|lock| {
-                                            lock.timeout_at
-                                                .is_none_or(|expires_at| expires_at > Utc::now())
-                                        })
-                                    })
-                                    .map(|lock| model_to_dav_lock(&lock)),
-                                    Ok(None) | Err(_) => None,
+                                match self.matching_locks(&path_owned, deep, false).await {
+                                    Ok(locks) => locks.first().map(model_to_dav_lock),
+                                    Err(_) => None,
                                 }
                                 .unwrap_or_else(|| {
                                     dav_lock_conflict_for_request(&path_owned, shared, deep)
@@ -559,31 +717,18 @@ crate::services::workspace::activity::ActivitySource::Webdav,
     }
 
     fn unlock(&self, path: &DavPath, token: &str) -> LsFuture<'_, Result<(), DavLockError>> {
-        let token_owned = token.to_string();
-        let path_str = normalize_path(path);
+        let path = path.clone();
+        let token = token.to_owned();
         Box::pin(async move {
-            let snapshot = lock_repo::find_by_token(self.state.writer_db(), &token_owned)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock for unlock");
-                    DavLockError::Backend
-                })?
-                .ok_or(DavLockError::TokenMismatch)?;
-            if !unlock_request_targets_lock_scope(snapshot.path(), snapshot.deep(), &path_str) {
-                return Err(DavLockError::TokenMismatch);
-            }
-            let lock = crate::services::files::lock::unlock_by_token_on(self.state.writer_db(), &token_owned)
-                .await
-                .map_err(|error| {
-                    if matches!(error, crate::errors::AsterError::RecordNotFound(_)) {
-                        DavLockError::TokenMismatch
-                    } else {
-                        tracing::warn!(error = %error, path = %path_str, "failed to release WebDAV lock");
-                        DavLockError::Backend
-                    }
-                })?;
-            if let (Some(entity_type), Some(entity_id)) = (lock.entity_type(), lock.entity_id()) {
-                self.log_lock_action(entity_type, entity_id, false).await;
+            let lock = self
+                .mutate_token(
+                    &path,
+                    &token,
+                    crate::services::files::lock::AuthorizedLockMutation::Release,
+                )
+                .await?;
+            if let (Some(kind), Some(id)) = (lock.entity_type(), lock.entity_id()) {
+                self.log_lock_action(kind, id, false).await
             }
             Ok(())
         })
@@ -595,61 +740,22 @@ crate::services::workspace::activity::ActivitySource::Webdav,
         token: &str,
         timeout: Option<Duration>,
     ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
-        let token_owned = token.to_string();
-        let path_clone = path.clone();
-        let path_str = normalize_path(path);
-        let timeout_dur = timeout;
-
+        let path = path.clone();
+        let token = token.to_owned();
         Box::pin(async move {
-            let now = Utc::now();
-
-            let current_lock = lock_repo::find_by_token(self.state.writer_db(), &token_owned)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock for refresh");
-                    DavLockError::Backend
-                })?
-                .ok_or(DavLockError::TokenMismatch)?;
-            if !unlock_request_targets_lock_scope(
-                current_lock.path(),
-                current_lock.deep(),
-                &path_str,
-            ) {
-                return Err(DavLockError::TokenMismatch);
-            }
-            let new_timeout_at =
-                lock_timeout_at(now, timeout_dur).map_err(|_| DavLockError::Backend)?;
-
-            let lock = crate::services::files::lock::refresh_by_token_on(
-                self.state.writer_db(),
-                &token_owned,
-                new_timeout_at,
-            )
-            .await
-            .map_err(|error| {
-                tracing::warn!(error = %error, path = %path_str, "failed to refresh WebDAV lock");
-                DavLockError::Backend
-            })?;
-            if let (Some(entity_type), Some(entity_id)) = (lock.entity_type(), lock.entity_id()) {
-                self.log_lock_action(entity_type, entity_id, true).await;
-            }
-            let owner = lock_owner_xml(&lock)
-                .as_deref()
-                .and_then(deserialize_element)
-                .map(Box::new);
-
-            let shared = lock.shared();
-            let deep = lock.deep();
-            Ok(DavLock {
-                token: lock.token,
-                path: Box::new(path_clone),
-                principal: None,
-                owner,
-                timeout_at: timeout_dur.map(|d| SystemTime::now() + d),
-                timeout: timeout_dur,
-                shared,
-                deep,
-            })
+            let timeout_at =
+                lock_timeout_at(Utc::now(), timeout).map_err(|_| DavLockError::Backend)?;
+            let lock = self
+                .mutate_token(
+                    &path,
+                    &token,
+                    crate::services::files::lock::AuthorizedLockMutation::Refresh { timeout_at },
+                )
+                .await?;
+            let mut result = model_to_dav_lock(&lock);
+            result.path = Box::new(path);
+            result.timeout = timeout;
+            Ok(result)
         })
     }
 
@@ -657,119 +763,39 @@ crate::services::workspace::activity::ActivitySource::Webdav,
         &self,
         path: &DavPath,
         _principal: Option<&str>,
-        ignore_principal: bool,
+        _ignore_principal: bool,
         deep: bool,
         submitted_tokens: &[String],
     ) -> LsFuture<'_, Result<(), DavLockError>> {
-        let path_str = normalize_path(path);
-        let tokens: Vec<String> = submitted_tokens.to_vec();
-        let _ = ignore_principal; // 简化：统一用 token 匹配
-
+        let path = path.clone();
+        let tokens = submitted_tokens.to_vec();
         Box::pin(async move {
-            let now = Utc::now();
-            let Some(namespace) = find_lock_namespace(self.state.writer_db(), self.scope)
+            let locks = self
+                .matching_locks(&path, deep, false)
                 .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock namespace");
-                    DavLockError::Backend
-                })?
-            else {
-                return Ok(());
-            };
-
-            // 查祖先路径的锁
-            let ancestor_paths = path_ancestors(&path_str);
-            let mut all_locks = lock_repo::find_ancestors_in_namespace(
-                self.state.writer_db(),
-                namespace.id,
-                &ancestor_paths,
-            )
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query ancestor WebDAV locks");
-                    DavLockError::Backend
-                })?;
-
-            // deep check：查后代路径的锁
-            if deep {
-                let descendants = lock_repo::find_by_path_prefix_in_namespace(
-                    self.state.writer_db(),
-                    namespace.id,
-                    &path_str,
-                )
-                    .await
-                    .map_err(|error| {
-                        tracing::warn!(error = %error, path = %path_str, "failed to query descendant WebDAV locks");
-                        DavLockError::Backend
-                    })?;
-                all_locks.extend(descendants);
-            }
-
-            all_locks.sort_by_key(|l| l.id);
-            all_locks.dedup_by_key(|l| l.id);
-
-            all_locks.retain(|lock| lock_paths_overlap(lock.path(), lock.deep(), &path_str, deep));
-
-            for (index, lock) in all_locks.iter().enumerate() {
-                if lock.timeout_at.is_some_and(|timeout_at| timeout_at <= now) {
-                    continue;
-                }
-                if all_locks[..index].iter().any(|previous| {
-                    previous.path() == lock.path()
-                        && previous
-                            .timeout_at
-                            .is_none_or(|timeout_at| timeout_at > now)
-                }) {
-                    continue;
-                }
-                let root_is_satisfied = all_locks.iter().any(|candidate| {
-                    candidate.path() == lock.path()
-                        && candidate
-                            .timeout_at
-                            .is_none_or(|timeout_at| timeout_at > now)
+                .map_err(|_| DavLockError::Backend)?;
+            for lock in &locks {
+                let satisfied = locks.iter().any(|candidate| {
+                    same_lock_root(lock, candidate)
+                        && !candidate.token.is_empty()
                         && tokens.contains(&candidate.token)
                 });
-                if !root_is_satisfied {
-                    return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(lock))));
+                match satisfied {
+                    true => {}
+                    false => return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(lock)))),
                 }
             }
-
             Ok(())
         })
     }
 
     fn discover(&self, path: &DavPath) -> LsFuture<'_, Result<Vec<DavLock>, DavBackendError>> {
-        let path_str = normalize_path(path);
-
+        let path = path.clone();
         Box::pin(async move {
-            let now = Utc::now();
-            let Some(namespace) = find_lock_namespace(self.state.writer_db(), self.scope)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock namespace");
-                    DavBackendError::new(DavBackendErrorKind::Internal)
-                })?
-            else {
-                return Ok(vec![]);
-            };
-            let ancestor_paths = path_ancestors(&path_str);
-            let locks = lock_repo::find_ancestors_in_namespace(
-                self.state.writer_db(),
-                namespace.id,
-                &ancestor_paths,
-            )
-            .await
-            .map_err(|error| {
-                tracing::warn!(error = %error, path = %path_str, "failed to discover WebDAV locks");
-                DavBackendError::new(DavBackendErrorKind::Internal)
-            })?;
-
-            Ok(locks
+            Ok(self
+                .matching_locks(&path, false, true)
+                .await?
                 .iter()
-                .filter(|lock| {
-                    lock.timeout_at.is_none_or(|timeout_at| timeout_at > now)
-                        && lock_paths_overlap(lock.path(), lock.deep(), &path_str, false)
-                })
                 .map(model_to_dav_lock)
                 .collect())
         })
@@ -780,80 +806,46 @@ crate::services::workspace::activity::ActivitySource::Webdav,
         paths: &'a [DavPath],
     ) -> LsFuture<'a, Result<HashMap<DavPath, Vec<DavLock>>, DavBackendError>> {
         Box::pin(async move {
-            let now = Utc::now();
-            let Some(namespace) = find_lock_namespace(self.state.writer_db(), self.scope)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, "failed to query WebDAV lock namespace");
-                    DavBackendError::new(DavBackendErrorKind::Internal)
-                })?
-            else {
-                return Ok(paths
-                    .iter()
-                    .cloned()
-                    .map(|path| (path, Vec::new()))
-                    .collect());
-            };
-            let mut normalized_paths = Vec::with_capacity(paths.len());
-            let mut all_ancestors = Vec::new();
-            for path in paths {
-                let normalized = normalize_path(path);
-                let ancestors = path_ancestors(&normalized);
-                all_ancestors.extend(ancestors.iter().cloned());
-                normalized_paths.push((path.clone(), ancestors));
-            }
-            all_ancestors.sort();
-            all_ancestors.dedup();
-
-            let mut locks = Vec::new();
-            for chunk in all_ancestors.chunks(DISCOVER_MANY_ANCESTOR_CHUNK_SIZE) {
-                locks.extend(
-                    lock_repo::find_ancestors_in_namespace(
-                        self.state.writer_db(),
-                        namespace.id,
-                        chunk,
-                    )
-                    .await
-                    .map_err(|error| {
-                        tracing::warn!(error = %error, "failed to batch-discover WebDAV locks");
-                        DavBackendError::new(DavBackendErrorKind::Internal)
-                    })?,
-                );
-            }
-            locks.retain(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at > now));
-            locks.sort_by_key(|lock| lock.id);
-
-            let mut locks_by_path: HashMap<String, Vec<DavLock>> = HashMap::new();
-            for lock in &locks {
-                locks_by_path
-                    .entry(lock.path().to_string())
-                    .or_default()
-                    .push(model_to_dav_lock(lock));
-            }
-
-            let mut result = HashMap::with_capacity(paths.len());
-            for (path, ancestors) in normalized_paths {
-                let mut discovered = Vec::new();
-                for ancestor in ancestors {
-                    if let Some(locks) = locks_by_path.get(&ancestor) {
-                        discovered.extend(
-                            locks
-                                .iter()
-                                .filter(|lock| {
-                                    lock_paths_overlap(
-                                        lock.path.as_str(),
-                                        lock.deep,
-                                        path.as_str(),
-                                        false,
-                                    )
-                                })
-                                .cloned(),
-                        );
-                    }
+            let db = self.state.writer_db();
+            crate::services::workspace::scope::authorize_workspace_on(
+                db,
+                self.scope,
+                crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+                &self.access_constraints,
+            )
+            .await
+            .map_err(|error| match error {
+                crate::errors::AsterError::AuthForbidden(_) => {
+                    DavBackendError::new(DavBackendErrorKind::Forbidden)
                 }
-                result.insert(path, discovered);
-            }
-            Ok(result)
+                _ => DavBackendError::new(DavBackendErrorKind::Internal),
+            })?;
+            let locks = match find_lock_namespace(db, self.scope)
+                .await
+                .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+            {
+                Some(namespace) => {
+                    canonical::projected_locks_on(db, namespace.id, self.scope, self.root_folder_id)
+                        .await
+                        .map_err(|_| DavBackendError::new(DavBackendErrorKind::Internal))?
+                }
+                None => Vec::new(),
+            };
+            // 一次加载并按当前 canonical roots 投影；不能对每个展示资源重新查询全部锁。
+            Ok(paths
+                .iter()
+                .map(|path| {
+                    let normalized = normalize_path(path);
+                    let visible = locks
+                        .iter()
+                        .filter(|lock| {
+                            lock_paths_overlap(lock.path(), lock.deep(), &normalized, false)
+                        })
+                        .map(model_to_dav_lock)
+                        .collect();
+                    (path.clone(), visible)
+                })
+                .collect())
         })
     }
 
@@ -862,27 +854,12 @@ crate::services::workspace::activity::ActivitySource::Webdav,
         path: &DavPath,
         deep: bool,
     ) -> LsFuture<'_, Result<Vec<DavLock>, DavBackendError>> {
-        let path_str = normalize_path(path);
-
+        let path = path.clone();
         Box::pin(async move {
-            let now = Utc::now();
-            let Some(namespace) = find_lock_namespace(self.state.writer_db(), self.scope)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock namespace");
-                    DavBackendError::new(DavBackendErrorKind::Internal)
-                })?
-            else {
-                return Ok(vec![]);
-            };
-            Ok(find_overlapping_locks(self.state.writer_db(), namespace.id, &path_str, deep)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query conflicting WebDAV locks");
-                    DavBackendError::new(DavBackendErrorKind::Internal)
-                })?
+            Ok(self
+                .matching_locks(&path, deep, false)
+                .await?
                 .iter()
-                .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at > now))
                 .map(model_to_dav_lock)
                 .collect())
         })
@@ -897,6 +874,10 @@ crate::services::workspace::activity::ActivitySource::Webdav,
                 DavLockError::Backend
             })?;
             let mut mutation = WebDavLockMutation::begin(&txn, self.scope)
+                .await
+                .map_err(|_| DavLockError::Backend)?;
+            mutation
+                .lock_ancestor_entities(self.scope, self.root_folder_id, &path_owned)
                 .await
                 .map_err(|_| DavLockError::Backend)?;
             mutation.delete_rooted_locks(&path_owned).await?;
@@ -920,27 +901,6 @@ fn normalize_path(path: &DavPath) -> String {
     } else {
         raw
     }
-}
-
-fn path_ancestors(path: &str) -> Vec<String> {
-    let mut ancestors = vec!["/".to_string()];
-    let trimmed = path.trim_start_matches('/');
-    let mut current = String::from("/");
-    for seg in trimmed.split('/') {
-        if seg.is_empty() {
-            continue;
-        }
-        current.push_str(seg);
-        current.push('/');
-        if current != "/" {
-            ancestors.push(current.clone());
-        }
-    }
-    if path != "/" && !path.ends_with('/') {
-        ancestors.push(path.to_string());
-    }
-    ancestors.dedup();
-    ancestors
 }
 
 fn dav_path_ancestors(path: &DavPath) -> Vec<DavPath> {
@@ -1068,24 +1028,6 @@ async fn lock_target_entity<C: ConnectionTrait>(
     Ok(())
 }
 
-async fn find_overlapping_locks<C: ConnectionTrait>(
-    db: &C,
-    namespace_id: i64,
-    path: &str,
-    deep: bool,
-) -> crate::errors::Result<Vec<resource_lock::Model>> {
-    let ancestor_paths = path_ancestors(path);
-    let mut locks =
-        lock_repo::find_ancestors_in_namespace(db, namespace_id, &ancestor_paths).await?;
-
-    let descendants = lock_repo::find_by_path_prefix_in_namespace(db, namespace_id, path).await?;
-    locks.extend(descendants);
-    locks.sort_by_key(|lock| lock.id);
-    locks.dedup_by_key(|lock| lock.id);
-    locks.retain(|lock| lock_paths_overlap(lock.path(), lock.deep(), path, deep));
-    Ok(locks)
-}
-
 /// Revalidates all current locks that overlap one mutation target on the caller's transaction.
 ///
 /// Lock roots sharing the same path are satisfied when any active shared-lock token for that root
@@ -1093,29 +1035,47 @@ async fn find_overlapping_locks<C: ConnectionTrait>(
 pub(crate) async fn revalidate_mutation_locks<C: ConnectionTrait>(
     db: &C,
     namespace_id: i64,
+    scope: WorkspaceStorageScope,
+    root_folder_id: Option<i64>,
     path: &DavPath,
     deep: bool,
     conditions: &super::DavMutationConditions<'_>,
 ) -> Result<(), DavLockError> {
-    let path_str = normalize_path(path);
-    let now = Utc::now();
-    let conflicts = find_overlapping_locks(db, namespace_id, &path_str, deep)
+    let resolved = resolve_path_to_entity(db, scope, root_folder_id, path)
         .await
-        .map_err(|error| {
-            tracing::warn!(error = %error, path = %path_str, "failed to revalidate WebDAV mutation locks");
-            DavLockError::Backend
-        })?;
-    for (index, lock) in conflicts.iter().enumerate() {
-        if lock.timeout_at.is_some_and(|timeout_at| timeout_at <= now)
-            || conflicts[..index].iter().any(|previous| {
-                previous.path() == lock.path()
-                    && previous
-                        .timeout_at
-                        .is_none_or(|timeout_at| timeout_at > now)
-            })
+        .map_err(|_| DavLockError::Backend)?;
+    if resolved == LockPathTarget::Missing {
+        return Ok(());
+    }
+    let target = webdav_lock_target(scope, root_folder_id, resolved, deep);
+    let mut conflicts = Vec::new();
+    for lock in lock_repo::find_all_by_namespace_for_update(db, namespace_id)
+        .await
+        .map_err(|_| DavLockError::Backend)?
+    {
+        if lock.timeout_at.is_some_and(|expires| expires <= Utc::now()) {
+            continue;
+        }
+        if !crate::services::files::lock::lock_overlaps_target_on(db, &lock, target)
+            .await
+            .map_err(|_| DavLockError::Backend)?
         {
             continue;
         }
+        match canonical::project_lock_on(db, scope, root_folder_id, &lock)
+            .await
+            .map_err(|_| DavLockError::Backend)?
+        {
+            Some(lock) => conflicts.push(lock),
+            // 看不到祖先 token 不表示该锁不存在。仍拒绝修改，但不泄露挂载外信息。
+            None => {
+                return Err(DavLockError::Conflict(Box::new(
+                    dav_lock_conflict_for_request(path, lock.shared(), lock.deep()),
+                )));
+            }
+        }
+    }
+    for lock in &conflicts {
         let lock_href = href_for_relative(conditions.prefix, lock.path());
         let submitted = conditions.if_header.map_or_else(Vec::new, |header| {
             submitted_lock_tokens(
@@ -1125,15 +1085,11 @@ pub(crate) async fn revalidate_mutation_locks<C: ConnectionTrait>(
                 conditions.request_host,
             )
         });
-        let satisfied = conflicts.iter().any(|candidate| {
-            candidate.path() == lock.path()
-                && candidate
-                    .timeout_at
-                    .is_none_or(|timeout_at| timeout_at > now)
-                && submitted.iter().any(|token| token == &candidate.token)
-        });
-        if !satisfied {
-            return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(lock))));
+        match conflicts.iter().any(|candidate| {
+            same_lock_root(candidate, lock) && submitted.contains(&candidate.token)
+        }) {
+            true => {}
+            false => return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(lock)))),
         }
     }
     Ok(())
@@ -1151,6 +1107,9 @@ pub(crate) struct WebDavLockMutation<'a, C: ConnectionTrait> {
     db: &'a C,
     namespace: resource_lock_namespace::Model,
     projection_changed: bool,
+    // 事务内、变更前的 canonical 投影。删除/覆盖后路径可能已不可解析，
+    // 仍按这些已验证的锁 ID 清理/重绑定，绝不重新用历史 path 全局选锁。
+    projected_before: Vec<resource_lock::Model>,
 }
 
 impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
@@ -1169,6 +1128,7 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
             db,
             namespace,
             projection_changed: false,
+            projected_before: Vec::new(),
         })
     }
 
@@ -1177,11 +1137,16 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
     }
 
     pub(crate) async fn lock_ancestor_entities(
-        &self,
+        &mut self,
         scope: WorkspaceStorageScope,
         root_folder_id: Option<i64>,
         path: &DavPath,
     ) -> Result<(), LockMutationAncestorError> {
+        let projected =
+            canonical::projected_locks_on(self.db, self.namespace.id, scope, root_folder_id)
+                .await
+                .map_err(|_| LockMutationAncestorError::Backend)?;
+        self.projected_before = projected;
         let target = path.as_str();
         for ancestor in dav_path_ancestors(path) {
             match resolve_path_to_entity(self.db, scope, root_folder_id, &ancestor).await {
@@ -1217,19 +1182,10 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
         Ok(())
     }
 
-    /// Deletes every lock whose RFC lock-root is at or below `path`.
+    /// Deletes roots selected from the transaction's canonical pre-mutation projection.
     pub(crate) async fn delete_rooted_locks(&mut self, path: &DavPath) -> Result<(), DavLockError> {
         let path_str = normalize_path(path);
-        let locks = lock_repo::find_by_path_prefix_in_namespace(
-            self.db,
-            self.namespace.id,
-            &path_str,
-        )
-        .await
-        .map_err(|error| {
-            tracing::warn!(error = %error, path = %path_str, "failed to query rooted WebDAV locks");
-            DavLockError::Backend
-        })?;
+        let locks = self.projected_before.clone();
         for lock in locks {
             if lock_path_is_under(&path_str, lock.path()) {
                 delete_lock(self.db, &lock).await?;
@@ -1239,24 +1195,17 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
         Ok(())
     }
 
-    /// Deletes descendant lock-roots while retaining a lock rooted exactly on `path`.
+    /// Retain the destination root's canonical lock IDs so COPY can rebind every shared lock.
     pub(crate) async fn delete_descendant_rooted_locks(
         &mut self,
         path: &DavPath,
     ) -> Result<(), DavLockError> {
         let path_str = normalize_path(path);
-        let locks = lock_repo::find_by_path_prefix_in_namespace(
-            self.db,
-            self.namespace.id,
-            &path_str,
-        )
-        .await
-        .map_err(|error| {
-            tracing::warn!(error = %error, path = %path_str, "failed to query descendant WebDAV locks");
-            DavLockError::Backend
-        })?;
+        let locks = self.projected_before.clone();
         for lock in locks {
-            if lock.path() != path_str && lock_path_is_under(&path_str, lock.path()) {
+            if lock.path().trim_end_matches('/') != path_str.trim_end_matches('/')
+                && lock_path_is_under(&path_str, lock.path())
+            {
                 delete_lock(self.db, &lock).await?;
                 self.projection_changed = true;
             }
@@ -1264,7 +1213,6 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
         Ok(())
     }
 
-    /// Rebinds destination lock-roots to the replacement Drive entity.
     pub(crate) async fn rebind_destination_root_locks(
         &mut self,
         path: &DavPath,
@@ -1272,19 +1220,38 @@ impl<'a, C: ConnectionTrait> WebDavLockMutation<'a, C> {
         entity_id: i64,
     ) -> Result<(), DavLockError> {
         let path_str = normalize_path(path);
-        let rows_affected = lock_repo::rebind_path_in_namespace(
-            self.db,
-            self.namespace.id,
-            &path_str,
-            entity_type,
-            entity_id,
-        )
-        .await
-        .map_err(|error| {
-            tracing::warn!(error = %error, path = %path_str, "failed to rebind destination WebDAV locks");
-            DavLockError::Backend
-        })?;
-        self.projection_changed |= rows_affected != 0;
+        let locks = self.projected_before.clone();
+        for snapshot in locks {
+            if snapshot.path().trim_end_matches('/') != path_str.trim_end_matches('/') {
+                continue;
+            }
+            let current = lock_repo::find_by_id_for_update(self.db, snapshot.id)
+                .await
+                .map_err(|_| DavLockError::Backend)?
+                .ok_or(DavLockError::Backend)?;
+            let mut active = current.into_active_model();
+            let (kind, folder_id, file_id) = match entity_type {
+                EntityType::File => (
+                    aster_drive_model::types::LockRootKind::File,
+                    None,
+                    Some(entity_id),
+                ),
+                EntityType::Folder => (
+                    aster_drive_model::types::LockRootKind::Folder,
+                    Some(entity_id),
+                    None,
+                ),
+            };
+            active.root_kind = Set(kind);
+            active.root_folder_id = Set(folder_id);
+            active.root_file_id = Set(file_id);
+            active.lockroot_path = Set(Some(path_str.clone()));
+            active
+                .update(self.db)
+                .await
+                .map_err(|_| DavLockError::Backend)?;
+            self.projection_changed = true;
+        }
         Ok(())
     }
 
@@ -1353,6 +1320,13 @@ fn path_is_ancestor(parent: &str, child: &str) -> bool {
     child
         .strip_prefix(parent)
         .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn same_lock_root(left: &resource_lock::Model, right: &resource_lock::Model) -> bool {
+    left.namespace_id == right.namespace_id
+        && left.root_kind == right.root_kind
+        && left.root_folder_id == right.root_folder_id
+        && left.root_file_id == right.root_file_id
 }
 
 fn lock_timeout_at(

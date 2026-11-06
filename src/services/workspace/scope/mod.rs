@@ -4,7 +4,19 @@
 //! 这里负责把 scope 相关规则收口，避免每个上层 service 都自己拼一套
 //! `user_id` / `team_id` / `actor_user_id` 判断。
 
+mod authorization;
 mod cache;
+mod resource_access;
+pub(crate) use resource_access::{
+    AdminContentOperation, AuthorizedResourceRead, authorize_admin_actor,
+    authorize_admin_content_access, authorize_resource_lifecycle_on, authorize_share_resources_on,
+};
+
+pub(crate) use authorization::{
+    AuthorizedFileCreation, AuthorizedResourceLock, AuthorizedWorkspaceAccess,
+    WorkspaceAccessConstraints, WorkspaceOperation, authorize_workspace_on,
+    require_task_control_on,
+};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, team_member_repo, team_repo, user_repo};
@@ -121,6 +133,16 @@ async fn load_team_access<C: ConnectionTrait>(
     team_id: i64,
     user_id: i64,
 ) -> Result<CachedTeamAccess> {
+    authorize_workspace_on(
+        state.writer_db(),
+        WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id: user_id,
+        },
+        WorkspaceOperation::ReadMetadata,
+        &WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     if let Some(cached) = cache::load_team_access(state, team_id, user_id).await {
         let access = match load_team_access_from_database(db, team_id, user_id).await {
             Ok(access) => access,
@@ -164,31 +186,6 @@ async fn load_team_access_from_database<C: ConnectionTrait>(
         ApiErrorCode::TeamNotMember,
         "not a member of this team",
     ))
-}
-
-pub(crate) async fn require_scope_access(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-) -> Result<()> {
-    require_scope_access_with_db(state, state.reader_db(), scope).await
-}
-
-pub(crate) async fn require_scope_access_with_db<C: ConnectionTrait>(
-    state: &impl SharedRuntimeState,
-    db: &C,
-    scope: WorkspaceStorageScope,
-) -> Result<()> {
-    // 个人空间天然只需要“用户正在操作自己的空间”这个前提；
-    // 团队空间则必须先确认 actor 当前仍然是团队成员。
-    if let WorkspaceStorageScope::Team {
-        team_id,
-        actor_user_id,
-    } = scope
-    {
-        require_team_access_with_db(state, db, team_id, actor_user_id).await?;
-    }
-
-    Ok(())
 }
 
 pub(crate) async fn load_scope_actor_username<C: ConnectionTrait>(
@@ -340,50 +337,14 @@ pub(crate) fn ensure_active_folder_scope(
     Ok(())
 }
 
-pub(crate) async fn require_team_access(
-    state: &impl SharedRuntimeState,
-    team_id: i64,
-    user_id: i64,
-) -> Result<()> {
-    load_team_access(state, state.reader_db(), team_id, user_id)
-        .await
-        .map(|_| ())
-}
-
 pub(crate) async fn load_team_member_role(
     state: &impl SharedRuntimeState,
     team_id: i64,
     user_id: i64,
 ) -> Result<TeamMemberRole> {
-    load_team_access(state, state.reader_db(), team_id, user_id)
+    load_team_access(state, state.writer_db(), team_id, user_id)
         .await
         .map(|access| access.role)
-}
-
-pub(crate) async fn require_team_access_with_db<C: ConnectionTrait>(
-    state: &impl SharedRuntimeState,
-    db: &C,
-    team_id: i64,
-    user_id: i64,
-) -> Result<()> {
-    load_team_access(state, db, team_id, user_id)
-        .await
-        .map(|_| ())
-}
-
-pub(crate) async fn require_team_management_access(
-    state: &impl SharedRuntimeState,
-    team_id: i64,
-    user_id: i64,
-) -> Result<()> {
-    let access = load_team_access(state, state.reader_db(), team_id, user_id).await?;
-    if !access.role.can_manage_team() {
-        return Err(auth_forbidden_with_code(
-            ApiErrorCode::TeamAdminOrOwnerRequired,
-            "team owner or admin role is required",
-        ));
-    }
-    Ok(())
 }
 
 pub(crate) async fn verify_folder_access(
@@ -410,7 +371,13 @@ async fn verify_folder_access_with_db<C: ConnectionTrait>(
 ) -> Result<folder::Model> {
     // 先校验当前 scope 还有效，再取实体做归属检查。
     // 这样所有调用方都能拿到“存在 + 属于当前空间 + 未进回收站”的 folder。
-    require_scope_access_with_db(state, db, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let folder = folder_repo::find_by_id(db, folder_id)
         .await
         .map_err(|error| map_folder_lookup_error(folder_id, error))?;
@@ -430,13 +397,18 @@ fn map_folder_lookup_error(folder_id: i64, error: AsterError) -> AsterError {
 
 pub(crate) async fn lock_folder_access_on<C: ConnectionTrait>(
     db: &C,
-    state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<folder::Model> {
-    require_scope_access_with_db(state, db, scope).await?;
+    let access = authorize_workspace_on(
+        db,
+        scope,
+        WorkspaceOperation::UpdateMetadata,
+        &WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let folder = folder_repo::lock_by_id(db, folder_id).await?;
-    ensure_active_folder_scope(&folder, scope)?;
+    access.folder(&folder).await?;
     Ok(folder)
 }
 
@@ -464,7 +436,13 @@ async fn verify_file_access_with_db<C: ConnectionTrait>(
 ) -> Result<file::Model> {
     // 文件访问和文件夹访问保持同样语义：返回值一旦成功，就已经完成 scope
     // 校验和 trash 过滤，上层不需要再手写重复判断。
-    require_scope_access_with_db(state, db, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let file = file_repo::find_by_id(db, file_id).await?;
     ensure_active_file_scope(&file, scope)?;
 
@@ -488,9 +466,7 @@ pub(crate) async fn list_files_in_folder(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        WorkspaceStorageScope, load_team_access, map_folder_lookup_error, require_team_access,
-    };
+    use super::{WorkspaceStorageScope, load_team_access, map_folder_lookup_error};
     use crate::config::{Config, RuntimeConfig};
     use crate::db::repository::{
         policy_group_repo, policy_placement_repo, policy_repo, team_member_repo, team_repo,
@@ -746,9 +722,17 @@ mod tests {
         let (team, membership) =
             create_team_with_member(&state, &owner, &member, first_group.id).await;
 
-        require_team_access(&state, team.id, member.id)
-            .await
-            .expect("first access should populate cache");
+        crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            crate::services::workspace::scope::WorkspaceStorageScope::Team {
+                team_id: team.id,
+                actor_user_id: member.id,
+            },
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await
+        .expect("first access should populate cache");
 
         let mut active = team.clone().into_active_model();
         active.policy_group_id = Set(Some(second_group.id));
@@ -763,9 +747,18 @@ mod tests {
         team_member_repo::delete(state.writer_db(), membership.id)
             .await
             .expect("membership should delete");
-        let error = require_team_access(&state, team.id, member.id)
-            .await
-            .expect_err("cached access must not authorize removed members");
+        let error = crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            crate::services::workspace::scope::WorkspaceStorageScope::Team {
+                team_id: team.id,
+                actor_user_id: member.id,
+            },
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await
+        .err()
+        .expect("cached access must not authorize removed members");
         assert!(matches!(error, crate::errors::AsterError::AuthForbidden(_)));
     }
 
@@ -844,9 +837,17 @@ mod tests {
         let group = create_policy_group_with_policy(&state, "archived").await;
         let (team, _) = create_team_with_member(&state, &owner, &member, group.id).await;
 
-        require_team_access(&state, team.id, member.id)
-            .await
-            .expect("first access should populate cache");
+        crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            crate::services::workspace::scope::WorkspaceStorageScope::Team {
+                team_id: team.id,
+                actor_user_id: member.id,
+            },
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await
+        .expect("first access should populate cache");
 
         let team_id = team.id;
         let mut active = team.into_active_model();
@@ -859,9 +860,15 @@ mod tests {
             team_id,
             actor_user_id: member.id,
         };
-        let error = super::require_scope_access(&state, scope)
-            .await
-            .expect_err("cached access must not authorize archived teams");
+        let error = crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            scope,
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await
+        .err()
+        .expect("cached access must not authorize archived teams");
         assert!(matches!(
             error,
             crate::errors::AsterError::RecordNotFound(_)

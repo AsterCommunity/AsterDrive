@@ -13,8 +13,8 @@ use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     events::storage_change,
     workspace::storage::{
-        WorkspaceResourceScope, WorkspaceStorageScope, require_scope_access,
-        require_team_management_access, verify_file_access_for_read, verify_folder_access_for_read,
+        WorkspaceResourceScope, WorkspaceStorageScope, verify_file_access_for_read,
+        verify_folder_access_for_read,
     },
 };
 use aster_drive_model::entities::tag;
@@ -213,13 +213,14 @@ async fn require_write_access(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
 ) -> Result<()> {
-    match scope {
-        WorkspaceStorageScope::Personal { .. } => require_scope_access(state, scope).await,
-        WorkspaceStorageScope::Team {
-            team_id,
-            actor_user_id,
-        } => require_team_management_access(state, team_id, actor_user_id).await,
-    }
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ManageWorkspace,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await
+    .map(|_| ())
 }
 
 async fn verify_entity_read(
@@ -270,7 +271,13 @@ pub(crate) async fn list_page_in_scope(
     offset: u64,
     search: Option<&str>,
 ) -> Result<OffsetPage<TagInfo>> {
-    require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let workspace_scope = WorkspaceResourceScope::from(scope);
 
     load_offset_page(limit, offset, MAX_PAGE_SIZE, |limit, offset| async move {
@@ -308,7 +315,13 @@ pub(crate) async fn get_basic_in_scope(
     scope: WorkspaceStorageScope,
     tag_id: i64,
 ) -> Result<MinimalTagInfo> {
-    require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let tag = tag_repo::find_by_id(state.reader_db(), tag_id).await?;
     let expected_scope: TagScope = WorkspaceResourceScope::from(scope).into();
     if !tag_matches_scope(&tag, expected_scope) {
@@ -810,7 +823,13 @@ pub(crate) async fn ensure_tags_readable_in_scope(
     scope: WorkspaceStorageScope,
     tag_ids: &[i64],
 ) -> Result<()> {
-    require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     ensure_tags_belong_to_scope(state, scope, tag_ids).await
 }
 

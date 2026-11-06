@@ -6,6 +6,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setAuthOperationOwner } from "@/lib/authOperationOwner";
 import type { Workspace } from "@/lib/workspace";
 import { useTransferActivityStore } from "@/stores/transferActivityStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
@@ -36,6 +37,7 @@ const streamUploadBody = vi.fn();
 const uploadPanelSpy = vi.fn();
 const apiClientPost = vi.fn();
 const mockAuthUser = {
+	id: 1,
 	preferences: {
 		storage_event_stream_enabled: true,
 	},
@@ -48,9 +50,11 @@ interface MockFileStoreState {
 }
 
 interface MockAuthStoreState {
+	isAuthenticated: boolean;
 	refreshToken: () => Promise<void>;
 	refreshUser: (options?: { fields?: MeField[] }) => Promise<void>;
 	user: {
+		id: number;
 		preferences?: {
 			storage_event_stream_enabled?: boolean;
 		};
@@ -165,12 +169,14 @@ vi.mock("@/stores/authStore", () => ({
 				refreshToken,
 				refreshUser,
 				user: mockAuthUser,
+				isAuthenticated: true,
 			}),
 		{
 			getState: () => ({
 				refreshToken,
 				refreshUser,
 				user: mockAuthUser,
+				isAuthenticated: true,
 			}),
 		},
 	),
@@ -196,6 +202,27 @@ vi.mock("@/services/uploadService", () => ({
 		error !== null &&
 		"retryable" in error &&
 		(error as { retryable?: boolean }).retryable === true,
+	createUploadService: vi.fn(() => ({
+		cancelUpload,
+		completeUpload,
+		getProgress,
+		initUpload,
+		listRecoverableSessions,
+		presignParts,
+		presignedUpload,
+		uploadPartRequest: (
+			request: { url: string; headers?: Record<string, string> },
+			file: Blob,
+			onProgress: unknown,
+			options: Record<string, unknown>,
+		) =>
+			presignedUpload(request.url, file, onProgress, {
+				...options,
+				headers: request.headers,
+			}),
+		uploadChunk,
+		streamUploadBody,
+	})),
 	uploadService: {
 		cancelUpload,
 		completeUpload,
@@ -2212,3 +2239,5 @@ describe("UploadArea", () => {
 		await screen.findByText("active.txt:Stream:files:upload_success");
 	});
 });
+
+beforeEach(() => setAuthOperationOwner(1, true));

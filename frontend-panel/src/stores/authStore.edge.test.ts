@@ -47,6 +47,10 @@ vi.mock("@/services/authService", () => ({
 	},
 }));
 
+vi.mock("@/services/downloadCoordinator", () => ({
+	clearAccountDownloads: vi.fn(),
+}));
+
 vi.mock("@/stores/fileStore", () => ({
 	useFileStore: {
 		getState: () => ({
@@ -55,6 +59,7 @@ vi.mock("@/stores/fileStore", () => ({
 			sortBy: "name",
 			sortOrder: "asc",
 			_applyFromServer: mockState.applyFilePrefs,
+			resetWorkspaceState: vi.fn(),
 		}),
 	},
 }));

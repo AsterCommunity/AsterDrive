@@ -3,7 +3,7 @@
 use crate::db::repository::upload_session_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::upload_session;
 use sea_orm::ConnectionTrait;
 
@@ -55,11 +55,18 @@ pub(crate) async fn load_upload_session<C: ConnectionTrait>(
     // 由 `cleanup_expired`（expires_at 到期，默认 24h）兜底。注意 storage_used
     // 配额并不会在 init 时预占——只在 complete 时写入，所以这里不会泄漏配额。
     crate::ownership::verify_owner(session.user_id, scope.actor_user_id(), "upload session")?;
-    if let Some(team_id) = scope.team_id() {
-        storage::require_team_access_with_db(state, db, team_id, scope.actor_user_id()).await?;
-        ensure_team_upload_session_scope(&session, team_id)?;
-    } else {
-        ensure_personal_upload_session_scope(&session)?;
+    // Session 记录可以按调用者的一致性选择读取；授权资格必须来自 writer，
+    // 不能因为进度 GET 使用 reader 而重新引入撤权副本窗口。
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    match scope.team_id() {
+        Some(team_id) => ensure_team_upload_session_scope(&session, team_id)?,
+        None => ensure_personal_upload_session_scope(&session)?,
     }
     Ok(session)
 }

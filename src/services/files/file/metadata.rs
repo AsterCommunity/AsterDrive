@@ -21,17 +21,27 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     scope: WorkspaceStorageScope,
     id: i64,
 ) -> Result<FileInfo> {
-    let file = storage::verify_file_access_for_read(state, scope, id).await?;
-    build_authorized_file_info(state, scope.into(), file).await
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
+    let file = crate::db::repository::file_repo::find_by_id(state.reader_db(), id).await?;
+    let read = access.into_resource_read();
+    build_authorized_file_info(state, &read, file).await
 }
 
 /// Shared detail projection after transport-specific authorization, without impersonating an actor.
 pub(crate) async fn build_authorized_file_info(
     state: &impl SharedRuntimeState,
-    scope: crate::services::workspace::scope::WorkspaceResourceScope,
+    access: &crate::services::workspace::scope::AuthorizedResourceRead,
     file: file::Model,
 ) -> Result<FileInfo> {
-    crate::services::workspace::scope::ensure_file_resource_scope(&file, scope)?;
+    access.file_on(state.writer_db(), &file).await?;
+    let scope = access.scope();
+    tracing::trace!(actor_user_id = ?access.audit_actor(), file_id = file.id, "building authorized file projection");
     let version_bytes =
         revision_repo::sum_non_current_sizes_by_file_id(state.reader_db(), file.id).await?;
     let storage_used = file.size.checked_add(version_bytes).ok_or_else(|| {
@@ -75,6 +85,7 @@ pub(crate) async fn build_authorized_file_info(
 pub(crate) async fn update_in_scope(
     state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
+    access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
     id: i64,
     name: Option<String>,
     folder_id: NullablePatch<i64>,
@@ -89,6 +100,13 @@ pub(crate) async fn update_in_scope(
     );
     let snapshot = storage::verify_file_access(state, scope, id).await?;
     let txn = transaction::begin(state.writer_db()).await?;
+    let access = crate::services::workspace::scope::authorize_workspace_on(
+        &txn,
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::Move,
+        &access_constraints,
+    )
+    .await?;
     let f = crate::services::files::lock::enforce_file_mutation_on(
         &txn,
         &snapshot,
@@ -96,30 +114,34 @@ pub(crate) async fn update_in_scope(
     )
     .await?;
 
+    access.file(&f).await?;
     let target_folder = match folder_id {
         NullablePatch::Absent => f.folder_id,
         NullablePatch::Null => None,
         NullablePatch::Value(fid) => Some(fid),
     };
-    if target_folder != f.folder_id {
-        if let Some(target_folder_id) = target_folder {
-            storage::lock_folder_access_on(&txn, state, scope, target_folder_id).await?;
+    match target_folder != f.folder_id || name.as_ref().is_some_and(|name| name != &f.name) {
+        false => {}
+        true => {
+            if let Some(target_folder_id) = target_folder {
+                storage::lock_folder_access_on(&txn, scope, target_folder_id).await?;
+            }
+            let workspace = crate::services::files::lock::LockWorkspace::from_file(&f)?;
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                &txn,
+                workspace,
+                f.folder_id,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
+            crate::services::files::lock::enforce_collection_membership_mutation_on(
+                &txn,
+                workspace,
+                target_folder,
+                &crate::services::files::lock::SubmittedLockCredentials::none(),
+            )
+            .await?;
         }
-        let workspace = crate::services::files::lock::LockWorkspace::from_file(&f)?;
-        crate::services::files::lock::enforce_collection_membership_mutation_on(
-            &txn,
-            workspace,
-            f.folder_id,
-            &crate::services::files::lock::SubmittedLockCredentials::none(),
-        )
-        .await?;
-        crate::services::files::lock::enforce_collection_membership_mutation_on(
-            &txn,
-            workspace,
-            target_folder,
-            &crate::services::files::lock::SubmittedLockCredentials::none(),
-        )
-        .await?;
     }
 
     let name = match name {
@@ -221,6 +243,7 @@ pub async fn update(
     update_in_scope(
         state,
         WorkspaceStorageScope::Personal { user_id },
+        Default::default(),
         id,
         name,
         folder_id,
@@ -244,6 +267,7 @@ pub async fn move_file(
     update_in_scope(
         state,
         WorkspaceStorageScope::Personal { user_id },
+        Default::default(),
         id,
         None,
         match target_folder_id {

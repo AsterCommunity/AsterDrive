@@ -24,7 +24,6 @@ use crate::services::files::upload::session::scope::{
     load_upload_session, personal_scope, team_scope,
 };
 use crate::services::files::upload::session::shared::expected_chunk_size_for_upload;
-use crate::services::workspace::storage;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use aster_drive_storage::BrowserUploadRequest;
@@ -317,7 +316,16 @@ pub async fn list_recoverable_sessions_for_team(
     user_id: i64,
     frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
-    storage::require_team_access(state, team_id, user_id).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        crate::services::workspace::scope::WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id: user_id,
+        },
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     list_recoverable_sessions_impl(state, user_id, Some(team_id), frontend_client_id).await
 }
 

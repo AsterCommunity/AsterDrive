@@ -154,7 +154,16 @@ pub async fn create_for_team(
     password: Option<&str>,
     root_folder_id: Option<i64>,
 ) -> Result<WebdavAccountCreated> {
-    crate::services::workspace::storage::require_team_access(state, team_id, actor_user_id).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        crate::services::workspace::scope::WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id,
+        },
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     create_in_scope(
         state,
         WorkspaceStorageScope::Team {
@@ -175,7 +184,13 @@ async fn create_in_scope(
     password: Option<&str>,
     root_folder_id: Option<i64>,
 ) -> Result<WebdavAccountCreated> {
-    crate::services::workspace::storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     // trim 后重绑定，保证校验值与入库值一致
     let username = username.trim();
     validate_username(username)?;
@@ -506,9 +521,17 @@ pub async fn test_credentials(
     }
 
     if let Some(team_id) = account.team_id
-        && crate::services::workspace::storage::require_team_access(state, team_id, account.user_id)
-            .await
-            .is_err()
+        && crate::services::workspace::scope::authorize_workspace_on(
+            state.writer_db(),
+            crate::services::workspace::scope::WorkspaceStorageScope::Team {
+                team_id,
+                actor_user_id: account.user_id,
+            },
+            crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await
+        .is_err()
     {
         return Err(invalid_credentials());
     }

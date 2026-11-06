@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	captureUploadOperation,
+	setAuthOperationOwner,
+} from "@/lib/authOperationOwner";
 import type { InitUploadResponse } from "@/services/uploadService";
 import type { UploadTask } from "./uploadAreaManagerShared";
 import type { UploadTransportRunnerContext } from "./uploadAreaUploadRunnerShared";
@@ -17,9 +21,8 @@ const {
 	coordinateBrowserUpload: vi.fn(),
 }));
 
-vi.mock("@/services/uploadService", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/services/uploadService")>()),
-	uploadService: {
+vi.mock("@/services/uploadService", async (importOriginal) => {
+	const service = {
 		cancelUpload: vi.fn(),
 		completeUpload,
 		getProgress,
@@ -29,8 +32,13 @@ vi.mock("@/services/uploadService", async (importOriginal) => ({
 		uploadChunk: vi.fn(),
 		executeBrowserUpload,
 		coordinateBrowserUpload,
-	},
-}));
+	};
+	return {
+		...(await importOriginal<typeof import("@/services/uploadService")>()),
+		createUploadService: vi.fn(() => service),
+		uploadService: service,
+	};
+});
 
 vi.mock("@/lib/uploadPersistence", () => ({
 	appendCompletedPart: vi.fn(),
@@ -125,6 +133,7 @@ describe("resumeCompletionTask", () => {
 		};
 		const task: UploadTask = {
 			id: "stream-completed",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["body"], "stream.bin"),
 			filename: "stream.bin",
 			relativePath: null,
@@ -169,6 +178,7 @@ describe("resumeCompletionTask", () => {
 		};
 		const task: UploadTask = {
 			id: "stream-uploading",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["body"], "stream.bin"),
 			filename: "stream.bin",
 			relativePath: null,
@@ -218,6 +228,7 @@ describe("resumeCompletionTask", () => {
 		};
 		const task: UploadTask = {
 			id: "file-backed",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["content"], "file-backed.bin"),
 			filename: "file-backed.bin",
 			relativePath: null,
@@ -293,6 +304,7 @@ describe("backend coordinated provider upload", () => {
 		};
 		const task: UploadTask = {
 			id: "provider-task",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["abcdefgh"], "file.bin"),
 			filename: "file.bin",
 			relativePath: null,
@@ -441,6 +453,7 @@ describe("provider-independent numbered uploads", () => {
 		};
 		const task: UploadTask = {
 			id: "generic",
+			binding: captureUploadOperation({ kind: "personal" }),
 			file: new File(["abcdefgh"], "parts.bin"),
 			filename: "parts.bin",
 			relativePath: null,
@@ -467,3 +480,5 @@ describe("provider-independent numbered uploads", () => {
 		]);
 	});
 });
+
+beforeEach(() => setAuthOperationOwner(1, true));

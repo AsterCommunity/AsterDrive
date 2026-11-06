@@ -168,7 +168,13 @@ pub(crate) async fn load_normalized_selection_in_scope(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<NormalizedSelection> {
-    storage::require_scope_access(state, scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     validate_batch_ids(file_ids, folder_ids)?;
 
     let file_map = build_file_map(find_files_by_ids_in_scope(state, scope, file_ids).await?);

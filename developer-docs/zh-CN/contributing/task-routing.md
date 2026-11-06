@@ -24,6 +24,7 @@
 | 任务 | 先读 | 代码入口 | 最低验证 |
 | --- | --- | --- | --- |
 | 文件/目录 CRUD、移动、复制、删除、恢复 | [关键模块设计](../architecture/module-designs.md)、[后端服务所有权](../architecture/backend-service-ownership.md) | `src/api/routes/files/`、`src/api/routes/folders.rs`、`src/services/files/`、`src/services/workspace/` | 成功、权限、scope、锁、冲突、事务回滚和 storage side effect |
+| Workspace / 资源操作授权 | [授权契约](../design/workspace-authorization.md) | `src/services/workspace/scope/`、实际 service/protocol/task publication | actor/成员/credential 撤销、root、集合/后代锁、重放和延迟发布；SQLite/PostgreSQL/MySQL；前端任务绑定 |
 | 团队与 personal workspace 共用行为 | [架构概览](../architecture/index.md) | `src/services/workspace/scope/`、`storage/`、`storage_core/` | personal/team 双路径、权限和 quota 边界 |
 | 上传 init/chunk/complete/cancel | [浏览器上传协调](../design/browser-upload-coordination.md)、[上传完成契约](../design/upload-finalization-contracts.md)、[关键模块设计](../architecture/module-designs.md) | `src/services/files/upload/`、workspace storage、storage drivers | 各协商模式、失败清理、重试/取消、actual size/hash、quota/version/blob 一致性 |
 | 文件锁和结构性 mutation | [资源锁系统](../design/resource-lock-system.md) | `src/services/files/lock/`、workspace storage、`src/webdav/` | owner/token/namespace、父子资源、过期、并发、mutation 和缓存投影边界 |

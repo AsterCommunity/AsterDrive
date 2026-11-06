@@ -25,7 +25,7 @@ use crate::services::task::types::{
     FolderTreeMutationOperation, FolderTreeMutationTaskPayload, FolderTreeMutationTaskResult,
     TaskInfo,
 };
-use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::{background_task, folder as folder_entity, resource_lock};
 use aster_drive_model::types::{EntityType, LockDepth, LockMode, LockOrigin};
 
@@ -128,7 +128,13 @@ async fn create_folder_tree_mutation_task_in_scope_with_failed_barrier<
     operation: FolderTreeMutationOperation,
     #[cfg(test)] failed_task_barrier: Option<&tokio::sync::Barrier>,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
+    crate::services::workspace::scope::authorize_workspace_on(
+        state.writer_db(),
+        scope,
+        crate::services::workspace::scope::WorkspaceOperation::ReadMetadata,
+        &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+    )
+    .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     crate::services::files::trash::coordination::admit_mutation_on(&txn, scope).await?;
     let root = folder_repo::find_by_id(&txn, folder_id).await?;
@@ -478,11 +484,43 @@ async fn finalize_operation(
     let marker = operation_lock_marker(task.id);
     let result = transaction::with_transaction(state.writer_db(), async |txn| {
         crate::services::files::trash::coordination::admit_mutation_on(txn, scope).await?;
+        let operation = match payload.operation {
+            FolderTreeMutationOperation::Delete => {
+                crate::services::workspace::scope::WorkspaceOperation::Delete
+            }
+            FolderTreeMutationOperation::Restore => {
+                crate::services::workspace::scope::WorkspaceOperation::Restore
+            }
+        };
+        let access = crate::services::workspace::scope::authorize_workspace_on(
+            txn,
+            scope,
+            operation,
+            &crate::services::workspace::scope::WorkspaceAccessConstraints::default(),
+        )
+        .await?;
         let root = folder_repo::find_by_id(txn, payload.folder_id).await?;
         ensure_root_scope(&root, scope)?;
         enforce_task_root_lock(txn, &root, &lock_tokens).await?;
         let original_parent_id = root.parent_id;
-        let mut restored_parent_id = root.parent_id;
+        let mut restored_parent_id = match payload.operation {
+            FolderTreeMutationOperation::Delete => root.parent_id,
+            FolderTreeMutationOperation::Restore => match root.parent_id {
+                Some(id) => restore_parent_id(folder_repo::find_by_id(txn, id).await, scope)?,
+                None => None,
+            },
+        };
+        // task 的深度锁保护整棵树，但不涵盖其外部父集合。删除/恢复的成员变化
+        // 必须额外检查该集合；用当前任务 token 满足自己的锁，不绕过别人的锁。
+        access
+            .collection(
+                restored_parent_id,
+                &SubmittedLockCredentials {
+                    holder_user_id: None,
+                    tokens: &lock_tokens,
+                },
+            )
+            .await?;
         let mut activity = crate::services::workspace::activity::ActivityContext::actor(
             txn,
             scope.actor_user_id(),

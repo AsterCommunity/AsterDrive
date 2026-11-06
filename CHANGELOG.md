@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Storage provider evidence** — Adds a bilingual official protocol index for every built-in connector, with source review dates, exact SDK/transport versions, field/wire drift checks in `make storage-docs-check`, and a separate weekly link report. Local protocol fixtures and real-provider acceptance remain explicit, separate evidence.
 
+### Security
+
+- **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
+
 ### Changed
 
 - **Outbound HTTP policy** — Route built-in HTTP clients through `aster_drive_outbound` and the shared Forge factory. Preserve streaming upload/download timeouts, default to the shared product User-Agent with an explicit per-client override, centralize redirect rejection while preserving conditional 304 responses, share progress/acknowledgement upload handling across providers with separate Google Drive control/download/upload pools, and establish an origin-scoped, bounded and cancellable plugin transport with public-address validation and DNS pinning.

@@ -163,6 +163,7 @@ pub async fn put_file_contents(
     let (updated, item_version) = file::update_content_stream_in_scope(
         state,
         scope_from_payload(&resolved.payload),
+        resolved.access_constraints.clone(),
         resolved.file.id,
         payload,
         content_length,
@@ -228,6 +229,12 @@ pub async fn put_relative_file(
                     &target_name,
                     payload,
                 )
+                .with_access_constraints(
+                    resolved
+                        .access_constraints
+                        .clone()
+                        .for_relative_target(resolved.file.folder_id),
+                )
                 .declared_size(declared_size),
             )
             .await?;
@@ -256,6 +263,12 @@ pub async fn put_relative_file(
                             resolved.file.folder_id,
                             &target_name,
                             payload,
+                        )
+                        .with_access_constraints(
+                            resolved
+                                .access_constraints
+                                .clone()
+                                .for_relative_target(resolved.file.folder_id),
                         )
                         .declared_size(declared_size)
                         .expect_missing()
@@ -328,6 +341,12 @@ pub async fn put_relative_file(
                             &target_name,
                             payload,
                         )
+                        .with_access_constraints(
+                            resolved
+                                .access_constraints
+                                .clone()
+                                .for_relative_target(resolved.file.folder_id),
+                        )
                         .declared_size(declared_size)
                         .overwrite(&existing, current_revision.id)
                         .exact_name(),
@@ -397,6 +416,7 @@ pub async fn rename_file(
     let updated = match file::update_in_scope(
         state,
         scope,
+        resolved.access_constraints.clone(),
         resolved.file.id,
         Some(final_name.clone()),
         NullablePatch::Absent,
@@ -418,6 +438,7 @@ pub async fn rename_file(
             file::update_in_scope(
                 state,
                 scope,
+                resolved.access_constraints.clone(),
                 resolved.file.id,
                 Some(final_name),
                 NullablePatch::Absent,
