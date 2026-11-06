@@ -78,13 +78,23 @@ pub(super) fn login_completion_response(
             &result.refresh_token,
             result.password_change_required,
         ),
-        PrimaryLoginCompletion::MfaRequired(challenge) => Ok(HttpResponse::Ok().json(
-            crate::api::response::success(LoginResponse::MfaRequired {
-                flow_token: challenge.flow_token,
-                expires_in: challenge.expires_in,
-                methods: challenge.methods,
-            }),
-        )),
+        PrimaryLoginCompletion::MfaRequired(challenge) => {
+            let mut response = HttpResponse::Ok();
+            if let Some(binding) = challenge.browser_binding {
+                response.cookie(super::cookies::build_mfa_binding_cookie(
+                    &challenge.flow_token,
+                    &binding.secret,
+                    RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).cookie_secure,
+                ));
+            }
+            Ok(
+                response.json(crate::api::response::success(LoginResponse::MfaRequired {
+                    flow_token: challenge.flow_token,
+                    expires_in: challenge.expires_in,
+                    methods: challenge.methods,
+                })),
+            )
+        }
     }
 }
 

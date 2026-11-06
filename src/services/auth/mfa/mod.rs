@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use aster_drive_model::types::{MfaMethod, MfaPersistentFactorMethod};
 
 pub use login_flow::{
-    MfaChallengeStart, PrimaryLoginCompletion, cleanup_expired_flows,
+    MfaBrowserBinding, MfaChallengeStart, PrimaryLoginCompletion, cleanup_expired_flows,
     complete_primary_login_or_start_mfa, send_email_code, verify_challenge,
 };
 pub use management::{

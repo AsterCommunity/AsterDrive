@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **外部账号关联** — 密码及邮箱恢复全程保留发起浏览器绑定；已有账号的永久身份关联等待所需 MFA 完成，并与 flow 消费、审计及 session 一同提交。已有身份同样执行当前 provider 邮箱及域名策略。须升级全部认证 writer；升级前未绑定浏览器的恢复流程需重新发起。
+
+- **XML 预览与委托范围** — 隔离通用 XML 文档响应，分享预览 token 只授权单个文件，不再向外部查看器披露原分享凭据。旧分享预览 URL 需要重新生成；分享及预览下载计次语义保持不变。
+
 - **上传内容展示隔离** — WebDAV 当前文件与历史版本的活跃文档响应复用内容 sandbox；SVG 图片保留原始矢量和动画并使用独立 origin 的显示地址，PDF 工具栏只打开 PDF 类型的表示。WOPI 新窗口在真实 POST 导航上移除 opener，保留管理员自定义 embed、内嵌查看器权限、表单 token 和来源行为。
 
 - **会话登出与 MFA 次数限制** — 登出按已验签的 session 撤销，即使 refresh 已轮换 cookie，access 与 refresh 也立即失效，其他设备不受影响。浏览器跨标签页协调 refresh/logout 响应顺序；并发 MFA 验证仍严格遵守五次错误限制，因子消费与会话创建同事务提交。

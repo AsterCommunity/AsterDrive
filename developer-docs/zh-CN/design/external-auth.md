@@ -15,7 +15,7 @@
 | 登录流程 | `src/services/auth/external/login.rs` | state flow、回调消费、driver 调用、邮箱补验分支 |
 | 账号解析 | `src/services/auth/external/resolution.rs` | 既有身份匹配、已验证邮箱自动绑定、自动创建本地用户 |
 | 邮箱补验 | `src/services/auth/external/verification.rs` | 临时 flow、邮件发送、确认后继续登录 |
-| 密码绑定 | `src/services/auth/external/password_link.rs` | 用户输入本地密码后绑定外部身份 |
+| 密码绑定 | `src/services/auth/external/password_link.rs` | 验证本地第一因子并建立待关联意图；完整认证后提交身份关联 |
 | Driver trait / descriptor / registry | `aster_forge_external_auth` | provider 统一接口、`default_registry()`、kind descriptor 和通用 normalization |
 | OIDC / Generic OAuth2 driver | `aster_forge_external_auth` | discovery、PKCE、nonce、ID Token 校验、token exchange 和 UserInfo claim 映射 |
 | GitHub / QQ / Google / Microsoft driver | `aster_forge_external_auth` | 专用 endpoint、provider-specific claim / issuer 语义和测试能力 |
@@ -281,17 +281,25 @@ Generic OAuth2 默认 scope 也是 `openid email profile`，但不会在更新�
 
 ## 账号解析策略
 
-账号解析在 `resolution.rs`。顺序是：
+账号解析在 `resolution.rs`，当前 provider 策略在返回已绑定用户之前也必须执行：
 
-1. 按 `identity_namespace + subject` 查找已绑定外部身份。
-2. 如果 provider 要求已验证邮箱，必须有 email 且 `email_verified=true`。
-3. 若启用按已验证邮箱自动绑定，并且 provider 返回 verified email，查找本地同邮箱用户并创建外部身份绑定。
-4. 若启用自动创建用户，检查公开注册开关、邮箱、邮箱域名和邮箱验证策略，再创建普通用户和外部身份绑定。
-5. 如果无法直接解析，创建邮箱补验 flow 或要求用户输入本地账号密码绑定。
+1. provider 交换返回后重读 writer 配置。交换期间配置发生变化时要求重新登录，不能混用两份配置。
+2. 检查当前已验证邮箱要求与允许的域名。缺邮箱的已有绑定只有在当前策略允许时才能登录；没有已有绑定时仍可进入产品支持的本地邮箱补验流程，GitHub 的外部已验证主邮箱要求保持原有特殊规则。
+3. 按 `identity_namespace + subject` 匹配已有绑定，身份本身不随邮箱变化重新创建。
+4. provider 已验证邮箱自动关联到已有账号、邮箱补验关联、密码关联均只产生待处理意图。账号要求 MFA 时，先完成对应 challenge，再在 writer 事务中创建永久绑定、消费 recovery flow 并创建 session。
+5. 自动创建新用户仍遵循注册开关、邮箱和域名规则。若事务执行期间目标用户或 identity 已由另一请求创建，当前补验流程失败并要求重新登录，不转为未经完整认证的已有账号关联。
 
 自动创建用户时会生成随机内部密码，用户仍可后续通过本地密码重置 / 改密等流程管理账号。
 
 注意 GitHub 的 `require_email_verified` 缺失邮箱拒绝逻辑位于 `login.rs`，不是通用 `resolution.rs` 策略。新增类似 provider 时要明确它的“外部邮箱验证”是否允许被本地邮箱补验替代。
+
+## 浏览器绑定、MFA 与升级
+
+初始登录的 browser binding 由 HttpOnly Cookie 承载，只在数据库保存 hash。进入 recovery 时，用同一浏览器证明为独立 flow 设置 `aster_external_recovery_<flow hash>` Cookie，路径限于 `/api/v1/auth/external-auth`，`SameSite=Lax`，Secure 跟随运行时策略，最长 1800 秒。URL 中的 flow 和邮箱确认 token 不替代浏览器证明。邮箱链接应在发起外部登录的浏览器中打开；在其他浏览器打开不会创建关联或签发 session，也不会消费原浏览器的有效流程。
+
+需要 MFA 的身份关联将 recovery flow ID 与浏览器 hash 绑定到 `mfa_login_flows`。`aster_mfa_binding_<flow hash>` Cookie 只供认证路径使用，最长 300 秒；发送 MFA 邮箱码和验证 challenge 都检查该绑定。原有普通 MFA 流程维持既有行为。放弃 MFA 不改变身份关联，最终关联再次检查账号 generation、状态、provider 和邮箱域名，绑定、flow 消费、因子消费、必要审计及 session 写入共同提交或回滚。
+
+迁移 `m20261107_000001_bind_external_recovery` 只新增可空字段，不修改既有账号、身份或文件。旧 recovery 记录没有浏览器 hash，升级后要求重发起外部登录；普通旧 MFA flow 的新增字段为空，仍按原流程处理。全部认证 writer 应完成升级后再验收新契约，不能用新旧版本混跑宣称边界已经生效。
 
 ## API 文档入口
 

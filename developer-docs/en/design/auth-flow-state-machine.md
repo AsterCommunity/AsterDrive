@@ -27,7 +27,7 @@ HTTP route
 | MFA login | `mfa_login_flows` | `mfa-login:<id>` | transactional flow guard plus conditional attempt/consume | consumed/expired; runtime cleanup |
 | Passkey login/registration | typed cache envelope | public flow UUID | cache atomic `take` | consumed/TTL eviction |
 | External login | `external_auth_login_flows` | `external-login:<id>` | state plus browser-binding conditional consume | consumed/expired; runtime cleanup |
-| External email recovery | `external_auth_email_verification_flows` | `external-recovery:<id>` | conditional email request/consume | consumed/expired; runtime cleanup |
+| External email recovery | `external_auth_email_verification_flows` | `external-recovery:<id>` | browser binding, pending MFA association, conditional consume | consumed/expired; runtime cleanup |
 | Registration/password reset/email change | `contact_verification_tokens` | `contact-verification:<id>` | transaction plus purpose-scoped single-use token | consumed/expired cleanup |
 | Invitation | `user_invitations` | `invitation:<id>` | status-scoped conditional update | accepted/expired/revoked |
 | Session | `auth_sessions` | session UUID | conditional refresh-JTI rotation | revoked/expired cleanup |
@@ -68,6 +68,8 @@ MFA verification locks the flow in its writer transaction before reading attempt
 Logout revokes the strictly verified subject/sid, including a refresh credential superseded by rotation. It affects one session and preserves other devices. The revocation update and rotation CAS fence the same row, so neither database ordering leaves usable rotated credentials. Writer failure returns an error instead of reporting successful logout.
 
 The browser immediately clears local state and publishes a credential-free lifecycle marker, blocks new refresh work, waits for an existing refresh response, then sends logout. Refresh and logout share Web Locks; older browsers retain the heartbeat lease fallback, with server revocation remaining authoritative when a lease expires. A peer refresh success never substitutes for the logout request. Cross-tab lifecycle markers fence old callbacks, and a new local login waits for pending logout cookie clearing.
+
+External association follows the [external-auth contract](./external-auth.md): recovery and pending-association MFA retain browser proofs, and permanent identity changes commit only after full authentication.
 
 ## Test matrix
 

@@ -10,6 +10,7 @@ pub(super) const REFRESH_COOKIE: &str = "aster_refresh";
 const ACCESS_COOKIE_PATH: &str = "/";
 const REFRESH_COOKIE_PATH: &str = "/api/v1/auth";
 const EXTERNAL_AUTH_COOKIE_PATH: &str = "/api/v1/auth/external-auth";
+pub(super) const RECOVERY_BINDING_COOKIE_PREFIX: &str = "aster_external_recovery_";
 const EXTERNAL_AUTH_COOKIE_PREFIX: &str = "aster_external_auth_";
 
 fn build_cookie(
@@ -114,4 +115,46 @@ pub(super) fn clear_csrf_cookie(secure: bool) -> Cookie<'static> {
         .secure(secure)
         .max_age(CookieDuration::ZERO)
         .finish()
+}
+
+pub(super) fn recovery_binding_cookie_name(flow_token: &str) -> String {
+    format!(
+        "{RECOVERY_BINDING_COOKIE_PREFIX}{}",
+        hash::sha256_hex(flow_token.as_bytes())
+    )
+}
+
+pub(super) fn build_recovery_binding_cookie(
+    flow_token: &str,
+    proof: &str,
+    secure: bool,
+) -> Cookie<'static> {
+    build_cookie(
+        &recovery_binding_cookie_name(flow_token),
+        EXTERNAL_AUTH_COOKIE_PATH,
+        proof,
+        1800,
+        secure,
+    )
+}
+
+pub(super) fn mfa_binding_cookie_name(flow_token: &str) -> String {
+    format!(
+        "aster_mfa_binding_{}",
+        hash::sha256_hex(flow_token.as_bytes())
+    )
+}
+
+pub(super) fn build_mfa_binding_cookie(
+    flow_token: &str,
+    proof: &str,
+    secure: bool,
+) -> Cookie<'static> {
+    build_cookie(
+        &mfa_binding_cookie_name(flow_token),
+        REFRESH_COOKIE_PATH,
+        proof,
+        300,
+        secure,
+    )
 }

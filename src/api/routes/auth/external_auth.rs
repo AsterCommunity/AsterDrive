@@ -231,11 +231,21 @@ async fn finish_login_inner(
     {
         Ok(ExternalAuthCallbackOutcome::Login(result)) => result,
         Ok(ExternalAuthCallbackOutcome::EmailVerificationRequired(pending)) => {
-            return Ok(external_auth_email_required_redirect_response(
+            let mut response = external_auth_email_required_redirect_response(
                 state.get_ref(),
                 &pending.flow_token,
                 &pending.return_path,
-            ));
+            );
+            response
+                .add_cookie(&super::cookies::build_recovery_binding_cookie(
+                    &pending.flow_token,
+                    &pending.browser_pfoxum,
+                    RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).cookie_secure,
+                ))
+                .map_err(|_| {
+                    AsterError::internal_error("failed to set recovery browser binding")
+                })?;
+            return Ok(response);
         }
         Err(error) => {
             return Ok(external_auth_error_redirect_response(
@@ -270,7 +280,14 @@ pub async fn start_email_verification(
         &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
-    let response = external::start_email_verification(state.get_ref(), body.into_inner()).await?;
+    let proof = req
+        .cookie(&super::cookies::recovery_binding_cookie_name(
+            &body.flow_token,
+        ))
+        .map(|c| c.value().to_string());
+    let response =
+        external::start_email_verification(state.get_ref(), body.into_inner(), proof.as_deref())
+            .await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(response)))
 }
 
@@ -297,9 +314,15 @@ pub async fn link_with_password(
         RequestSourceMode::Required,
     )?;
     let audit_info = AuditRequestInfo::from_request(&req);
+    let proof = req
+        .cookie(&super::cookies::recovery_binding_cookie_name(
+            &body.flow_token,
+        ))
+        .map(|c| c.value().to_string());
     let result = external::link_with_password(
         state.get_ref(),
         body.into_inner(),
+        proof.as_deref(),
         audit_info.ip_address.as_deref(),
         audit_info.user_agent.as_deref(),
     )
@@ -338,6 +361,17 @@ pub async fn confirm_email_verification(
     let result = match external::confirm_email_verification(
         state.get_ref(),
         token,
+        &req.cookies()
+            .map(|cs| {
+                cs.iter()
+                    .filter_map(|c| {
+                        c.name()
+                            .strip_prefix(super::cookies::RECOVERY_BINDING_COOKIE_PREFIX)
+                            .map(|flow_hash| (flow_hash.to_string(), c.value().to_string()))
+                    })
+                    .collect::<std::collections::HashMap<_, _>>()
+            })
+            .unwrap_or_default(),
         audit_info.ip_address.as_deref(),
         audit_info.user_agent.as_deref(),
     )
@@ -475,6 +509,7 @@ async fn complete_external_primary_login(
         Some(&result.primary_login.return_path),
         audit_info.ip_address.as_deref(),
         audit_info.user_agent.as_deref(),
+        result.primary_login.pending_link.as_ref(),
     )
     .await
 }
@@ -530,9 +565,16 @@ fn external_auth_redirect_completion_response(
                 urlencoding::encode(return_path)
             );
             let redirect_url = site_url::public_app_url_or_path(state.runtime_config(), &path);
-            Ok(HttpResponse::Found()
-                .append_header((header::LOCATION, redirect_url))
-                .finish())
+            let mut response = HttpResponse::Found();
+            response.append_header((header::LOCATION, redirect_url));
+            if let Some(binding) = challenge.browser_binding {
+                response.cookie(super::cookies::build_mfa_binding_cookie(
+                    &challenge.flow_token,
+                    &binding.secret,
+                    RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).cookie_secure,
+                ));
+            }
+            Ok(response.finish())
         }
     }
 }

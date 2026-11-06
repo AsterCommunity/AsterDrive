@@ -1685,7 +1685,7 @@ async fn test_mfa_concurrent_failures_cannot_overrun_budget_or_consume_valid_fac
         async move {
             gate.wait().await;
             // Invalid syntax gives a deterministic mismatch, independent of the clock's TOTP.
-            mfa::verify_challenge(state, token, MfaMethod::Totp, "invalid", audit).await
+            mfa::verify_challenge(state, token, MfaMethod::Totp, "invalid", audit, None).await
         }
     }))
     .await;
@@ -1697,9 +1697,16 @@ async fn test_mfa_concurrent_failures_cannot_overrun_budget_or_consume_valid_fac
     assert_eq!(flow.attempt_count, 5);
     assert!(flow.consumed_at.is_some());
     assert!(
-        mfa::verify_challenge(&state, token, MfaMethod::RecoveryCode, &recovery[0], &audit)
-            .await
-            .is_err()
+        mfa::verify_challenge(
+            &state,
+            token,
+            MfaMethod::RecoveryCode,
+            &recovery[0],
+            &audit,
+            None
+        )
+        .await
+        .is_err()
     );
     // A fresh first-factor flow can still use this recovery code: the denied attempt consumed none.
     let response = login_raw(&app, "parallelmfa", "password123").await;
@@ -1710,6 +1717,7 @@ async fn test_mfa_concurrent_failures_cannot_overrun_budget_or_consume_valid_fac
         MfaMethod::RecoveryCode,
         &recovery[0],
         &audit,
+        None,
     )
     .await
     .unwrap();
@@ -1738,14 +1746,21 @@ async fn test_mfa_matching_factor_races_last_failure_without_bypassing_budget() 
     };
     for _ in 0..4 {
         assert!(
-            mfa::verify_challenge(&state, token, MfaMethod::Totp, "invalid", &audit)
+            mfa::verify_challenge(&state, token, MfaMethod::Totp, "invalid", &audit, None)
                 .await
                 .is_err()
         );
     }
     let (wrong, matching) = tokio::join!(
-        mfa::verify_challenge(&state, token, MfaMethod::Totp, "invalid", &audit),
-        mfa::verify_challenge(&state, token, MfaMethod::RecoveryCode, &recovery[0], &audit)
+        mfa::verify_challenge(&state, token, MfaMethod::Totp, "invalid", &audit, None),
+        mfa::verify_challenge(
+            &state,
+            token,
+            MfaMethod::RecoveryCode,
+            &recovery[0],
+            &audit,
+            None
+        )
     );
     assert!(wrong.is_err());
     let flow = mfa_login_flow_repo::find_by_flow_token_hash(

@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **External account association** — Preserve the initiating browser through password and email recovery; defer existing-account identity links until required MFA completes, then commit the association, flow consumption, audit and session together. Existing identities obey current provider email/domain policies. Upgrade all authentication writers; pre-upgrade unbound recovery flows must restart.
+
+- **XML previews and scoped delegation** — Isolate generic XML document responses and keep shared preview tokens file-scoped without disclosing the original share credential. Existing shared preview URLs need regeneration; sharing and preview download-count semantics remain unchanged.
+
 - **Uploaded-content isolation** — Sandbox active WebDAV documents for current files and revisions, preserve SVG vectors and animation using opaque-origin display URLs, and open PDF toolbar content through a PDF-typed representation. Isolate the actual external WOPI POST from its opener while preserving configured embeds, iframe permissions, launch fields and referrer behavior.
 
 - **Session logout and MFA budgets** — Logout revokes the signed session even when refresh has rotated its cookie; access and refresh both stop immediately, while other devices retain access. Coordinate browser refresh/logout responses across tabs and enforce the five-failure MFA budget under concurrent verification, with factor and session changes committed together.

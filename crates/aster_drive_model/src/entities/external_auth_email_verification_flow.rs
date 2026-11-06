@@ -19,6 +19,8 @@ pub struct Model {
     pub preferred_username_snapshot: Option<String>,
     pub return_path: Option<String>,
     pub flow_token_hash: String,
+    #[serde(skip_serializing)]
+    pub browser_binding_hash: Option<String>,
     pub verification_token_hash: Option<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub email_requested_at: Option<DateTimeUtc>,

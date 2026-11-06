@@ -33,12 +33,16 @@ pub async fn verify_challenge(
         RequestSourceMode::OptionalWhenPresent,
     )?;
     let audit_info = audit::AuditRequestInfo::from_request(&req);
+    let proof = req
+        .cookie(&super::cookies::mfa_binding_cookie_name(&body.flow_token))
+        .map(|c| c.value().to_string());
     let result = mfa::verify_challenge(
         state.get_ref(),
         &body.flow_token,
         body.method.clone().into(),
         &body.code,
         &audit_info,
+        proof.as_deref(),
     )
     .await?;
     super::session::authenticated_login_response(
@@ -72,8 +76,17 @@ pub async fn send_email_code(
         RequestSourceMode::OptionalWhenPresent,
     )?;
     let audit_info = audit::AuditRequestInfo::from_request(&req);
+    let proof = req
+        .cookie(&super::cookies::mfa_binding_cookie_name(&body.flow_token))
+        .map(|c| c.value().to_string());
     Ok(HttpResponse::Ok().json(crate::api::response::success(
-        mfa::send_email_code(state.get_ref(), &body.flow_token, &audit_info).await?,
+        mfa::send_email_code(
+            state.get_ref(),
+            &body.flow_token,
+            &audit_info,
+            proof.as_deref(),
+        )
+        .await?,
     )))
 }
 

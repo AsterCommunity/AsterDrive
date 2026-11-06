@@ -15,7 +15,7 @@ Uploaded files and administrator-configured applications have different authorit
 
 ## WebDAV content
 
-Current-file and immutable-revision GET/HEAD, Range and conditional responses set `X-Content-Type-Options: nosniff`. HTML, XHTML and SVG reuse the file product's `Content-Security-Policy: sandbox`, including 304. Preserve bytes, MIME, names, ETags, ranges and downloads. The policy does not apply to WOPI application pages, protocol JSON or configured embeds.
+Current-file and immutable-revision GET/HEAD, Range and conditional responses set `X-Content-Type-Options: nosniff`. HTML and XML MIME types (`application/xml`, `text/xml`, and `+xml`, including XHTML/SVG) reuse the file product's `Content-Security-Policy: sandbox`, including 304. Preserve bytes, MIME, names, ETags, ranges and downloads. The policy does not apply to WOPI application pages, protocol JSON or configured embeds.
 
 ## SVG images
 
@@ -34,3 +34,9 @@ Submit the actual launch form with `target="_blank" rel="noopener"`. Opening an 
 ## Verification
 
 Use isolated browser instances and local markers to prove uploaded content cannot gain Drive's origin. Check WebDAV bytes and GET/HEAD/Range/304 for both current files and revisions, SVG rendering and navigation, PDF mixed content, and ordinary preview/download/share flows. Install test viewers through the real admin config API to verify same/cross-origin embeds, WOPI scripts/storage, POST fields, iframe permissions and opener isolation. These local viewers and protocol fixtures do not replace acceptance against deployed Collabora, OnlyOffice, Microsoft/Google or a specific custom application.
+
+## Share delegation to external viewers
+
+A shared `/pv` token contains only an internal share ID, fixed file ID, expiry and random nonce, never the original share bearer. Server-side signing binds the current bearer, password state and file/root scope; redemption rechecks expiry, team lifecycle and current resource containment through the writer. The external viewer needs no user login but receives authority for that single file only. Old bearer-bearing preview payloads are rejected; request a fresh short-lived preview URL. The original share itself is not automatically changed or revoked.
+
+Previews remain uncounted. The download allowance governs the corresponding download operations; it is not copy protection for delivered content.

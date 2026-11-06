@@ -27,7 +27,7 @@ HTTP route
 | MFA login | `mfa_login_flows` | `mfa-login:<id>` | 事务内锁定 flow + conditional attempt/consume | consumed/expired，runtime cleanup |
 | Passkey login/registration | typed cache envelope | public flow UUID | cache atomic `take` | consumed/TTL eviction |
 | External login | `external_auth_login_flows` | `external-login:<id>` | state + browser binding 条件消费 | consumed/expired，runtime cleanup |
-| External email recovery | `external_auth_email_verification_flows` | `external-recovery:<id>` | conditional email request/consume | consumed/expired，runtime cleanup |
+| External email recovery | `external_auth_email_verification_flows` | `external-recovery:<id>` | browser binding, pending MFA association, conditional consume | consumed/expired，runtime cleanup |
 | Registration/password reset/email change | `contact_verification_tokens` | `contact-verification:<id>` | transaction + purpose-scoped single-use token | consumed/expired cleanup |
 | Invitation | `user_invitations` | `invitation:<id>` | status-scoped conditional update | accepted/expired/revoked |
 | Session | `auth_sessions` | session UUID | refresh JTI conditional rotation | revoked/expired cleanup |
@@ -68,6 +68,8 @@ MFA 验证在 writer 事务里先锁定 flow，再读取当前计数、消费状
 登出使用严格验签后的 subject/sid 撤销单个 session，允许 cookie 已经轮换；它不按旧 JTI 丢失目标，也不改变其他设备的会话。撤销更新与 refresh CAS 都在同一 session 行上保留条件，因此任一提交顺序都不会留下可用的轮换凭据。writer 撤销失败返回错误，不宣称登出成功。
 
 前端登出先同步清理本地状态并发布不含账号或凭据的生命周期标记，停止新 refresh，等已发送 refresh 完整返回后再发送 logout。refresh/logout 共用 Web Locks；旧客户端保留 heartbeat lease，但 fallback 的租约过期不替代服务端撤销。logout 不能把其他标签页 refresh 的成功当成自己的完成。跨标签页标记同时使旧回调失效；新本地登录等待尚未完成的 logout，避免后者清除新会话 cookie。
+
+外部身份关联遵循[外部认证契约](./external-auth.md)：恢复和待关联 MFA 都保留浏览器证明，永久身份变更只在完整认证后提交。
 
 ## Test matrix
 

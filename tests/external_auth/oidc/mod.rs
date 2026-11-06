@@ -393,11 +393,22 @@ pub fn oidc_email_required_flow<B>(resp: &ServiceResponse<B>) -> String {
     assert!(common::extract_cookie(resp, "aster_access").is_none());
     assert!(common::extract_cookie(resp, "aster_refresh").is_none());
     let parsed = reqwest::Url::parse(location).expect("redirect location should parse");
-    parsed
+    let token = parsed
         .query_pairs()
         .find(|(key, _)| key == "flow")
         .map(|(_, value)| value.into_owned())
-        .expect("email required redirect should include flow token")
+        .expect("email required redirect should include flow token");
+    if let Some(cookie) = resp
+        .response()
+        .cookies()
+        .find(|c| c.name().starts_with("aster_external_recovery_"))
+    {
+        super::remember_recovery_cookie(
+            &aster_forge_crypto::sha256_hex(token.as_bytes()),
+            format!("{}={}", cookie.name(), cookie.value()),
+        );
+    }
+    token
 }
 
 pub async fn start_oidc_email_verification<S, B, E>(
@@ -416,6 +427,10 @@ where
 {
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/external-auth/email-verification/start")
+        .insert_header((
+            "Cookie",
+            super::recovery_cookie(&aster_forge_crypto::sha256_hex(flow_token.as_bytes())),
+        ))
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .set_json(serde_json::json!({
             "flow_token": flow_token,
@@ -463,6 +478,7 @@ where
             urlencoding::encode(token)
         ))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .insert_header(("Cookie", super::recovery_cookie(token)))
         .to_request();
     test::call_service(app, req).await
 }
@@ -484,6 +500,10 @@ where
 {
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/external-auth/password-link")
+        .insert_header((
+            "Cookie",
+            super::recovery_cookie(&aster_forge_crypto::sha256_hex(flow_token.as_bytes())),
+        ))
         .insert_header(("Origin", TEST_BROWSER_ORIGIN))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
@@ -504,11 +524,14 @@ pub async fn latest_oidc_email_verification_token(
     let message = memory_sender
         .last_message()
         .expect("OIDC email verification email should be sent");
-    common::extract_token_from_mail_message(
+    let token = common::extract_token_from_mail_message(
         &message,
         "/api/v1/auth/external-auth/email-verification/confirm?token=",
     )
-    .expect("OIDC email verification token should be present")
+    .expect("OIDC email verification token should be present");
+    let flow = aster_drive::db::repository::external_auth_email_verification_flow_repo::find_active_by_verification_token_hash(state.writer_db(), &aster_forge_crypto::sha256_hex(token.as_bytes()), chrono::Utc::now()).await.unwrap().unwrap();
+    super::remember_recovery_cookie(&token, super::recovery_cookie(&flow.flow_token_hash));
+    token
 }
 
 pub async fn disable_user(state: &aster_drive::runtime::PrimaryAppState, user_id: i64) {

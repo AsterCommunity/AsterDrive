@@ -22,6 +22,8 @@ When creating a share link from a file or folder action menu, you can set:
 
 The page provides common time options, such as 1 hour, 1 day, 7 days, 30 days, or no expiration.
 
+Online image, PDF, text and external-document previews do not consume download counts and remain available after the download allowance is exhausted. The setting limits download operations; it does not prevent copying or saving content already delivered to a browser or viewer. Downloads, archive exports and streaming sessions retain their existing counting rules.
+
 ## Direct File Links
 
 If the target is a single file, the share dialog can also switch to `Direct link` mode.

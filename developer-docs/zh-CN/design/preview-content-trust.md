@@ -15,7 +15,7 @@
 
 ## WebDAV 原件与历史版本
 
-GET/HEAD、单段/多段 Range 和条件响应在实际返回边界设置 `X-Content-Type-Options: nosniff`。HTML、XHTML 和 SVG 使用文件产品已有的 `Content-Security-Policy: sandbox`，包括不可变历史版本及 304。原始字节、MIME、文件名、ETag、Range 和下载行为保持；不会把 Office HTML 页面、WOPI JSON 或管理员应用响应一起套上该策略。
+GET/HEAD、单段/多段 Range 和条件响应在实际返回边界设置 `X-Content-Type-Options: nosniff`。HTML 与全部 XML MIME（`application/xml`、`text/xml`、`+xml`，含 XHTML/SVG）使用文件产品已有的 `Content-Security-Policy: sandbox`，包括不可变历史版本及 304。原始字节、MIME、文件名、ETag、Range 和下载行为保持；不会把 Office HTML 页面、WOPI JSON 或管理员应用响应一起套上该策略。
 
 ## SVG 图片显示
 
@@ -38,3 +38,9 @@ SVG 放入 `<img>` 的图片上下文与作为独立文档导航具有不同能�
 - SVG 证明图片显示与独立打开隔离，PDF 证明混合内容不按 HTML 执行，以及普通预览、下载、分享不回归。
 - 管理员应用通过实际配置 API 安装测试查看器，验证同源和允许的跨源 embed 脚本/表单；WOPI 验证 iframe 脚本/存储、POST 字段、权限和外部窗口无 opener。
 - 本地查看器与协议 fixture 不替代真实 Collabora、OnlyOffice、Microsoft/Google 及具体自定义应用的部署验收。
+
+## 外部查看器的分享委托
+
+`/pv` 的分享预览 token 仅包含内部 share ID、固定 file ID、到期时间与随机 nonce，不包含原分享 bearer。签名在服务端绑定当前分享 token、密码状态与文件/根范围；消费时从 writer 重查分享过期、团队生命周期及文件仍在当前范围内。外部查看器无需用户登录，但只能读取被委托的那个文件；普通分享权限不能从预览 token 中恢复。旧 bearer-bearing 预览链接不再接受，可重新生成短期预览 URL。原分享本身不自动变更或撤销。
+
+预览仍不消耗下载次数。次数限制只控制对应下载操作，不是已交付内容的防复制保护。

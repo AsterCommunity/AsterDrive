@@ -242,16 +242,25 @@ New providers use `/api/v1/auth/external-auth/callback` by default. Existing pro
 
 ## Account provisioning and binding
 
-The service supports several account-resolution paths:
+Current provider policy applies before returning an already bound account:
 
-- If the external identity already has a local binding, sign in directly
-- If verified email auto-linking is enabled and the provider returns a verified email, find the local user with the same email and create a binding
-- If auto-provisioning is enabled, check the public registration switch, email, email domain, and email verification policy, then create a normal user and bind the identity
-- If the identity cannot be resolved directly, create an email verification flow or ask the user to bind through their local password
+- Re-read the writer's provider after external exchange. Concurrent settings changes require a fresh login rather than mixing configurations.
+- Enforce current verified-email and allowed-domain requirements for existing identities too. Missing-email existing identities remain supported where the current policy permits them. Unbound identities can still use the supported local-email recovery path, with GitHub's verified-primary-email rule preserved.
+- Match identity using `identity_namespace + subject`; an email change does not create a new identity.
+- Verified-email automatic association to an existing account, local-email confirmation and password association produce a pending intent. If the account requires MFA, create the permanent identity only after the second factor, together with recovery consumption and session insertion.
+- New-account provisioning retains registration, email and domain rules. If an account or identity appears concurrently during new-account email recovery, fail and restart rather than silently switching to an existing-account association.
 
 When auto-provisioning a user, the system creates a random internal password. The user can still later manage the account through normal local password reset / change flows.
 
 The GitHub `require_email_verified` missing-email rejection lives in `login.rs`, not in the generic `resolution.rs` path. If another provider has non-substitutable external email-verification semantics, add and test that boundary explicitly.
+
+## Browser binding, MFA and upgrade
+
+The initial login browser proof remains HttpOnly and is stored only as a hash. Recovery issues a per-flow `aster_external_recovery_<flow hash>` cookie for the same proof, scoped to `/api/v1/auth/external-auth`, `SameSite=Lax`, runtime-controlled Secure and at most 1800 seconds. A URL flow or email token never substitutes for this proof. Open confirmation links in the initiating browser. Another browser cannot link, issue a session or consume that browser's valid recovery.
+
+Association challenges bind the recovery flow ID and browser hash to `mfa_login_flows`. Their `aster_mfa_binding_<flow hash>` cookie is limited to authentication paths and 300 seconds; both MFA email-code send and challenge verification check it. Ordinary MFA retains its existing behavior. Abandoning MFA creates no permanent association. Completion rechecks account generation/status, current provider and email/domain scope. Identity creation, recovery and factor consumption, required security audit and session insertion commit or roll back together.
+
+Migration `m20261107_000001_bind_external_recovery` adds nullable fields only; existing accounts, identities and files are unchanged. Old unbound recovery flows require a new external login. Existing ordinary MFA flows keep NULL fields and remain supported. Upgrade all authentication writers before accepting the new security contract; mixed old/new writers do not establish it.
 
 ## API entry points
 

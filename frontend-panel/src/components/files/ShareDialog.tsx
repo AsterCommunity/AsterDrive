@@ -337,6 +337,7 @@ function ShareDialogContent({
 								</Label>
 								<Input
 									id="max-downloads"
+									aria-describedby="share-download-limit-hint"
 									type="number"
 									placeholder={t("share:share_download_limit_placeholder")}
 									value={maxDownloads}
@@ -347,6 +348,12 @@ function ShareDialogContent({
 										})
 									}
 								/>
+								<p
+									id="share-download-limit-hint"
+									className="text-xs text-muted-foreground"
+								>
+									{t("share:share_download_limit_hint")}
+								</p>
 							</div>
 						)}
 					</form>

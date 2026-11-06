@@ -30,6 +30,7 @@ pub use providers::{
     list_provider_kinds, list_provider_kinds_with_origin, list_public_providers,
     list_public_providers_by_kind, test_provider, test_provider_params, update_provider,
 };
+pub(crate) use verification::complete_pending_link;
 pub use verification::{confirm_email_verification, start_email_verification};
 
 const FLOW_TTL_SECS: u64 = 300;
@@ -186,6 +187,21 @@ pub struct ExternalAuthLinkInfo {
     pub last_login_at: Option<chrono::DateTime<Utc>>,
 }
 
+/// No credential is included in Debug or public JSON. Construction follows browser proof and
+/// first-factor verification; the final transaction independently checks the persisted flow.
+#[derive(Clone)]
+pub struct PendingExternalLink {
+    pub flow_id: i64,
+    pub browser_pfoxum: String,
+}
+impl std::fmt::Debug for PendingExternalLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingExternalLink")
+            .field("flow_id", &self.flow_id)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ExternalAuthPrimaryLogin {
     pub user: user::Model,
@@ -195,6 +211,8 @@ pub struct ExternalAuthPrimaryLogin {
     pub subject: String,
     pub linked: bool,
     pub auto_provisioned: bool,
+    /// Pending association is committed by the authenticated completion transaction only.
+    pub pending_link: Option<PendingExternalLink>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -443,6 +461,8 @@ pub struct ExternalAuthProviderAuditDetails<'a> {
 }
 
 pub struct PendingExternalAuthEmailVerification {
+    pub flow_id: i64,
+    pub browser_pfoxum: String,
     pub flow_token: String,
     pub return_path: String,
 }

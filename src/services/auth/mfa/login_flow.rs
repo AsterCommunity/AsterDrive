@@ -44,6 +44,22 @@ pub enum PrimaryLoginCompletion {
     MfaRequired(MfaChallengeStart),
 }
 
+pub struct MfaBrowserBinding {
+    pub secret: String,
+}
+impl std::fmt::Debug for MfaBrowserBinding {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MfaBrowserBinding { .. }")
+    }
+}
+impl Clone for MfaBrowserBinding {
+    fn clone(&self) -> Self {
+        Self {
+            secret: self.secret.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct MfaChallengeStart {
@@ -52,6 +68,8 @@ pub struct MfaChallengeStart {
     pub flow_token: String,
     pub expires_in: u64,
     pub methods: Vec<MfaMethod>,
+    #[serde(skip)]
+    pub browser_binding: Option<MfaBrowserBinding>,
 }
 
 #[derive(Debug)]
@@ -94,13 +112,45 @@ pub async fn complete_primary_login_or_start_mfa(
     return_path: Option<&str>,
     ip_address: Option<&str>,
     user_agent: Option<&str>,
+    pending_link: Option<&crate::services::auth::external::PendingExternalLink>,
 ) -> Result<PrimaryLoginCompletion> {
     let methods = available_challenge_methods(state.writer_db(), state, user).await?;
     if methods.is_empty() {
-        let password_change_required = local::password_change_required_for_login(state, user);
+        let txn = transaction::begin(state.writer_db()).await?;
+        let current = user_repo::lock_by_id(&txn, user.id).await?;
+        // First-factor verification can precede the transaction. Bind completion to exactly
+        // that account generation (password rehash alone does not revoke it), and never authorize from its stale snapshot.
+        if current.session_version != user.session_version || !current.status.is_active() {
+            return Err(AsterError::auth_token_invalid(
+                "account changed during login completion",
+            ));
+        }
+        // A method list collected before this transaction is only a UI/dispatch snapshot.
+        // Never complete a pending association if a second factor is now required.
+        if !available_challenge_methods(&txn, state, &current)
+            .await?
+            .is_empty()
+        {
+            return Err(AsterError::auth_token_invalid(
+                "authentication requirements changed; restart login",
+            ));
+        }
+        let password_change_required = local::password_change_required_for_login(state, &current);
+        if let Some(pending) = pending_link {
+            crate::services::auth::external::complete_pending_link(
+                &txn,
+                pending,
+                &current,
+                &AuditRequestInfo {
+                    ip_address: ip_address.map(str::to_string),
+                    user_agent: user_agent.map(str::to_string),
+                },
+            )
+            .await?;
+        }
         let (access_token, refresh_token) =
-            local::issue_tokens_for_user(state.writer_db(), state, user, ip_address, user_agent)
-                .await?;
+            local::issue_tokens_for_user(&txn, state, &current, ip_address, user_agent).await?;
+        transaction::commit(txn).await?;
         return Ok(PrimaryLoginCompletion::Authenticated(local::LoginResult {
             access_token,
             refresh_token,
@@ -115,9 +165,12 @@ pub async fn complete_primary_login_or_start_mfa(
             user,
             first_factor,
             return_path,
-            ip_address,
-            user_agent,
+            &AuditRequestInfo {
+                ip_address: ip_address.map(str::to_string),
+                user_agent: user_agent.map(str::to_string),
+            },
             methods,
+            pending_link,
         )
         .await?,
     ))
@@ -142,9 +195,9 @@ pub async fn create_login_flow(
     user: &user::Model,
     first_factor: MfaFirstFactor,
     return_path: Option<&str>,
-    ip_address: Option<&str>,
-    user_agent: Option<&str>,
+    audit_info: &AuditRequestInfo,
     methods: Vec<MfaMethod>,
+    pending_link: Option<&crate::services::auth::external::PendingExternalLink>,
 ) -> Result<MfaChallengeStart> {
     let flow_token = format!("mfa_{}", aster_forge_utils::id::new_short_token());
     let now = Utc::now();
@@ -156,9 +209,11 @@ pub async fn create_login_flow(
             user_id: Set(user.id),
             user_session_version: Set(user.session_version),
             first_factor: Set(first_factor),
+            external_recovery_flow_id: Set(pending_link.map(|p| p.flow_id)),
+            browser_binding_hash: Set(pending_link.map(|p| crypto::token_hash(&p.browser_pfoxum))),
             return_path: Set(return_path.map(str::to_string)),
-            ip_address: Set(ip_address.map(str::to_string)),
-            user_agent: Set(user_agent.map(str::to_string)),
+            ip_address: Set(audit_info.ip_address.clone()),
+            user_agent: Set(audit_info.user_agent.clone()),
             attempt_count: Set(0),
             expires_at: Set(now + Duration::seconds(ttl)),
             consumed_at: Set(None),
@@ -173,6 +228,9 @@ pub async fn create_login_flow(
         flow_token,
         expires_in: MFA_LOGIN_FLOW_TTL_SECS,
         methods,
+        browser_binding: pending_link.map(|p| MfaBrowserBinding {
+            secret: p.browser_pfoxum.clone(),
+        }),
     })
 }
 
@@ -188,6 +246,7 @@ pub async fn send_email_code(
     state: &impl MailRuntimeState,
     flow_token: &str,
     audit_info: &AuditRequestInfo,
+    browser_proof: Option<&str>,
 ) -> Result<MfaEmailCodeSendResponse> {
     let normalized_flow_token = flow_token.trim();
     if normalized_flow_token.is_empty() {
@@ -207,6 +266,7 @@ pub async fn send_email_code(
         state,
         &flow_token_hash,
         &policy,
+        browser_proof,
         Utc::now(),
     )
     .await?;
@@ -222,7 +282,8 @@ pub async fn send_email_code(
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let (flow, user, effective_expires_in) =
-            validate_email_code_send(&txn, state, &flow_token_hash, &policy, now).await?;
+            validate_email_code_send(&txn, state, &flow_token_hash, &policy, browser_proof, now)
+                .await?;
 
         mfa_email_code_repo::consume_active_for_user(&txn, user.id, now).await?;
         let ttl = u64_to_i64(effective_expires_in, "email code ttl")?;
@@ -365,12 +426,14 @@ async fn validate_email_code_send<C: ConnectionTrait>(
     state: &impl SharedRuntimeState,
     flow_token_hash: &str,
     policy: &RuntimeEmailCodeLoginPolicy,
+    browser_proof: Option<&str>,
     now: chrono::DateTime<Utc>,
 ) -> Result<(mfa_login_flow::Model, user::Model, u64)> {
     let flow = mfa_login_flow_repo::find_by_flow_token_hash(db, flow_token_hash)
         .await?
         .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
     ensure_flow_active(&flow, now)?;
+    ensure_mfa_browser(&flow, browser_proof)?;
 
     let user = user_repo::find_by_id(db, flow.user_id).await?;
     ensure_flow_user_valid(&user, &flow)?;
@@ -413,6 +476,7 @@ pub async fn verify_challenge(
     method: MfaMethod,
     code: &str,
     audit_info: &AuditRequestInfo,
+    browser_proof: Option<&str>,
 ) -> Result<MfaChallengeLoginResult> {
     let normalized_flow_token = flow_token.trim();
     if normalized_flow_token.is_empty() {
@@ -423,6 +487,7 @@ pub async fn verify_challenge(
     let preflight_now = Utc::now();
     let preflight_flow =
         load_active_flow(state.writer_db(), &flow_token_hash, preflight_now).await?;
+    ensure_mfa_browser(&preflight_flow, browser_proof)?;
     ensure_first_factor_allowed(
         preflight_flow.first_factor,
         RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
@@ -458,11 +523,12 @@ pub async fn verify_challenge(
             .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
         let now = Utc::now(); // Lock wait must not extend the flow or email-code lifetime.
         ensure_flow_active(&flow, now)?;
+        ensure_mfa_browser(&flow, browser_proof)?;
         ensure_first_factor_allowed(
             flow.first_factor,
             RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
         )?;
-        let user = user_repo::find_by_id(&txn, flow.user_id).await?;
+        let user = user_repo::lock_by_id(&txn, flow.user_id).await?;
         ensure_flow_user_valid(&user, &flow)?;
         let user_id = user.id;
 
@@ -557,6 +623,18 @@ pub async fn verify_challenge(
             return Err(flow_invalid("MFA flow has already been consumed"));
         }
 
+        if let Some(flow_id) = flow.external_recovery_flow_id {
+            crate::services::auth::external::complete_pending_link(
+                &txn,
+                &crate::services::auth::external::PendingExternalLink {
+                    flow_id,
+                    browser_pfoxum: browser_proof.unwrap_or_default().to_string(),
+                },
+                &user,
+                audit_info,
+            )
+            .await?;
+        }
         let password_change_required = local::password_change_required_for_login(state, &user);
         let (access_token, refresh_token) = local::issue_tokens_for_user(
             &txn,
@@ -879,6 +957,22 @@ fn format_email_code_expires_in(ttl_secs: u64) -> String {
         "1 second".to_string()
     } else {
         format!("{ttl_secs} seconds")
+    }
+}
+
+/// Normal MFA retains its existing bearer-flow behavior. An association challenge additionally
+/// requires the initiating browser proof; moving its flow URL cannot change authentication methods.
+fn ensure_mfa_browser(flow: &mfa_login_flow::Model, proof: Option<&str>) -> Result<()> {
+    match (
+        flow.external_recovery_flow_id,
+        flow.browser_binding_hash.as_deref(),
+        proof,
+    ) {
+        (None, None, _) => Ok(()),
+        (Some(_), Some(expected), Some(proof)) if expected == crypto::token_hash(proof) => Ok(()),
+        _ => Err(flow_invalid(
+            "MFA association requires its initiating browser",
+        )),
     }
 }
 

@@ -88,6 +88,25 @@ pub async fn find_by_id<C: ConnectionTrait>(
         .ok_or_else(|| AsterError::record_not_found(format!("external auth provider #{id}")))
 }
 
+/// Hold current provider settings through an identity-association transaction. Admin edits and
+/// deletion update the same row, so policy approval and the new sign-in method commit in order.
+pub async fn lock_by_id<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<external_auth_provider::Model> {
+    use sea_orm::{DbBackend, QuerySelect};
+    let query = ExternalAuthProvider::find_by_id(id);
+    let query = match db.get_database_backend() {
+        DbBackend::Sqlite => query,
+        _ => query.lock_exclusive(),
+    };
+    query
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .ok_or_else(|| AsterError::record_not_found(format!("external auth provider #{id}")))
+}
+
 pub async fn find_by_kind_key(
     db: &DatabaseConnection,
     kind: ExternalAuthProviderKind,

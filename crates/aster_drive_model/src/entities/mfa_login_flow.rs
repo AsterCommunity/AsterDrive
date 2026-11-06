@@ -23,6 +23,10 @@ pub struct Model {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub attempt_count: i32,
+    #[serde(skip_serializing)]
+    pub external_recovery_flow_id: Option<i64>,
+    #[serde(skip_serializing)]
+    pub browser_binding_hash: Option<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]

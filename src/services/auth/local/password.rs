@@ -87,6 +87,7 @@ pub async fn login(
             None,
             ip_address,
             user_agent,
+            None,
         )
         .await?;
 

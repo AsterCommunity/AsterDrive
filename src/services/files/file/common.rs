@@ -19,10 +19,12 @@ pub(crate) fn requires_inline_sandbox(mime_type: &str) -> bool {
         .trim()
         .to_ascii_lowercase();
 
+    // Generic XML can contain active XHTML/SVG namespaces too. +xml types use the same
+    // document renderer; isolate all XML representations rather than trusting their labels.
     matches!(
         normalized.as_str(),
-        "text/html" | "application/xhtml+xml" | "image/svg+xml"
-    )
+        "text/html" | "application/xml" | "text/xml"
+    ) || normalized.ends_with("+xml")
 }
 
 pub(crate) fn ensure_personal_file_scope(file: &file::Model) -> Result<()> {
@@ -54,6 +56,9 @@ mod tests {
         assert!(requires_inline_sandbox("application/xhtml+xml"));
         assert!(requires_inline_sandbox("image/svg+xml"));
         assert!(requires_inline_sandbox("text/html; charset=utf-8"));
+        assert!(requires_inline_sandbox("application/xml"));
+        assert!(requires_inline_sandbox("text/xml; charset=UTF-8"));
+        assert!(requires_inline_sandbox("application/custom+xml"));
         assert!(!requires_inline_sandbox("text/plain"));
         assert!(!requires_inline_sandbox("application/pdf"));
     }
