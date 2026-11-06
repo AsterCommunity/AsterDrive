@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.7.1] - 2026-11-06
+
 ### Added
 
 - **Admin list filters** — File and Blob lists support debounced inputs, searchable policy and user selectors, and shareable filter URLs. Blob size bounds use independent binary units, with unit changes preserving pending inputs and byte values. Search selectors reuse results for 30 seconds within the admin session. Blob lists can filter by uploader, health and hash kind; share lists can filter by type and user and display target names, with a placeholder for deleted or missing targets. (#719, #720)
