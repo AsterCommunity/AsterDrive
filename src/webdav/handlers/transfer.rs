@@ -34,6 +34,27 @@ pub(crate) const MULTI_RANGE_POLICY: DavMultiRangePolicy = DavMultiRangePolicy::
     DavRangeLimitBehavior::IgnoreRange,
 );
 
+/// WebDAV transports untrusted file bytes on the application origin. Browsers can navigate a
+/// successful GET outside an image/Office viewer, so enforce the file product's active-document
+/// policy on the actual representation response, including HEAD, Range and 304. Bytes, MIME,
+/// validators and dispositions stay intact for WebDAV clients. This does not sandbox configured
+/// embed/WOPI applications: their host pages and protocol JSON use separate response paths.
+pub(crate) fn apply_browser_content_isolation(
+    response: &mut aster_forge_webdav::DavResponse,
+    content_type: &str,
+) {
+    response.headers.insert(
+        http::header::X_CONTENT_TYPE_OPTIONS,
+        http::HeaderValue::from_static("nosniff"),
+    );
+    if crate::services::files::file::requires_inline_sandbox(content_type) {
+        response.headers.insert(
+            http::header::CONTENT_SECURITY_POLICY,
+            http::HeaderValue::from_static(crate::services::files::file::inline_sandbox_csp()),
+        );
+    }
+}
+
 pub(crate) async fn handle_get_head(
     req: &HttpRequest,
     request_head: &DavRequestHead,
@@ -109,6 +130,7 @@ pub(crate) async fn handle_get_head(
         }
     };
     let mut response = plan.response;
+    apply_browser_content_isolation(&mut response, &content_type);
     let requested_ranges = requested_range_count(req);
     let served_ranges = match &plan.body {
         aster_forge_webdav::DavDownloadBody::Empty

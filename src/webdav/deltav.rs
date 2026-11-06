@@ -782,6 +782,7 @@ pub(crate) async fn handle_version_get_head(
         }
     };
     let mut response = plan.response;
+    crate::webdav::handlers::transfer::apply_browser_content_isolation(&mut response, content_type);
     response.headers.insert(
         http::header::CACHE_CONTROL,
         http::HeaderValue::from_static("private, max-age=31536000, immutable"),

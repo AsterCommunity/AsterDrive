@@ -2,6 +2,10 @@
 
 这组文档解释跨 route、service、repository、storage connector 和内部协议的领域边界。它们用于回答“为什么这样拆”和“多个实现必须共同遵守什么”，不是面向用户的配置操作手册。
 
+## 预览与内容安全
+
+- [预览内容与集成应用信任边界](./preview-content-trust.md)：上传内容的 origin 隔离、SVG/PDF 显示、WebDAV 与管理员 embed/WOPI 兼容边界。
+
 ## 身份与认证
 
 - [认证 flow 状态机契约](./auth-flow-state-machine.md)：登录、MFA、恢复、邀请、Passkey 和 session 的共享 lifecycle、transition、并发与前端投影边界。

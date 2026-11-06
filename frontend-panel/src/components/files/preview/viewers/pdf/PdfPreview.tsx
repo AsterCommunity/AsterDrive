@@ -179,16 +179,33 @@ interface PdfDocumentPreviewProps {
 export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	const {
 		blob: documentBlob,
-		blobUrl: documentUrl,
+		blobUrl: sourceUrl,
 		error: documentLoadError,
 		loading: documentLoading,
 		retry: retryDocumentLoad,
 	} = useBlobUrl(resource, { lane: "preview" });
+	const [pdfDisplay, setPdfDisplay] = useState<{
+		blob: Blob;
+		url: string;
+	} | null>(null);
+	useEffect(() => {
+		if (!documentBlob) return;
+		// File names and even the authorized metadata MIME are uploader-controlled. A valid PDF
+		// can also contain HTML after its EOF; PDF.js ignores it, but navigating a text/html Blob
+		// executes it with Drive's origin. Give this viewer its own PDF-typed URL. This preserves
+		// real PDFs served as octet-stream and keeps the original bytes/download unchanged.
+		const pdf =
+			documentBlob.type === "application/pdf"
+				? documentBlob
+				: new Blob([documentBlob], { type: "application/pdf" });
+		const url = URL.createObjectURL(pdf);
+		setPdfDisplay({ blob: documentBlob, url });
+		return () => URL.revokeObjectURL(url);
+	}, [documentBlob]);
+	// Never expose the previous document's URL during replacement or reuse the untyped source URL.
+	const documentUrl = pdfDisplay?.blob === documentBlob ? pdfDisplay.url : null;
 	const downloadPath = resourceRequestPath(resource);
-	const documentFile = useMemo(
-		() => documentBlob ?? (documentUrl ? { url: documentUrl } : null),
-		[documentBlob, documentUrl],
-	);
+	const documentFile = useMemo(() => documentBlob ?? null, [documentBlob]);
 	const [reloadKey, setReloadKey] = useState(0);
 	const handlePdfRetry = useCallback(() => {
 		retryDocumentLoad();
@@ -197,7 +214,7 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 
 	return (
 		<PdfPreviewErrorBoundary
-			key={`${documentUrl ?? "pending"}:${reloadKey}`}
+			key={`${sourceUrl ?? "pending"}:${reloadKey}`}
 			onRetry={handlePdfRetry}
 		>
 			<PdfDocumentPreview

@@ -148,6 +148,45 @@ describe("useBlobUrl", () => {
 		clearBlobUrlCache();
 	});
 
+	it("does not reintroduce same-origin SVG URLs when restoring a persisted thumbnail", async () => {
+		const { cache } = installCacheStorage();
+		const svg =
+			'<svg xmlns="http://www.w3.org/2000/svg"><animate attributeName="x" dur="1s"/></svg>';
+		const svgBlob = new Blob([svg], { type: "image/svg+xml" });
+		mockState.get
+			.mockResolvedValueOnce({
+				status: 200,
+				data: svgBlob,
+				headers: { etag: '"svg"' },
+			})
+			.mockResolvedValue({ status: 304, data: null, headers: {} });
+		let module = await loadHookModule();
+		const first = renderHook(() =>
+			module.useBlobUrl("/svg-thumb", { lane: "thumbnail" }),
+		);
+		await waitFor(() =>
+			expect(first.result.current.blobUrl).toMatch(/^data:image\/svg\+xml/),
+		);
+		const original = first.result.current.blobUrl;
+		first.unmount();
+		module.clearBlobUrlCache();
+		// The fetch polyfill's Response.blob returns a Node Blob, which jsdom FileReader cannot
+		// accept. A real browser Cache returns the same native Blob implementation as FileReader.
+		const cachedResponse = new Response(null, { headers: { ETag: '"svg"' } });
+		vi.spyOn(cachedResponse, "blob").mockResolvedValue(svgBlob);
+		vi.spyOn(cache, "match").mockResolvedValueOnce(cachedResponse);
+		module = await loadHookModule();
+		const second = renderHook(() =>
+			module.useBlobUrl("/svg-thumb", { lane: "thumbnail" }),
+		);
+		await waitFor(() => expect(second.result.current.blobUrl).toBe(original));
+		await waitFor(() => expect(mockState.get).toHaveBeenCalledTimes(2));
+		expect(URL.createObjectURL).not.toHaveBeenCalled();
+		second.unmount();
+		module.clearBlobUrlCache();
+		await module.clearPersistedBlobUrlCache();
+	});
+
 	it("loads blob URLs once and reuses the cache for concurrent consumers", async () => {
 		const imageBlob = new Blob(["image"]);
 		mockState.get.mockResolvedValue({

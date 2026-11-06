@@ -43,6 +43,8 @@
 | 远端节点 / storage target / policy ownership | [远端存储目标归属](../design/remote-storage-target-policy-ownership.md) | `src/services/remote/`、storage policy、remote protocol | direct/reverse tunnel/auto、binding、capability、target selection 和失败映射 |
 | Internal storage / reverse tunnel wire contract | [内部存储 API](../api/internal-storage.md)、[架构概览](../architecture/index.md) | `src/api/routes/internal_storage.rs`、`remote_tunnel.rs`、`src/storage/remote_protocol/` | 签名、版本兼容、path encoding、超时/取消、流式响应和 transport fallback |
 
+预览内容与管理员集成的隔离修改先读[预览信任边界](../design/preview-content-trust.md)，同时验证安全拒绝与 embed/WOPI 正常行为。
+
 ## 协议、安全与运行时
 
 | 任务 | 先读 | 代码入口 | 最低验证 |

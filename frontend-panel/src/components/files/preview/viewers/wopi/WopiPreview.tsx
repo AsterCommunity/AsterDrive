@@ -152,6 +152,11 @@ export function WopiPreview({
 			}
 
 			form.target = target;
+			// Isolate the navigation that actually posts the file-scoped token. Pre-opening a
+			// named window with noopener does not isolate a subsequent form navigation and can
+			// leave an extra blank tab. Embedded WOPI keeps its named iframe and permissions.
+			// Preserve referrer behavior: noreferrer is not needed to remove opener access.
+			form.rel = target === "_blank" ? "noopener" : "";
 			form.submit();
 			return true;
 		},
@@ -184,9 +189,7 @@ export function WopiPreview({
 	}, [active, frameSubmissionKey, mode, requestKey, session, submitToTarget]);
 
 	const openExternally = useCallback(() => {
-		const target = `wopi-external-${Math.random().toString(36).slice(2, 10)}`;
-		window.open("", target, "noopener,noreferrer");
-		submitToTarget(target);
+		submitToTarget("_blank");
 	}, [submitToTarget]);
 
 	if (isLoading) {

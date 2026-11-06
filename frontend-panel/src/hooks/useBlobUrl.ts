@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/dialog-lifecycle";
 import { config } from "@/config/app";
 import { shouldSendResourceCredentials } from "@/lib/apiUrl";
+import { createBlobDisplayUrl } from "@/lib/blobDisplayUrl";
 import { logger } from "@/lib/logger";
 import {
 	type ResourcePath,
@@ -418,7 +419,7 @@ async function fetchBlobUrlFromNetwork({
 		if (blobUrlCache.get(cacheKey) !== owner) {
 			return "";
 		}
-		const objectUrl = URL.createObjectURL(blob);
+		const objectUrl = await createBlobDisplayUrl(blob);
 		if (blobUrlCache.get(cacheKey) !== owner) {
 			URL.revokeObjectURL(objectUrl);
 			return "";
@@ -529,7 +530,7 @@ async function acquireBlobUrl(
 				return "";
 			}
 			if (persisted) {
-				const objectUrl = URL.createObjectURL(persisted.blob);
+				const objectUrl = await createBlobDisplayUrl(persisted.blob);
 				if (blobUrlCache.get(cacheKey) !== entry) {
 					URL.revokeObjectURL(objectUrl);
 					return "";

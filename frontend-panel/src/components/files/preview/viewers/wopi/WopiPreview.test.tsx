@@ -106,6 +106,7 @@ describe("WopiPreview", () => {
 
 		expect(form.action).toBe("https://office.example.com/wopi/edit");
 		expect(form.target).toBe(frame.getAttribute("name"));
+		expect(form.rel).toBe("");
 		expect(frame).toHaveAttribute(
 			"sandbox",
 			"allow-scripts allow-forms allow-popups allow-downloads allow-same-origin allow-top-navigation allow-popups-to-escape-sandbox",
@@ -128,7 +129,7 @@ describe("WopiPreview", () => {
 		});
 	});
 
-	it("uses raw config for new-tab mode and posts to a generated external target", async () => {
+	it("uses raw config for new-tab mode and isolates the actual POST navigation", async () => {
 		renderPreview({
 			createSession: async () => validSession({ mode: undefined }),
 			rawConfig: { mode: "new_tab" },
@@ -141,17 +142,18 @@ describe("WopiPreview", () => {
 			}),
 		);
 
-		expect(window.open).toHaveBeenCalledWith(
-			"",
-			expect.stringMatching(/^wopi-external-/),
-			"noopener,noreferrer",
-		);
+		expect(window.open).not.toHaveBeenCalled();
 		expect(HTMLFormElement.prototype.submit).toHaveBeenCalledTimes(1);
 		const form = document.querySelector("form");
 		if (!(form instanceof HTMLFormElement)) {
 			throw new Error("WOPI form not found");
 		}
-		expect(form.target).toMatch(/^wopi-external-/);
+		expect(form.target).toBe("_blank");
+		expect(form.rel).toBe("noopener");
+		expect(Object.fromEntries(new FormData(form))).toMatchObject({
+			access_token: "token-1",
+			user_id: "42",
+		});
 	});
 
 	it("lets the session mode override a raw iframe config", async () => {
