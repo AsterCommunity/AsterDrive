@@ -90,15 +90,13 @@ impl OssCorsClient {
         }
         url.set_path("/");
         url.set_query(Some("cors"));
-        let client = aster_drive_outbound::ClientConfig::new(
-            aster_drive_outbound::Profile::ProviderControl,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
-        )
-        .connect_timeout(config.connect_timeout)
-        .read_timeout(config.read_timeout)
-        .timeout(config.operation_timeout)
-        .build()
-        .map_aster_err_ctx("build OSS CORS client", AsterError::storage_driver_error)?;
+        let client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
+                .connect_timeout(config.connect_timeout)
+                .read_timeout(config.read_timeout)
+                .timeout(config.operation_timeout)
+                .build()
+                .map_aster_err_ctx("build OSS CORS client", AsterError::storage_driver_error)?;
         Ok(Self {
             client,
             url,
@@ -793,7 +791,7 @@ mod tests {
         url.set_query(Some("cors"));
         let client = OssCorsClient {
             client: aster_forge_http::HttpClient::builder()
-                .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
+                .user_agent(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
                 .build()
                 .unwrap(),
             url,
@@ -809,7 +807,7 @@ mod tests {
             assert!(request.lines().any(|line| {
                 line.split_once(':').is_some_and(|(name, value)| {
                     name.eq_ignore_ascii_case("user-agent")
-                        && value.trim() == crate::config::OUTBOUND_HTTP_USER_AGENT
+                        && value.trim() == aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT
                 })
             }));
             assert!(
@@ -885,7 +883,7 @@ mod tests {
             url.set_query(Some("cors"));
             let client = OssCorsClient {
                 client: aster_forge_http::HttpClient::builder()
-                    .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
+                    .user_agent(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
                     .build()
                     .unwrap(),
                 url,
@@ -937,7 +935,7 @@ mod tests {
         url.set_query(Some("cors"));
         let client = OssCorsClient {
             client: aster_forge_http::HttpClient::builder()
-                .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
+                .user_agent(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
                 .build()
                 .unwrap(),
             url,

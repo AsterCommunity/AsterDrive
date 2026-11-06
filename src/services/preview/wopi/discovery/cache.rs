@@ -19,13 +19,7 @@ static DISCOVERY_CLIENT: LazyLock<std::result::Result<aster_forge_http::HttpClie
     LazyLock::new(build_discovery_client);
 
 fn build_discovery_client() -> std::result::Result<aster_forge_http::HttpClient, String> {
-    build_discovery_client_with_user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
-}
-
-fn build_discovery_client_with_user_agent(
-    user_agent: &str,
-) -> std::result::Result<aster_forge_http::HttpClient, String> {
-    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::Discovery, user_agent)
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::Discovery)
         .timeout(StdDuration::from_secs(5))
         .build()
         .map_err(|error| error.to_string())
@@ -146,7 +140,7 @@ mod tests {
 
     use super::{
         DISCOVERY_CACHE, WOPI_DISCOVERY_XML_MAX_BYTES, build_discovery_client,
-        build_discovery_client_with_user_agent, load_discovery_with_runtime_config,
+        load_discovery_with_runtime_config,
     };
 
     async fn response_url(headers: String, body: Vec<u8>) -> String {
@@ -256,18 +250,7 @@ mod tests {
             })
             .expect("user-agent header should be present");
 
-        assert_eq!(user_agent, crate::config::OUTBOUND_HTTP_USER_AGENT);
-    }
-
-    #[test]
-    fn discovery_client_reports_invalid_user_agent() {
-        let error = build_discovery_client_with_user_agent("bad\r\nuser-agent")
-            .expect_err("invalid user-agent should fail client construction");
-
-        assert!(
-            error.contains("header") || error.contains("builder"),
-            "unexpected client build error: {error}"
-        );
+        assert_eq!(user_agent, aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT);
     }
 
     #[tokio::test]

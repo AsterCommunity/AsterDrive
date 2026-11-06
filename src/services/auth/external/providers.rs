@@ -258,14 +258,11 @@ pub(super) fn external_auth_provider_config(
         email_verified_claim: provider.email_verified_claim.clone(),
         groups_claim: provider.groups_claim.clone(),
         avatar_url_claim: provider.avatar_url_claim.clone(),
-        outbound_http_user_agent: Some(crate::config::OUTBOUND_HTTP_USER_AGENT.to_string()),
+        outbound_http_user_agent: Some(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT.to_string()),
         outbound_http_client: Some(
-            aster_drive_outbound::ClientConfig::new(
-                aster_drive_outbound::Profile::ExternalAuth,
-                crate::config::OUTBOUND_HTTP_USER_AGENT,
-            )
-            .build()
-            .map_err(|_| AsterError::internal_error("build external auth transport"))?,
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
+                .build()
+                .map_err(|_| AsterError::internal_error("build external auth transport"))?,
         ),
     })
 }
@@ -330,14 +327,11 @@ fn external_auth_provider_config_from_test_params(
         email_verified_claim: None,
         groups_claim: None,
         avatar_url_claim: None,
-        outbound_http_user_agent: Some(crate::config::OUTBOUND_HTTP_USER_AGENT.to_string()),
+        outbound_http_user_agent: Some(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT.to_string()),
         outbound_http_client: Some(
-            aster_drive_outbound::ClientConfig::new(
-                aster_drive_outbound::Profile::ExternalAuth,
-                crate::config::OUTBOUND_HTTP_USER_AGENT,
-            )
-            .build()
-            .map_err(|_| AsterError::internal_error("build external auth transport"))?,
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
+                .build()
+                .map_err(|_| AsterError::internal_error("build external auth transport"))?,
         ),
     })
 }

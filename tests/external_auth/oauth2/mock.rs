@@ -1,5 +1,5 @@
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Responder, web};
-use aster_drive::config::OUTBOUND_HTTP_USER_AGENT;
+use aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT;
 use base64::Engine as _;
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};

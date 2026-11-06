@@ -95,7 +95,6 @@ impl PluginTransport {
     pub fn new(
         grant: NetworkGrant,
         limits: PluginLimits,
-        user_agent: impl Into<String>,
         cancellation: CancellationToken,
     ) -> Result<Self, PluginTransportError> {
         if limits.request_bytes == 0
@@ -110,9 +109,15 @@ impl PluginTransport {
         Ok(Self {
             grant,
             limits,
-            user_agent: user_agent.into(),
+            user_agent: crate::OUTBOUND_HTTP_USER_AGENT.to_owned(),
             cancellation,
         })
+    }
+
+    /// Host-only identity override; guest request headers cannot change User-Agent.
+    pub fn user_agent(mut self, value: impl Into<String>) -> Self {
+        self.user_agent = value.into();
+        self
     }
 
     /// Revalidates scope and public DNS answers for every request; redirects are never followed.
@@ -197,7 +202,8 @@ impl PluginTransport {
             return Err(PluginTransportError::Denied);
         }
         // A fresh pinned pool intentionally avoids reusing a connection across DNS authorization changes.
-        let client = ClientConfig::new(Profile::Plugin, self.user_agent.clone())
+        let client = ClientConfig::new(Profile::Plugin)
+            .user_agent(self.user_agent.clone())
             .timeout(self.limits.timeout)
             .resolve_to_addrs(host, &addrs)
             .build()
@@ -289,7 +295,6 @@ mod tests {
         PluginTransport::new(
             NetworkGrant::approved_origin("https://plugin.example").unwrap(),
             limits,
-            "AsterDrive/test",
             cancellation,
         )
         .unwrap()
@@ -302,6 +307,16 @@ mod tests {
             body: Vec::new(),
         }
     }
+    #[test]
+    fn host_transport_inherits_product_identity_and_accepts_an_explicit_override() {
+        let transport = transport(PluginLimits::default(), CancellationToken::new());
+        assert_eq!(transport.user_agent, crate::OUTBOUND_HTTP_USER_AGENT);
+        assert_eq!(
+            transport.user_agent("PluginHost/custom").user_agent,
+            "PluginHost/custom"
+        );
+    }
+
     #[test]
     fn grant_is_an_exact_https_origin_not_a_url_or_wildcard() {
         for origin in [
@@ -379,7 +394,6 @@ mod tests {
         let transport = PluginTransport::new(
             NetworkGrant::approved_origin(&url).unwrap(),
             PluginLimits::default(),
-            "test",
             CancellationToken::new(),
         )
         .unwrap();

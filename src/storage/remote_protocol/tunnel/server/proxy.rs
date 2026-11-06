@@ -60,7 +60,6 @@ impl ClusterRemoteTunnelBroker {
             directory,
             client: aster_drive_outbound::ClientConfig::new(
                 aster_drive_outbound::Profile::InternalStreaming,
-                crate::config::OUTBOUND_HTTP_USER_AGENT,
             )
             .build()
             .map_err(|_| AsterError::internal_error("build cluster tunnel HTTP client"))?,

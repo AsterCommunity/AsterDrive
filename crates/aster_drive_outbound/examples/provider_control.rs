@@ -2,11 +2,7 @@
 use aster_drive_outbound::{ClientConfig, Profile};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = ClientConfig::new(
-        Profile::ProviderControl,
-        concat!("AsterDrive/", env!("CARGO_PKG_VERSION")),
-    )
-    .build()?;
+    let client = ClientConfig::new(Profile::ProviderControl).build()?;
     // Hold this client in the driver. A clone shares its pool.
     if let Some(url) = std::env::args().nth(1) {
         let request = client.get(url).build()?;

@@ -349,7 +349,7 @@ async fn mock_service(
                                     .headers()
                                     .get("user-agent")
                                     .and_then(|value| value.to_str().ok()),
-                                Some(crate::config::OUTBOUND_HTTP_USER_AGENT),
+                                Some(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT),
                                 "Azure Blob CORS management requests must identify AsterDrive",
                             );
                             let mut responses = responses.lock().unwrap();

@@ -122,31 +122,26 @@ impl QiniuDriver {
         // DriverRegistry caches this driver by policy; reqwest clones share each
         // client's connection pool. Build these clients once, never per request.
         // All also reject redirects so signed URLs/UpTokens cannot follow them.
-        let control_client = aster_drive_outbound::ClientConfig::new(
-            aster_drive_outbound::Profile::ProviderControl,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
-        )
-        .connect_timeout(config.connect_timeout)
-        .read_timeout(config.read_timeout)
-        .timeout(config.operation_timeout)
-        .build()
-        .map_err(http::transport_error)?;
+        let control_client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
+                .connect_timeout(config.connect_timeout)
+                .read_timeout(config.read_timeout)
+                .timeout(config.operation_timeout)
+                .build()
+                .map_err(http::transport_error)?;
         let download_client = aster_drive_outbound::ClientConfig::new(
             aster_drive_outbound::Profile::ProviderDownload,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
         )
         .connect_timeout(config.connect_timeout)
         .read_timeout(config.read_timeout)
         .build()
         .map_err(http::transport_error)?;
         // Upload progress/acknowledgement watchdogs remain in send_upload.
-        let upload_client = aster_drive_outbound::ClientConfig::new(
-            aster_drive_outbound::Profile::ProviderUpload,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
-        )
-        .connect_timeout(config.connect_timeout)
-        .build()
-        .map_err(http::transport_error)?;
+        let upload_client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderUpload)
+                .connect_timeout(config.connect_timeout)
+                .build()
+                .map_err(http::transport_error)?;
         Ok(Self {
             config,
             credentials,

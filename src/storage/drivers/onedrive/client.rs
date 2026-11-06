@@ -227,17 +227,15 @@ impl MicrosoftGraphClient {
                 "Microsoft Graph access token cannot be empty",
             ));
         }
-        let http = aster_drive_outbound::ClientConfig::new(
-            aster_drive_outbound::Profile::ProviderControl,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
-        )
-        .without_read_timeout()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_storage_err_ctx(
-            StorageErrorKind::Misconfigured,
-            "failed to build Microsoft Graph HTTP client",
-        )?;
+        let http =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
+                .without_read_timeout()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .map_storage_err_ctx(
+                    StorageErrorKind::Misconfigured,
+                    "failed to build Microsoft Graph HTTP client",
+                )?;
         Ok(Self { config, http })
     }
 

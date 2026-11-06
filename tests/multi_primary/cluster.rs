@@ -3590,7 +3590,11 @@ async fn split_archive_reuses_a_committed_s3_output_after_worker_sigkill() {
         .await
         .unwrap();
     db.execute_unprepared("CREATE FUNCTION archive_terminal_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'succeeded' AND OLD.kind = 'archive_compress' THEN PERFORM pg_advisory_xact_lock(63402); END IF; RETURN NEW; END $$; CREATE TRIGGER archive_terminal_gate BEFORE UPDATE ON background_tasks FOR EACH ROW EXECUTE FUNCTION archive_terminal_gate();").await.unwrap();
+    // Lease takeover deliberately outlives the HTTP factory's control deadline.
+    // read_sse_until owns the bounded event wait; retain the stream across the takeover.
     let sse_client = aster_forge_http::HttpClient::builder()
+        .without_total_timeout()
+        .without_read_timeout()
         .no_proxy()
         .build()
         .unwrap();

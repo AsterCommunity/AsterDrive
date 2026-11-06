@@ -13,7 +13,11 @@ AsterDrive #740 的所有权映射：
 
 ## Profile 与生命周期
 
-`aster_drive_outbound::ClientConfig::new(profile, product_user_agent)` 必须明确用途。
+`aster_drive_outbound::ClientConfig::new(profile)` 必须明确用途，默认使用
+`aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT`（`AsterDrive/<workspace version>`）。
+该常量从主程序 config 移到 outbound crate 统一定义，避免反向依赖或重复定义；
+调用方无需传入身份，有专门用途时通过 `.user_agent("custom identity")` 覆盖。
+PluginTransport 同样默认使用产品 UA，只有 host 可以通过 `.user_agent(...)` 覆盖。
 使用 Driver/Runtime 实例持有 client，clone 复用连接池；管理动作在显式执行时装配，
 不要为了 CORS 动作把独立管理生命周期塞入普通 driver 构造。
 WOPI 和 direct remote 的既有缓存池保留；本次不创建新全局 registry。

@@ -29,23 +29,40 @@ async fn every_profile_uses_product_identity_and_leaves_redirect_to_protocol_own
         Profile::OfflineDownload,
         Profile::Plugin,
     ] {
-        let (url, task) = server(Duration::ZERO).await;
-        let client = ClientConfig::new(profile, "AsterDrive/test")
-            .no_proxy()
-            .build()
-            .unwrap();
-        assert_eq!(
-            client.get(url).send().await.unwrap().status(),
-            307,
-            "{profile:?}"
-        );
-        assert!(task.await.unwrap().contains("AsterDrive/test"));
+        for identity in [None, Some("AsterDrive/custom-agent")] {
+            let (url, task) = server(Duration::ZERO).await;
+            let config = ClientConfig::new(profile);
+            let config = match identity {
+                Some(value) => config.user_agent(value),
+                None => config,
+            };
+            let client = config.no_proxy().build().unwrap();
+            assert_eq!(
+                client.get(url).send().await.unwrap().status(),
+                307,
+                "{profile:?}"
+            );
+            let wire = task.await.unwrap();
+            let actual = wire
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+                        .map(|(_, value)| value.trim())
+                })
+                .unwrap();
+            assert_eq!(
+                actual,
+                identity.unwrap_or(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
+            );
+        }
     }
 }
 #[tokio::test]
 async fn control_deadline_and_upload_progress_owner_remain_distinct() {
     let (url, task) = server(Duration::from_millis(120)).await;
-    let client = ClientConfig::new(Profile::ProviderControl, "test")
+    let client = ClientConfig::new(Profile::ProviderControl)
+        .user_agent("test")
         .no_proxy()
         .timeout(Duration::from_millis(25))
         .build()
@@ -53,7 +70,8 @@ async fn control_deadline_and_upload_progress_owner_remain_distinct() {
     assert!(client.get(url).send().await.unwrap_err().is_timeout());
     task.await.unwrap();
     let (url, task) = server(Duration::from_millis(120)).await;
-    let client = ClientConfig::new(Profile::ProviderDownload, "test")
+    let client = ClientConfig::new(Profile::ProviderDownload)
+        .user_agent("test")
         .no_proxy()
         .read_timeout(Duration::from_millis(25))
         .build()
@@ -61,7 +79,8 @@ async fn control_deadline_and_upload_progress_owner_remain_distinct() {
     assert!(client.get(url).send().await.unwrap_err().is_timeout());
     task.await.unwrap();
     let (url, task) = server(Duration::from_millis(120)).await;
-    let client = ClientConfig::new(Profile::ProviderUpload, "test")
+    let client = ClientConfig::new(Profile::ProviderUpload)
+        .user_agent("test")
         .no_proxy()
         .build()
         .unwrap();
@@ -80,7 +99,8 @@ async fn control_deadline_and_upload_progress_owner_remain_distinct() {
 #[test]
 fn invalid_identity_fails_before_sending_requests() {
     assert!(
-        ClientConfig::new(Profile::ExternalAuth, "bad\r\nidentity")
+        ClientConfig::new(Profile::ExternalAuth)
+            .user_agent("bad\r\nidentity")
             .build()
             .is_err()
     );
@@ -89,7 +109,8 @@ fn invalid_identity_fails_before_sending_requests() {
 async fn pinning_a_validated_host_takes_precedence_over_a_proxy() {
     let (url, task) = server(Duration::ZERO).await;
     let addr = url.trim_start_matches("http://").parse().unwrap();
-    let client = ClientConfig::new(Profile::OfflineDownload, "test")
+    let client = ClientConfig::new(Profile::OfflineDownload)
+        .user_agent("test")
         .proxy(reqwest::Proxy::all("http://127.0.0.1:1").unwrap())
         .resolve_to_addrs("fixture.invalid", &[addr])
         .build()

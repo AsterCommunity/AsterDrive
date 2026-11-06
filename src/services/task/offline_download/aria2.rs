@@ -92,7 +92,7 @@ impl Aria2OfflineDownloadEngine {
             follow_torrent: "false".to_string(),
             follow_metalink: "false".to_string(),
             max_redirect: "0".to_string(),
-            user_agent: crate::config::OUTBOUND_HTTP_USER_AGENT.to_string(),
+            user_agent: aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT.to_string(),
             split: self.split.to_string(),
             max_connection_per_server: self.max_connection_per_server.to_string(),
             lowest_speed_limit: self
@@ -401,13 +401,11 @@ impl Aria2RpcClient {
     ) -> Result<Self> {
         let endpoint = Url::parse(endpoint)
             .map_aster_err_ctx("parse aria2 RPC URL", AsterError::validation_error)?;
-        let client = aster_drive_outbound::ClientConfig::new(
-            aster_drive_outbound::Profile::InternalControl,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
-        )
-        .timeout(timeout)
-        .build()
-        .map_aster_err_ctx("build aria2 RPC HTTP client", AsterError::internal_error)?;
+        let client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
+                .timeout(timeout)
+                .build()
+                .map_aster_err_ctx("build aria2 RPC HTTP client", AsterError::internal_error)?;
         Ok(Self {
             endpoint,
             secret,

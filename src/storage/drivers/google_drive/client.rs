@@ -2,20 +2,17 @@
 use super::*;
 
 pub(crate) fn http_client() -> Result<aster_forge_http::HttpClient> {
-    aster_drive_outbound::ClientConfig::new(
-        aster_drive_outbound::Profile::ProviderDownload,
-        crate::config::OUTBOUND_HTTP_USER_AGENT,
-    )
-    // Drive uses 308 as a resumable acknowledgement, not a redirect.
-    .connect_timeout(Duration::from_secs(15))
-    .read_timeout(Duration::from_secs(120))
-    .build()
-    .map_err(|_| {
-        storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            "cannot build Google Drive HTTP client",
-        )
-    })
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderDownload)
+        // Drive uses 308 as a resumable acknowledgement, not a redirect.
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|_| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "cannot build Google Drive HTTP client",
+            )
+        })
 }
 
 #[derive(Deserialize)]

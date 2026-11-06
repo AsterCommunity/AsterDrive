@@ -29,18 +29,15 @@ const DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS: u64 = 60 * 60;
 
 static REMOTE_HTTP_CLIENT: LazyLock<std::result::Result<aster_forge_http::HttpClient, String>> =
     LazyLock::new(|| {
-        aster_drive_outbound::ClientConfig::new(
-            aster_drive_outbound::Profile::InternalTransfer,
-            crate::config::OUTBOUND_HTTP_USER_AGENT,
-        )
-        .connect_timeout(Duration::from_secs(DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS))
-        .read_timeout(Duration::from_secs(DEFAULT_REMOTE_READ_TIMEOUT_SECS))
-        .timeout(Duration::from_secs(DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS))
-        // 内部协议签名绑定 method/path/timestamp，重定向会让签名头原样
-        // 发往第三方地址（凭据泄露），且跨路径跳转必然验签失败；
-        // 禁止跟随重定向，把 3xx 作为错误暴露给调用方。
-        .build()
-        .map_err(|e| format!("build remote HTTP client: {e}"))
+        aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalTransfer)
+            .connect_timeout(Duration::from_secs(DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS))
+            .read_timeout(Duration::from_secs(DEFAULT_REMOTE_READ_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS))
+            // 内部协议签名绑定 method/path/timestamp，重定向会让签名头原样
+            // 发往第三方地址（凭据泄露），且跨路径跳转必然验签失败；
+            // 禁止跟随重定向，把 3xx 作为错误暴露给调用方。
+            .build()
+            .map_err(|e| format!("build remote HTTP client: {e}"))
     });
 
 pub enum RemoteRequestBody {

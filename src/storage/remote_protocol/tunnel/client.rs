@@ -1511,17 +1511,14 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
 }
 
 fn tunnel_http_client() -> Result<aster_forge_http::HttpClient> {
-    aster_drive_outbound::ClientConfig::new(
-        aster_drive_outbound::Profile::InternalControl,
-        crate::config::OUTBOUND_HTTP_USER_AGENT,
-    )
-    .connect_timeout(FOLLOWER_TUNNEL_CONNECT_TIMEOUT)
-    .read_timeout(FOLLOWER_TUNNEL_READ_TIMEOUT)
-    .timeout(FOLLOWER_TUNNEL_OPERATION_TIMEOUT)
-    .build()
-    .map_err(|error| {
-        AsterError::internal_error(format!("tunnel_http_client build tunnel client: {error}"))
-    })
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
+        .connect_timeout(FOLLOWER_TUNNEL_CONNECT_TIMEOUT)
+        .read_timeout(FOLLOWER_TUNNEL_READ_TIMEOUT)
+        .timeout(FOLLOWER_TUNNEL_OPERATION_TIMEOUT)
+        .build()
+        .map_err(|error| {
+            AsterError::internal_error(format!("tunnel_http_client build tunnel client: {error}"))
+        })
 }
 
 fn binding_worker_fingerprint(binding: &master_binding::Model) -> String {

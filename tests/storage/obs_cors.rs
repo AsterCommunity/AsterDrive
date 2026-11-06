@@ -82,7 +82,7 @@ impl ObsService {
                                         .unwrap()
                                         .to_str()
                                         .unwrap(),
-                                    aster_drive::config::OUTBOUND_HTTP_USER_AGENT
+                                    aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT
                                 );
                                 let mut state = state.lock().unwrap();
                                 state.requests.push((

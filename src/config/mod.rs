@@ -39,8 +39,6 @@ use std::sync::OnceLock;
 
 static CONFIG: OnceLock<Arc<Config>> = OnceLock::new();
 
-pub const OUTBOUND_HTTP_USER_AGENT: &str = concat!("AsterDrive/", env!("CARGO_PKG_VERSION"));
-
 pub fn init_config() -> crate::errors::Result<ConfigLoadReport> {
     let loaded = loader::load()?;
     CONFIG.get_or_init(|| Arc::new(loaded.config));

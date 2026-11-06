@@ -220,17 +220,14 @@ async fn ack_enrollment(master_url: &str, ack_token: &str) -> Result<()> {
 }
 
 fn node_enrollment_http_client() -> Result<aster_forge_http::HttpClient> {
-    aster_drive_outbound::ClientConfig::new(
-        aster_drive_outbound::Profile::InternalControl,
-        crate::config::OUTBOUND_HTTP_USER_AGENT,
-    )
-    .timeout(Duration::from_secs(10))
-    .build()
-    .map_err(|error| {
-        AsterError::internal_error(format!(
-            "failed to build node enrollment HTTP client: {error}"
-        ))
-    })
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| {
+            AsterError::internal_error(format!(
+                "failed to build node enrollment HTTP client: {error}"
+            ))
+        })
 }
 
 async fn parse_api_response<T: for<'de> Deserialize<'de>>(

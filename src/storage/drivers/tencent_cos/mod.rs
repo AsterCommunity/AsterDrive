@@ -309,15 +309,12 @@ impl TencentCosDriver {
 }
 
 fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<aster_forge_http::HttpClient> {
-    aster_drive_outbound::ClientConfig::new(
-        aster_drive_outbound::Profile::ProviderControl,
-        crate::config::OUTBOUND_HTTP_USER_AGENT,
-    )
-    .connect_timeout(config.connect_timeout)
-    .read_timeout(config.read_timeout)
-    .timeout(config.operation_timeout)
-    .build()
-    .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build COS CI HTTP client")
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
+        .connect_timeout(config.connect_timeout)
+        .read_timeout(config.read_timeout)
+        .timeout(config.operation_timeout)
+        .build()
+        .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build COS CI HTTP client")
 }
 
 #[async_trait::async_trait]

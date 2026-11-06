@@ -10,6 +10,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Canonical product identity, shared by all Drive workspace packages at the same version.
+/// Keep this in the outbound policy crate so transport does not depend on the main application.
+pub const OUTBOUND_HTTP_USER_AGENT: &str = concat!("AsterDrive/", env!("CARGO_PKG_VERSION"));
+
 /// Purpose is mandatory and participates in telemetry; profiles never permit redirects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
@@ -63,8 +67,8 @@ enum ProxyPolicy {
 }
 
 impl ClientConfig {
-    /// The product supplies its identity rather than inheriting a transport-crate version.
-    pub fn new(profile: Profile, user_agent: impl Into<String>) -> Self {
+    /// Select a purpose and inherit the standard AsterDrive product identity.
+    pub fn new(profile: Profile) -> Self {
         let (connect_timeout, read_timeout, timeout) = match profile {
             Profile::ProviderControl => (5, Some(30), Some(60)),
             Profile::ProviderDownload => (5, Some(30), None),
@@ -80,7 +84,7 @@ impl ClientConfig {
         };
         Self {
             profile,
-            user_agent: user_agent.into(),
+            user_agent: OUTBOUND_HTTP_USER_AGENT.to_owned(),
             connect_timeout: Duration::from_secs(connect_timeout),
             read_timeout: read_timeout.map(Duration::from_secs),
             timeout: timeout.map(Duration::from_secs),
@@ -93,6 +97,12 @@ impl ClientConfig {
             pinned: None,
             observer: None,
         }
+    }
+    /// Override product identity for this client without changing its transport profile.
+    /// Invalid header values fail at build time, before any request is sent.
+    pub fn user_agent(mut self, value: impl Into<String>) -> Self {
+        self.user_agent = value.into();
+        self
     }
     pub fn connect_timeout(mut self, value: Duration) -> Self {
         self.connect_timeout = value;
