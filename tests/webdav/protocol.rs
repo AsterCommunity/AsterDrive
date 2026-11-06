@@ -1874,7 +1874,9 @@ async fn test_webdav_real_http_put_with_content_length_persists_bytes() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let data: Vec<u8> = (0..=255).cycle().take(8193).collect();
 
     let put = client
@@ -1914,7 +1916,9 @@ async fn test_webdav_real_http_percent_encoded_hash_filename_round_trip() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let encoded_hash_url = format!("{}/webdav/windows%23name.txt", server.base_url);
 
     let put = client
@@ -1948,7 +1952,9 @@ async fn test_webdav_real_http_rclone_propfind_reports_uploaded_size_with_declar
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let data: Vec<u8> = (0..=255).cycle().take(129106).collect();
     let url = format!("{}/webdav/rclone-size-check.bin", server.base_url);
 
@@ -2010,7 +2016,9 @@ async fn test_webdav_real_http_chunked_put_persists_bytes() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let data: Vec<u8> = (0..=251).cycle().take(16 * 1024 + 17).collect();
     let chunks = futures::stream::iter(
         data.chunks(1024)
@@ -2057,7 +2065,9 @@ async fn test_webdav_real_http_finder_expected_length_put_persists_bytes() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let data: Vec<u8> = (0..=253).cycle().take(32 * 1024 + 29).collect();
     let chunks = futures::stream::iter(
         data.chunks(2048)
@@ -2108,7 +2118,9 @@ async fn test_webdav_real_http_expected_length_mismatch_does_not_create_empty_fi
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
 
     let put = client
         .put(format!("{}/webdav/finder-empty-shell.bin", server.base_url))
@@ -2141,7 +2153,9 @@ async fn test_webdav_real_http_put_with_own_lock_overwrites_placeholder() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let url = format!("{}/webdav/finder-locked-overwrite.jar", server.base_url);
 
     let placeholder = client
@@ -2241,7 +2255,9 @@ async fn test_webdav_real_http_team_account_uses_team_workspace() {
     let (team_username, team_password, personal_username, personal_password, _team_id) =
         seed_real_team_webdav_accounts(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let url = format!("{}/webdav/team-scope.bin", server.base_url);
     let data: Vec<u8> = (0..=247).cycle().take(64 * 1024 + 13).collect();
 
@@ -2298,7 +2314,9 @@ async fn test_webdav_real_http_team_account_is_rejected_after_team_archive() {
     let (team_username, team_password, _, _, team_id) =
         seed_real_team_webdav_accounts(&state).await;
     let server = start_real_webdav_server(state.clone()).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let url = format!("{}/webdav/team-archive-check.bin", server.base_url);
 
     let before_archive = client
@@ -2342,7 +2360,9 @@ async fn test_webdav_real_http_large_chunked_put_uses_webdav_payload_limit() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let data: Vec<u8> = (0..=250).cycle().take(11 * 1024 * 1024).collect();
     let chunks = futures::stream::iter(
         data.chunks(64 * 1024)

@@ -18,7 +18,10 @@ use aster_drive_storage::StorageErrorKind;
 /// binding projection. Returns `true` only when the persisted bindings are
 /// available through the runtime registry and can be acknowledged after the
 /// worker topology has also been reconciled.
-pub async fn reconcile_all<S: FollowerRuntimeState>(state: &S, client: &reqwest::Client) -> bool {
+pub async fn reconcile_all<S: FollowerRuntimeState>(
+    state: &S,
+    client: &aster_forge_http::HttpClient,
+) -> bool {
     let bindings = match master_binding_repo::find_all(state.writer_db()).await {
         Ok(bindings) => bindings,
         Err(error) => {
@@ -110,7 +113,7 @@ async fn apply_desired_state<S: FollowerRuntimeState>(
 }
 
 async fn pull_desired_state(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     binding: &master_binding::Model,
 ) -> Result<Option<RemoteBindingDesiredState>> {
     let url = format!(
@@ -205,9 +208,14 @@ mod tests {
             updated_at: now,
         };
 
-        let error = pull_desired_state(&reqwest::Client::new(), &binding)
-            .await
-            .expect_err("non-success binding control response should fail");
+        let error = pull_desired_state(
+            &aster_forge_http::HttpClient::builder()
+                .build()
+                .expect("test HTTP client"),
+            &binding,
+        )
+        .await
+        .expect_err("non-success binding control response should fail");
 
         assert_eq!(
             error.storage_error_kind(),

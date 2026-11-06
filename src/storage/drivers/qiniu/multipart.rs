@@ -87,7 +87,7 @@ impl QiniuDriver {
         method: Method,
         path: &str,
         id: &str,
-    ) -> Result<(reqwest::RequestBuilder, MultipartSession)> {
+    ) -> Result<(aster_forge_http::HttpRequestBuilder, MultipartSession)> {
         let session = self.session(path, id)?;
         let token = self.upload_token(
             &session.key,

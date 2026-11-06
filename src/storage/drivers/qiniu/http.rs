@@ -125,7 +125,7 @@ impl QiniuDriver {
     /// this policy: a continuously progressing upload may legitimately take hours.
     pub(super) async fn send_upload<T: DeserializeOwned>(
         &self,
-        builder: reqwest::RequestBuilder,
+        builder: aster_forge_http::HttpRequestBuilder,
     ) -> Result<T> {
         let mut request = builder.build().map_err(transport_error)?;
         let progress = std::sync::Arc::new(tokio::sync::Notify::new());

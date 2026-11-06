@@ -75,7 +75,7 @@ pub(super) struct GoogleTokenProvider {
     policy_id: i64,
     cache: Mutex<GoogleDriveCredentialV1>,
     token_url: String,
-    http: reqwest::Client,
+    http: aster_forge_http::HttpClient,
     usage: CredentialUse,
 }
 impl std::fmt::Debug for GoogleTokenProvider {

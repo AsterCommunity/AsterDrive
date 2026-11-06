@@ -339,7 +339,7 @@ fn prepare_aria2_test_config(temp_dir: &Path, rpc_secret: &str) -> std::io::Resu
 }
 
 async fn wait_for_aria2_rpc(rpc_url: &str, rpc_secret: &str) -> Result<(), String> {
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(std::time::Duration::from_secs(2))
         .build()
         .expect("aria2 wait client should build");

@@ -682,9 +682,9 @@ impl ProviderResumableUploadDriver for UploadDataPlaneProbe {
 }
 
 fn presigned_put_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     request: &aster_drive_storage::PresignedUploadRequest,
-) -> reqwest::RequestBuilder {
+) -> aster_forge_http::HttpRequestBuilder {
     request
         .headers
         .iter()
@@ -694,9 +694,9 @@ fn presigned_put_request(
 }
 
 fn multipart_put_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     request: &aster_drive_storage::BrowserUploadRequest,
-) -> reqwest::RequestBuilder {
+) -> aster_forge_http::HttpRequestBuilder {
     assert!(
         request.authorization.is_none(),
         "S3 test fixtures use signed URLs"
@@ -3596,7 +3596,14 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         "presigned URL should preserve attachment filename"
     );
 
-    let response = reqwest::get(&location).await.unwrap();
+    let response = aster_forge_http::HttpClient::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(&location)
+        .send()
+        .await
+        .unwrap();
     assert!(response.status().is_success());
     assert_eq!(
         response
@@ -3643,7 +3650,14 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         direct_inline_location.contains("response-content-disposition="),
         "direct-link inline presigned URL should preserve inline filename"
     );
-    let direct_inline_response = reqwest::get(&direct_inline_location).await.unwrap();
+    let direct_inline_response = aster_forge_http::HttpClient::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(&direct_inline_location)
+        .send()
+        .await
+        .unwrap();
     assert!(direct_inline_response.status().is_success());
     assert_eq!(
         direct_inline_response
@@ -3683,7 +3697,14 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         "direct-link presigned URL should preserve attachment filename"
     );
 
-    let direct_response = reqwest::get(&direct_location).await.unwrap();
+    let direct_response = aster_forge_http::HttpClient::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(&direct_location)
+        .send()
+        .await
+        .unwrap();
     assert!(direct_response.status().is_success());
     assert_eq!(
         direct_response
@@ -3728,7 +3749,14 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
         shared_location.contains("response-content-disposition="),
         "shared presigned URL should preserve attachment filename"
     );
-    let shared_response = reqwest::get(&shared_location).await.unwrap();
+    let shared_response = aster_forge_http::HttpClient::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(&shared_location)
+        .send()
+        .await
+        .unwrap();
     assert!(shared_response.status().is_success());
     assert_eq!(shared_response.bytes().await.unwrap().as_ref(), file_data);
 
@@ -7617,7 +7645,9 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .await
         .unwrap();
     let part_request = urls.get(&1).expect("part 1 request missing");
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let response = multipart_put_request(&client, part_request)
         .header(reqwest::header::CONTENT_LENGTH, part1.len())
         .body(part1)
@@ -7840,7 +7870,9 @@ async fn test_presigned_upload_s3_e2e() {
     let upload_id = init.upload_id.unwrap();
 
     // 2. PUT 到 presigned URL（模拟客户端直传）
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let resp = presigned_put_request(&client, &presigned_request)
         .body(data.to_vec())
         .send()
@@ -8011,7 +8043,9 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         "force delete should remove the upload session before the old URL expires"
     );
 
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let response = presigned_put_request(&client, &presigned_request)
         .body(data)
         .send()
@@ -8120,7 +8154,9 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         .unwrap();
     assert_eq!(urls.len(), 2);
 
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let resp1 = multipart_put_request(&client, urls.get(&1).unwrap())
         .header(reqwest::header::CONTENT_LENGTH, part1.len())
         .body(part1.to_vec())
@@ -9066,7 +9102,9 @@ async fn test_admin_download_init_preserves_s3_presigned_current_and_historical_
     .unwrap();
     for revision in [Some(original.revision_id), None] {
         let info = common::admin_download_init(&state, &token, user.id, file_id, revision).await;
-        let response = reqwest::Client::new()
+        let response = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client")
             .get(&info.resource.request.url)
             .header("Range", "bytes=0-2")
             .send()
@@ -9081,7 +9119,14 @@ async fn test_admin_download_init_preserves_s3_presigned_current_and_historical_
                 &b"new"[..]
             }
         );
-        let response = reqwest::get(&info.resource.request.url).await.unwrap();
+        let response = aster_forge_http::HttpClient::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(&info.resource.request.url)
+            .send()
+            .await
+            .unwrap();
         assert!(response.status().is_success());
         assert!(
             response.headers()[reqwest::header::CONTENT_DISPOSITION]
@@ -9108,7 +9153,12 @@ async fn test_admin_download_init_preserves_s3_presigned_current_and_historical_
     .await
     .unwrap();
     assert_eq!(
-        reqwest::get(&original.resource.request.url)
+        aster_forge_http::HttpClient::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(&original.resource.request.url)
+            .send()
             .await
             .unwrap()
             .bytes()

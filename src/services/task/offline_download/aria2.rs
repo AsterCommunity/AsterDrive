@@ -374,7 +374,7 @@ impl Aria2OfflineDownloadEngine {
 pub(super) struct Aria2RpcClient {
     endpoint: Url,
     secret: Option<String>,
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
 }
 
 pub(crate) struct ProbeAria2RpcInput {
@@ -401,11 +401,13 @@ impl Aria2RpcClient {
     ) -> Result<Self> {
         let endpoint = Url::parse(endpoint)
             .map_aster_err_ctx("parse aria2 RPC URL", AsterError::validation_error)?;
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
-            .build()
-            .map_aster_err_ctx("build aria2 RPC HTTP client", AsterError::internal_error)?;
+        let client = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::InternalControl,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .timeout(timeout)
+        .build()
+        .map_aster_err_ctx("build aria2 RPC HTTP client", AsterError::internal_error)?;
         Ok(Self {
             endpoint,
             secret,

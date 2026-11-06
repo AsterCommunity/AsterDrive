@@ -64,7 +64,10 @@ fn shared_key_signatures_match_independent_python_vectors() {
         let mut storage = driver("https://account.blob.core.windows.net");
         storage.account_name = account.to_owned();
         storage.account_key = key.clone();
-        let mut request = reqwest::Client::new().request(method.parse().unwrap(), endpoint);
+        let mut request = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client")
+            .request(method.parse().unwrap(), endpoint);
         request = match length {
             0 => request,
             length => request
@@ -413,7 +416,9 @@ async fn request_contract_reads_merges_writes_only_cors_and_verifies() {
         let body = &request.body;
         let headers = &request.headers;
         assert_eq!(headers["x-ms-version"], AZURE_STORAGE_VERSION);
-        let mut signed_request = reqwest::Client::new()
+        let mut signed_request = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client")
             .request(
                 method.parse().unwrap(),
                 driver(&endpoint).blob_service_properties_url().unwrap(),
@@ -637,7 +642,9 @@ async fn azurite_cors_preserves_service_properties_and_browser_headers() {
         "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
             .into();
     let initial = "<StorageServiceProperties><Logging><Version>1.0</Version><Delete>true</Delete><Read>true</Read><Write>false</Write><RetentionPolicy><Enabled>true</Enabled><Days>7</Days></RetentionPolicy></Logging><DefaultServiceVersion>2023-11-03</DefaultServiceVersion><Cors/></StorageServiceProperties>";
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     storage
         .request_blob_service_properties(&client, Method::PUT, Some(initial.into()))
         .await
@@ -683,7 +690,9 @@ async fn azurite_cors_preserves_service_properties_and_browser_headers() {
             .collect::<Vec<_>>()
     };
     assert_eq!(non_cors(&before), non_cors(&after));
-    let response = reqwest::Client::new()
+    let response = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .request(
             Method::OPTIONS,
             format!("{endpoint}/any-container/any-blob"),

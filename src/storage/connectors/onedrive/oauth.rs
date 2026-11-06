@@ -4,7 +4,6 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error};
 use aster_drive_model::types::MicrosoftGraphCloud;
 use aster_drive_storage::StorageErrorKind;
@@ -87,15 +86,16 @@ pub(super) async fn exchange_microsoft_graph_code(
     redirect_uri: &str,
     pkce_verifier: &str,
 ) -> Result<MicrosoftTokenResponse> {
-    let client = reqwest::ClientBuilder::new()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(15))
-        .user_agent(OUTBOUND_HTTP_USER_AGENT)
-        .build()
-        .map_aster_err_ctx(
-            "failed to build Microsoft Graph OAuth HTTP client",
-            AsterError::internal_error,
-        )?;
+    let client = aster_drive_outbound::ClientConfig::new(
+        aster_drive_outbound::Profile::ExternalAuth,
+        crate::config::OUTBOUND_HTTP_USER_AGENT,
+    )
+    .timeout(std::time::Duration::from_secs(15))
+    .build()
+    .map_aster_err_ctx(
+        "failed to build Microsoft Graph OAuth HTTP client",
+        AsterError::internal_error,
+    )?;
     let token_endpoint = context
         .cloud
         .token_endpoint(&context.tenant)
@@ -149,15 +149,16 @@ pub(super) async fn refresh_microsoft_graph_token(
     client_secret: Option<&SecretString>,
     refresh_token: &str,
 ) -> Result<MicrosoftTokenResponse> {
-    let client = reqwest::ClientBuilder::new()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(std::time::Duration::from_secs(15))
-        .user_agent(OUTBOUND_HTTP_USER_AGENT)
-        .build()
-        .map_aster_err_ctx(
-            "failed to build Microsoft Graph OAuth HTTP client",
-            AsterError::internal_error,
-        )?;
+    let client = aster_drive_outbound::ClientConfig::new(
+        aster_drive_outbound::Profile::ExternalAuth,
+        crate::config::OUTBOUND_HTTP_USER_AGENT,
+    )
+    .timeout(std::time::Duration::from_secs(15))
+    .build()
+    .map_aster_err_ctx(
+        "failed to build Microsoft Graph OAuth HTTP client",
+        AsterError::internal_error,
+    )?;
     let token_endpoint = cloud.token_endpoint(tenant).map_aster_err_ctx(
         "invalid Microsoft Graph tenant for token refresh",
         AsterError::config_error,

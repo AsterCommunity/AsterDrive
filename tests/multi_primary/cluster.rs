@@ -819,7 +819,7 @@ impl ServerProcess {
     }
 }
 
-async fn wait_for_health(client: &reqwest::Client, server: &mut ServerProcess) {
+async fn wait_for_health(client: &aster_forge_http::HttpClient, server: &mut ServerProcess) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
     loop {
         server.assert_running();
@@ -843,7 +843,7 @@ async fn wait_for_health(client: &reqwest::Client, server: &mut ServerProcess) {
 }
 
 async fn wait_for_ready_code(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &mut ServerProcess,
     expected_code: &str,
     timeout: Duration,
@@ -878,7 +878,7 @@ async fn wait_for_ready_code(
 }
 
 async fn wait_for_ready_status(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &mut ServerProcess,
     expected_status: reqwest::StatusCode,
     timeout: Duration,
@@ -912,7 +912,7 @@ async fn wait_for_ready_status(
     }
 }
 
-async fn setup_and_login(client: &reqwest::Client, server: &ServerProcess) -> String {
+async fn setup_and_login(client: &aster_forge_http::HttpClient, server: &ServerProcess) -> String {
     let setup_response = client
         .post(format!("{}/api/v1/auth/setup", server.base_url()))
         .json(&json!({
@@ -935,7 +935,7 @@ async fn setup_and_login(client: &reqwest::Client, server: &ServerProcess) -> St
 }
 
 async fn login(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     identifier: &str,
     password: &str,
@@ -962,7 +962,7 @@ async fn login(
 }
 
 async fn init_chunked_upload(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     filename: &str,
@@ -989,7 +989,7 @@ async fn init_chunked_upload(
 }
 
 async fn put_upload_chunk(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     upload_id: &str,
@@ -1017,7 +1017,7 @@ async fn put_upload_chunk(
 }
 
 async fn upload_progress(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     upload_id: &str,
@@ -1040,7 +1040,7 @@ async fn upload_progress(
 }
 
 async fn complete_upload_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     upload_id: &str,
@@ -1064,7 +1064,7 @@ async fn complete_upload_request(
 }
 
 async fn download_file(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     file_id: i64,
@@ -1103,7 +1103,7 @@ fn cookie_value(response: &reqwest::Response, name: &str) -> Option<String> {
 }
 
 async fn set_registration_enabled(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     enabled: bool,
@@ -1129,7 +1129,10 @@ async fn set_registration_enabled(
     );
 }
 
-async fn registration_enabled(client: &reqwest::Client, server: &ServerProcess) -> bool {
+async fn registration_enabled(
+    client: &aster_forge_http::HttpClient,
+    server: &ServerProcess,
+) -> bool {
     let response = client
         .post(format!("{}/api/v1/auth/check", server.base_url()))
         .send()
@@ -1144,7 +1147,7 @@ async fn registration_enabled(client: &reqwest::Client, server: &ServerProcess) 
 }
 
 async fn wait_for_registration_enabled(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &mut ServerProcess,
     expected: bool,
     timeout: Duration,
@@ -1251,7 +1254,7 @@ async fn wait_for_new_runtime_owner(
 }
 
 async fn create_trash_purge_task(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
 ) -> i64 {
@@ -1707,7 +1710,7 @@ async fn wait_for_tunnel_owner(
 }
 
 async fn test_remote_node_through(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     access_token: &str,
     remote_node_id: i64,
@@ -1736,7 +1739,7 @@ async fn test_remote_node_through(
 }
 
 async fn stale_fencing_proxy_response(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     server: &ServerProcess,
     remote_node_id: i64,
     stale_fencing_token: &str,
@@ -1801,7 +1804,7 @@ async fn cluster_local_filesystem_upload_is_cross_primary_and_race_safe() {
     )
     .await
     .expect("accelerate upload cleanup for cluster filesystem E2E");
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .expect("build cluster upload E2E HTTP client");
@@ -2078,7 +2081,7 @@ async fn cluster_local_filesystem_upload_is_cross_primary_and_race_safe() {
 async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machine() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start_empty().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build concurrent startup E2E HTTP client");
@@ -2338,7 +2341,7 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
         .await
         .expect("close policy group setup database connection");
 
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build policy group reconciliation E2E HTTP client");
@@ -2378,7 +2381,7 @@ async fn redis_outage_only_marks_cluster_readiness_unavailable_and_recovers() {
     let _guard = e2e_lock().lock().await;
     for role in ["all", "api", "worker"] {
         let services = SharedServices::start_for_redis_readiness_outage().await;
-        let client = reqwest::Client::builder()
+        let client = aster_forge_http::HttpClient::builder()
             .timeout(Duration::from_secs(5))
             .build()
             .expect("build Redis readiness E2E HTTP client");
@@ -2458,7 +2461,7 @@ async fn storage_policy_update_propagates_to_second_primary_without_restart() {
         .expect("load default E2E storage policy")
         .expect("default E2E storage policy should exist")
         .id;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build storage topology E2E HTTP client");
@@ -2590,7 +2593,7 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
         .await
         .expect("close user policy group E2E fixture database connection");
 
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build user policy group E2E HTTP client");
@@ -2715,7 +2718,7 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
 async fn config_sync_propagates_and_reconciles_after_redis_outage() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build E2E HTTP client");
@@ -2765,7 +2768,7 @@ async fn config_sync_propagates_and_reconciles_after_redis_outage() {
 async fn scheduler_has_one_owner_and_standby_takes_over_after_owner_crash() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build E2E HTTP client");
@@ -2831,7 +2834,7 @@ async fn partitioned_runtime_owner_is_fenced_after_database_access_recovers() {
     let services = SharedServices::start().await;
     let fault_role = services.create_database_fault_role().await;
     let database = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build database partition E2E HTTP client");
@@ -2934,7 +2937,7 @@ async fn scheduled_mail_dispatch_has_one_firing_and_one_delivery_across_primarie
     let database = services.connect_database().await;
     let outbox = create_due_invitation_mail(&database).await;
 
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build E2E HTTP client");
@@ -2981,7 +2984,7 @@ async fn background_task_claim_is_fenced_across_primaries() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build E2E HTTP client");
@@ -3045,7 +3048,7 @@ async fn graceful_primary_shutdown_releases_lease_for_standby() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("build E2E HTTP client");
@@ -3081,7 +3084,7 @@ async fn reverse_tunnel_request_hitting_non_owner_primary_streams_through_owner(
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
     defer_remote_node_health_tests(&database).await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(15))
         .build()
         .expect("build reverse tunnel E2E HTTP client");
@@ -3149,7 +3152,7 @@ async fn reverse_tunnel_owner_failover_fences_stale_primary() {
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
     defer_remote_node_health_tests(&database).await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(Duration::from_secs(15))
         .build()
         .expect("build reverse tunnel failover E2E HTTP client");
@@ -3210,7 +3213,7 @@ async fn split_roles_isolate_consumption_and_recover_a_zero_worker_backlog() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let db = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(5))
         .build()
@@ -3369,7 +3372,7 @@ async fn split_workers_execute_concurrently_outside_the_scheduler_lease() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let db = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(5))
         .build()
@@ -3526,7 +3529,7 @@ async fn split_archive_reuses_a_committed_s3_output_after_worker_sigkill() {
         },
     )
     .await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(30))
         .build()
@@ -3587,7 +3590,10 @@ async fn split_archive_reuses_a_committed_s3_output_after_worker_sigkill() {
         .await
         .unwrap();
     db.execute_unprepared("CREATE FUNCTION archive_terminal_gate() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.status = 'succeeded' AND OLD.kind = 'archive_compress' THEN PERFORM pg_advisory_xact_lock(63402); END IF; RETURN NEW; END $$; CREATE TRIGGER archive_terminal_gate BEFORE UPDATE ON background_tasks FOR EACH ROW EXECUTE FUNCTION archive_terminal_gate();").await.unwrap();
-    let sse_client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let sse_client = aster_forge_http::HttpClient::builder()
+        .no_proxy()
+        .build()
+        .unwrap();
     let response = sse_client
         .get(format!("{}/api/v1/auth/events/storage", api_a.base_url()))
         .bearer_auth(&token)
@@ -3718,7 +3724,7 @@ async fn split_running_cancellation_is_acknowledged_and_survives_worker_sigkill(
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let db = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(10))
         .build()
@@ -3862,7 +3868,7 @@ async fn split_worker_scaling_measures_throughput_and_queue_wait() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let db = services.connect_database().await;
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(5))
         .build()

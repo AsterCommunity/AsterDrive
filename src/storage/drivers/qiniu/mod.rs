@@ -13,7 +13,6 @@ pub(crate) mod tests;
 pub(crate) mod upgrade;
 mod upload;
 
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use aster_drive_storage::{Result, StorageErrorKind, storage_driver_error};
 pub use download::{QiniuDownloadDelivery, default_download_auth_validity_seconds};
 use serde::{Deserialize, Serialize};
@@ -53,14 +52,14 @@ pub struct QiniuDriver {
     /// Reused for bounded control exchanges: discovery, metadata, management,
     /// multipart lifecycle operations and the small migration identity probe.
     /// operation_timeout covers connection, headers and the entire response body.
-    control_client: reqwest::Client,
+    control_client: aster_forge_http::HttpClient,
     /// Reused for GET/Range bodies without a whole-transfer deadline. reqwest's
     /// read timeout bounds waiting for headers and idle reads of the response.
-    download_client: reqwest::Client,
+    download_client: aster_forge_http::HttpClient,
     /// Reused for form/part uploads. reqwest's read_timeout would also limit time
     /// spent uploading before response headers arrive, so send_upload implements
     /// progress-aware idle detection and bounds the small acknowledgement instead.
-    upload_client: reqwest::Client,
+    upload_client: aster_forge_http::HttpClient,
     region_query: Url,
     /// Bucket configuration uses UC, independently of upload/RS/download hosts.
     bucket_api: Url,
@@ -123,27 +122,31 @@ impl QiniuDriver {
         // DriverRegistry caches this driver by policy; reqwest clones share each
         // client's connection pool. Build these clients once, never per request.
         // All also reject redirects so signed URLs/UpTokens cannot follow them.
-        let http_client_builder = || {
-            reqwest::Client::builder()
-                .connect_timeout(config.connect_timeout)
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent(OUTBOUND_HTTP_USER_AGENT)
-        };
-        let control_client = http_client_builder()
-            .read_timeout(config.read_timeout)
-            .timeout(config.operation_timeout)
-            .build()
-            .map_err(http::transport_error)?;
-        // Downloads need an idle-read limit, not a total deadline on the body.
-        // Uploads cannot use reqwest's header-read timer while sending the body;
-        // their progress-aware watchdog lives in send_upload.
-        let download_client = http_client_builder()
-            .read_timeout(config.read_timeout)
-            .build()
-            .map_err(http::transport_error)?;
-        let upload_client = http_client_builder()
-            .build()
-            .map_err(http::transport_error)?;
+        let control_client = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::ProviderControl,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .connect_timeout(config.connect_timeout)
+        .read_timeout(config.read_timeout)
+        .timeout(config.operation_timeout)
+        .build()
+        .map_err(http::transport_error)?;
+        let download_client = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::ProviderDownload,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .connect_timeout(config.connect_timeout)
+        .read_timeout(config.read_timeout)
+        .build()
+        .map_err(http::transport_error)?;
+        // Upload progress/acknowledgement watchdogs remain in send_upload.
+        let upload_client = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::ProviderUpload,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .connect_timeout(config.connect_timeout)
+        .build()
+        .map_err(http::transport_error)?;
         Ok(Self {
             config,
             credentials,

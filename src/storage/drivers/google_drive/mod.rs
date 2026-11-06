@@ -40,7 +40,7 @@ pub trait GoogleDriveTokenProvider: Send + Sync + std::fmt::Debug {
 #[derive(Clone)]
 /// An app-owned blob pool scoped to a folder, a shared drive or appDataFolder.
 pub struct GoogleDriveDriver {
-    http: reqwest::Client,
+    http: aster_forge_http::HttpClient,
     token_provider: Arc<dyn GoogleDriveTokenProvider>,
     root_folder_id: Option<String>,
     shared_drive_id: Option<String>,

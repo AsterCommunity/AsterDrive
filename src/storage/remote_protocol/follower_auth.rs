@@ -11,7 +11,7 @@ use super::{
 };
 
 pub async fn send_signed_master_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     binding: &master_binding::Model,
     method: Method,
     url: &str,
@@ -172,7 +172,9 @@ mod tests {
             created_at: now,
             updated_at: now,
         };
-        let client = reqwest::Client::new();
+        let client = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client");
         let get_path = "/control/state?applied_revision=0";
         let post_path = "/control/report";
         let post_body = br#"{"status":"ready"}"#.to_vec();

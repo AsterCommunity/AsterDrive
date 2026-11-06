@@ -14,7 +14,6 @@ use super::{
     REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelBroker, RemoteTunnelHttpResponse,
     RemoteTunnelOwnerDirectory, RemoteTunnelRegistry, RemoteTunnelStreamHttpResponse,
 };
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
@@ -48,19 +47,24 @@ pub struct RemoteTunnelProxyQuery {
 pub struct ClusterRemoteTunnelBroker {
     local: Arc<RemoteTunnelRegistry>,
     directory: Arc<RemoteTunnelOwnerDirectory>,
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
 }
 
 impl ClusterRemoteTunnelBroker {
     pub fn new(
         local: Arc<RemoteTunnelRegistry>,
         directory: Arc<RemoteTunnelOwnerDirectory>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             local,
             directory,
-            client: reqwest::Client::new(),
-        }
+            client: aster_drive_outbound::ClientConfig::new(
+                aster_drive_outbound::Profile::InternalStreaming,
+                crate::config::OUTBOUND_HTTP_USER_AGENT,
+            )
+            .build()
+            .map_err(|_| AsterError::internal_error("build cluster tunnel HTTP client"))?,
+        })
     }
 
     async fn current_owner(
@@ -120,7 +124,6 @@ impl ClusterRemoteTunnelBroker {
         let mut request = self
             .client
             .post(url)
-            .header(reqwest::header::USER_AGENT, OUTBOUND_HTTP_USER_AGENT)
             .header(INTERNAL_AUTH_ACCESS_KEY_HEADER, self.directory.runtime_id())
             .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
             .header(INTERNAL_AUTH_NONCE_HEADER, nonce)
@@ -1141,7 +1144,8 @@ mod tests {
         let broker = ClusterRemoteTunnelBroker::new(
             Arc::new(RemoteTunnelRegistry::new()),
             directory.clone(),
-        );
+        )
+        .unwrap();
 
         let (proxied_endpoint, proxied_server) =
             spawn_proxy_response_server(actix_web::http::StatusCode::NOT_FOUND, true).await;

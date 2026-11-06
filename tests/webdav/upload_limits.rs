@@ -125,7 +125,9 @@ async fn exact_global_limit_accepts_known_chunked_and_empty_puts() {
     Arc::make_mut(&mut state.config).webdav.payload_limit = 8;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     for (name, data, chunked) in [
         ("known", "12345678", false),
         ("chunked", "12345678", true),
@@ -226,7 +228,9 @@ async fn known_local_put_prechecks_policy_and_quota_without_charging() {
                 .unwrap();
         }
         let server = start_real_webdav_server(state.clone()).await;
-        let response = reqwest::Client::new()
+        let response = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client")
             .put(format!("{}/webdav/precheck.txt", server.base_url))
             .basic_auth(&username, Some(&password))
             .body("123456789")

@@ -76,7 +76,7 @@ pub async fn start_login(
         provider.provider_kind,
         &provider.key,
     )?;
-    let runtime_provider = external_auth_provider_config(&provider);
+    let runtime_provider = external_auth_provider_config(&provider)?;
     let auth_start = registry
         .driver_for_provider(&runtime_provider)?
         .start_authorization(&runtime_provider, &redirect_uri)
@@ -211,7 +211,7 @@ pub async fn finish_callback(
             "external auth provider is disabled",
         ));
     }
-    let runtime_provider = external_auth_provider_config(&provider);
+    let runtime_provider = external_auth_provider_config(&provider)?;
     let user_claims = registry
         .driver_for_provider(&runtime_provider)?
         .exchange_callback(

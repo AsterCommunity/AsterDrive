@@ -9,7 +9,6 @@ use reqwest::Method;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, Result};
 use aster_drive_model::entities::managed_follower;
 use aster_drive_storage::{ExactSizeReader, StorageErrorKind};
@@ -28,19 +27,20 @@ const DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_REMOTE_READ_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS: u64 = 60 * 60;
 
-static REMOTE_HTTP_CLIENT: LazyLock<std::result::Result<reqwest::Client, String>> =
+static REMOTE_HTTP_CLIENT: LazyLock<std::result::Result<aster_forge_http::HttpClient, String>> =
     LazyLock::new(|| {
-        reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS))
-            .read_timeout(Duration::from_secs(DEFAULT_REMOTE_READ_TIMEOUT_SECS))
-            .timeout(Duration::from_secs(DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS))
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
-            // 内部协议签名绑定 method/path/timestamp，重定向会让签名头原样
-            // 发往第三方地址（凭据泄露），且跨路径跳转必然验签失败；
-            // 禁止跟随重定向，把 3xx 作为错误暴露给调用方。
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| format!("build remote HTTP client: {e}"))
+        aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::InternalTransfer,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .connect_timeout(Duration::from_secs(DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS))
+        .read_timeout(Duration::from_secs(DEFAULT_REMOTE_READ_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS))
+        // 内部协议签名绑定 method/path/timestamp，重定向会让签名头原样
+        // 发往第三方地址（凭据泄露），且跨路径跳转必然验签失败；
+        // 禁止跟随重定向，把 3xx 作为错误暴露给调用方。
+        .build()
+        .map_err(|e| format!("build remote HTTP client: {e}"))
     });
 
 pub enum RemoteRequestBody {
@@ -225,7 +225,7 @@ pub struct DirectHttpTransport {
     base_url: String,
     access_key: String,
     secret_key: String,
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
 }
 
 impl DirectHttpTransport {
@@ -808,7 +808,7 @@ pub fn signed_headers(
     reason = "each parameter is one header of the six-line signed canonical"
 )]
 fn signed_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     access_key: &str,
     secret_key: &str,
     method: Method,
@@ -817,7 +817,7 @@ fn signed_request(
     body_sha256: &str,
     timestamp: i64,
     nonce: &str,
-) -> reqwest::RequestBuilder {
+) -> aster_forge_http::HttpRequestBuilder {
     let mut builder = client.request(method.clone(), url.clone());
     for (name, value) in signed_headers(
         access_key,
@@ -845,7 +845,7 @@ pub fn path_and_query_for_url(url: &reqwest::Url) -> String {
     }
 }
 
-fn remote_http_client() -> Result<reqwest::Client> {
+fn remote_http_client() -> Result<aster_forge_http::HttpClient> {
     REMOTE_HTTP_CLIENT.as_ref().cloned().map_err(|message| {
         crate::errors::storage_driver_error(StorageErrorKind::Misconfigured, message.clone())
     })

@@ -1,20 +1,21 @@
 //! Google Drive HTTP, pool validation and application-owned object lookup.
 use super::*;
 
-pub(crate) fn http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        // Drive uses 308 as a resumable acknowledgement, not a redirect.
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(15))
-        .read_timeout(Duration::from_secs(120))
-        .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
-        .build()
-        .map_err(|_| {
-            storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "cannot build Google Drive HTTP client",
-            )
-        })
+pub(crate) fn http_client() -> Result<aster_forge_http::HttpClient> {
+    aster_drive_outbound::ClientConfig::new(
+        aster_drive_outbound::Profile::ProviderDownload,
+        crate::config::OUTBOUND_HTTP_USER_AGENT,
+    )
+    // Drive uses 308 as a resumable acknowledgement, not a redirect.
+    .connect_timeout(Duration::from_secs(15))
+    .read_timeout(Duration::from_secs(120))
+    .build()
+    .map_err(|_| {
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            "cannot build Google Drive HTTP client",
+        )
+    })
 }
 
 #[derive(Deserialize)]
@@ -61,7 +62,10 @@ pub(super) fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 impl GoogleDriveDriver {
-    pub(super) async fn auth(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+    pub(super) async fn auth(
+        &self,
+        request: aster_forge_http::HttpRequestBuilder,
+    ) -> Result<reqwest::Response> {
         request
             .bearer_auth(self.token_provider.access_token().await?)
             .send()

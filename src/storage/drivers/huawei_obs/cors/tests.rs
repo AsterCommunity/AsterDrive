@@ -158,8 +158,8 @@ async fn get_then_put_uses_bucket_cors_endpoint_and_preserves_rules() {
     let mut url = Url::parse(&endpoint).unwrap();
     url.set_query(Some("cors"));
     let client = ObsCorsClient {
-        client: reqwest::Client::builder()
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
+        client: aster_forge_http::HttpClient::builder()
+            .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
             .build()
             .unwrap(),
         url,
@@ -177,7 +177,8 @@ async fn get_then_put_uses_bucket_cors_endpoint_and_preserves_rules() {
         assert!(request.starts_with("GET /?cors HTTP/1.1"));
         assert!(request.lines().any(|line| {
             line.split_once(':').is_some_and(|(name, value)| {
-                name.eq_ignore_ascii_case("user-agent") && value.trim() == OUTBOUND_HTTP_USER_AGENT
+                name.eq_ignore_ascii_case("user-agent")
+                    && value.trim() == crate::config::OUTBOUND_HTTP_USER_AGENT
             })
         }));
         assert!(request.to_ascii_lowercase().contains("authorization: obs "));
@@ -191,7 +192,7 @@ async fn get_then_put_uses_bucket_cors_endpoint_and_preserves_rules() {
         assert!(request.starts_with("PUT /?cors HTTP/1.1"));
         assert!(request.to_ascii_lowercase().contains("content-md5:"));
         assert!(request.to_ascii_lowercase().contains("authorization: obs "));
-        assert!(request.contains(OUTBOUND_HTTP_USER_AGENT));
+        assert!(request.contains(crate::config::OUTBOUND_HTTP_USER_AGENT));
         assert!(
             request
                 .to_ascii_lowercase()
@@ -256,8 +257,8 @@ async fn equivalent_rule_skips_put_and_read_failure_never_overwrites() {
         let mut url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
         url.set_query(Some("cors"));
         let client = ObsCorsClient {
-            client: reqwest::Client::builder()
-                .user_agent(OUTBOUND_HTTP_USER_AGENT)
+            client: aster_forge_http::HttpClient::builder()
+                .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
                 .build()
                 .unwrap(),
             url,
@@ -311,8 +312,8 @@ async fn no_configuration_creates_rule_and_write_failure_is_redacted() {
     let mut url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
     url.set_query(Some("cors"));
     let client = ObsCorsClient {
-        client: reqwest::Client::builder()
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
+        client: aster_forge_http::HttpClient::builder()
+            .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
             .build()
             .unwrap(),
         url,
@@ -578,7 +579,7 @@ async fn unsafe_reads_and_capacity_never_write_or_follow_redirects() {
             let (mut stream, _) = listener.accept().await.unwrap();
             let request = read_request(&mut stream).await;
             assert!(request.starts_with("GET /?cors HTTP/1.1"));
-            assert!(request.contains(OUTBOUND_HTTP_USER_AGENT));
+            assert!(request.contains(crate::config::OUTBOUND_HTTP_USER_AGENT));
             stream.write_all(format!("HTTP/1.1 {status}\r\nLocation: {endpoint}/redirected\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
             assert!(
                 tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept())

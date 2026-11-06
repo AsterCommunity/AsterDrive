@@ -576,7 +576,7 @@ async fn transport_disconnects_and_timeouts_preserve_saved_authorization() {
     .unwrap();
     let inner = Arc::get_mut(&mut provider).unwrap();
     inner.token_url = format!("{}/token", peer.base);
-    inner.http = reqwest::Client::builder()
+    inner.http = aster_forge_http::HttpClient::builder()
         .read_timeout(std::time::Duration::from_millis(50))
         .build()
         .unwrap();

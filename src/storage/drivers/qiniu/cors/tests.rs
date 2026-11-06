@@ -162,7 +162,9 @@ fn readback_preserves_rule_order_but_allows_provider_case_and_field_order_normal
 #[test]
 fn json_management_signature_matches_an_independent_python_hmac_vector() {
     let body = r#"[{"allowed_origin":["https://drive.test"],"allowed_method":["GET"]}]"#;
-    let request = reqwest::Client::new()
+    let request = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .post("https://uc.qiniuapi.com/corsRules/set/archive")
         .header("content-type", "application/json")
         .body(body)

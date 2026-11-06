@@ -12,7 +12,6 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use aster_drive_storage::traits::driver::BlobMetadata;
 use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
 use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
@@ -22,7 +21,7 @@ use super::error::{invalid_graph_url, map_graph_response_error, map_reqwest_erro
 #[derive(Clone, Debug)]
 pub struct MicrosoftGraphClient {
     config: MicrosoftGraphClientConfig,
-    http: reqwest::Client,
+    http: aster_forge_http::HttpClient,
 }
 
 #[derive(Clone, Debug)]
@@ -228,15 +227,17 @@ impl MicrosoftGraphClient {
                 "Microsoft Graph access token cannot be empty",
             ));
         }
-        let http = reqwest::ClientBuilder::new()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(std::time::Duration::from_secs(60))
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
-            .build()
-            .map_storage_err_ctx(
-                StorageErrorKind::Misconfigured,
-                "failed to build Microsoft Graph HTTP client",
-            )?;
+        let http = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::ProviderControl,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .without_read_timeout()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_storage_err_ctx(
+            StorageErrorKind::Misconfigured,
+            "failed to build Microsoft Graph HTTP client",
+        )?;
         Ok(Self { config, http })
     }
 
@@ -682,7 +683,7 @@ impl MicrosoftGraphClient {
 
     async fn send_with_auth<F>(&self, ctx: &str, build_request: F) -> Result<reqwest::Response>
     where
-        F: Fn(String) -> reqwest::RequestBuilder,
+        F: Fn(String) -> aster_forge_http::HttpRequestBuilder,
     {
         let access_token = self.config.token_provider.access_token().await?;
         if access_token.trim().is_empty() {

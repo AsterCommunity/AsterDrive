@@ -44,8 +44,7 @@ staticPasswords:
 
 pub async fn wait_for_dex_discovery(issuer: &str) {
     let discovery_url = format!("{issuer}/.well-known/openid-configuration");
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(StdDuration::from_secs(2))
         .build()
         .expect("reqwest client should build");
@@ -73,7 +72,7 @@ fn absolute_location(base: &reqwest::Url, location: &str) -> reqwest::Url {
 }
 
 async fn request_dex_redirect(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     url: reqwest::Url,
 ) -> (reqwest::Url, Option<reqwest::Url>) {
     let resp = client
@@ -100,8 +99,7 @@ pub async fn complete_dex_password_login(
     provider_key: &str,
     authorization_url: &str,
 ) -> String {
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(StdDuration::from_secs(10))
         .build()
         .expect("reqwest client should build");

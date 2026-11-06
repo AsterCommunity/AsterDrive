@@ -225,7 +225,7 @@ async fn server_starts_and_keeps_metrics_route_absent_for_uncompiled_exporters()
                 .env("ASTER__OBSERVABILITY__OTLP_METRICS__INTERVAL_SECONDS", "0");
         }
         let mut process = TestProcess::spawn(&format!("ignored-exporter-{mode}"), &mut command);
-        let client = reqwest::Client::builder()
+        let client = aster_forge_http::HttpClient::builder()
             .no_proxy()
             .timeout(Duration::from_secs(2))
             .build()

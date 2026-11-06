@@ -4,7 +4,6 @@ use std::time::Duration as StdDuration;
 use chrono::{Duration, Utc};
 use moka::future::Cache;
 
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::config::wopi;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
@@ -16,19 +15,18 @@ use super::types::{CachedWopiDiscovery, WopiDiscovery};
 static DISCOVERY_CACHE: LazyLock<Cache<String, CachedWopiDiscovery>> =
     LazyLock::new(|| Cache::builder().max_capacity(128).build());
 
-static DISCOVERY_CLIENT: LazyLock<std::result::Result<reqwest::Client, String>> =
+static DISCOVERY_CLIENT: LazyLock<std::result::Result<aster_forge_http::HttpClient, String>> =
     LazyLock::new(build_discovery_client);
 
-fn build_discovery_client() -> std::result::Result<reqwest::Client, String> {
-    build_discovery_client_with_user_agent(OUTBOUND_HTTP_USER_AGENT)
+fn build_discovery_client() -> std::result::Result<aster_forge_http::HttpClient, String> {
+    build_discovery_client_with_user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
 }
 
 fn build_discovery_client_with_user_agent(
     user_agent: &str,
-) -> std::result::Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+) -> std::result::Result<aster_forge_http::HttpClient, String> {
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::Discovery, user_agent)
         .timeout(StdDuration::from_secs(5))
-        .user_agent(user_agent)
         .build()
         .map_err(|error| error.to_string())
 }
@@ -141,7 +139,6 @@ fn discovery_cache_ttl(runtime_config: &crate::config::RuntimeConfig) -> Duratio
 mod tests {
     use chrono::{Duration, Utc};
 
-    use crate::config::OUTBOUND_HTTP_USER_AGENT;
     use crate::services::preview::wopi::discovery::types::{
         CachedWopiDiscovery, WopiDiscovery, WopiDiscoveryAction,
     };
@@ -259,7 +256,7 @@ mod tests {
             })
             .expect("user-agent header should be present");
 
-        assert_eq!(user_agent, OUTBOUND_HTTP_USER_AGENT);
+        assert_eq!(user_agent, crate::config::OUTBOUND_HTTP_USER_AGENT);
     }
 
     #[test]

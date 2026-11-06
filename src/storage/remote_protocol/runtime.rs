@@ -62,14 +62,14 @@ impl RemoteProtocolRuntime {
         self.tunnel_owner_directory.read().clone()
     }
 
-    pub(crate) fn tunnel_broker(&self) -> Arc<dyn RemoteTunnelBroker> {
-        match self.tunnel_owner_directory() {
+    pub(crate) fn tunnel_broker(&self) -> Result<Arc<dyn RemoteTunnelBroker>> {
+        Ok(match self.tunnel_owner_directory() {
             Some(directory) => Arc::new(ClusterRemoteTunnelBroker::new(
                 self.tunnel_registry.clone(),
                 directory,
-            )),
+            )?),
             None => self.tunnel_registry.clone(),
-        }
+        })
     }
 
     pub fn client_for_node(&self, node: &managed_follower::Model) -> Result<RemoteStorageClient> {
@@ -78,11 +78,11 @@ impl RemoteProtocolRuntime {
                 RemoteStorageClient::new(&node.base_url, &node.access_key, &node.secret_key)
             }
             RemoteNodeTransportMode::ReverseTunnel => {
-                RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker())
+                RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker()?)
             }
             RemoteNodeTransportMode::Auto => {
                 if node.base_url.trim().is_empty() {
-                    RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker())
+                    RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker()?)
                 } else {
                     RemoteStorageClient::new(&node.base_url, &node.access_key, &node.secret_key)
                 }

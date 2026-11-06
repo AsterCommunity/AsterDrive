@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Storage provider evidence** — Adds a bilingual official protocol index for every built-in connector, with source review dates, exact SDK/transport versions, field/wire drift checks in `make storage-docs-check`, and a separate weekly link report. Local protocol fixtures and real-provider acceptance remain explicit, separate evidence.
 
+### Changed
+
+- **Outbound HTTP policy** — Route built-in HTTP clients through `aster_drive_outbound` and the shared Forge factory. Preserve streaming upload/download timeouts, centralize product identity and redirect rejection, and establish an origin-scoped, bounded and cancellable plugin transport with public-address validation and DNS pinning.
+
 ## [v0.7.1] - 2026-11-06
 
 ### Added

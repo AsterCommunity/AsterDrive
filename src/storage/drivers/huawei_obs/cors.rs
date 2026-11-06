@@ -12,7 +12,6 @@ use reqwest::StatusCode;
 use url::Url;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error_with_code};
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 
@@ -45,7 +44,7 @@ struct CorsConfiguration {
 }
 
 pub(crate) struct ObsCorsClient {
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
     url: Url,
     bucket: String,
     use_cname: bool,
@@ -94,14 +93,15 @@ impl ObsCorsClient {
         }
         url.set_path("/");
         url.set_query(Some("cors"));
-        let client = reqwest::Client::builder()
-            .connect_timeout(config.connect_timeout)
-            .read_timeout(config.read_timeout)
-            .timeout(config.operation_timeout.min(CORS_REQUEST_TIMEOUT))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
-            .build()
-            .map_aster_err_ctx("build OBS CORS client", AsterError::storage_driver_error)?;
+        let client = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::ProviderControl,
+            crate::config::OUTBOUND_HTTP_USER_AGENT,
+        )
+        .connect_timeout(config.connect_timeout)
+        .read_timeout(config.read_timeout)
+        .timeout(config.operation_timeout.min(CORS_REQUEST_TIMEOUT))
+        .build()
+        .map_aster_err_ctx("build OBS CORS client", AsterError::storage_driver_error)?;
         Ok(Self {
             client,
             url,
