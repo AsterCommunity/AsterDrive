@@ -23,6 +23,8 @@ PluginTransport 同样默认使用产品 UA，只有 host 可以通过 `.user_ag
 WOPI 和 direct remote 的既有缓存池保留；本次不创建新全局 registry。
 
 控制请求使用 bounded total deadline；下载限制 idle read，不强加整文件总期限；
+OneDrive 分别持有控制 client（60 秒总期限）与下载 client（30 秒读取空闲期限、无总期限），
+直接 200 内容与显式重定向目标都使用下载策略；只有 Graph 请求携带凭据，Range 只发给下载目标。
 上传不安装 reqwest 的读取时钟，以免上传尚未结束就误判等待响应头超时。
 七牛原有 progress watchdog 与 acknowledgement decode 期限继续归上传协议。
 remote transfer 保留现有 1 小时总期限，tunnel long-poll 保留现有专用期限。
@@ -48,9 +50,10 @@ host 检查 `network:<origin>` capability 并记录审计后，创建 `NetworkGr
 再用 host 持有的 budget 与 CancellationToken 构造 `PluginTransport`。
 插件只提交方法/URL/header/body，不能得到 raw client、builder、代理或 TLS 配置。
 
-授权是精确 HTTPS origin（含端口），拒绝 wildcard、userinfo、fragment、跨 origin、
-CONNECT/TRACE 和控制连接/目标/UA 的 header。每次执行验证全部 DNS 答案并固定地址，
-拒绝私网、loopback、link-local、metadata、特殊 IPv4/IPv6 地址；强制直接连接，禁止重定向。
+授权是精确 HTTPS origin（含端口），拒绝 wildcard、userinfo、fragment 和跨 origin 请求。
+仅允许 GET、HEAD、POST、PUT、PATCH、DELETE，拒绝其余方法（包括 OPTIONS、CONNECT、TRACE）
+以及控制连接/目标/UA 的 header。每次执行验证全部 DNS 答案并固定地址，
+拒绝私网、loopback、link-local、metadata、特殊 IPv4/IPv6 地址；强制直接连接，禁止重定向；条件请求的 `304 Not Modified` 保留原始状态与缓存 header。
 请求体/响应体默认各 1 MiB，host 上限 16 MiB，默认总期限 15 秒、上限 60 秒。
 响应真实累计字节也受限；host 取消覆盖 DNS、响应头和读体。
 

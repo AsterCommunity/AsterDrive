@@ -13,7 +13,7 @@ use aster_drive_model::types::{
 use aster_drive_storage::StorageErrorKind;
 
 use super::oauth::{
-    MicrosoftTokenResponse, decrypt_application_client_secret, refresh_microsoft_graph_token,
+    MicrosoftGraphOAuthClient, MicrosoftTokenResponse, decrypt_application_client_secret,
 };
 use super::{normalize_microsoft_graph_scopes, normalized_option};
 use crate::services::storage_policy::credential::crypto;
@@ -136,14 +136,13 @@ impl MicrosoftGraphTokenRefresher for DefaultMicrosoftGraphTokenRefresher {
         &self,
         request: MicrosoftGraphTokenRefreshRequest,
     ) -> Result<MicrosoftTokenResponse> {
-        refresh_microsoft_graph_token(
-            request.cloud,
-            &request.tenant,
-            &request.client_id,
-            request.client_secret.as_ref(),
-            request.refresh_token.expose_secret(),
-        )
-        .await
+        MicrosoftGraphOAuthClient::new(request.cloud, &request.tenant)?
+            .refresh_token(
+                &request.client_id,
+                request.client_secret.as_ref(),
+                request.refresh_token.expose_secret(),
+            )
+            .await
     }
 }
 

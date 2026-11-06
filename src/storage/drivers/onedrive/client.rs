@@ -21,7 +21,10 @@ use super::error::{invalid_graph_url, map_graph_response_error, map_reqwest_erro
 #[derive(Clone, Debug)]
 pub struct MicrosoftGraphClient {
     config: MicrosoftGraphClientConfig,
-    http: aster_forge_http::HttpClient,
+    /// Metadata/control calls retain their bounded operation deadline.
+    control_client: aster_forge_http::HttpClient,
+    /// Content reads need idle-progress bounds, never a deadline on the entire object.
+    download_client: aster_forge_http::HttpClient,
 }
 
 #[derive(Clone, Debug)]
@@ -227,7 +230,7 @@ impl MicrosoftGraphClient {
                 "Microsoft Graph access token cannot be empty",
             ));
         }
-        let http =
+        let control_client =
             aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
                 .without_read_timeout()
                 .timeout(std::time::Duration::from_secs(60))
@@ -236,7 +239,19 @@ impl MicrosoftGraphClient {
                     StorageErrorKind::Misconfigured,
                     "failed to build Microsoft Graph HTTP client",
                 )?;
-        Ok(Self { config, http })
+        let download_client = aster_drive_outbound::ClientConfig::new(
+            aster_drive_outbound::Profile::ProviderDownload,
+        )
+        .build()
+        .map_storage_err_ctx(
+            StorageErrorKind::Misconfigured,
+            "failed to build Microsoft Graph download HTTP client",
+        )?;
+        Ok(Self {
+            config,
+            control_client,
+            download_client,
+        })
     }
 
     pub async fn get_drive_item_by_id(
@@ -309,7 +324,7 @@ impl MicrosoftGraphClient {
         let url = self.url(content_path)?;
         let response = self
             .send_with_auth("put OneDrive small content", |access_token| {
-                self.http
+                self.control_client
                     .put(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
                     .header(CONTENT_LENGTH, body.len().to_string())
@@ -329,7 +344,7 @@ impl MicrosoftGraphClient {
         let url = self.url(upload_session_path)?;
         let response = self
             .send_with_auth("create OneDrive upload session", |access_token| {
-                self.http
+                self.control_client
                     .post(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
                     .json(&MicrosoftGraphUploadSessionRequest {
@@ -366,7 +381,7 @@ impl MicrosoftGraphClient {
         let url = self.url(children_path)?;
         let response = self
             .send_with_auth("create OneDrive folder", |access_token| {
-                self.http
+                self.control_client
                     .post(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
                     .json(&MicrosoftGraphCreateFolderRequest {
@@ -400,7 +415,7 @@ impl MicrosoftGraphClient {
     ) -> Result<MicrosoftGraphUploadSession> {
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
         let response =
-            self.http.get(url).send().await.map_err(|err| {
+            self.control_client.get(url).send().await.map_err(|err| {
                 map_reqwest_error("query OneDrive upload session", err.without_url())
             })?;
         let response = self
@@ -417,10 +432,12 @@ impl MicrosoftGraphClient {
 
     pub async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
-        let response =
-            self.http.delete(url).send().await.map_err(|err| {
-                map_reqwest_error("abort OneDrive upload session", err.without_url())
-            })?;
+        let response = self
+            .control_client
+            .delete(url)
+            .send()
+            .await
+            .map_err(|err| map_reqwest_error("abort OneDrive upload session", err.without_url()))?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(());
         }
@@ -465,7 +482,7 @@ impl MicrosoftGraphClient {
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
         let stream = ReaderStream::new(reader.take(len));
         let response = self
-            .http
+            .control_client
             .put(url)
             .header(CONTENT_LENGTH, len.to_string())
             .header(CONTENT_TYPE, "application/octet-stream")
@@ -548,7 +565,7 @@ impl MicrosoftGraphClient {
         let url = self.url(content_path)?;
         let response = self
             .send_with_auth("get OneDrive direct download URL", |access_token| {
-                self.http
+                self.control_client
                     .get(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
             })
@@ -569,7 +586,7 @@ impl MicrosoftGraphClient {
         let url = self.url(path)?;
         let response = self
             .send_with_auth("delete OneDrive item", |access_token| {
-                self.http
+                self.control_client
                     .delete(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
             })
@@ -621,7 +638,7 @@ impl MicrosoftGraphClient {
         let url = self.url(path)?;
         let response = self
             .send_with_auth(ctx, |access_token| {
-                self.http
+                self.control_client
                     .get(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
             })
@@ -653,14 +670,14 @@ impl MicrosoftGraphClient {
         let url = self.url(content_path)?;
         let response = self
             .send_with_auth("get OneDrive content stream", |access_token| {
-                self.http
+                self.download_client
                     .get(url.clone())
                     .header(AUTHORIZATION, authorization_header(&access_token))
             })
             .await?;
         if response.status().is_redirection() {
             let download_url = content_redirect_url(&response)?;
-            let mut request = self.http.get(download_url);
+            let mut request = self.download_client.get(download_url);
             // Microsoft Graph documents partial downloads as Range on the
             // actual downloadUrl/redirect target, not on the /content request.
             if let Some(range_header) = range_header(offset, length)? {
@@ -1753,3 +1770,7 @@ mod tests {
         assert_eq!(error.kind(), StorageErrorKind::Auth);
     }
 }
+
+#[cfg(test)]
+#[path = "download_tests.rs"]
+mod download_tests;

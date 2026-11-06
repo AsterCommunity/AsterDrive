@@ -79,123 +79,125 @@ pub(crate) fn decrypt_application_client_secret(
     .map(SecretString::from)
 }
 
-pub(super) async fn exchange_microsoft_graph_code(
-    context: &MicrosoftGraphFlowContext,
-    client_secret: Option<&SecretString>,
-    code: &str,
-    redirect_uri: &str,
-    pkce_verifier: &str,
-) -> Result<MicrosoftTokenResponse> {
-    let client =
-        aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_aster_err_ctx(
-                "failed to build Microsoft Graph OAuth HTTP client",
-                AsterError::internal_error,
-            )?;
-    let token_endpoint = context
-        .cloud
-        .token_endpoint(&context.tenant)
-        .map_aster_err_ctx(
-            "invalid Microsoft Graph tenant for token exchange",
+/// Owns the cloud-selected token endpoint and its reusable bounded authentication pool.
+/// Provider secrets remain request-scoped. Products cannot select an arbitrary OAuth endpoint.
+pub(super) struct MicrosoftGraphOAuthClient {
+    http: aster_forge_http::HttpClient,
+    token_endpoint: String,
+}
+impl MicrosoftGraphOAuthClient {
+    pub(super) fn new(cloud: MicrosoftGraphCloud, tenant: &str) -> Result<Self> {
+        let token_endpoint = cloud.token_endpoint(tenant).map_aster_err_ctx(
+            "invalid Microsoft Graph tenant for OAuth",
             AsterError::config_error,
         )?;
-    let body = {
-        let mut form = url::form_urlencoded::Serializer::new(String::new());
-        form.append_pair("grant_type", "authorization_code");
-        form.append_pair("client_id", &context.client_id);
-        form.append_pair("code", code);
-        form.append_pair("redirect_uri", redirect_uri);
-        form.append_pair("code_verifier", pkce_verifier);
-        if let Some(client_secret) = client_secret {
-            form.append_pair("client_secret", client_secret.expose_secret());
-        }
-        form.finish()
-    };
-    let response = client
-        .post(&token_endpoint)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(body)
-        .send()
-        .await
-        .map_aster_err_ctx(
-            "Microsoft Graph OAuth token exchange failed",
-            AsterError::auth_invalid_credentials,
-        )?;
-    if !response.status().is_success() {
-        return Err(microsoft_token_endpoint_error(response).await);
+        let http =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
+                .timeout(std::time::Duration::from_secs(15))
+                .build()
+                .map_aster_err_ctx(
+                    "failed to build Microsoft Graph OAuth HTTP client",
+                    AsterError::internal_error,
+                )?;
+        Ok(Self {
+            http,
+            token_endpoint,
+        })
     }
-    let token = response
-        .json::<MicrosoftTokenResponse>()
-        .await
-        .map_aster_err_ctx(
-            "Microsoft Graph OAuth token response is invalid",
-            AsterError::auth_invalid_credentials,
-        )?;
-    validate_microsoft_token_response(&token)?;
-    Ok(token)
-}
 
-pub(super) async fn refresh_microsoft_graph_token(
-    cloud: MicrosoftGraphCloud,
-    tenant: &str,
-    client_id: &str,
-    client_secret: Option<&SecretString>,
-    refresh_token: &str,
-) -> Result<MicrosoftTokenResponse> {
-    let client =
-        aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_aster_err_ctx(
-                "failed to build Microsoft Graph OAuth HTTP client",
-                AsterError::internal_error,
-            )?;
-    let token_endpoint = cloud.token_endpoint(tenant).map_aster_err_ctx(
-        "invalid Microsoft Graph tenant for token refresh",
-        AsterError::config_error,
-    )?;
-    let body = {
-        let mut form = url::form_urlencoded::Serializer::new(String::new());
-        form.append_pair("grant_type", "refresh_token");
-        form.append_pair("client_id", client_id);
-        form.append_pair("refresh_token", refresh_token);
-        if let Some(client_secret) = client_secret {
-            form.append_pair("client_secret", client_secret.expose_secret());
-        }
-        form.finish()
-    };
-    let response = client
-        .post(&token_endpoint)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(body)
-        .send()
-        .await
-        .map_err(|err| {
-            storage_driver_error(
-                StorageErrorKind::Transient,
-                format!("Microsoft Graph OAuth token refresh failed: {err}"),
+    pub(super) async fn exchange_code(
+        &self,
+        client_id: &str,
+        client_secret: Option<&SecretString>,
+        code: &str,
+        redirect_uri: &str,
+        pkce_verifier: &str,
+    ) -> Result<MicrosoftTokenResponse> {
+        let body = {
+            let mut form = url::form_urlencoded::Serializer::new(String::new());
+            form.append_pair("grant_type", "authorization_code");
+            form.append_pair("client_id", client_id);
+            form.append_pair("code", code);
+            form.append_pair("redirect_uri", redirect_uri);
+            form.append_pair("code_verifier", pkce_verifier);
+            if let Some(client_secret) = client_secret {
+                form.append_pair("client_secret", client_secret.expose_secret());
+            }
+            form.finish()
+        };
+        let response = self
+            .http
+            .post(&self.token_endpoint)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
             )
-        })?;
-    if !response.status().is_success() {
-        return Err(microsoft_refresh_token_endpoint_error(response).await);
+            .body(body)
+            .send()
+            .await
+            .map_aster_err_ctx(
+                "Microsoft Graph OAuth token exchange failed",
+                AsterError::auth_invalid_credentials,
+            )?;
+        if !response.status().is_success() {
+            return Err(microsoft_token_endpoint_error(response).await);
+        }
+        let token = response
+            .json::<MicrosoftTokenResponse>()
+            .await
+            .map_aster_err_ctx(
+                "Microsoft Graph OAuth token response is invalid",
+                AsterError::auth_invalid_credentials,
+            )?;
+        validate_microsoft_token_response(&token)?;
+        Ok(token)
     }
-    let token = response
-        .json::<MicrosoftTokenResponse>()
-        .await
-        .map_aster_err_ctx(
-            "Microsoft Graph OAuth token refresh response is invalid",
-            AsterError::auth_invalid_credentials,
-        )?;
-    validate_microsoft_token_response(&token)?;
-    Ok(token)
+
+    pub(super) async fn refresh_token(
+        &self,
+        client_id: &str,
+        client_secret: Option<&SecretString>,
+        refresh_token: &str,
+    ) -> Result<MicrosoftTokenResponse> {
+        let body = {
+            let mut form = url::form_urlencoded::Serializer::new(String::new());
+            form.append_pair("grant_type", "refresh_token");
+            form.append_pair("client_id", client_id);
+            form.append_pair("refresh_token", refresh_token);
+            if let Some(client_secret) = client_secret {
+                form.append_pair("client_secret", client_secret.expose_secret());
+            }
+            form.finish()
+        };
+        let response = self
+            .http
+            .post(&self.token_endpoint)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(body)
+            .send()
+            .await
+            .map_err(|err| {
+                storage_driver_error(
+                    StorageErrorKind::Transient,
+                    format!("Microsoft Graph OAuth token refresh failed: {err}"),
+                )
+            })?;
+        if !response.status().is_success() {
+            return Err(microsoft_refresh_token_endpoint_error(response).await);
+        }
+        let token = response
+            .json::<MicrosoftTokenResponse>()
+            .await
+            .map_aster_err_ctx(
+                "Microsoft Graph OAuth token refresh response is invalid",
+                AsterError::auth_invalid_credentials,
+            )?;
+        validate_microsoft_token_response(&token)?;
+        Ok(token)
+    }
 }
 
 pub(super) fn validate_microsoft_token_response(token: &MicrosoftTokenResponse) -> Result<()> {
@@ -291,3 +293,7 @@ pub(super) fn build_pkce_challenge(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
 }
+
+#[cfg(test)]
+#[path = "oauth_tests.rs"]
+mod tests;

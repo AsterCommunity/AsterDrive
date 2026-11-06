@@ -129,10 +129,19 @@ impl PluginTransport {
     ) -> Result<PluginHttpResponse, PluginTransportError> {
         let url = Url::parse(&request.url).map_err(|_| PluginTransportError::Denied)?;
         self.validate_request(&request, &url)?;
+        self.within_budget(self.exchange(request, url)).await
+    }
+
+    // Keep the host invocation boundary around DNS, headers and the complete body, including
+    // streams that continue to yield data and therefore never trigger reqwest's idle timer.
+    async fn within_budget<T>(
+        &self,
+        exchange: impl std::future::Future<Output = Result<T, PluginTransportError>>,
+    ) -> Result<T, PluginTransportError> {
         tokio::select! {
             biased;
             () = self.cancellation.cancelled() => Err(PluginTransportError::Cancelled),
-            result = tokio::time::timeout(self.limits.timeout, self.exchange(request, url)) => result.map_err(|_| PluginTransportError::Timeout)?,
+            result = tokio::time::timeout(self.limits.timeout, exchange) => result.map_err(|_| PluginTransportError::Timeout)?,
         }
     }
     fn validate_request(
@@ -201,13 +210,33 @@ impl PluginTransport {
         if addrs.is_empty() || addrs.iter().any(|addr| !is_public_destination(addr.ip())) {
             return Err(PluginTransportError::Denied);
         }
+        let client = self.client_for_destination(host, &addrs)?;
+        self.send(&client, request, url).await
+    }
+
+    // This is a trusted internal boundary: exchange checks every DNS answer before passing it
+    // here. Keeping pool policy separate from response I/O lets fixtures test real wire behavior
+    // without adding a production switch that permits private plugin destinations.
+    fn client_for_destination(
+        &self,
+        host: &str,
+        addrs: &[std::net::SocketAddr],
+    ) -> Result<aster_forge_http::HttpClient, PluginTransportError> {
         // A fresh pinned pool intentionally avoids reusing a connection across DNS authorization changes.
-        let client = ClientConfig::new(Profile::Plugin)
+        ClientConfig::new(Profile::Plugin)
             .user_agent(self.user_agent.clone())
             .timeout(self.limits.timeout)
-            .resolve_to_addrs(host, &addrs)
+            .resolve_to_addrs(host, addrs)
             .build()
-            .map_err(|_| PluginTransportError::Transport)?;
+            .map_err(|_| PluginTransportError::Transport)
+    }
+
+    async fn send(
+        &self,
+        client: &aster_forge_http::HttpClient,
+        request: PluginHttpRequest,
+        url: Url,
+    ) -> Result<PluginHttpResponse, PluginTransportError> {
         let response = client
             .request(request.method, url)
             .headers(request.headers)
@@ -227,7 +256,9 @@ impl PluginTransport {
         &self,
         response: reqwest::Response,
     ) -> Result<PluginHttpResponse, PluginTransportError> {
-        if response.status().is_redirection() {
+        if response.status().is_redirection()
+            && response.status() != reqwest::StatusCode::NOT_MODIFIED
+        {
             return Err(PluginTransportError::Denied);
         }
         if response
@@ -478,3 +509,7 @@ mod tests {
         assert_eq!(transport.read_response(self::response(b"HTTP/1.1 302 Found\r\nLocation: https://other.example\r\nContent-Length: 0\r\n\r\n").await).await.err(),Some(PluginTransportError::Denied));
     }
 }
+
+#[cfg(test)]
+#[path = "plugin_tests.rs"]
+mod boundary_tests;

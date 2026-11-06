@@ -66,6 +66,7 @@ hex = "0.4"
 ipnet = "2.12"
 language-tags = { version = "0.3.2", features = ["serde"] }
 rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "thread_rng"] }
+rcgen = "0.14"
 reqwest = "0.13"
 sea-orm = { version = "2.0.4", default-features = false, features = [
     "macros",
@@ -79,8 +80,10 @@ serde_json = "1.0.154"
 sha2 = "0.11"
 thiserror = "2"
 tokio = "1"
+tokio-rustls = "0.26"
 tokio-util = "0.7"
 tracing = { version = "0.1.44", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json"] }
 utoipa = { version = "6.0.0", features = ["chrono", "repr"] }
 url = "2"
 validator = { version = "0.21", features = ["derive"] }
@@ -319,7 +322,7 @@ sea-orm = { workspace = true, features = ["mock"] }
 testcontainers = { version = "0.28", features = ["reusable-containers"] }
 # Audit persistence deadline tests pause Tokio time while holding the SQLite connection.
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json"] }
+tracing-subscriber.workspace = true
 webauthn-authenticator-rs = { version = "0.6.2", features = ["softpasskey"] }
 
 [build-dependencies]

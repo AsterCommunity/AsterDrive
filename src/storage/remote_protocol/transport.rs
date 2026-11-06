@@ -33,9 +33,8 @@ static REMOTE_HTTP_CLIENT: LazyLock<std::result::Result<aster_forge_http::HttpCl
             .connect_timeout(Duration::from_secs(DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS))
             .read_timeout(Duration::from_secs(DEFAULT_REMOTE_READ_TIMEOUT_SECS))
             .timeout(Duration::from_secs(DEFAULT_REMOTE_OPERATION_TIMEOUT_SECS))
-            // 内部协议签名绑定 method/path/timestamp，重定向会让签名头原样
-            // 发往第三方地址（凭据泄露），且跨路径跳转必然验签失败；
-            // 禁止跟随重定向，把 3xx 作为错误暴露给调用方。
+            // 内部协议签名绑定 method/path/timestamp，跟随重定向可能把签名头发往第三方。
+            // outbound 的全部 profile 通过 Forge factory 禁止自动重定向，调用方处理 3xx。
             .build()
             .map_err(|e| format!("build remote HTTP client: {e}"))
     });

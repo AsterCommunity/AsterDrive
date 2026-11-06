@@ -168,7 +168,14 @@ impl ClientConfig {
         if let Some(value) = self.timeout {
             builder = builder.timeout(value);
         }
-        builder = match self.proxy {
+        // DNS pinning is authoritative even if proxy() was called after resolve_to_addrs().
+        // Forge enforces the same rule; express the product policy here as well.
+        let proxy = if self.pinned.is_some() {
+            ProxyPolicy::Disabled
+        } else {
+            self.proxy
+        };
+        builder = match proxy {
             ProxyPolicy::System => builder,
             ProxyPolicy::Disabled => builder.no_proxy(),
             ProxyPolicy::Explicit(proxy) => builder.proxy(*proxy),
@@ -203,3 +210,6 @@ impl HttpObserver for Observer {
         }
     }
 }
+
+#[cfg(test)]
+mod policy_tests;

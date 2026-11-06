@@ -62,7 +62,9 @@ impl ClusterRemoteTunnelBroker {
                 aster_drive_outbound::Profile::InternalStreaming,
             )
             .build()
-            .map_err(|_| AsterError::internal_error("build cluster tunnel HTTP client"))?,
+            .map_err(|error| {
+                AsterError::internal_error(format!("build cluster tunnel HTTP client: {error}"))
+            })?,
         })
     }
 

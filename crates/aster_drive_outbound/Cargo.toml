@@ -20,6 +20,9 @@ tokio = { workspace = true, features = ["net", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+tracing-subscriber.workspace = true
+rcgen.workspace = true
+tokio-rustls.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util", "test-util"] }
 
 [lints]

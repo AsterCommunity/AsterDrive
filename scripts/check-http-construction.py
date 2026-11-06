@@ -73,7 +73,7 @@ def main():
             relative = path.relative_to(ROOT).as_posix()
             if relative == ALLOWED:
                 continue
-            for line, expression in violations(path.read_text()):
+            for line, expression in violations(path.read_text(encoding="utf-8")):
                 print(f"{relative}:{line}: use aster_forge_http factory: {expression}", file=sys.stderr)
                 count += 1
     if count:
