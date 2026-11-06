@@ -3,6 +3,8 @@ description: AsterDrive 本地存储策略教程，覆盖目录规划、集群�
 title: "本地存储策略教程"
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#local)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 :::tip[这一篇覆盖什么]
 这一篇按完整流程讲怎么把 AsterDrive 文件写到本机目录：规划目录、创建 `local` 存储策略、配置内容去重、测试策略组、绑定用户或团队，并说明容量检查和迁移边界。
 :::

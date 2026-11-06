@@ -230,3 +230,8 @@ bun run docs:dev
 - 深色 / 浅色 logo
 
 文档能构建只是底线，还需要实际预览一遍，确认读者能顺着入口和侧边栏找到内容。
+
+
+## 外部 provider 协议依据
+
+修改外部存储/协议或新增 connector/plugin 时，先更新[provider 证据索引](../reference/storage-provider-evidence.md)，遵循[复核与升级规则](./provider-evidence.md)。`make storage-docs-check` 同时检查 SDK/字段/关键协议与引用漂移；`make storage-provider-links` 单独生成可达性报告，不能替代内容复核或云验收。

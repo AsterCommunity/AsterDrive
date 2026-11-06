@@ -3,6 +3,8 @@ title: Google Drive 存储策略教程
 description: 从 Google Cloud 应用注册到管理员授权、普通目录或共享盘、浏览器直传、容量观测、下载行为和故障排查的完整教程。
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#google_drive)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 :::tip[这一篇覆盖什么]
 由管理员授权一个 Google 账号，把专用目录、共享盘或 appDataFolder 作为 AsterDrive 的 blob 存储池。普通用户继续使用 AsterDrive 的文件、权限、版本、配额和分享，无需绑定自己的 Google 账号。本功能不提供用户 Google Drive 目录浏览、导入或同步。
 :::

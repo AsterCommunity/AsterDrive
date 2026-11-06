@@ -3,6 +3,8 @@ description: Tencent COS storage policy tutorial covering COS buckets, credentia
 title: "Tencent COS Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#tencent_cos) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page walks through the complete flow for writing AsterDrive files to Tencent COS: prepare a bucket, create a `tencent_cos` storage policy, configure policy group rules, bind users or teams, verify uploads and downloads, and understand the switches, suffixes, and billing boundaries for COS CI native processing.
 :::

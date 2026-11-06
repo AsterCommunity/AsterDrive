@@ -3,6 +3,8 @@ title: Google Drive Storage Policy Tutorial
 description: Configure a Google Cloud OAuth application, administrator authorization, folders and shared drives, browser-direct uploads, quota observation, downloads, and troubleshooting.
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#google_drive) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 An administrator authorizes a Google account and selects a dedicated folder, shared drive, or appDataFolder as an AsterDrive blob pool. Ordinary users retain AsterDrive files, permissions, versions, quotas, and shares without authorizing their own Google accounts. This backend does not provide user Drive browsing, import, or synchronization.
 :::

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Storage provider evidence** — Adds a bilingual official protocol index for every built-in connector, with source review dates, exact SDK/transport versions, field/wire drift checks in `make storage-docs-check`, and a separate weekly link report. Local protocol fixtures and real-provider acceptance remain explicit, separate evidence.
+
 ## [v0.7.1] - 2026-11-06
 
 ### Added
@@ -6425,7 +6429,8 @@ No new migrations.
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...HEAD
+[v0.7.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
 [v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2

@@ -3,6 +3,8 @@ description: 阿里云 OSS 存储策略教程，覆盖原生 OSS V4 签名、公
 title: "阿里云 OSS 存储策略教程"
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#alibaba_oss)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 :::tip[这一篇覆盖什么]
 这页讲怎样把 AsterDrive 文件写入阿里云对象存储 OSS。AsterDrive 使用原生 `OSS4-HMAC-SHA256` 签名，不把 OSS 原生策略伪装成普通 S3-compatible 配置。
 :::

@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#tencent_cos
 //! 腾讯云 COS 存储驱动。
 //!
 //! 基础对象读写复用 S3 兼容驱动；COS/CI 数据处理使用 COS 原生 query

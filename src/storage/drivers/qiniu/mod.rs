@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#qiniu
 //! Kodo native wire contracts: qiniu/go-sdk f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e.
 //! See auth/credentials.go and storagev2/internal/api-specs/ at that revision.
 mod auth;

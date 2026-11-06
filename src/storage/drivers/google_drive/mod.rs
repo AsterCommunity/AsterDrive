@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#google_drive
 //! Administrator-managed Google Drive blob storage.
 //!
 //! Drive owns logical blob identities, publication and garbage collection. Google

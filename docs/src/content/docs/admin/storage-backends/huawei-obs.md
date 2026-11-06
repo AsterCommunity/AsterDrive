@@ -3,6 +3,8 @@ description: 华为云 OBS 存储策略教程，覆盖原生 OBS 签名、CNAME�
 title: "华为云 OBS 存储策略教程"
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#huawei_obs)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 :::tip[这一篇覆盖什么]
 这一篇讲如何把 AsterDrive 文件写入华为云 OBS：准备 bucket 和 OBS 凭证、创建 `asterdrive.storage.huawei_obs` connector、选择区域或自定义域名访问、配置策略组，并按 relay 或 presigned 路径完成验收。
 

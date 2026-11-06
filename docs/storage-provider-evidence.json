@@ -1,0 +1,2359 @@
+{
+  "schema_version": 1,
+  "refresh_days": 90,
+  "official_hosts": [
+    "help.aliyun.com",
+    "www.alibabacloud.com",
+    "cloud.tencent.com",
+    "developer.qiniu.com",
+    "learn.microsoft.com",
+    "developers.google.com",
+    "docs.aws.amazon.com",
+    "developers.cloudflare.com",
+    "support.huaweicloud.com",
+    "www.rfc-editor.org",
+    "datatracker.ietf.org",
+    "github.com"
+  ],
+  "official_github_orgs": [
+    "AsterCommunity",
+    "qiniu",
+    "huaweicloud",
+    "tencentcloud",
+    "huaweicloudDocs"
+  ],
+  "providers": [
+    {
+      "id": "alibaba_oss",
+      "connector_id": "asterdrive.storage.alibaba_oss",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "OSS REST; OSS4-HMAC-SHA256; connector config V1",
+      "dependencies": [
+        {
+          "name": "aws-sdk-s3",
+          "version": "1.157.0"
+        },
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/alibaba_oss.rs",
+        "src/storage/drivers/alibaba_oss/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/alibaba_oss/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/alibaba_oss.rs",
+          "fields": [
+            "aliyun_oss_access_key_id: String",
+            "aliyun_oss_access_key_secret: String",
+            "base_path: String",
+            "bucket: String",
+            "download_base_url: String",
+            "download_delivery: OssDownloadDelivery",
+            "endpoint: String",
+            "object_storage_download_strategy: ObjectStorageDownloadStrategy",
+            "object_storage_upload_strategy: ObjectStorageUploadStrategy",
+            "oss_cdn_auth_key: Option<AlibabaCdnAuthKey>",
+            "oss_cdn_auth_validity_seconds: u32",
+            "oss_region: String",
+            "oss_server_side_endpoint: String",
+            "oss_use_cname: bool"
+          ],
+          "schemas": [
+            "AlibabaOssConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/drivers/alibaba_oss/cors.rs",
+          "contains": [
+            "const CORS_MAX_RULES: usize = 20;",
+            "const CORS_XML_MAX_BYTES: usize = 16 * 1024;",
+            "ResponseVary"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "OSS object API",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/putobject",
+          "version": "OSS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed PutObject request headers, integrity checks and oss:PutObject permission table.",
+          "title_contains": [
+            "PutObject"
+          ]
+        },
+        {
+          "id": "multipart",
+          "title": "InitiateMultipartUpload",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/initiatemultipartupload",
+          "version": "OSS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed POST ?uploads, UploadId response and oss:PutObject permission. This source covers initiation, not all part/completion limits.",
+          "title_contains": [
+            "初始化分片上传"
+          ]
+        },
+        {
+          "id": "v4",
+          "title": "OSS V4 signing",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/recommend-to-use-signature-version-4",
+          "version": "OSS V4",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed OSS4-HMAC-SHA256 header format and aliyun_v4_request credential scope.",
+          "title_contains": [
+            "V4签名"
+          ]
+        },
+        {
+          "id": "getcors",
+          "title": "GetBucketCors",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/getbucketcors",
+          "version": "OSS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed GetBucketCors response, NoSuchCORSConfiguration 404 and AccessDenied 403.",
+          "title_contains": [
+            "GetBucketCors"
+          ]
+        },
+        {
+          "id": "putcors",
+          "title": "PutBucketCors",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/putbucketcors",
+          "version": "OSS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed 20-rule / 16 KB limits, allowed fields, ResponseVary and full configuration PUT.",
+          "title_contains": [
+            "PutBucketCors"
+          ],
+          "content_contains": [
+            "20",
+            "16 KB",
+            "ResponseVary"
+          ]
+        },
+        {
+          "id": "get",
+          "title": "GetObject",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/getobject",
+          "version": "OSS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Range, conditional ETag/412, response overrides and object error table.",
+          "title_contains": [
+            "GetObject"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "OSS GetObject errors and permissions",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/getobject",
+          "version": "OSS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed GetObject errors and permission boundaries; no dead generic error-overview URL is retained.",
+          "title_contains": [
+            "GetObject"
+          ]
+        },
+        {
+          "id": "cname",
+          "title": "OSS custom domains",
+          "url": "https://help.aliyun.com/zh/oss/user-guide/map-custom-domain-names-5",
+          "version": "OSS origin CNAME",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed bucket-bound CNAME/DNS mapping and origin access boundary; CDN remains separate.",
+          "title_contains": [
+            "自定义域名"
+          ]
+        },
+        {
+          "id": "cdn",
+          "title": "CDN Type A",
+          "url": "https://help.aliyun.com/zh/cdn/user-guide/type-a-signing",
+          "version": "Alibaba CDN Type A",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed auth_key timestamp-rand-uid-md5hash format and encoded path signing.",
+          "title_contains": [
+            "鉴权方式A"
+          ]
+        },
+        {
+          "id": "presign",
+          "title": "OSS V4 query signing",
+          "url": "https://help.aliyun.com/zh/oss/developer-reference/add-signatures-to-urls",
+          "version": "OSS V4 query signing",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed V4 query parameters, expiration and UNSIGNED-PAYLOAD; URL signing differs from header signing.",
+          "title_contains": [
+            "V4签名"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "对象操作复用 S3 serializer，鉴权改为 OSS V4；不能把 AWS 协议当成 OSS 依据。",
+          "en": "Object serialization reuses S3; authentication is OSS V4, not AWS SigV4.",
+          "sources": [
+            "api",
+            "v4"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "独立验证 initiate/part/list/complete/abort 及非末片限制。",
+          "en": "Validate initiate/part/list/complete/abort and nonfinal part limits independently.",
+          "sources": [
+            "multipart"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "普通请求与 presigned 都覆盖最终 host/编码 key；公网与服务端 endpoint 分开。",
+          "en": "Ordinary and presigned signing covers the final host/encoded key; public and server endpoints differ.",
+          "sources": [
+            "v4",
+            "presign"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "GetBucketCors/PutBucketCors 整体读合并写；20 条/16 KiB，保留 ResponseVary 与顺序，拒绝遮蔽。",
+          "en": "Read/merge/replace bucket CORS; 20 rules/16 KiB, preserve ResponseVary and order, reject shadowing.",
+          "sources": [
+            "getcors",
+            "putcors"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Range、ETag 与条件请求依据 GetObject；ETag 不等同内容哈希承诺。",
+          "en": "GetObject defines Range, ETag and conditions; ETag is not a universal content hash.",
+          "sources": [
+            "get"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "按 status/code/request ID 脱敏映射，403 不能解释为对象不存在。",
+          "en": "Map status/code/request ID without raw secrets; 403 is not object absence.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "对象权限与 oss:GetBucketCors/oss:PutBucketCors 管理权限分开。",
+          "en": "Object rights differ from oss:GetBucketCors/oss:PutBucketCors management rights.",
+          "sources": [
+            "api",
+            "getcors",
+            "putcors"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "CNAME 是源站 API 别名；CDN Type A 是独立下载鉴权，上传与 CDN 另验。",
+          "en": "CNAME aliases origin APIs; CDN Type A is separate download authentication; upload/CDN acceptance is separate.",
+          "sources": [
+            "cname",
+            "cdn"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tencent_cos",
+      "connector_id": "asterdrive.storage.tencent_cos",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "COS XML API; AWS SigV4 object I/O; COS Q-Sign native operations",
+      "dependencies": [
+        {
+          "name": "aws-sdk-s3",
+          "version": "1.157.0"
+        },
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/tencent_cos.rs",
+        "src/storage/drivers/tencent_cos/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/tencent_cos/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/tencent_cos.rs",
+          "fields": [
+            "base_path: String",
+            "bucket: String",
+            "cdn_auth_validity_seconds: u32",
+            "cos_use_cname: bool",
+            "download_base_url: Option<String>",
+            "download_delivery: CosDownloadDelivery",
+            "endpoint: String",
+            "object_storage_download_strategy: ObjectStorageDownloadStrategy",
+            "object_storage_upload_strategy: ObjectStorageUploadStrategy",
+            "tencent_cdn_auth_key: Option<TencentCdnAuthKey>",
+            "tencent_cos_secret_id: String",
+            "tencent_cos_secret_key: String"
+          ],
+          "schemas": [
+            "TencentCosConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/drivers/tencent_cos/cors.rs",
+          "contains": [
+            "const COS_CORS_MAX_RULES: usize = 100;",
+            "const COS_CORS_XML_MAX_BYTES: usize = 64 * 1024;",
+            "NoSuchCORSConfiguration"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "COS GET Object",
+          "url": "https://cloud.tencent.com/document/product/436/7753",
+          "version": "COS XML API",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed GET Object permissions, Range and conditional ETag handling.",
+          "title_contains": [
+            "GET Object"
+          ]
+        },
+        {
+          "id": "multipart",
+          "title": "COS multipart",
+          "url": "https://cloud.tencent.com/document/product/436/7746",
+          "version": "COS XML API",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed POST ?uploads, UploadId and cos:InitiateMultipartUpload permission.",
+          "title_contains": [
+            "Initiate Multipart Upload"
+          ]
+        },
+        {
+          "id": "sign",
+          "title": "COS request signature",
+          "url": "https://cloud.tencent.com/document/product/436/7778",
+          "version": "COS Q-Sign",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed SHA1 Q-Sign canonical inputs, header and query lists.",
+          "title_contains": [
+            "请求签名"
+          ]
+        },
+        {
+          "id": "presign",
+          "title": "COS presigned URLs",
+          "url": "https://cloud.tencent.com/document/product/436/36121",
+          "version": "COS XML API",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed final Host signing recommendation and temporary-credential lifetime boundary.",
+          "title_contains": [
+            "预签名"
+          ]
+        },
+        {
+          "id": "cors",
+          "title": "COS PUT Bucket cors",
+          "url": "https://cloud.tencent.com/document/product/436/8279",
+          "version": "COS XML API",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed cos:PutBucketCORS, 100 rules, 64 KB XML and exposed header restrictions.",
+          "title_contains": [
+            "PUT Bucket cors"
+          ],
+          "content_contains": [
+            "100条",
+            "64KB"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "COS error codes",
+          "url": "https://cloud.tencent.com/document/product/436/7730",
+          "version": "COS XML API",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed AccessDenied, AccessForbidden and NoSuchCORSConfiguration distinctions.",
+          "title_contains": [
+            "错误码"
+          ]
+        },
+        {
+          "id": "cname",
+          "title": "COS custom origin domains",
+          "url": "https://cloud.tencent.com/document/product/436/36638",
+          "version": "COS origin CNAME",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed bucket custom-origin binding, CNAME/DNS and certificate activation boundary.",
+          "title_contains": [
+            "自定义源站域名"
+          ]
+        },
+        {
+          "id": "cdn",
+          "title": "Tencent CDN Type D",
+          "url": "https://cloud.tencent.com/document/product/228/41625",
+          "version": "CDN Type D",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Type D URL shape and MD5 example; SHA-256 support is separately traced to the pinned official model.",
+          "title_contains": [
+            "TypeD"
+          ]
+        },
+        {
+          "id": "cdnmodel",
+          "title": "Official CDN algorithm model",
+          "url": "https://github.com/tencentcloud/tencentcloud-sdk-go/blob/28c6cd0071e848ec8220af0f9041b3d669583177/tencentcloud/cdn/v20180606/models.go",
+          "version": "CDN API 2018-06-06; pinned commit",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pinned official raw models.go: Authentication.AuthAlgorithm documents md5 and sha256. This supplements, rather than replaces, CDN specification.",
+          "title_contains": [
+            "models.go"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "基础对象 I/O 走 S3 兼容路径；原生 CI/CORS 使用 COS Q-Sign。",
+          "en": "Base I/O uses S3 compatibility; native CI/CORS uses COS Q-Sign.",
+          "sources": [
+            "api",
+            "sign"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "独立验证 multipart 初始化、分片、完成、取消；不要把 CDN 用作上传入口。",
+          "en": "Validate multipart initiation, parts, completion and abort; CDN is not an upload endpoint.",
+          "sources": [
+            "multipart"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "Q-Sign 覆盖最终 Host 和原生 query；预签名后不能追加 CI 参数。",
+          "en": "Q-Sign covers final Host/native query; do not append CI parameters after signing.",
+          "sources": [
+            "sign",
+            "presign"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "bucket CORS 读合并写；100 条/64 KiB；仅 NoSuchCORSConfiguration 可视为空。",
+          "en": "Read/merge/write bucket CORS; 100 rules/64 KiB; only NoSuchCORSConfiguration means absent rules.",
+          "sources": [
+            "cors",
+            "errors"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "GET Object 定义 Range/ETag；独立验证源站和缓存命中响应。",
+          "en": "GET Object defines Range/ETag; origin and cached responses need separate checks.",
+          "sources": [
+            "api"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "保留 status/code/request ID，拒绝把管理读取错误降级为空配置。",
+          "en": "Preserve status/code/request ID; management read failures must not become empty config.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "对象、CORS 和 CI 授权分开；不为 CNAME 验证额外请求域名管理权限。",
+          "en": "Object, CORS and CI authorization differ; CNAME does not require extra domain-management probes.",
+          "sources": [
+            "cors",
+            "cname"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "bucket-bound CNAME 与下载 CDN 分开；Type D SHA-256 依据官方模型，页面 MD5 示例不可直接套用。",
+          "en": "Separate bucket-bound CNAME and CDN delivery; Type D SHA-256 follows the official model, not the page MD5 example.",
+          "sources": [
+            "cname",
+            "cdn",
+            "cdnmodel"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qiniu",
+      "connector_id": "asterdrive.storage.qiniu",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Kodo native APIs; multipart v2; Qiniu v2 management auth; connector config V2",
+      "dependencies": [
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/qiniu.rs",
+        "src/storage/drivers/qiniu/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/qiniu/tests.rs",
+        "src/storage/drivers/qiniu/cors/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/qiniu.rs",
+          "fields": [
+            "base_path: String",
+            "bucket: String",
+            "download_auth_validity_seconds: u32",
+            "download_base_url: Option<String>",
+            "download_delivery: QiniuDownloadDelivery",
+            "download_origin: String",
+            "object_storage_download_strategy: ObjectStorageDownloadStrategy",
+            "provider_resumable_upload_strategy: ProviderResumableUploadStrategy",
+            "qiniu_access_key: String",
+            "qiniu_secret_key: String"
+          ],
+          "schemas": [
+            "QiniuConnectorConfigV2"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/drivers/qiniu/cors.rs",
+          "contains": [
+            "const MAX_RULES: usize = 10;",
+            "\"corsRules\", operation"
+          ]
+        },
+        {
+          "path": "src/storage/drivers/qiniu/mod.rs",
+          "contains": [
+            "f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "Kodo native API overview",
+          "url": "https://developer.qiniu.com/kodo/3939/overview-of-the-api",
+          "version": "Kodo REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed native API catalog: list, stat metadata-only, chgm, move, copy, delete and batch endpoints.",
+          "title_contains": [
+            "API 概览"
+          ]
+        },
+        {
+          "id": "upload",
+          "title": "Kodo multipart v2",
+          "url": "https://developer.qiniu.com/kodo/6364/multipartupload-interface",
+          "version": "Kodo multipart v2",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed multipart v2 API family; exact UC management requests are additionally checked against the pinned official source.",
+          "title_contains": [
+            "分片上传 v2"
+          ]
+        },
+        {
+          "id": "auth",
+          "title": "Kodo management authentication",
+          "url": "https://developer.qiniu.com/kodo/1201/access-token",
+          "version": "Kodo management auth",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Qiniu management signing inputs including Host, Content-Type, X-Qiniu headers and body.",
+          "title_contains": [
+            "管理凭证"
+          ]
+        },
+        {
+          "id": "download",
+          "title": "Kodo download settings",
+          "url": "https://developer.qiniu.com/kodo/1659/download-setting",
+          "version": "Kodo private URL/attname",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed signed attachment attname URL encoding; private e/token authentication is a separate source.",
+          "title_contains": [
+            "下载设置"
+          ]
+        },
+        {
+          "id": "cors",
+          "title": "Kodo CORS",
+          "url": "https://developer.qiniu.com/kodo/8539/set-the-cross-domain-resource-sharing",
+          "version": "Kodo UC CORS",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed default allow-all, maximum 10 rules, first matching ordered rule and required Origin/method/header conditions. 64 KiB is a Drive safeguard, not a documented provider quota.",
+          "title_contains": [
+            "设置跨域资源共享"
+          ]
+        },
+        {
+          "id": "sdk",
+          "title": "Official Kodo API specifications",
+          "url": "https://github.com/qiniu/go-sdk/tree/f278ca5c9cc5d4a85f304e4b73f2b0b36437c66e/storagev2",
+          "version": "Pinned protocol reference; not runtime SDK",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pinned storagev2 tree and api_get_bucket_cors_rules.go / api_set_bucket_cors_rules.go: GET/POST corsRules/get,set, ServiceBucket and TokenQiniu. Official source is supplementary to native API/CORS docs.",
+          "title_contains": [
+            "go-sdk/storagev2"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "Kodo error responses",
+          "url": "https://developer.qiniu.com/kodo/3928/error-responses",
+          "version": "Kodo REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed 401 token/auth errors, 612 object absence, 631 bucket absence and 5xx handling guidance.",
+          "title_contains": [
+            "错误响应"
+          ]
+        },
+        {
+          "id": "private_url",
+          "title": "Kodo private download token",
+          "url": "https://developer.qiniu.com/kodo/1202/download-token",
+          "version": "Kodo private URL/attname",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed private download e deadline, HMAC-SHA1, padded URL-safe Base64 and AK:signature token; attname is documented separately.",
+          "title_contains": [
+            "下载凭证"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "使用原生 stat/list/copy/delete、区域发现；不回退 S3。",
+          "en": "Use native stat/list/copy/delete and region discovery; no S3 fallback.",
+          "sources": [
+            "api",
+            "sdk"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "multipart v2 独立编号分片、查询、显式合并/取消；UpToken 限定 bucket/key。",
+          "en": "Multipart v2 has numbered parts, listing, explicit completion/abort; UpToken is scoped to bucket/key.",
+          "sources": [
+            "upload"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "管理 Qiniu v2 签名覆盖实际 Content-Type/body；下载使用最终 URL 的 e/token。",
+          "en": "Qiniu v2 management signs actual Content-Type/body; download signs final URL e/token.",
+          "sources": [
+            "auth",
+            "sdk",
+            "download",
+            "private_url"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "独立 UC GET/POST /corsRules/{get,set}/{bucket}；有序 JSON，全量保留再回读。",
+          "en": "Separate UC GET/POST /corsRules/{get,set}/{bucket}; ordered JSON, preserve and read back.",
+          "sources": [
+            "cors",
+            "sdk"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "私有 GET/HEAD/Range 与附件 attname 分别验证；CDN 行为另验。",
+          "en": "Test private GET/HEAD/Range and attachment attname separately; CDN behavior needs independent acceptance.",
+          "sources": [
+            "download",
+            "api"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "code/error/request ID 脱敏；鉴权失败、时效错误与不存在分别处理。",
+          "en": "Sanitize code/error/request ID; distinguish auth, expiry and not-found failures.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "UpToken 上传授权、RS/RSF 对象管理、UC CORS 和私有下载凭证各自独立。",
+          "en": "UpToken upload, RS/RSF object management, UC CORS and private download credentials have distinct scopes.",
+          "sources": [
+            "auth",
+            "cors",
+            "upload",
+            "private_url"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "区域上传域、RS/RSF、UC、私有源站、CDN 不混用；默认源站时效另有限制。",
+          "en": "Do not mix region upload, RS/RSF, UC, private origin and CDN domains; default origins have separate expiry limits.",
+          "sources": [
+            "api",
+            "download",
+            "sdk"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "azure_blob",
+      "connector_id": "asterdrive.storage.azure_blob",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Blob REST 2023-11-03 for native SharedKey/SAS; SDK-selected version for SDK I/O",
+      "dependencies": [
+        {
+          "name": "azure_storage_blob",
+          "version": "1.1.0"
+        },
+        {
+          "name": "azure_core",
+          "version": "1.1.0"
+        },
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/azure_blob.rs",
+        "src/storage/drivers/azure_blob/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/azure_blob/signing.rs",
+        "src/storage/drivers/azure_blob/cors/tests.rs",
+        "src/storage/drivers/azure_blob/cdn/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/azure_blob.rs",
+          "fields": [
+            "azure_blob_account_key: String",
+            "azure_blob_account_name: String",
+            "azure_cdn_cache_max_age_seconds: u32",
+            "base_path: String",
+            "bucket: String",
+            "download_base_url: String",
+            "download_delivery: AzureBlobDownloadDelivery",
+            "endpoint: String",
+            "object_storage_download_strategy: ObjectStorageDownloadStrategy",
+            "object_storage_upload_strategy: ObjectStorageUploadStrategy"
+          ],
+          "schemas": [
+            "AzureBlobConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/drivers/azure_blob/mod.rs",
+          "contains": [
+            "const AZURE_STORAGE_VERSION: &str = \"2023-11-03\";"
+          ]
+        },
+        {
+          "path": "src/storage/drivers/azure_blob/cors.rs",
+          "contains": [
+            "const AZURE_CORS_RULE_FIELDS: [&str; 5]",
+            "x-ms-version"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "Get Blob",
+          "url": "https://learn.microsoft.com/rest/api/storageservices/get-blob",
+          "version": "Blob REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Range/x-ms-range, ETag/conditions and object response headers.",
+          "title_contains": [
+            "Get Blob"
+          ]
+        },
+        {
+          "id": "block",
+          "title": "Put Block",
+          "url": "https://learn.microsoft.com/rest/api/storageservices/put-block",
+          "version": "Blob REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed blockid request encoding and block staging semantics; multipart uploadId is not a Blob concept.",
+          "title_contains": [
+            "Put Block"
+          ]
+        },
+        {
+          "id": "sas",
+          "title": "Create service SAS",
+          "url": "https://learn.microsoft.com/rest/api/storageservices/create-service-sas",
+          "version": "Service SAS 2020-12-06+ string-to-sign",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed service SAS canonicalizedResource, signedVersion, 2020-12-06+ string-to-sign and rscc/rscd/rsct overrides.",
+          "title_contains": [
+            "Create a service SAS"
+          ]
+        },
+        {
+          "id": "sharedkey",
+          "title": "SharedKey authorization",
+          "url": "https://learn.microsoft.com/rest/api/storageservices/authorize-with-shared-key",
+          "version": "Blob SharedKey",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed SharedKey StringToSign, canonical headers/resources and account-level authorization.",
+          "title_contains": [
+            "Authorize with Shared Key"
+          ]
+        },
+        {
+          "id": "cors",
+          "title": "Set Blob Service Properties",
+          "url": "https://learn.microsoft.com/rest/api/storageservices/set-blob-service-properties",
+          "version": "Blob service properties",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed StorageServiceProperties replacement, up to five CorsRule elements and deleting CORS by an empty set.",
+          "title_contains": [
+            "Set Blob Service Properties"
+          ],
+          "content_contains": [
+            "five",
+            "CorsRule"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "Blob error codes",
+          "url": "https://learn.microsoft.com/rest/api/storageservices/blob-service-error-codes",
+          "version": "Blob REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed BlobNotFound/ContainerNotFound and operation-specific status/code mappings.",
+          "title_contains": [
+            "Blob Storage error codes"
+          ]
+        },
+        {
+          "id": "cdn",
+          "title": "Front Door storage scenario",
+          "url": "https://learn.microsoft.com/azure/frontdoor/scenario-storage-blobs",
+          "version": "Front Door Standard/Premium",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed client SAS, full query-string cache behavior, custom TLS domains and Premium Private Link boundary.",
+          "title_contains": [
+            "Azure Storage blobs"
+          ]
+        },
+        {
+          "id": "cache",
+          "title": "Front Door caching",
+          "url": "https://learn.microsoft.com/azure/frontdoor/front-door-caching",
+          "version": "Front Door cache contract",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed TTL and query-string caching; a cache lifetime is not client SAS authorization lifetime.",
+          "title_contains": [
+            "Caching"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "SDK 对象请求与原生 SharedKey/SAS 的版本边界分开记录。",
+          "en": "SDK object requests and native SharedKey/SAS have separate version boundaries.",
+          "sources": [
+            "api",
+            "sharedkey"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "block ID 与 Put Block/List 完成协议；不可当 S3 multipart uploadId。",
+          "en": "Use block IDs and Put Block/List completion, not S3 multipart upload IDs.",
+          "sources": [
+            "block"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "SAS canonical resource 固定 /blob/account/container/key，文件名、MIME、缓存覆盖参与签名。",
+          "en": "SAS canonical resource is /blob/account/container/key; filename, MIME and cache overrides are signed.",
+          "sources": [
+            "sas"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "account Blob service CORS，不是 container 级；保留其他 service properties，最多 5 条规则。",
+          "en": "CORS belongs to the account Blob service, not a container; preserve other service properties; at most five rules.",
+          "sources": [
+            "cors"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Get Blob 支持 Range/ETag；Front Door cache hit 与 SAS 过期不是同一时钟。",
+          "en": "Get Blob defines Range/ETag; Front Door cache hits and SAS expiry are distinct clocks.",
+          "sources": [
+            "api",
+            "cache"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "保留 x-ms-request-id 和脱敏错误码；区分对象操作与 service 管理失败。",
+          "en": "Preserve x-ms-request-id and sanitized codes; distinguish object and service management failures.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "CORS 动作使用账号 key 的 service 管理权限；对象 SAS 不赋予配置 CORS 的权限。",
+          "en": "CORS action uses account-key service management; object SAS does not authorize CORS changes.",
+          "sources": [
+            "sharedkey",
+            "cors",
+            "sas"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "上传、服务端 I/O、管理走 Blob endpoint；Front Door 是独立 HTTPS 下载域，缓存和 query key 需另验。",
+          "en": "Upload, server I/O and management use Blob endpoint; Front Door is separate HTTPS delivery with independent cache/query-key acceptance.",
+          "sources": [
+            "cdn",
+            "cache"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "onedrive",
+      "connector_id": "asterdrive.storage.onedrive",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Microsoft Graph v1.0; OAuth v2.0; connector config V1",
+      "dependencies": [
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/onedrive.rs",
+        "src/storage/drivers/onedrive/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/onedrive/mod.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/onedrive.rs",
+          "fields": [
+            "account_mode: OneDriveAccountMode",
+            "base_path: String",
+            "capacity_probe_timeout_secs: u64",
+            "client_id: String",
+            "client_secret: String",
+            "cloud: MicrosoftGraphCloud",
+            "drive_id: Option<String>",
+            "group_id: Option<String>",
+            "provider_download_filename_mode: ProviderDownloadFilenameMode",
+            "provider_download_strategy: ProviderDownloadStrategy",
+            "provider_resumable_upload_strategy: ProviderResumableUploadStrategy",
+            "root_item_id: Option<String>",
+            "scopes: Option<String>",
+            "site_id: Option<String>",
+            "tenant: Option<String>"
+          ],
+          "schemas": [
+            "OneDriveConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/connectors/onedrive.rs",
+          "contains": [
+            "asterdrive.storage.onedrive"
+          ]
+        },
+        {
+          "path": "src/storage/drivers/onedrive/mod.rs",
+          "contains": [
+            "nextExpectedRanges"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "Graph driveItem content",
+          "url": "https://learn.microsoft.com/graph/api/driveitem-get-content?view=graph-rest-1.0",
+          "version": "Graph v1.0",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed 302 to preauthenticated downloadUrl, Range on actual download URL and API permission tables.",
+          "title_contains": [
+            "Download driveItem content"
+          ]
+        },
+        {
+          "id": "upload",
+          "title": "Graph upload sessions",
+          "url": "https://learn.microsoft.com/graph/api/driveitem-createuploadsession?view=graph-rest-1.0",
+          "version": "Graph v1.0",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed sequential ranges, 320 KiB alignment, nextExpectedRanges and no Authorization bearer on preauthorized PUT.",
+          "title_contains": [
+            "createUploadSession"
+          ],
+          "content_contains": [
+            "320"
+          ]
+        },
+        {
+          "id": "oauth",
+          "title": "Microsoft OAuth authorization code",
+          "url": "https://learn.microsoft.com/entra/identity-platform/v2-oauth2-auth-code-flow",
+          "version": "OAuth v2.0",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed authorization-code flow, scopes, offline access and refresh_token response.",
+          "title_contains": [
+            "authorization code"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "Graph errors",
+          "url": "https://learn.microsoft.com/graph/errors",
+          "version": "Graph REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Graph status/error structure, throttling and Retry-After guidance.",
+          "title_contains": [
+            "Microsoft Graph error"
+          ]
+        },
+        {
+          "id": "address",
+          "title": "Graph driveItem addressing",
+          "url": "https://learn.microsoft.com/graph/onedrive-addressing-driveitems",
+          "version": "Graph v1.0",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed drive/item identity versus path addressing and percent encoding.",
+          "title_contains": [
+            "Address resources"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "对象定位按 drive/item 与路径编码；Blob 逻辑身份由 Drive 拥有。",
+          "en": "Address by drive/item and encoded paths; logical blob identity remains in AsterDrive.",
+          "sources": [
+            "api",
+            "address"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "顺序 Content-Range、320 KiB 倍数约束、nextExpectedRanges、查询/取消会话。",
+          "en": "Sequential Content-Range, 320 KiB alignment, nextExpectedRanges, session query/cancel.",
+          "sources": [
+            "upload"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "OAuth bearer 用于 Graph；预授权 upload/download URL 是不同凭证边界，不追加 Graph bearer。",
+          "en": "OAuth bearer authorizes Graph; preauthorized upload/download URLs are separate credential boundaries.",
+          "sources": [
+            "oauth",
+            "api",
+            "upload"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "无 bucket CORS 管理动作；浏览器会话和重定向下载响应要独立验收。",
+          "en": "No bucket CORS management action; browser sessions and redirected downloads need separate acceptance.",
+          "sources": [
+            "api",
+            "upload"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Range 发往真实 download URL；条件 ETag 与重定向响应分别验证。",
+          "en": "Send Range to the actual download URL; test conditional ETag and redirects separately.",
+          "sources": [
+            "api"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "按 HTTP 与 Graph error.code 映射，429 遵循 Retry-After，不泄露会话 URL。",
+          "en": "Map HTTP/Graph error.code, respect Retry-After on 429, never leak session URLs.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "委派/应用授权和个人/组织盘权限不同；以具体 API 的权限表为准。",
+          "en": "Delegated/application and personal/organization-drive rights differ; use each API permission table.",
+          "sources": [
+            "api",
+            "upload",
+            "oauth"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "Graph 控制入口、会话 uploadUrl、短时 downloadUrl 不能替换为任意 CDN/自定义域。",
+          "en": "Graph control, session uploadUrl and short-lived downloadUrl are not interchangeable with arbitrary CDN domains.",
+          "sources": [
+            "api",
+            "upload"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "google_drive",
+      "connector_id": "asterdrive.storage.google_drive",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Drive REST v3; Google OAuth 2.0; connector config V1",
+      "dependencies": [
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/google_drive.rs",
+        "src/storage/drivers/google_drive/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/google_drive/tests.rs",
+        "src/storage/drivers/google_drive/tests/boundaries.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/google_drive.rs",
+          "fields": [
+            "access_token: String",
+            "app_data_folder: bool",
+            "application: GoogleDriveAuthorizationApplicationV1",
+            "authorization: Option<GoogleDriveAuthorizationV1>",
+            "authorized_at: Option<chrono::DateTime<chrono::Utc>>",
+            "base_path: String",
+            "capacity_probe_timeout_secs: u64",
+            "client_id: String",
+            "client_secret: GoogleDriveClientSecret",
+            "expires_at: Option<chrono::DateTime<chrono::Utc>>",
+            "last_refreshed_at: Option<chrono::DateTime<chrono::Utc>>",
+            "last_validated_at: Option<chrono::DateTime<chrono::Utc>>",
+            "provider_resumable_upload_strategy: ProviderResumableUploadStrategy",
+            "refresh_token: Option<String>",
+            "root_folder_id: Option<String>",
+            "scopes: Vec<String>",
+            "shared_drive_id: Option<String>",
+            "status: StorageCredentialStatus",
+            "status_reason: Option<String>"
+          ],
+          "schemas": [
+            "GoogleDriveConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/drivers/google_drive/mod.rs",
+          "contains": [
+            "https://www.googleapis.com/drive/v3",
+            "https://www.googleapis.com/upload/drive/v3/files"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "Drive files reference",
+          "url": "https://developers.google.com/workspace/drive/api/reference/rest/v3/files?hl=en",
+          "version": "Drive v3",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed files resource methods and capability metadata; blob content and logical product identity remain separate.",
+          "title_contains": [
+            "REST Resource: files"
+          ]
+        },
+        {
+          "id": "upload",
+          "title": "Manage uploads",
+          "url": "https://developers.google.com/workspace/drive/api/guides/manage-uploads?hl=en",
+          "version": "Drive v3 resumable",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed resumable Location, nonfinal 256 x 1024-byte alignment, 308 and Range status recovery.",
+          "title_contains": [
+            "Upload file data"
+          ],
+          "content_contains": [
+            "256",
+            "308"
+          ]
+        },
+        {
+          "id": "download",
+          "title": "Download files",
+          "url": "https://developers.google.com/workspace/drive/api/guides/manage-downloads?hl=en",
+          "version": "Drive v3 alt=media",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed alt=media and Range for blob content, and no partial downloads for Workspace export.",
+          "title_contains": [
+            "Download and export"
+          ]
+        },
+        {
+          "id": "oauth",
+          "title": "Web server OAuth",
+          "url": "https://developers.google.com/identity/protocols/oauth2/web-server?hl=en",
+          "version": "OAuth 2.0",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed authorization-code and offline refresh-token flow.",
+          "title_contains": [
+            "Web Server Applications"
+          ]
+        },
+        {
+          "id": "scopes",
+          "title": "Drive API scopes",
+          "url": "https://developers.google.com/workspace/drive/api/guides/api-specific-auth?hl=en",
+          "version": "Drive v3 OAuth scopes",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed drive.file, drive and appdata scopes and their permission boundaries.",
+          "title_contains": [
+            "scopes"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "Drive errors",
+          "url": "https://developers.google.com/workspace/drive/api/guides/handle-errors?hl=en",
+          "version": "Drive v3",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed reason-specific 403/rateLimitExceeded, 404 and 429 handling.",
+          "title_contains": [
+            "Resolve errors"
+          ]
+        },
+        {
+          "id": "shared",
+          "title": "Shared drives",
+          "url": "https://developers.google.com/workspace/drive/api/guides/enable-shareddrives?hl=en",
+          "version": "Drive v3 supportsAllDrives",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed supportsAllDrives and includeItemsFromAllDrives query requirements.",
+          "title_contains": [
+            "shared drive"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "files 元数据与 alt=media 对象内容分开；共享盘显式 supportsAllDrives。",
+          "en": "Separate files metadata and alt=media bytes; shared drives require supportsAllDrives.",
+          "sources": [
+            "api",
+            "shared"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "resumable 使用 Location/Content-Range、256 KiB 对齐和 308/Range；会话失效重新协商。",
+          "en": "Resumable uses Location/Content-Range, 256 KiB alignment and 308/Range; renegotiate expired sessions.",
+          "sources": [
+            "upload"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "OAuth 2.0 refresh/token 与 provider session URL 独立；没有 S3 presigned 支持。",
+          "en": "OAuth refresh/tokens differ from provider session URLs; no S3 presigned capability.",
+          "sources": [
+            "oauth",
+            "upload"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "无 bucket CORS 管理动作；不得把 resumable 兼容性扩展为任意浏览器下载支持。",
+          "en": "No bucket CORS action; resumable compatibility does not imply arbitrary browser download support.",
+          "sources": [
+            "upload",
+            "download"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Range 读取仅针对支持的二进制 media；Workspace 文档导出另有语义。",
+          "en": "Range targets supported binary media; Workspace document exports have separate semantics.",
+          "sources": [
+            "download"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "区分 401、403 reason、404 与 429；不能将所有 403 都重试或当作不存在。",
+          "en": "Distinguish 401, 403 reasons, 404 and 429; not every 403 is retryable or missing.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "drive.file、drive、appDataFolder 与共享盘范围不同；授权/管理员校验要对应当前根目录。",
+          "en": "drive.file, drive, appDataFolder and shared drives differ; authorization must cover the selected root.",
+          "sources": [
+            "scopes",
+            "shared"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "Google API/upload endpoint 与 session Location 受约束；不提供任意 CDN/custom domain 交付。",
+          "en": "Google API/upload endpoints and session Location are constrained; no arbitrary CDN/custom-domain delivery.",
+          "sources": [
+            "api",
+            "upload"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "huawei_obs",
+      "connector_id": "asterdrive.storage.huawei_obs",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Native OBS SignatureObs; marker-based ListObjects; connector config V1",
+      "dependencies": [
+        {
+          "name": "aws-sdk-s3",
+          "version": "1.157.0"
+        },
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/huawei_obs.rs",
+        "src/storage/drivers/huawei_obs/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/huawei_obs/tests.rs",
+        "src/storage/drivers/huawei_obs/cors/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/huawei_obs.rs",
+          "fields": [
+            "base_path: String",
+            "bucket: String",
+            "download_base_url: String",
+            "download_delivery: ObsDownloadDelivery",
+            "endpoint: String",
+            "object_storage_download_strategy: ObjectStorageDownloadStrategy",
+            "object_storage_upload_strategy: ObjectStorageUploadStrategy",
+            "obs_access_key_id: String",
+            "obs_cdn_auth_key: Option<HuaweiCdnAuthKey>",
+            "obs_cdn_auth_param: String",
+            "obs_cdn_auth_validity_seconds: u32",
+            "obs_region: String",
+            "obs_secret_access_key: String",
+            "obs_use_cname: bool"
+          ],
+          "schemas": [
+            "HuaweiObsConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/drivers/huawei_obs/mod.rs",
+          "contains": [
+            "SignatureObs",
+            "ListObjectsV2"
+          ]
+        },
+        {
+          "path": "src/storage/drivers/huawei_obs/cors.rs",
+          "contains": [
+            "CORS"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "OBS ListObjects",
+          "url": "https://support.huaweicloud.com/intl/en-us/api-obs/obs_04_0022.html",
+          "version": "OBS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed prefix/marker/max-keys and NextMarker listing contract; not S3 ListObjectsV2.",
+          "title_contains": [
+            "Listing Objects"
+          ]
+        },
+        {
+          "id": "sign",
+          "title": "OBS Authorization header",
+          "url": "https://support.huaweicloud.com/intl/en-us/api-obs/obs_04_0010.html",
+          "version": "SignatureObs",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed OBS Authorization and Base64(HMAC-SHA1(SK, StringToSign)) canonical inputs.",
+          "title_contains": [
+            "Authorization Header"
+          ]
+        },
+        {
+          "id": "presign",
+          "title": "OBS presigned URL",
+          "url": "https://support.huaweicloud.com/intl/en-us/api-obs/obs_04_0011.html",
+          "version": "SignatureObs query",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pre-signed AK/signature/Expires delegation and expiration semantics.",
+          "title_contains": [
+            "Pre-Signed URL"
+          ]
+        },
+        {
+          "id": "overview",
+          "title": "OBS GetObject specification",
+          "url": "https://github.com/huaweicloudDocs/obs/blob/b5515cf03462beac5ab60af7bc3525ba6e8e667c/cn.zh-cn/API%E5%8F%82%E8%80%83/%E4%B8%8B%E8%BD%BD%E5%AF%B9%E8%B1%A1.md",
+          "version": "OBS REST specification b5515cf03462beac5ab60af7bc3525ba6e8e667c",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pinned official REST GetObject: Range, ETag of the whole object and response header overrides.",
+          "title_contains": [
+            "下载对象"
+          ]
+        },
+        {
+          "id": "cors",
+          "title": "OBS CORS configuration",
+          "url": "https://github.com/huaweicloudDocs/obs/blob/b5515cf03462beac5ab60af7bc3525ba6e8e667c/cn.zh-cn/API%E5%8F%82%E8%80%83/%E8%AE%BE%E7%BD%AE%E6%A1%B6%E7%9A%84CORS%E9%85%8D%E7%BD%AE.md",
+          "version": "OBS REST specification b5515cf03462beac5ab60af7bc3525ba6e8e667c",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pinned official REST CORS PUT: full XML, Content-MD5, rule fields/order and 100-rule boundary; specification mirror, not generated SDK.",
+          "title_contains": [
+            "设置桶的CORS配置"
+          ]
+        },
+        {
+          "id": "cdn",
+          "title": "Huawei CDN URL authentication",
+          "url": "https://support.huaweicloud.com/usermanual-cdn/cdn_01_0040.html",
+          "version": "Huawei CDN Type A",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Huawei CDN Type A auth_key and sha256 encoded-path construction.",
+          "title_contains": [
+            "鉴权方式A"
+          ]
+        },
+        {
+          "id": "multipart",
+          "title": "OBS multipart initiation",
+          "url": "https://github.com/huaweicloudDocs/obs/blob/b5515cf03462beac5ab60af7bc3525ba6e8e667c/cn.zh-cn/API%E5%8F%82%E8%80%83/%E5%88%9D%E5%A7%8B%E5%8C%96%E4%B8%8A%E4%BC%A0%E6%AE%B5%E4%BB%BB%E5%8A%A1.md",
+          "version": "OBS REST specification b5515cf03462beac5ab60af7bc3525ba6e8e667c",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pinned official REST multipart initiation and UploadId response; remaining operations retain local fixtures.",
+          "title_contains": [
+            "初始化上传段任务"
+          ]
+        },
+        {
+          "id": "permissions",
+          "title": "OBS bucket permissions",
+          "url": "https://github.com/huaweicloudDocs/obs/blob/b5515cf03462beac5ab60af7bc3525ba6e8e667c/cn.zh-cn/API%E5%8F%82%E8%80%83/%E6%A1%B6%E7%9B%B8%E5%85%B3%E6%8E%88%E6%9D%83%E9%A1%B9.md",
+          "version": "OBS REST specification b5515cf03462beac5ab60af7bc3525ba6e8e667c",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed pinned official bucket authorization table: obs:bucket:GetBucketCORS and PutBucketCORS (set/delete).",
+          "title_contains": [
+            "桶相关授权项"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "OBS error codes",
+          "url": "https://support.huaweicloud.com/intl/en-us/api-obs/obs_04_0115.html",
+          "version": "OBS REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed OBS error/status/request-ID response and AccessDenied/NoSuchKey distinctions.",
+          "title_contains": [
+            "Error Code Overview"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "对象操作复用 S3 serializer，原生 SignatureObs；list 使用 marker，不用 ListObjectsV2。",
+          "en": "Reuse S3 serialization with native SignatureObs; listing is marker-based, not ListObjectsV2.",
+          "sources": [
+            "api",
+            "sign"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "init/part/list/complete/abort 均按 OBS 协议验证，不能只测 S3 serializer。",
+          "en": "Validate init/part/list/complete/abort against OBS, not just the S3 serializer.",
+          "sources": [
+            "multipart"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "普通与 query 签名都使用 OBS canonical/最终 host；不声称 AWS SigV4 兼容。",
+          "en": "Header/query signing uses OBS canonical form and final host; do not claim AWS SigV4 equivalence.",
+          "sources": [
+            "sign",
+            "presign"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "显式动作读合并写 bucket CORS，保留 ID、字段和顺序，拒绝遮蔽与未知配置。",
+          "en": "Explicit action read/merges bucket CORS, preserving IDs/fields/order, rejecting shadowing/unsupported config.",
+          "sources": [
+            "cors",
+            "overview"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Range/ETag 为对象 API 契约；CDN 200/206、缓存和头单独验收。",
+          "en": "Range/ETag belongs to object APIs; CDN 200/206, caching and headers need separate acceptance.",
+          "sources": [
+            "overview"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "OBS 原生 error code/status/request ID 脱敏；管理与对象请求分别映射。",
+          "en": "Sanitize OBS error code/status/request ID; management and object requests differ.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "bucket CORS 管理权限与对象读写/私有回源授权分别验证。",
+          "en": "Validate bucket CORS rights separately from object I/O and private-origin authorization.",
+          "sources": [
+            "permissions",
+            "cors"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "OBS-bound CNAME 是 API 源站；CDN Type A/SHA-256 只负责下载，上传仍用 OBS。",
+          "en": "OBS-bound CNAME is an API origin; CDN Type A/SHA-256 handles downloads while uploads remain on OBS.",
+          "sources": [
+            "presign",
+            "cdn"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "connector_id": "asterdrive.storage.s3",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Amazon S3 REST API 2006-03-01; AWS SigV4; compatible vendors require separate acceptance",
+      "dependencies": [
+        {
+          "name": "aws-sdk-s3",
+          "version": "1.157.0"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/s3.rs",
+        "src/storage/drivers/s3/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/s3/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/s3.rs",
+          "fields": [
+            "base_path: String",
+            "bucket: String",
+            "confirmation_key: &'static str",
+            "description_key: &'static str",
+            "endpoint: String",
+            "object_storage_download_strategy: ObjectStorageDownloadStrategy",
+            "object_storage_upload_strategy: ObjectStorageUploadStrategy",
+            "promotion_id: &'static str",
+            "requirements: Vec<StorageConnectorPromotionRequirement>",
+            "s3_access_key_id: String",
+            "s3_connect_timeout_secs: u64",
+            "s3_operation_timeout_secs: u64",
+            "s3_path_style: bool",
+            "s3_read_timeout_secs: u64",
+            "s3_region: String",
+            "s3_secret_access_key: String",
+            "target_access_key_field: &'static str",
+            "target_region_field: Option<&'static str>",
+            "target_secret_key_field: &'static str"
+          ],
+          "schemas": [
+            "S3ConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/connectors/s3.rs",
+          "contains": [
+            "asterdrive.storage.s3"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "api",
+          "title": "S3 GetObject",
+          "url": "https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html",
+          "version": "S3 API 2006-03-01",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Range, If-Match/ETag/412 and object permission requirements.",
+          "title_contains": [
+            "GetObject"
+          ]
+        },
+        {
+          "id": "upload",
+          "title": "S3 multipart limits",
+          "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
+          "version": "S3 multipart",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed 10,000 parts, 5 MiB..5 GiB part range and final-part exception; vendor-specific limits remain separate.",
+          "title_contains": [
+            "multipart upload limits"
+          ]
+        },
+        {
+          "id": "sign",
+          "title": "S3 presigned URLs",
+          "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html",
+          "version": "AWS SigV4",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed SigV4 presigned lifetime and earlier expiry with temporary credentials.",
+          "title_contains": [
+            "presigned URLs"
+          ]
+        },
+        {
+          "id": "cors",
+          "title": "S3 CORS",
+          "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/cors.html",
+          "version": "S3 bucket CORS",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed first matching CORSRule and browser Origin/method/header matching; not an IAM grant.",
+          "title_contains": [
+            "cross-origin resource sharing"
+          ]
+        },
+        {
+          "id": "errors",
+          "title": "S3 errors",
+          "url": "https://docs.aws.amazon.com/AmazonS3/latest/API/API_Error.html",
+          "version": "S3 REST",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed Error response model, AccessDenied 403 and NoSuchKey 404; removed a soft redirect to generic API welcome.",
+          "title_contains": [
+            "Error - Amazon S3"
+          ]
+        },
+        {
+          "id": "r2",
+          "title": "R2 S3 compatibility",
+          "url": "https://developers.cloudflare.com/r2/api/s3/api/",
+          "version": "Cloudflare R2 S3 compatibility",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed R2 operation/header compatibility matrix; AWS compatibility is not a promise of every vendor feature.",
+          "title_contains": [
+            "S3 API compatibility"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "S3 SDK 请求语义以 AWS 为依据；R2/MinIO 不能凭 S3 兼容标签视为同等支持。",
+          "en": "AWS defines SDK wire semantics; S3-compatible labels alone do not establish R2/MinIO parity.",
+          "sources": [
+            "api",
+            "r2"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "multipart 限制跟随供应商；独立验证分片完成/取消/最小片限制。",
+          "en": "Multipart limits are vendor-specific; test completion/abort/minimum-part constraints independently.",
+          "sources": [
+            "upload",
+            "r2"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "presigned 使用 SigV4，签名凭据和临时 token 有效期可早于 URL 声明截止时间。",
+          "en": "SigV4 presigned URLs may expire with credentials/session tokens before the declared URL deadline.",
+          "sources": [
+            "sign"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "bucket CORS 在供应商侧配置；CORS 不赋予 IAM 权限，也不代表 CDN 生效。",
+          "en": "Configure vendor bucket CORS; CORS grants no IAM rights and does not configure CDN behavior.",
+          "sources": [
+            "cors"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "GetObject Range/If-Match/ETag 与 multipart ETag 分开处理，不假定 MD5。",
+          "en": "Handle Range/If-Match/ETag and multipart ETags separately; do not assume MD5.",
+          "sources": [
+            "api"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "status/code/request ID；AccessDenied 与 NoSuchKey 区分，SDK retry 不替代业务错误映射。",
+          "en": "Distinguish AccessDenied/NoSuchKey with status/code/request ID; SDK retry is not business error mapping.",
+          "sources": [
+            "errors"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "GetObject/PutObject/DeleteObject/ListBucket 与 multipart 权限按实际操作最小授权。",
+          "en": "Grant GetObject/PutObject/DeleteObject/ListBucket and multipart rights per actual operation.",
+          "sources": [
+            "api",
+            "upload"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "endpoint 是 S3 API；自定义下载域需要匹配实际签名/代理语义，不自动成为 CDN 上传域。",
+          "en": "Endpoint is an S3 API; custom delivery must match signing/proxy semantics and is not automatically a CDN upload domain.",
+          "sources": [
+            "sign",
+            "r2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sftp",
+      "connector_id": "asterdrive.storage.sftp",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "SSH transport RFC 4253; SFTP v3 draft; connector config V1",
+      "dependencies": [
+        {
+          "name": "russh",
+          "version": "0.65.0"
+        },
+        {
+          "name": "russh-sftp",
+          "version": "3.0.1"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/sftp.rs",
+        "src/storage/drivers/sftp.rs"
+      ],
+      "tests": [
+        "tests/storage/sftp.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/sftp.rs",
+          "fields": [
+            "base_path: String",
+            "endpoint: String",
+            "sftp_host_key_fingerprint: Option<String>",
+            "sftp_password: String",
+            "sftp_username: String"
+          ],
+          "schemas": [
+            "SftpConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/connectors/sftp.rs",
+          "contains": [
+            "asterdrive.storage.sftp"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "ssh",
+          "title": "SSH transport",
+          "url": "https://www.rfc-editor.org/rfc/rfc4253",
+          "version": "RFC 4253",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed RFC 4253 server authentication, key exchange and transport integrity boundary.",
+          "title_contains": [
+            "RFC 4253"
+          ]
+        },
+        {
+          "id": "sftp",
+          "title": "SFTP v3 draft",
+          "url": "https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02",
+          "version": "draft-ietf-secsh-filexfer-02; not an RFC",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed SFTP v3 draft operations, offset READ/WRITE and SSH_FX_NO_SUCH_FILE versus PERMISSION_DENIED; explicitly not an RFC.",
+          "title_contains": [
+            "draft-ietf-secsh-filexfer-02"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "SSH 上的 SFTP v3 文件操作；host key 校验独立于用户密码。",
+          "en": "SFTP v3 file operations over SSH; host-key validation is separate from user authentication.",
+          "sources": [
+            "ssh",
+            "sftp"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "服务端流式读写，不声明浏览器 multipart/resumable 能力。",
+          "en": "Server-side streaming I/O; no browser multipart/resumable capability.",
+          "sources": [
+            "sftp"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "无 HTTP presigned；SSH 握手、主机指纹和凭据由连接器配置。",
+          "en": "No HTTP presigned URLs; connector config owns SSH handshake, fingerprint and credentials.",
+          "sources": [
+            "ssh"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "非 HTTP 协议，无 provider CORS；浏览器访问由 Drive 中继。",
+          "en": "Non-HTTP protocol with no provider CORS; browsers use Drive relay.",
+          "sources": [
+            "sftp"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "偏移读取不等同 HTTP Range/ETag；HTTP 层合同由 Drive 提供。",
+          "en": "Offset reads are not HTTP Range/ETag; Drive owns HTTP semantics.",
+          "sources": [
+            "sftp"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "SSH 连接失败与 SFTP status code 分别映射，权限拒绝不能视为文件不存在。",
+          "en": "Map SSH failures and SFTP status codes separately; permission denial is not file absence.",
+          "sources": [
+            "ssh",
+            "sftp"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "账号和远端文件系统权限，不能套用 bucket/IAM 权限名。",
+          "en": "Account and remote filesystem permissions; bucket/IAM names do not apply.",
+          "sources": [
+            "sftp"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "sftp endpoint 与 base_path；没有源站/CDN/custom-domain 的 HTTP 能力声明。",
+          "en": "SFTP endpoint/base_path; no HTTP origin/CDN/custom-domain capability.",
+          "sources": [
+            "ssh",
+            "sftp"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "local",
+      "connector_id": "asterdrive.storage.local",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Internal AsterDrive contract; not an external cloud provider",
+      "dependencies": [
+        {
+          "name": "tokio",
+          "version": "1.54.1"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/local.rs",
+        "src/storage/drivers/local/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/local/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/local.rs",
+          "fields": [
+            "base_path: String",
+            "content_dedup: bool"
+          ],
+          "schemas": [
+            "LocalConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/connectors/local.rs",
+          "contains": [
+            "asterdrive.storage.local"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "internal",
+          "title": "AsterDrive internal contract",
+          "url": "https://github.com/AsterCommunity/AsterDrive/blob/master/developer-docs/zh-CN/architecture/project-contract.md",
+          "version": "Repository revision; not external provider evidence",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed current project contract ownership and local filesystem/product boundary; internal documentation, not external cloud acceptance.",
+          "title_contains": [
+            "project-contract.md"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "内部文件存储合同，不借用外部云能力。",
+          "en": "Internal storage contract; no borrowed cloud-provider capability.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "按当前 descriptor 协商上传，内部实现与外部 resumable 区分。",
+          "en": "Negotiate uploads through current descriptors; internal behavior is not external resumable evidence.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "内部鉴权/Drive URL 不构成外部 provider presigned 证明。",
+          "en": "Internal authentication/Drive URLs do not prove external provider presigning.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "Drive HTTP CORS 与外部 bucket CORS 分开。",
+          "en": "Drive HTTP CORS differs from external bucket CORS.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Range/ETag 由内部文件协议及测试定义。",
+          "en": "Internal file protocols/tests define Range/ETag.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "内部错误映射，不声称外部 provider 错误兼容。",
+          "en": "Internal error mapping; no external-provider error compatibility claim.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "Drive 权限、文件系统或 follower 绑定是权威边界。",
+          "en": "Drive permissions, filesystem rights or follower binding are authoritative.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "无外部云源站/上传域/CDN 自动继承；follower 能力由协商决定。",
+          "en": "No implicit cloud origin/upload/CDN inheritance; negotiate follower capabilities.",
+          "sources": [
+            "internal"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "remote",
+      "connector_id": "asterdrive.storage.remote",
+      "owner": "AsterDrive storage maintainers; fallback: repository maintainers",
+      "api_version": "Internal storage protocol v7; minimum supported v7; not an external cloud provider",
+      "dependencies": [
+        {
+          "name": "reqwest",
+          "version": "0.13.5"
+        }
+      ],
+      "code": [
+        "src/storage/connectors/remote.rs",
+        "src/storage/drivers/remote/mod.rs"
+      ],
+      "tests": [
+        "src/storage/drivers/remote/tests.rs"
+      ],
+      "field_contracts": [
+        {
+          "path": "src/storage/connectors/remote.rs",
+          "fields": [
+            "base_path: String",
+            "capacity_probe_timeout_secs: u64",
+            "remote_download_strategy: RemoteDownloadStrategy",
+            "remote_node_id: Option<i64>",
+            "remote_storage_target_key: Option<String>",
+            "remote_upload_strategy: RemoteUploadStrategy"
+          ],
+          "schemas": [
+            "RemoteConnectorConfigV1"
+          ]
+        }
+      ],
+      "guards": [
+        {
+          "path": "src/storage/remote_protocol/models.rs",
+          "contains": [
+            "pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 7;",
+            "pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 7;"
+          ]
+        },
+        {
+          "path": "developer-docs/zh-CN/api/internal-storage.md",
+          "contains": [
+            "`v7-v7`"
+          ]
+        },
+        {
+          "path": "developer-docs/en/api/internal-storage.md",
+          "contains": [
+            "`v7-v7`"
+          ]
+        }
+      ],
+      "cloud_acceptance": {
+        "status": "not_recorded",
+        "note": "No cloud acceptance record is asserted by this index; local fixtures and historical PR claims are separate evidence."
+      },
+      "sources": [
+        {
+          "id": "internal",
+          "title": "AsterDrive internal contract",
+          "url": "https://github.com/AsterCommunity/AsterDrive/blob/master/developer-docs/zh-CN/api/internal-storage.md",
+          "version": "Repository revision; not external provider evidence",
+          "attempted_on": "2026-11-06",
+          "reviewed_on": "2026-11-06",
+          "status": "verified",
+          "note": "Reviewed current local internal storage protocol v7, signing, follower binding and negotiated supports_range_read/upload capabilities. Documented version follows models.rs; no cloud inference.",
+          "title_contains": [
+            "internal-storage.md"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "topic": "objects",
+          "zh": "内部文件存储合同，不借用外部云能力。",
+          "en": "Internal storage contract; no borrowed cloud-provider capability.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "uploads",
+          "zh": "按当前 descriptor 协商上传，内部实现与外部 resumable 区分。",
+          "en": "Negotiate uploads through current descriptors; internal behavior is not external resumable evidence.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "signing",
+          "zh": "内部鉴权/Drive URL 不构成外部 provider presigned 证明。",
+          "en": "Internal authentication/Drive URLs do not prove external provider presigning.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "cors",
+          "zh": "Drive HTTP CORS 与外部 bucket CORS 分开。",
+          "en": "Drive HTTP CORS differs from external bucket CORS.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "range_etag",
+          "zh": "Range/ETag 由内部文件协议及测试定义。",
+          "en": "Internal file protocols/tests define Range/ETag.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "errors",
+          "zh": "内部错误映射，不声称外部 provider 错误兼容。",
+          "en": "Internal error mapping; no external-provider error compatibility claim.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "permissions",
+          "zh": "Drive 权限、文件系统或 follower 绑定是权威边界。",
+          "en": "Drive permissions, filesystem rights or follower binding are authoritative.",
+          "sources": [
+            "internal"
+          ]
+        },
+        {
+          "topic": "domains",
+          "zh": "无外部云源站/上传域/CDN 自动继承；follower 能力由协商决定。",
+          "en": "No implicit cloud origin/upload/CDN inheritance; negotiate follower capabilities.",
+          "sources": [
+            "internal"
+          ]
+        }
+      ]
+    }
+  ],
+  "official_github_doc_repositories": [
+    "huaweicloudDocs/obs"
+  ]
+}

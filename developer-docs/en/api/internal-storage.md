@@ -102,7 +102,7 @@ Typical fields include:
 - `supports_stream_upload`
 - `supports_capacity`
 
-The current protocol version and compatibility floor are both `v6`. Internal storage JSON envelopes use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Primary and follower must run the same protocol generation before binding remote policies.
+The current protocol version and compatibility floor are both `v7`. Internal storage JSON envelopes use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Primary and follower must run the same protocol generation before binding remote policies.
 
 Current followers explicitly advertise `features.binding_state_pull`. The capability defaults to `false`, which defines the rolling-upgrade boundary:
 
@@ -110,7 +110,7 @@ Current followers explicitly advertise `features.binding_state_pull`. The capabi
 - When the capability is absent or `false`, the primary retains the legacy `PUT /binding` push.
 - When a new follower calls an old primary and receives `404` for binding-state, it keeps its locally persisted legacy push state.
 
-Protocol `v6` declares remote-storage-target connector capabilities through `remote_storage_target.connector_ids`. The signed `/api/v1/internal/storage/target-connectors?locale=...` control-plane endpoint then returns the follower-owned descriptor and connector localization catalog from the same registry snapshot; the primary does not need to register those connectors. Capability resolution is descriptor-driven and does not expose a separate driver-type matrix.
+Introduced in `v6` and retained in current `v7`, the protocol declares remote-storage-target connector capabilities through `remote_storage_target.connector_ids`. The signed `/api/v1/internal/storage/target-connectors?locale=...` control-plane endpoint then returns the follower-owned descriptor and connector localization catalog from the same registry snapshot; the primary does not need to register those connectors. Capability resolution is descriptor-driven and does not expose a separate driver-type matrix.
 
 The capability boundary is explicit:
 
@@ -119,7 +119,7 @@ The capability boundary is explicit:
 
 During policy loading and binding refresh, the primary validates:
 
-- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v6-v6`
+- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v7-v7`
 - Base remote policies require `object_get`, `object_head`, `object_put`, `object_delete`, `metadata`, `range_get`, `accept_ranges_header`, `list`, and `compose`
 - Browser presigned download requires `browser_cors` to allow the `range` request header and expose `Accept-Ranges`, `Content-Range`, and `Content-Length`
 - Browser presigned upload requires `browser_cors` to allow the `content-type` request header and expose `ETag`

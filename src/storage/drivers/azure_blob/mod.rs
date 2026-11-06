@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#azure_blob
 //! Azure Blob Storage driver.
 
 pub mod cdn;

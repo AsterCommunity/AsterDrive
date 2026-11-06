@@ -3,6 +3,8 @@ description: Azure Blob Storage policy tutorial covering Azure Storage accounts,
 title: "Azure Blob Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#azure_blob) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page walks through the complete flow for writing AsterDrive files to Azure Blob Storage: prepare a storage account and container, create an `azure_blob` storage policy, configure policy group rules, bind users or teams, verify uploads and downloads, and choose between server relay and browser-direct transfer.
 :::

@@ -21,3 +21,6 @@ crash.log
 # 前端
 frontend-panel/node_modules/
 frontend-panel/dist/
+
+# Ephemeral external provider link report
+/storage-provider-links.json

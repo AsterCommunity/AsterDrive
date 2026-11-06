@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#tencent_cos
 use async_trait::async_trait;
 use serde::Serialize;
 

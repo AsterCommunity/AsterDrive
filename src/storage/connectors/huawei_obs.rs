@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#huawei_obs
 use async_trait::async_trait;
 use std::time::Duration;
 

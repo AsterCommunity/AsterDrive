@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#huawei_obs
 //! Huawei Cloud OBS storage driver.
 //!
 //! Object operations reuse the AWS S3 serializer, while `signing` replaces

@@ -102,7 +102,7 @@ binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，�
 - `supports_stream_upload`
 - `supports_capacity`
 
-当前协议版本和最低兼容版本都是 `v6`。内部存储 JSON 包装里的顶层 `code` 使用稳定字符串 `ApiErrorCode`，不再使用旧数字码。绑定 remote 策略前，primary 和 follower 必须运行同一代协议。
+当前协议版本和最低兼容版本都是 `v7`。内部存储 JSON 包装里的顶层 `code` 使用稳定字符串 `ApiErrorCode`，不再使用旧数字码。绑定 remote 策略前，primary 和 follower 必须运行同一代协议。
 
 当前 follower 在 `features.binding_state_pull` 显式声明支持独立 binding control pull。该 capability 缺省为 `false`，所以 primary 可以区分滚动升级边界：
 
@@ -110,11 +110,11 @@ binding 控制面和 reverse tunnel 接口都使用远端节点签名鉴权，�
 - capability 缺失或为 `false`：primary 保留 legacy `PUT /binding` push。
 - 新 follower 对旧 primary 请求 binding-state 得到 `404` 时，保留本地 legacy push 状态并继续运行。
 
-`v6` 在能力响应中通过 `remote_storage_target.connector_ids` 声明远程存储目标 connector。管理端随后通过签名的 `/api/v1/internal/storage/target-connectors?locale=...` 从 follower 获取同一份 descriptor 和 connector-owned localization catalog；primary 不需要注册这些 connector。未知的未来 connector id 会被保留为协议数据，但不会自动变成可配置项。
+从 `v6` 引入、当前 `v7` 保留的能力响应通过 `remote_storage_target.connector_ids` 声明远程存储目标 connector。管理端随后通过签名的 `/api/v1/internal/storage/target-connectors?locale=...` 从 follower 获取同一份 descriptor 和 connector-owned localization catalog；primary 不需要注册这些 connector。未知的未来 connector id 会被保留为协议数据，但不会自动变成可配置项。
 
 主节点在加载远端策略或刷新绑定时会做能力协商：
 
-- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前本地区间是 `v6-v6`
+- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前本地区间是 `v7-v7`
 - 基础远端策略要求 `object_get`、`object_head`、`object_put`、`object_delete`、`metadata`、`range_get`、`accept_ranges_header`、`list`、`compose`
 - 如果远端策略启用浏览器预签名下载，`browser_cors` 必须声明允许 `range` 请求头，并暴露 `Accept-Ranges`、`Content-Range`、`Content-Length`
 - 如果远端策略启用浏览器预签名上传，`browser_cors` 必须声明允许 `content-type` 请求头，并暴露 `ETag`

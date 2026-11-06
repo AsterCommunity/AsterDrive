@@ -3,6 +3,8 @@ description: AsterDrive local storage policy tutorial covering directory plannin
 title: "Local Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#local) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page walks through the complete flow for writing AsterDrive files to a local directory: plan the directory, create a `local` storage policy, configure content deduplication, create a test policy group, bind users or teams, and understand capacity checks and migration boundaries.
 :::

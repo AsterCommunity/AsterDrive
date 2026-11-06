@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#qiniu
 use std::time::Duration;
 
 use async_trait::async_trait;

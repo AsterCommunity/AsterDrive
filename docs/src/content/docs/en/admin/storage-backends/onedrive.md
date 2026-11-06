@@ -3,6 +3,8 @@ description: OneDrive storage policy tutorial covering Microsoft app registratio
 title: "OneDrive Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#onedrive) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page walks through the complete flow for writing AsterDrive files to Microsoft OneDrive or SharePoint / Microsoft 365 group drives: prepare a Microsoft app, authorize Microsoft Graph, choose server relay or browser-direct upload, configure policy group rules, bind users or teams, and understand how credentials stay protected.
 :::

@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#azure_blob
 use async_trait::async_trait;
 
 use crate::api::api_error_code::ApiErrorCode;

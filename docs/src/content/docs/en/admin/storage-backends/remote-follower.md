@@ -3,6 +3,8 @@ description: "Full walkthrough for using an enrolled AsterDrive follower node as
 title: "Follower Node Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#remote) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page explains how to use an already connected follower node as a storage policy backend: create a remote storage target, create a `remote` storage policy, configure policy group rules, bind users or teams, and verify real uploads and downloads.
 :::
