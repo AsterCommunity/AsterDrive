@@ -48,8 +48,7 @@ const ACTIVE_VERIFICATION_REQUEST_MESSAGE: &str = "a verification request is alr
 /// Drive's request projection of Forge-verified claims, never the JWT wire format.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Claims {
-    /// Stable Forge session identity. Access revocation still follows Drive's account-version
-    /// policy; carrying sid alone does not promise immediate single-session access revocation.
+    /// Stable Forge session identity, checked against the writer on every access authorization.
     pub sid: String,
     /// Canonical subject supplied by the verified JWT.
     pub sub: String,

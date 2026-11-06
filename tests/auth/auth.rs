@@ -4080,8 +4080,12 @@ async fn test_logout_clears_cookies_and_revokes_refresh_token() {
         .insert_header(("Cookie", common::access_cookie_header(&access)))
         .insert_header(common::csrf_header_for(&access))
         .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    assert_service_status!(
+        app,
+        req,
+        401,
+        "logout must invalidate existing access credentials"
+    );
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/refresh")

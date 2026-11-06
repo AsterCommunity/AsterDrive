@@ -144,7 +144,7 @@
 相关接口：
 
 - `POST /auth/refresh`：读取 refresh Cookie，原子消费旧 refresh token，签发新的 access/refresh token；旧 refresh token 再次使用会被视为复用攻击并撤销该用户全部会话
-- `POST /auth/logout`：清除两个认证 Cookie，并吊销当前 refresh token
+- `POST /auth/logout`：清除认证 Cookie，并按已验签的 session 身份吊销当前会话；access 与 refresh 立即失效，旧轮换 Cookie 仍能定位同一会话
 - `GET /auth/me`：既支持 Cookie，也支持 `Authorization: Bearer <jwt>`
 - `GET /auth/sessions`：列出当前用户的活跃登录设备 / 会话；如果请求带当前 refresh Cookie，会标记当前会话
 - `DELETE /auth/sessions/others`：要求当前请求能定位到 refresh session，只吊销其他会话

@@ -69,4 +69,4 @@ Regression coverage includes outsiders/removed members, administrator demotion, 
 
 #586 owns connection-account and credential lifecycle features; #663 owns the RBAC catalog and management UI. Independent password/MFA, external identity, XSS or SSRF defects are not automatically resolved by #745.
 
-Logout synchronously clears private listings, teams, playback and downloads, including download controllers and retry closures. Team and folder-tree responses check their request lifecycle before installing results; an old finalizer cannot clear a new request. This does not resolve the separate session race where refresh cookies arrive after logout.
+Logout synchronously clears private listings, teams, playback and downloads, including download controllers and retry closures. Team and folder-tree responses check their request lifecycle before installing results; an old finalizer cannot clear a new request. Refresh/logout response ordering and immediate session revocation follow the [auth flow contract](./auth-flow-state-machine.md).

@@ -55,7 +55,7 @@ pub async fn list_auth_sessions(
 }
 
 /// Revokes a refresh session in a writer transaction and reports whether it was the caller's
-/// current session. Existing access JWTs keep their expiry window; account generation is unchanged.
+/// current session. Access and refresh are rejected immediately; account generation is unchanged.
 ///
 /// # Errors
 /// Returns missing-session, database or commit errors; failed transactions do not revoke the row.

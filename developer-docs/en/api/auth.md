@@ -133,7 +133,7 @@ Successful login writes two HttpOnly cookies:
 Related endpoints:
 
 - `POST /auth/refresh`: atomically consumes the old refresh token and issues a new access / refresh pair. Reusing an old refresh token is treated as token replay and revokes all sessions for that user.
-- `POST /auth/logout`: clears both auth cookies and revokes the current refresh token
+- `POST /auth/logout`: clears auth cookies and revokes the signed session, immediately invalidating access and refresh even if the presented cookie predates rotation
 - `GET /auth/me`: supports both cookies and `Authorization: Bearer <jwt>`
 - `GET /auth/sessions`: lists active login devices / sessions; current session is marked when a refresh cookie is present
 - `DELETE /auth/sessions/others`: requires the request to identify the current refresh session

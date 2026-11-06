@@ -449,10 +449,15 @@ pub async fn verify_challenge(
         PreparedEmailCodeVerification::Missing
     };
 
-    let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let attempt = async {
-        let flow = load_active_flow(&txn, &flow_token_hash, now).await?;
+        // Preflight can do expensive password-hash preparation without holding a transaction,
+        // but it never admits an attempt. Only the locked current row authorizes verification.
+        let flow = mfa_login_flow_repo::lock_for_verification(&txn, &flow_token_hash)
+            .await?
+            .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
+        let now = Utc::now(); // Lock wait must not extend the flow or email-code lifetime.
+        ensure_flow_active(&flow, now)?;
         ensure_first_factor_allowed(
             flow.first_factor,
             RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).password_login_enabled,
@@ -497,8 +502,8 @@ pub async fn verify_challenge(
         };
 
         if !verified {
-            // The MFA table has no persisted revision field. Atomic attempt increments provide
-            // the concurrency guard while the derived snapshot revision remains 0 by contract.
+            // Flow guard serializes admission. Conditional updates additionally fence the exact
+            // admitted snapshot so a future caller cannot silently exceed the persisted budget.
             let transition = plan_transition(
                 &mfa_flow_snapshot(&flow),
                 AuthFlowCommand::RecordFailure {
@@ -511,7 +516,19 @@ pub async fn verify_challenge(
                 .map_err(|_| AsterError::internal_error("MFA attempt count overflow"))?;
             let budget_exhausted = transition.state == AuthFlowState::Failed;
             let consume_at = budget_exhausted.then_some(now);
-            mfa_login_flow_repo::increment_attempts(&txn, flow.id, consume_at).await?;
+            match mfa_login_flow_repo::increment_attempts(
+                &txn,
+                flow.id,
+                flow.attempt_count,
+                MFA_MAX_ATTEMPTS as i32,
+                now,
+                consume_at,
+            )
+            .await?
+            {
+                true => {}
+                false => return Err(flow_invalid("MFA attempt lost its lifecycle fence")),
+            }
             let error = if budget_exhausted {
                 auth_mfa_failed_with_code(
                     ApiErrorCode::AuthMfaAttemptsExceeded,
@@ -528,7 +545,15 @@ pub async fn verify_challenge(
             });
         }
 
-        if !mfa_login_flow_repo::consume(&txn, flow.id, now).await? {
+        if !mfa_login_flow_repo::consume(
+            &txn,
+            flow.id,
+            flow.attempt_count,
+            MFA_MAX_ATTEMPTS as i32,
+            now,
+        )
+        .await?
+        {
             return Err(flow_invalid("MFA flow has already been consumed"));
         }
 
@@ -858,8 +883,8 @@ fn format_email_code_expires_in(ttl_secs: u64) -> String {
 }
 
 fn ensure_flow_active(flow: &mfa_login_flow::Model, now: chrono::DateTime<Utc>) -> Result<()> {
-    // mfa_login_flows has no persisted revision column; atomic attempt and consume checks provide
-    // the concurrency boundary for this derived snapshot.
+    // A snapshot alone is not concurrency control. Verification holds the database flow guard
+    // before using this derived state, then conditionally consumes the same attempt count.
     plan_transition(
         &mfa_flow_snapshot(flow),
         AuthFlowCommand::Transition {

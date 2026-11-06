@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **会话登出与 MFA 次数限制** — 登出按已验签的 session 撤销，即使 refresh 已轮换 cookie，access 与 refresh 也立即失效，其他设备不受影响。浏览器跨标签页协调 refresh/logout 响应顺序；并发 MFA 验证仍严格遵守五次错误限制，因子消费与会话创建同事务提交。
+
 - **Workspace 与资源授权** — 统一文件服务、上传发布、WebDAV、WOPI、分享、任务与受控管理员读取的当前身份、委托范围和操作检查。阻止团队成员校验遗漏、旧凭据缓存继续授权、跨挂载锁操作、集合锁绕过及管理员降权后的特权任务重试；上传队列与恢复绑定原账号和 workspace。登出清理私有列表、播放和下载状态，拒绝旧账号的迟到响应回填。保留协议 token／前置条件及既有能力有效期契约。(#745)
 
 ## [v0.7.1] - 2026-11-06

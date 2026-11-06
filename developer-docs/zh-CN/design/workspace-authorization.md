@@ -62,7 +62,7 @@ WOPI 保留自己的 session、file、app、proof 和锁规则，发布时核对
 
 generation 随登录身份生命周期变化，正常 token refresh 保留 generation。登出开始即取消旧请求；HTTP config 保留 signal，避免 401 refresh 后用新 cookie 重放旧请求。XHR 在实际 send 前再检查取消；await 后的迟到结果不能启动下一阶段或修改新账号状态。
 
-登出同步清理文件列表、团队、音乐队列和下载；下载 controller 与重试闭包一起释放。团队和目录树的异步回填验证请求生命周期，旧请求的 finally 不能清除新请求的去重状态。此边界不等于修复 refresh 响应晚于 logout 的服务端 cookie 竞态，该会话撤销问题需独立验证。
+登出同步清理文件列表、团队、音乐队列和下载；下载 controller 与重试闭包一起释放。团队和目录树的异步回填验证请求生命周期，旧请求的 finally 不能清除新请求的去重状态。refresh/logout 的响应排序及单会话立即撤销见 [认证状态机契约](./auth-flow-state-machine.md)。
 
 恢复任务绑定 upload host 生命周期，单次发现 effect 的取消与已恢复任务生命周期分开。持久化记录必须有账号和 workspace，未知账号的历史记录不能自动执行；当前账号可以从服务端重新发现属于自己的可恢复 session。前端绑定不替代服务端授权。
 

@@ -24,7 +24,7 @@ HTTP route
 | Flow | Payload owner | Identity | 原子推进 | Terminal / cleanup |
 | --- | --- | --- | --- | --- |
 | Password primary | local auth service | request-local | password verify 后映射到 MFA/password-change/session | request 结束 |
-| MFA login | `mfa_login_flows` | `mfa-login:<id>` | transaction + conditional attempt/consume | consumed/expired，runtime cleanup |
+| MFA login | `mfa_login_flows` | `mfa-login:<id>` | 事务内锁定 flow + conditional attempt/consume | consumed/expired，runtime cleanup |
 | Passkey login/registration | typed cache envelope | public flow UUID | cache atomic `take` | consumed/TTL eviction |
 | External login | `external_auth_login_flows` | `external-login:<id>` | state + browser binding 条件消费 | consumed/expired，runtime cleanup |
 | External email recovery | `external_auth_email_verification_flows` | `external-recovery:<id>` | conditional email request/consume | consumed/expired，runtime cleanup |
@@ -50,7 +50,7 @@ Identity 只使用数据库主键或公开 flow UUID。Password primary 的 requ
 
 本地会话的 JWT 签发、严格校验、refresh 分类和有界进程内协调由 `aster_forge_auth` 提供；Drive 的 `local/tokens/refresh.rs` 实现存储接口，保留 writer 事务、账号策略、SQL、审计和错误映射。账号 generation 在事务内原子递增，达到上限时失败回滚。
 
-JWT 使用必需的 `sub/sid/session_version/token_type/restriction/iat/exp/iss/aud`，refresh 必需 JTI，access 不携带 JTI。旧格式不兼容，部署后用户需要重新登录；Cookie 名称、CSRF 和 API envelope 不变。单会话撤销立即阻止 refresh，已有 access 保留短期到期窗口；账号级 generation 和禁用检查读取 writer，不接受缓存中的旧授权。
+JWT 使用必需的 `sub/sid/session_version/token_type/restriction/iat/exp/iss/aud`，refresh 必需 JTI，access 不携带 JTI。旧格式不兼容，部署后用户需要重新登录；Cookie 名称、CSRF 和 API envelope 不变。单会话撤销立即阻止 access 与 refresh；每次 access 鉴权按已验签的 subject/sid 从 writer 检查 session 未撤销且未过期；账号级 generation 和禁用检查读取 writer，不接受缓存中的旧授权。
 
 refresh 的 CAS、reuse 撤销及必要安全审计同事务提交，提交失败不返回新凭据。stale 只改变拒绝分类，绝不再次签发；UA/IP 不是设备身份。取得数据库锁后重新检查凭据截止时间，锁等待不延长有效期。JWT、WOPI、存储事件 SSE 和管理员检查均读取 writer 当前状态。旧授权快照缓存及其失效 API 已删除，遗留缓存键不能恢复授权。用户会话签发统一使用显式连接参数，包括在 MFA flow 事务内完成受限会话写入。HTTP 组件先关闭刷新协调器，再排空请求；已进入事务的请求允许完成。
 
@@ -60,6 +60,14 @@ refresh 的 CAS、reuse 撤销及必要安全审计同事务提交，提交失�
 - mail outbox、audit 和 cache invalidation 必须明确在 commit 前或后执行。失败不能用静默 fire-and-forget 吞掉。
 - 前端 `AuthUiFlow` 是后端状态的单一 frontend/UI projection；URL adapter 只恢复有过期时间的 flow reference，限制 TTL、method 和本地 return path。
 - auth check 与 provider list 由带 generation 的 coordinator 合并。旧 generation、卸载后的 promise 或较慢响应不更新当前页面。
+
+## MFA 并发预算与登出竞争
+
+MFA 验证在 writer 事务里先锁定 flow，再读取当前计数、消费状态和截止时间。PostgreSQL/MySQL 使用锁定读取，SQLite 在任何事务快照查询前执行同值更新取得写入资格。锁等待后重新取时间；失败递增和成功消费都条件匹配已准入的计数、预算、未消费及未过期状态，更新失败不能签发会话。恢复码/邮箱码的昂贵校验准备可在事务外完成，但它不是准入依据；因子消费、flow 消费和 session 创建仍一起提交或回滚。五次错误会消费 flow，并发请求不能扩大预算。
+
+登出使用严格验签后的 subject/sid 撤销单个 session，允许 cookie 已经轮换；它不按旧 JTI 丢失目标，也不改变其他设备的会话。撤销更新与 refresh CAS 都在同一 session 行上保留条件，因此任一提交顺序都不会留下可用的轮换凭据。writer 撤销失败返回错误，不宣称登出成功。
+
+前端登出先同步清理本地状态并发布不含账号或凭据的生命周期标记，停止新 refresh，等已发送 refresh 完整返回后再发送 logout。refresh/logout 共用 Web Locks；旧客户端保留 heartbeat lease，但 fallback 的租约过期不替代服务端撤销。logout 不能把其他标签页 refresh 的成功当成自己的完成。跨标签页标记同时使旧回调失效；新本地登录等待尚未完成的 logout，避免后者清除新会话 cookie。
 
 ## Test matrix
 

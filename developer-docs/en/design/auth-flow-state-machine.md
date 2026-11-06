@@ -24,7 +24,7 @@ HTTP route
 | Flow | Payload owner | Identity | Atomic advance | Terminal / cleanup |
 | --- | --- | --- | --- | --- |
 | Password primary | local auth service | request-local | password verification, then MFA/password-change/session result | request completion |
-| MFA login | `mfa_login_flows` | `mfa-login:<id>` | transaction plus conditional attempt/consume | consumed/expired; runtime cleanup |
+| MFA login | `mfa_login_flows` | `mfa-login:<id>` | transactional flow guard plus conditional attempt/consume | consumed/expired; runtime cleanup |
 | Passkey login/registration | typed cache envelope | public flow UUID | cache atomic `take` | consumed/TTL eviction |
 | External login | `external_auth_login_flows` | `external-login:<id>` | state plus browser-binding conditional consume | consumed/expired; runtime cleanup |
 | External email recovery | `external_auth_email_verification_flows` | `external-recovery:<id>` | conditional email request/consume | consumed/expired; runtime cleanup |
@@ -50,7 +50,7 @@ Protected requests query the writer for current account authorization; they can 
 
 `aster_forge_auth` owns JWT issuance and strict verification, refresh classification, and bounded process coordination. Drive implements its store in `local/tokens/refresh.rs`, retaining writer transactions, account policy, SQL, security audit, and error mapping. Account generations advance atomically within the transaction; exhaustion fails and rolls back.
 
-JWTs require `sub/sid/session_version/token_type/restriction/iat/exp/iss/aud`; only refresh credentials carry a required JTI. Existing JWT formats are rejected, so deployment requires users to sign in again. Cookie names, CSRF, and API envelopes stay unchanged. Individual session revocation immediately blocks refresh while access retains its short expiry window. Account generation and disabled-state checks read the writer, bypassing cached authorization.
+JWTs require `sub/sid/session_version/token_type/restriction/iat/exp/iss/aud`; only refresh credentials carry a required JTI. Existing JWT formats are rejected, so deployment requires users to sign in again. Cookie names, CSRF, and API envelopes stay unchanged. Individual session revocation immediately blocks access and refresh. Each access authorization checks the signed subject/sid against the writer for a live, unexpired session. Account generation and disabled-state checks read the writer, bypassing cached authorization.
 
 Rotation CAS, reuse revocation, and required audit commit together; failed commits release no replacement credentials. Stale classification never grants another refresh, and UA/IP matching is not device authentication. The store rechecks the credential deadline after acquiring database locks. JWT, WOPI, storage-event SSE and administrator checks all read current writer state. The old auth snapshot cache and its invalidation API have been removed; old cache keys cannot restore authorization. User-session issuance uses one explicit connection-aware API, including restricted MFA completion in the flow transaction. HTTP shutdown closes refresh coordination before draining requests and lets started transactions finish.
 
@@ -60,6 +60,14 @@ Rotation CAS, reuse revocation, and required audit commit together; failed commi
 - Mail outbox, audit, and cache invalidation have an explicit pre-commit or post-commit position. Failures are not silently discarded.
 - Frontend `AuthUiFlow` is the single frontend/UI projection of backend state. The URL adapter restores only an expiring flow reference and bounds TTL, methods, and local return paths.
 - A generation-aware coordinator combines auth check and provider loading. An older generation, unmounted promise, or slower response never updates the active page.
+
+## Concurrent MFA budgets and logout races
+
+MFA verification locks the flow in its writer transaction before reading attempts, consumption or expiry. PostgreSQL/MySQL use a locking read; SQLite acquires writer admission with a same-value update before transactional snapshot reads. The clock is refreshed after waiting. Both failure increments and successful consumption conditionally match the admitted attempt count, budget and live deadline. Expensive recovery/email hash preparation can precede the transaction but grants no admission. Factor consumption, flow consumption and session creation commit or roll back together. Concurrent guesses cannot exceed the existing five-failure budget.
+
+Logout revokes the strictly verified subject/sid, including a refresh credential superseded by rotation. It affects one session and preserves other devices. The revocation update and rotation CAS fence the same row, so neither database ordering leaves usable rotated credentials. Writer failure returns an error instead of reporting successful logout.
+
+The browser immediately clears local state and publishes a credential-free lifecycle marker, blocks new refresh work, waits for an existing refresh response, then sends logout. Refresh and logout share Web Locks; older browsers retain the heartbeat lease fallback, with server revocation remaining authoritative when a lease expires. A peer refresh success never substitutes for the logout request. Cross-tab lifecycle markers fence old callbacks, and a new local login waits for pending logout cookie clearing.
 
 ## Test matrix
 

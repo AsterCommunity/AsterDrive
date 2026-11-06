@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Session logout and MFA budgets** — Logout revokes the signed session even when refresh has rotated its cookie; access and refresh both stop immediately, while other devices retain access. Coordinate browser refresh/logout responses across tabs and enforce the five-failure MFA budget under concurrent verification, with factor and session changes committed together.
+
 - **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
 
 ### Changed

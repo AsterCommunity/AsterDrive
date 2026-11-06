@@ -1648,3 +1648,116 @@ async fn test_totp_used_steps_cascade_when_factor_is_deleted() {
         0
     );
 }
+
+/// More concurrent requests than the budget must still commit exactly five failures. The valid
+/// recovery factor remains unused when the exhausted flow is presented again.
+#[tokio::test]
+async fn test_mfa_concurrent_failures_cannot_overrun_budget_or_consume_valid_factor() {
+    use aster_drive::{
+        db::repository::mfa_login_flow_repo,
+        services::{auth::mfa, ops::audit::AuditRequestInfo},
+    };
+    use aster_drive_model::types::MfaMethod;
+    let state = common::setup_with_pool_size(12).await;
+    let app = create_test_app!(state.clone());
+    register_user(
+        &app,
+        "parallelmfa",
+        "parallelmfa@example.test",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "parallelmfa", "password123");
+    let (_, _, recovery) = enable_totp(&app, &access).await;
+    let response = login_raw(&app, "parallelmfa", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let token = body["data"]["flow_token"].as_str().unwrap();
+    let hash = aster_forge_crypto::sha256_hex(token.as_bytes());
+    let audit = AuditRequestInfo {
+        ip_address: None,
+        user_agent: None,
+    };
+    let gate = Arc::new(tokio::sync::Barrier::new(12));
+    let results = futures::future::join_all((0..12).map(|_| {
+        let gate = gate.clone();
+        let state = &state;
+        let audit = &audit;
+        async move {
+            gate.wait().await;
+            // Invalid syntax gives a deterministic mismatch, independent of the clock's TOTP.
+            mfa::verify_challenge(state, token, MfaMethod::Totp, "invalid", audit).await
+        }
+    }))
+    .await;
+    assert!(results.iter().all(Result::is_err));
+    let flow = mfa_login_flow_repo::find_by_flow_token_hash(state.writer_db(), &hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(flow.attempt_count, 5);
+    assert!(flow.consumed_at.is_some());
+    assert!(
+        mfa::verify_challenge(&state, token, MfaMethod::RecoveryCode, &recovery[0], &audit)
+            .await
+            .is_err()
+    );
+    // A fresh first-factor flow can still use this recovery code: the denied attempt consumed none.
+    let response = login_raw(&app, "parallelmfa", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    mfa::verify_challenge(
+        &state,
+        body["data"]["flow_token"].as_str().unwrap(),
+        MfaMethod::RecoveryCode,
+        &recovery[0],
+        &audit,
+    )
+    .await
+    .unwrap();
+}
+
+/// The final wrong guess and a matching factor may arrive together. Whichever holds the flow
+/// guard first decides the outcome; a factor can never win after failure number five committed.
+#[tokio::test]
+async fn test_mfa_matching_factor_races_last_failure_without_bypassing_budget() {
+    use aster_drive::{
+        db::repository::mfa_login_flow_repo,
+        services::{auth::mfa, ops::audit::AuditRequestInfo},
+    };
+    use aster_drive_model::types::MfaMethod;
+    let state = common::setup_with_pool_size(4).await;
+    let app = create_test_app!(state.clone());
+    register_user(&app, "lastmfa", "lastmfa@example.test", "password123").await;
+    let (access, _) = login_user!(app, "lastmfa", "password123");
+    let (_, _, recovery) = enable_totp(&app, &access).await;
+    let response = login_raw(&app, "lastmfa", "password123").await;
+    let body: Value = test::read_body_json(response).await;
+    let token = body["data"]["flow_token"].as_str().unwrap();
+    let audit = AuditRequestInfo {
+        ip_address: None,
+        user_agent: None,
+    };
+    for _ in 0..4 {
+        assert!(
+            mfa::verify_challenge(&state, token, MfaMethod::Totp, "invalid", &audit)
+                .await
+                .is_err()
+        );
+    }
+    let (wrong, matching) = tokio::join!(
+        mfa::verify_challenge(&state, token, MfaMethod::Totp, "invalid", &audit),
+        mfa::verify_challenge(&state, token, MfaMethod::RecoveryCode, &recovery[0], &audit)
+    );
+    assert!(wrong.is_err());
+    let flow = mfa_login_flow_repo::find_by_flow_token_hash(
+        state.writer_db(),
+        &aster_forge_crypto::sha256_hex(token.as_bytes()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(flow.consumed_at.is_some());
+    match matching {
+        Ok(_) => assert_eq!(flow.attempt_count, 4),
+        Err(_) => assert_eq!(flow.attempt_count, 5),
+    }
+}

@@ -372,6 +372,9 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
         && let Err(error) = local::revoke_refresh_token(state.get_ref(), &refresh_token).await
     {
         tracing::warn!("failed to revoke refresh token on logout: {error}");
+        // A successful logout must have a durable revocation. Clearing only the browser's
+        // cookies on a writer failure would leave a racing refresh response usable.
+        return actix_web::ResponseError::error_response(&error);
     }
     for token in [
         req.cookie(REFRESH_COOKIE)

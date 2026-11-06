@@ -1305,3 +1305,61 @@ describe("cross-tab refresh coordination", () => {
 		expect(localStorage.getItem("aster-auth-refresh-event")).toBeNull();
 	});
 });
+
+describe("logout and refresh share the lifecycle lock", () => {
+	beforeEach(() => {
+		localStorage.clear();
+		broadcastChannels.clear();
+		vi.useRealTimers();
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it("executes logout after a peer success instead of reusing the refresh result", async () => {
+		vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+		const owner = await loadModuleForTab("owner");
+		const waiter = await loadModuleForTab("waiter");
+		let finish!: () => void;
+		const refresh = owner.runWithCrossTabRefreshLock(
+			() =>
+				new Promise<void>((resolve) => {
+					finish = resolve;
+				}),
+		);
+		const logout = vi.fn(async () => undefined);
+		const pending = waiter.runWithCrossTabRefreshLock(logout, {
+			operation: "logout",
+		});
+		expect(logout).not.toHaveBeenCalled();
+		finish();
+		await refresh;
+		await pending;
+		expect(logout).toHaveBeenCalledTimes(1);
+	});
+
+	it("still executes logout when the peer refresh fails authentication", async () => {
+		vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+		const owner = await loadModuleForTab("owner");
+		const waiter = await loadModuleForTab("waiter");
+		let fail!: (reason: unknown) => void;
+		const refresh = owner
+			.runWithCrossTabRefreshLock(
+				() =>
+					new Promise<void>((_, reject) => {
+						fail = reject;
+					}),
+				{ classifyError: () => "auth" },
+			)
+			.catch(() => undefined);
+		const logout = vi.fn(async () => undefined);
+		const pending = waiter.runWithCrossTabRefreshLock(logout, {
+			operation: "logout",
+		});
+		fail(new Error("revoked"));
+		await refresh;
+		await pending;
+		expect(logout).toHaveBeenCalledTimes(1);
+	});
+});

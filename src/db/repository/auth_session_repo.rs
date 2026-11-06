@@ -147,24 +147,6 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: &str) -> Result<bool> {
     Ok(result.rows_affected == 1)
 }
 
-pub async fn revoke_by_refresh_jti(
-    db: &DatabaseConnection,
-    refresh_jti: &str,
-    revoked_at: chrono::DateTime<Utc>,
-) -> Result<bool> {
-    let result = AuthSession::update_many()
-        .col_expr(
-            auth_session::Column::RevokedAt,
-            Expr::value(Some(revoked_at)),
-        )
-        .filter(auth_session::Column::CurrentRefreshJti.eq(refresh_jti))
-        .filter(auth_session::Column::RevokedAt.is_null())
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected == 1)
-}
-
 pub async fn delete_all_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<u64> {
     let result = AuthSession::delete_many()
         .filter(auth_session::Column::UserId.eq(user_id))
