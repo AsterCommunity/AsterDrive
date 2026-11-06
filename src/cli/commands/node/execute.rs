@@ -10,6 +10,7 @@ use crate::errors::{AsterError, Result};
 use inquire::validator::Validation;
 use secrecy::ExposeSecret;
 use std::io::IsTerminal;
+
 pub async fn execute_node_enroll(
     args: &NodeEnrollArgs,
     location: &crate::config::ConfigLocation,

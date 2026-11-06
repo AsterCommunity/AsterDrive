@@ -38,6 +38,7 @@ impl ProviderResumableUploadDriver for QiniuDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         upload_capabilities()
     }
+
     fn numbered_parts(&self) -> Option<&dyn MultipartStorageDriver> {
         Some(self)
     }
@@ -52,6 +53,7 @@ impl ProviderResumableUploadDriver for QiniuDriver {
             next_expected_ranges: vec!["0-".into()],
         })
     }
+
     async fn query_upload_session(&self, id: &str) -> Result<ProviderResumableUploadStatus> {
         let path = self.resumable_path(id)?;
         let parts = self.list_uploaded_part_details(&path, id).await?;
@@ -75,10 +77,12 @@ impl ProviderResumableUploadDriver for QiniuDriver {
             next_expected_ranges: vec![format!("{offset}-")],
         })
     }
+
     async fn abort_upload_session(&self, id: &str) -> Result<()> {
         self.abort_multipart_upload(&self.resumable_path(id)?, id)
             .await
     }
+
     async fn complete_upload_session(&self, id: &str, expected_size: u64) -> Result<()> {
         let path = self.resumable_path(id)?;
         let parts = match self.uploaded_parts(&path, id).await {
@@ -111,6 +115,7 @@ impl ProviderResumableUploadDriver for QiniuDriver {
         )
         .await
     }
+
     async fn upload_session_fragment_reader(
         &self,
         id: &str,

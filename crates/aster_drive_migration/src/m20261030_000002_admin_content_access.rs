@@ -1,7 +1,9 @@
 //! Persist administrator access contexts independently of cache availability.
 use sea_orm_migration::prelude::*;
+
 #[derive(DeriveMigrationName)]
 pub struct Migration;
+
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -50,12 +52,14 @@ impl MigrationTrait for Migration {
             )
             .await
     }
+
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .drop_table(Table::drop().table(AdminContentAccesses::Table).to_owned())
             .await
     }
 }
+
 #[derive(DeriveIden)]
 enum AdminContentAccesses {
     Table,

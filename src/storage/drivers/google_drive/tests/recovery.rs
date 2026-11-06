@@ -17,6 +17,7 @@ fn driver(peer: &HttpFixture) -> GoogleDriveDriver {
     driver.upload = format!("{}/upload/drive/v3/files", peer.base);
     driver
 }
+
 fn lookup() -> HttpReply {
     HttpReply::json(200, json!({"files":[{"id":"owned","size":"6"}]}))
 }

@@ -1,5 +1,6 @@
 //! Migration support and storage policy availability checks.
 use super::super::report::{DoctorCheck, DoctorStatus};
+
 pub(in crate::cli::commands::doctor) async fn doctor_sqlite_search_check(
     db: &sea_orm::DatabaseConnection,
     pending_migrations: &[String],

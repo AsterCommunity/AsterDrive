@@ -244,6 +244,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
             }),
         })
     }
+
     fn capabilities(&self) -> MultipartStorageCapabilities {
         MultipartStorageCapabilities {
             min_part_size: 1,

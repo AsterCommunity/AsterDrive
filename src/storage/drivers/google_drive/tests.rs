@@ -9,12 +9,14 @@ mod transport;
 
 #[derive(Debug)]
 struct Token;
+
 #[async_trait]
 impl GoogleDriveTokenProvider for Token {
     async fn access_token(&self) -> Result<String> {
         Ok("administrator-secret-token".into())
     }
 }
+
 #[derive(Default)]
 struct State {
     data: Option<Vec<u8>>,
@@ -25,11 +27,13 @@ struct State {
     deleted: bool,
     aborts: usize,
 }
+
 struct Server {
     base: String,
     state: Arc<Mutex<State>>,
     handle: actix_web::dev::ServerHandle,
 }
+
 impl Server {
     fn driver(&self) -> GoogleDriveDriver {
         let mut driver = GoogleDriveDriver::new(
@@ -45,10 +49,12 @@ impl Server {
         driver.upload = format!("{}/upload/drive/v3/files", self.base);
         driver
     }
+
     async fn stop(self) {
         self.handle.stop(true).await;
     }
 }
+
 async fn spawn() -> Server {
     async fn handler(
         req: HttpRequest,
@@ -167,6 +173,7 @@ async fn spawn() -> Server {
         }
         HttpResponse::Ok().body(data.clone())
     }
+
     let state = Arc::new(Mutex::new(State::default()));
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -189,6 +196,7 @@ async fn spawn() -> Server {
         handle,
     }
 }
+
 #[test]
 fn query_and_session_boundaries_keep_objects_and_credentials_private() {
     let driver = GoogleDriveDriver::new(
@@ -229,6 +237,7 @@ fn query_and_session_boundaries_keep_objects_and_credentials_private() {
     assert!(!format!("{driver:?}").contains("administrator-secret-token"));
     assert!(driver.extensions().direct_download.is_none());
 }
+
 #[tokio::test]
 async fn blob_lifecycle_uses_app_properties_ranges_and_owned_id() {
     let server = spawn().await;
@@ -275,6 +284,7 @@ async fn blob_lifecycle_uses_app_properties_ranges_and_owned_id() {
     }
     server.stop().await;
 }
+
 #[tokio::test]
 async fn large_reader_uses_bounded_fragments_and_confirms_acknowledgements() {
     let server = spawn().await;
@@ -306,6 +316,7 @@ async fn large_reader_uses_bounded_fragments_and_confirms_acknowledgements() {
     }
     server.stop().await;
 }
+
 #[tokio::test]
 async fn empty_and_mismatched_readers_do_not_publish_invalid_content() {
     for (data, size) in [
@@ -330,6 +341,7 @@ async fn empty_and_mismatched_readers_do_not_publish_invalid_content() {
         server.stop().await;
     }
 }
+
 #[tokio::test]
 async fn duplicate_owned_keys_fail_closed_before_delete() {
     let server = spawn().await;
@@ -347,6 +359,7 @@ async fn duplicate_owned_keys_fail_closed_before_delete() {
     assert!(!server.state.lock().unwrap().deleted);
     server.stop().await;
 }
+
 #[tokio::test]
 async fn abort_attempt_without_provider_session_never_deletes_existing_object() {
     let server = spawn().await;
@@ -433,6 +446,7 @@ async fn resumable_status_and_final_fragment_follow_generic_contract() {
         .unwrap();
     server.stop().await;
 }
+
 #[tokio::test]
 async fn provider_errors_are_typed_and_do_not_echo_provider_secrets() {
     let server = spawn().await;

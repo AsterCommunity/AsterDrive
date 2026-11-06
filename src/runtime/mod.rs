@@ -62,8 +62,11 @@ pub struct FollowerAppState {
 /// product services from the concrete application state.
 pub trait StorageConnectorRuntimeState {
     fn writer_db(&self) -> &DatabaseConnection;
+
     fn driver_registry(&self) -> &Arc<DriverRegistry>;
+
     fn runtime_config(&self) -> &Arc<RuntimeConfig>;
+
     fn config(&self) -> &Arc<Config>;
 }
 
@@ -74,10 +77,15 @@ pub trait StorageConnectorRuntimeState {
 /// other product-wide runtime services.
 pub trait SharedRuntimeState: StorageConnectorRuntimeState {
     fn audit_writer(&self) -> &Arc<aster_forge_audit::AuditWriter>;
+
     fn reader_db(&self) -> &DatabaseConnection;
+
     fn policy_snapshot(&self) -> &Arc<PolicySnapshot>;
+
     fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend>;
+
     fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime;
+
     fn metrics(&self) -> &SharedMetricsRecorder;
 }
 

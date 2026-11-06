@@ -13,6 +13,7 @@ use futures::Stream;
 use std::pin::Pin;
 
 pub type ActivityCsvStream = Pin<Box<dyn Stream<Item = Result<Bytes>> + Send>>;
+
 pub struct ActivityCsvExport {
     pub total: u64,
     pub stream: ActivityCsvStream,

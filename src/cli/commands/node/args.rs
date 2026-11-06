@@ -1,5 +1,6 @@
 use crate::cli::common::input::SecretArg;
 use clap::{Args, Subcommand};
+
 #[derive(Debug, Clone, Subcommand)]
 pub enum NodeCommand {
     /// Connect this follower to its primary using an enrollment token

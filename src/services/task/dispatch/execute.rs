@@ -105,6 +105,7 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         error.api_error_code_override()
             == Some(crate::api::api_error_code::ApiErrorCode::TaskCancellationRequested)
     }
+
     async fn cancel_task_if_requested(
         &self,
         task: &background_task::Model,
@@ -124,15 +125,13 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
         task: &background_task::Model,
         context: aster_forge_tasks::TaskExecutionContext,
     ) -> Result<()> {
-        if !self.state.metrics().enabled() {
-            return registry::process_task(&self.state, task, context).await;
-        }
         struct Observation {
             recorder: aster_forge_metrics::SharedMetricsRecorder,
             kind: &'static str,
             started: std::time::Instant,
             result: &'static str,
         }
+
         impl Drop for Observation {
             fn drop(&mut self) {
                 self.recorder.task_handler_active(self.kind, -1);
@@ -142,6 +141,10 @@ impl aster_forge_tasks::ClaimedTaskExecutionStore<background_task::Model, Backgr
                     self.started.elapsed().as_secs_f64(),
                 );
             }
+        }
+
+        if !self.state.metrics().enabled() {
+            return registry::process_task(&self.state, task, context).await;
         }
         let recorder = self.state.metrics().forge_recorder();
         recorder.task_handler_active(task.kind.as_str(), 1);

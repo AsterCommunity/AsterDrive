@@ -30,6 +30,7 @@ pub(super) struct TokenResponse {
     pub scope: Option<String>,
     pub token_type: Option<String>,
 }
+
 impl TokenResponse {
     pub fn validate(&self) -> Result<()> {
         if self.access_token.is_empty()
@@ -50,6 +51,7 @@ impl TokenResponse {
         }
         Ok(())
     }
+
     pub fn expires_at(&self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
         self.expires_in
             .filter(|seconds| *seconds > 0)
@@ -78,6 +80,7 @@ pub(super) struct GoogleTokenProvider {
     http: aster_forge_http::HttpClient,
     usage: CredentialUse,
 }
+
 impl std::fmt::Debug for GoogleTokenProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GoogleTokenProvider")
@@ -85,6 +88,7 @@ impl std::fmt::Debug for GoogleTokenProvider {
             .finish_non_exhaustive()
     }
 }
+
 impl GoogleTokenProvider {
     pub(super) fn new(
         db: Option<sea_orm::DatabaseConnection>,
@@ -110,6 +114,7 @@ impl GoogleTokenProvider {
             usage,
         }))
     }
+
     async fn audit(&self, event: &str, result: &str) {
         if let Some(db) = &self.db {
             write_storage_credential_oauth_audit(
@@ -129,6 +134,7 @@ impl GoogleTokenProvider {
             .await;
         }
     }
+
     async fn resolve(&self) -> Result<String> {
         let mut cache = self.cache.lock().await;
         for _ in 0..3 {
@@ -333,6 +339,7 @@ pub(super) async fn classify_token_failure(response: reqwest::Response) -> Token
         reason,
     }
 }
+
 async fn persist(
     db: &sea_orm::DatabaseConnection,
     key: &str,
@@ -358,6 +365,7 @@ async fn persist(
     )
     .await
 }
+
 #[async_trait::async_trait]
 impl GoogleDriveTokenProvider for GoogleTokenProvider {
     async fn access_token(&self) -> aster_drive_storage::Result<String> {

@@ -484,6 +484,7 @@ async fn mutate_tags_on<C: sea_orm::ConnectionTrait>(
         File(aster_drive_model::entities::file::Model),
         Folder(aster_drive_model::entities::folder::Model),
     }
+
     let target = match kind {
         EntityType::File => {
             let f = file_repo::lock_by_id(db, id).await?;

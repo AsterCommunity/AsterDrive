@@ -4,6 +4,7 @@ use aster_forge_utils::numbers::i64_to_usize;
 use chrono::{DateTime, FixedOffset};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum MigrationMode {

@@ -45,6 +45,7 @@ impl MigrationTrait for Migration {
             )
             .await
     }
+
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .drop_table(
@@ -63,6 +64,7 @@ enum TaskResourcePublications {
     EntryKey,
     ResourceSnapshot,
 }
+
 #[derive(DeriveIden)]
 enum BackgroundTasks {
     Table,

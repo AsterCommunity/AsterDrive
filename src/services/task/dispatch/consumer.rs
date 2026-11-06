@@ -39,9 +39,11 @@ impl LaneConsumer {
 impl TaskConsumer for LaneConsumer {
     type Task = (background_task::Model, TaskLease);
     type Error = crate::errors::AsterError;
+
     fn concurrency(&self) -> usize {
         self.config().limit
     }
+
     fn poll_interval(&self) -> Duration {
         Duration::from_secs(
             crate::config::operations::background_task_dispatch_interval_secs(
@@ -49,6 +51,7 @@ impl TaskConsumer for LaneConsumer {
             ),
         )
     }
+
     fn idle_max_interval(&self) -> Duration {
         Duration::from_secs(
             crate::config::operations::background_task_dispatch_idle_max_interval_secs(
@@ -56,6 +59,7 @@ impl TaskConsumer for LaneConsumer {
             ),
         )
     }
+
     fn name(&self) -> &'static str {
         match self.lane {
             TaskLane::Archive => "archive",
@@ -65,9 +69,11 @@ impl TaskConsumer for LaneConsumer {
             TaskLane::Fallback => "fallback",
         }
     }
+
     fn wakeup(&self) -> &aster_forge_tasks::TaskWakeup {
         &self.state.background_task_dispatch_wakeup
     }
+
     fn error_kind(&self, error: &crate::errors::AsterError) -> &'static str {
         match error {
             crate::errors::AsterError::DatabaseConnection(_) => "database_connection",
@@ -75,6 +81,7 @@ impl TaskConsumer for LaneConsumer {
             _ => error.api_error_code().as_str(),
         }
     }
+
     async fn claim(&self, available: usize) -> Result<Vec<Self::Task>> {
         let result = claim_due_for_lane(self.state.get_ref(), self.config(), available).await;
         if let Ok(tasks) = &result {
@@ -94,6 +101,7 @@ impl TaskConsumer for LaneConsumer {
         super::refresh_pending_metric(self.state.get_ref()).await;
         result
     }
+
     async fn execute(
         &self,
         (task, lease): Self::Task,
@@ -118,6 +126,7 @@ impl TaskConsumer for LaneConsumer {
         )
         .await
     }
+
     async fn release_unstarted(&self, (_task, lease): Self::Task) -> Result<()> {
         crate::db::repository::background_task_repo::release_processing(
             self.state.writer_db(),

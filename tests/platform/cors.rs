@@ -203,6 +203,7 @@ impl aster_forge_metrics::DbMetricsRecorder for CorsMetricsProbe {
     fn enabled(&self) -> bool {
         true
     }
+
     fn record_db_query(&self, _: &aster_forge_metrics::DbQueryMetric) {}
 }
 

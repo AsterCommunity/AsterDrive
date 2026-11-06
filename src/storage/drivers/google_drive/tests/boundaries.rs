@@ -17,12 +17,15 @@ fn driver(peer: &HttpFixture) -> GoogleDriveDriver {
     driver.upload = format!("{}/upload/drive/v3/files", peer.base);
     driver
 }
+
 fn file(id: &str) -> serde_json::Value {
     json!({"id":id,"size":"6","mimeType":"application/octet-stream"})
 }
+
 fn files(items: Vec<serde_json::Value>) -> HttpReply {
     HttpReply::json(200, json!({"files":items}))
 }
+
 fn session(peer: &HttpFixture) -> String {
     format!(
         "{}/upload/drive/v3/files?uploadType=resumable&upload_id=private-session",
@@ -33,6 +36,7 @@ fn session(peer: &HttpFixture) -> String {
 #[tokio::test]
 async fn underlying_reader_failures_are_transient_and_failed_cleanup_can_be_retried() {
     struct FailedReader;
+
     impl AsyncRead for FailedReader {
         fn poll_read(
             self: std::pin::Pin<&mut Self>,
@@ -45,6 +49,7 @@ async fn underlying_reader_failures_are_transient_and_failed_cleanup_can_be_retr
             )))
         }
     }
+
     let peer = HttpFixture::new([
         files(vec![]),
         HttpReply::text(200, "").header(
@@ -269,6 +274,7 @@ async fn cancelled_abort_does_not_lose_the_cleanup_capability() {
 #[tokio::test]
 async fn cancelled_stage_preserves_a_session_handle_without_deleting_the_object() {
     struct PendingReader(Arc<tokio::sync::Notify>);
+
     impl AsyncRead for PendingReader {
         fn poll_read(
             self: std::pin::Pin<&mut Self>,
@@ -279,6 +285,7 @@ async fn cancelled_stage_preserves_a_session_handle_without_deleting_the_object(
             std::task::Poll::Pending
         }
     }
+
     let peer = HttpFixture::new([
         files(vec![]),
         HttpReply::text(200, "").header(

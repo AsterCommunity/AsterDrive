@@ -1,5 +1,6 @@
 //! Short-lived, session-bound administrator content authorizations.
 use sea_orm::entity::prelude::*;
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "admin_content_accesses")]
 pub struct Model {
@@ -10,6 +11,8 @@ pub struct Model {
     pub payload: String,
     pub expires_at: DateTimeUtc,
 }
+
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
+
 impl ActiveModelBehavior for ActiveModel {}

@@ -1009,10 +1009,12 @@ async fn explicit_query_not_found_requires_final_object_to_exist() {
 
 #[derive(Default)]
 struct AdmissionMetrics(Mutex<Vec<aster_drive_metrics::AdmissionReason>>);
+
 impl aster_drive_metrics::MetricsRecorder for AdmissionMetrics {
     fn enabled(&self) -> bool {
         true
     }
+
     fn admission_rejection(&self, reason: aster_drive_metrics::AdmissionReason) {
         self.0.lock().push(reason);
     }

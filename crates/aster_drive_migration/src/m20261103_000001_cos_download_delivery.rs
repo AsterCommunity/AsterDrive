@@ -169,9 +169,11 @@ mod tests {
         }
         value
     }
+
     fn policy(config: Value) -> Value {
         json!({"format_version":1,"connector":config,"behavior":{"format_version":1,"schema_version":1,"values":{}}})
     }
+
     #[test]
     fn missing_modes_only_are_upgraded_and_conversion_is_idempotent() {
         for mode in [
@@ -245,6 +247,7 @@ mod tests {
         }
         db
     }
+
     async fn insert(
         db: &DatabaseConnection,
         table: &str,
@@ -264,6 +267,7 @@ mod tests {
         .await
         .unwrap();
     }
+
     async fn read(db: &DatabaseConnection, table: &str, column: &str, id: i64) -> Value {
         let row = db
             .query_one(
@@ -278,6 +282,7 @@ mod tests {
             .unwrap();
         serde_json::from_str(&row.try_get_by_index::<String>(0).unwrap()).unwrap()
     }
+
     #[tokio::test]
     async fn migration_round_trips_policies_targets_and_cleanup_across_batches() {
         let db = fixture().await;
@@ -367,6 +372,7 @@ mod tests {
             cleanup
         );
     }
+
     #[tokio::test]
     async fn malformed_cleanup_rolls_back_updates_without_exposing_values() {
         let db = fixture().await;

@@ -16,6 +16,7 @@ struct TestContext {
     runtime: crate::config::RuntimeConfig,
     registry: crate::storage::DriverRegistry,
 }
+
 impl TestContext {
     async fn new(values: serde_json::Value, credential: Option<GoogleDriveCredentialV1>) -> Self {
         use sea_orm::ActiveModelTrait;
@@ -52,6 +53,7 @@ impl TestContext {
             registry: crate::storage::DriverRegistry::noop().unwrap(),
         }
     }
+
     fn context(&self) -> crate::storage::connectors::StorageConnectorContext<'_> {
         crate::storage::connectors::StorageConnectorContext::new(
             &self.db,
@@ -64,6 +66,7 @@ impl TestContext {
 }
 
 const KEY: &str = "google-drive-test-master-key-32bytes";
+
 pub(super) fn payload() -> GoogleDriveCredentialV1 {
     GoogleDriveCredentialV1 {
         application: GoogleDriveAuthorizationApplicationV1 {
@@ -83,6 +86,7 @@ pub(super) fn payload() -> GoogleDriveCredentialV1 {
         }),
     }
 }
+
 #[test]
 fn descriptor_declares_server_side_oauth_and_optional_browser_uploads() {
     let connector = GoogleDriveConnector;
@@ -122,6 +126,7 @@ fn descriptor_declares_server_side_oauth_and_optional_browser_uploads() {
         );
     }
 }
+
 #[test]
 fn configuration_normalizes_ids_and_rejects_conflicting_pools() {
     let config = |v| test_support::connection_config(GoogleDriveConnector::ID, 1, v);
@@ -144,6 +149,7 @@ fn configuration_normalizes_ids_and_rejects_conflicting_pools() {
         );
     }
 }
+
 #[test]
 fn oauth_authorization_uses_offline_consent_state_and_pkce() {
     let url = authorization_url(
@@ -167,6 +173,7 @@ fn oauth_authorization_uses_offline_consent_state_and_pkce() {
     }
     assert!(!url.as_str().contains("private-secret"));
 }
+
 #[tokio::test]
 async fn encrypted_credential_info_failure_states_and_runtime_revocation() {
     use sea_orm::{ActiveModelTrait, TransactionTrait};
@@ -320,6 +327,7 @@ async fn encrypted_credential_info_failure_states_and_runtime_revocation() {
         );
     }
 }
+
 #[test]
 fn cleanup_snapshot_contains_only_bound_ciphertext() {
     let plaintext = serde_json::to_string(&payload()).unwrap();

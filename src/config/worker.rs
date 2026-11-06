@@ -43,6 +43,7 @@ impl WorkerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn budgets_validate_overflow_and_immediate_shutdown() {
         assert!(WorkerConfig::default().validate().is_ok());
@@ -59,6 +60,7 @@ mod tests {
             assert_eq!(cfg.validate().is_ok(), valid);
         }
     }
+
     #[test]
     fn cluster_quota_bounds_and_unlimited_value() {
         use crate::config::operations::{

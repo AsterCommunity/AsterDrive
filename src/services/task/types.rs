@@ -429,49 +429,6 @@ impl From<StoragePolicyTempCleanupTaskPayload> for StoragePolicyTempCleanupTaskP
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use aster_drive_storage::ConnectorId;
-
-    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-    struct TestCleanupSnapshot {
-        token: String,
-    }
-
-    #[test]
-    fn cleanup_snapshot_envelope_round_trips_typed_payload() {
-        let connector_id = ConnectorId::declared("plugin.cleanup");
-        let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
-            connector_id.clone(),
-            2,
-            &TestCleanupSnapshot {
-                token: "ciphertext".to_string(),
-            },
-        )
-        .expect("cleanup snapshot should encode");
-        let decoded: TestCleanupSnapshot = snapshot
-            .decode(connector_id.as_str(), 2)
-            .expect("cleanup snapshot should decode");
-        assert_eq!(
-            decoded,
-            TestCleanupSnapshot {
-                token: "ciphertext".to_string()
-            }
-        );
-        assert!(
-            snapshot
-                .decode::<TestCleanupSnapshot>("plugin.other", 2)
-                .is_err()
-        );
-        assert!(
-            snapshot
-                .decode::<TestCleanupSnapshot>(connector_id.as_str(), 3)
-                .is_err()
-        );
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RuntimeTaskResult {
@@ -885,4 +842,47 @@ pub struct TaskInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aster_drive_storage::ConnectorId;
+
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct TestCleanupSnapshot {
+        token: String,
+    }
+
+    #[test]
+    fn cleanup_snapshot_envelope_round_trips_typed_payload() {
+        let connector_id = ConnectorId::declared("plugin.cleanup");
+        let snapshot = StoragePolicyCleanupDriverSnapshot::encode(
+            connector_id.clone(),
+            2,
+            &TestCleanupSnapshot {
+                token: "ciphertext".to_string(),
+            },
+        )
+        .expect("cleanup snapshot should encode");
+        let decoded: TestCleanupSnapshot = snapshot
+            .decode(connector_id.as_str(), 2)
+            .expect("cleanup snapshot should decode");
+        assert_eq!(
+            decoded,
+            TestCleanupSnapshot {
+                token: "ciphertext".to_string()
+            }
+        );
+        assert!(
+            snapshot
+                .decode::<TestCleanupSnapshot>("plugin.other", 2)
+                .is_err()
+        );
+        assert!(
+            snapshot
+                .decode::<TestCleanupSnapshot>(connector_id.as_str(), 3)
+                .is_err()
+        );
+    }
 }

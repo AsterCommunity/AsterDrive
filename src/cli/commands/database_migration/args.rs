@@ -1,4 +1,5 @@
 use clap::Args;
+
 #[derive(Debug, Clone, Args)]
 pub struct DatabaseMigrateArgs {
     #[arg(long, env = "ASTER_CLI_SOURCE_DATABASE_URL")]

@@ -11,14 +11,17 @@ use serde_json::json;
 // The real connector still owns flow validation, PKCE, token parsing, encrypted
 // payloads and runtime construction. Injection changes only the HTTP endpoint.
 struct LocalOAuthEndpoint(String);
+
 #[async_trait]
 impl StorageConnector for LocalOAuthEndpoint {
     fn descriptor(&self) -> StorageConnectorDescriptor {
         GoogleDriveConnector.descriptor()
     }
+
     fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
         GoogleDriveConnector.localization()
     }
+
     async fn build_driver_from_connection(
         &self,
         context: &StorageConnectorContext<'_>,
@@ -29,6 +32,7 @@ impl StorageConnector for LocalOAuthEndpoint {
             .build_driver_from_connection(context, config, credential)
             .await
     }
+
     fn build_runtime_driver(
         &self,
         registry: &crate::storage::DriverRegistry,
@@ -36,12 +40,14 @@ impl StorageConnector for LocalOAuthEndpoint {
     ) -> Result<StorageConnectorDriver> {
         GoogleDriveConnector.build_runtime_driver(registry, policy)
     }
+
     fn upload_transport(
         &self,
         policy: &storage_policy::Model,
     ) -> Result<StorageConnectorUploadTransport> {
         GoogleDriveConnector.upload_transport(policy)
     }
+
     async fn start_authorization(
         &self,
         context: &StorageConnectorContext<'_>,
@@ -52,6 +58,7 @@ impl StorageConnector for LocalOAuthEndpoint {
             .start_authorization(context, policy, redirect_uri)
             .await
     }
+
     async fn finish_authorization(
         &self,
         context: &StorageConnectorContext<'_>,
@@ -68,6 +75,7 @@ impl StorageConnector for LocalOAuthEndpoint {
             .await
             .map_err(oauth::authorization_error)
     }
+
     async fn load_runtime_credential(
         &self,
         db: &sea_orm::DatabaseConnection,
@@ -79,6 +87,7 @@ impl StorageConnector for LocalOAuthEndpoint {
             .load_runtime_credential(db, config, policy, credential)
             .await
     }
+
     fn credential_info(
         &self,
         config: &crate::config::Config,

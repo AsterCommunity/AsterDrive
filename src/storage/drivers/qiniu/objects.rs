@@ -53,6 +53,7 @@ impl QiniuDriver {
                 .map(str::to_string),
         })
     }
+
     async fn read_response(&self, path: &str, range: Option<String>) -> Result<reqwest::Response> {
         let url = self.private_url(
             &self.config.download_origin,
@@ -76,6 +77,7 @@ impl QiniuDriver {
         }
         Ok(response)
     }
+
     fn response_reader(response: reqwest::Response) -> Box<dyn AsyncRead + Unpin + Send> {
         let stream = response
             .bytes_stream()
@@ -94,6 +96,7 @@ impl StorageDriver for QiniuDriver {
         )
         .await
     }
+
     async fn get(&self, path: &str) -> Result<Vec<u8>> {
         let mut reader = self.get_stream(path).await?;
         let mut data = Vec::new();
@@ -102,9 +105,11 @@ impl StorageDriver for QiniuDriver {
         })?;
         Ok(data)
     }
+
     async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Self::response_reader(self.read_response(path, None).await?))
     }
+
     async fn get_range(
         &self,
         path: &str,
@@ -164,12 +169,15 @@ impl StorageDriver for QiniuDriver {
             None => reader,
         })
     }
+
     fn supports_efficient_range(&self) -> bool {
         true
     }
+
     fn max_single_put_size(&self) -> Option<u64> {
         Some(1024 * 1024 * 1024)
     }
+
     async fn delete(&self, path: &str) -> Result<()> {
         let mut url = self.endpoint(ServiceKind::Management).await?;
         url.set_path(&format!("/delete/{}", self.entry(path)?));
@@ -179,6 +187,7 @@ impl StorageDriver for QiniuDriver {
             Err(error) => Err(error),
         }
     }
+
     async fn exists(&self, path: &str) -> Result<bool> {
         match self.metadata(path).await {
             Ok(_) => Ok(true),
@@ -186,6 +195,7 @@ impl StorageDriver for QiniuDriver {
             Err(error) => Err(error),
         }
     }
+
     async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
         let mut url = self.endpoint(ServiceKind::Management).await?;
         url.set_path(&format!("/stat/{}", self.entry(path)?));
@@ -195,6 +205,7 @@ impl StorageDriver for QiniuDriver {
             content_type: stat.mime_type,
         })
     }
+
     async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
         let mut url = self.endpoint(ServiceKind::Management).await?;
         url.set_path(&format!(
@@ -205,6 +216,7 @@ impl StorageDriver for QiniuDriver {
         self.management(Method::POST, url).await?;
         Ok(dest_path.to_string())
     }
+
     fn extensions(&self) -> StorageDriverExtensions<'_> {
         StorageDriverExtensions {
             direct_download: Some(self),
@@ -224,6 +236,7 @@ struct ListResponse {
     #[serde(default)]
     items: Vec<ListItem>,
 }
+
 #[derive(Deserialize)]
 struct ListItem {
     key: String,
@@ -233,6 +246,7 @@ struct ListItem {
 impl ListStorageDriver for QiniuDriver {
     async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
         struct Collector(Vec<String>);
+
         #[async_trait::async_trait]
         impl StoragePathVisitor for Collector {
             async fn visit_path(&mut self, path: String) -> Result<StoragePathVisitControl> {
@@ -240,11 +254,13 @@ impl ListStorageDriver for QiniuDriver {
                 Ok(StoragePathVisitControl::Continue)
             }
         }
+
         let mut collector = Collector(Vec::new());
         self.scan_paths(prefix, &mut collector).await?;
         collector.0.sort();
         Ok(collector.0)
     }
+
     async fn scan_paths(
         &self,
         prefix: Option<&str>,

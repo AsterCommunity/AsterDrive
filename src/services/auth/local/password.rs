@@ -104,50 +104,6 @@ pub async fn login(
     outcome
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ensure_password_login_policy;
-    use crate::api::api_error_code::ApiErrorCode;
-    use crate::config::auth_runtime::{
-        DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS, DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
-        DEFAULT_AUTH_COOKIE_SECURE, DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
-        DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS, DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
-        RuntimeAuthPolicy,
-    };
-
-    fn policy(password_login_enabled: bool) -> RuntimeAuthPolicy {
-        RuntimeAuthPolicy {
-            cookie_secure: DEFAULT_AUTH_COOKIE_SECURE,
-            allow_user_registration: DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
-            passkey_login_enabled: DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
-            password_login_enabled,
-            register_activation_enabled: DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
-            access_token_ttl_secs: DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS,
-            refresh_token_ttl_secs: DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
-        }
-    }
-
-    #[test]
-    fn password_login_policy_allows_enabled_login() {
-        assert!(ensure_password_login_policy(policy(true)).is_ok());
-    }
-
-    #[test]
-    fn password_login_policy_returns_stable_forbidden_error_when_disabled() {
-        let error =
-            ensure_password_login_policy(policy(false)).expect_err("login should be blocked");
-
-        assert_eq!(
-            error.api_error_code(),
-            ApiErrorCode::AuthPasswordLoginDisabled
-        );
-        assert_eq!(
-            error.message(),
-            "password login is disabled by administrator policy"
-        );
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 enum LoginFailureReason {
     InvalidCredentials,
@@ -313,5 +269,49 @@ async fn upgrade_user_password_hash(
             user_id = user.id,
             "failed to persist upgraded user password hash: {error}"
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_password_login_policy;
+    use crate::api::api_error_code::ApiErrorCode;
+    use crate::config::auth_runtime::{
+        DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS, DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
+        DEFAULT_AUTH_COOKIE_SECURE, DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+        DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS, DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
+        RuntimeAuthPolicy,
+    };
+
+    fn policy(password_login_enabled: bool) -> RuntimeAuthPolicy {
+        RuntimeAuthPolicy {
+            cookie_secure: DEFAULT_AUTH_COOKIE_SECURE,
+            allow_user_registration: DEFAULT_AUTH_ALLOW_USER_REGISTRATION,
+            passkey_login_enabled: DEFAULT_AUTH_PASSKEY_LOGIN_ENABLED,
+            password_login_enabled,
+            register_activation_enabled: DEFAULT_AUTH_REGISTER_ACTIVATION_ENABLED,
+            access_token_ttl_secs: DEFAULT_AUTH_ACCESS_TOKEN_TTL_SECS,
+            refresh_token_ttl_secs: DEFAULT_AUTH_REFRESH_TOKEN_TTL_SECS,
+        }
+    }
+
+    #[test]
+    fn password_login_policy_allows_enabled_login() {
+        assert!(ensure_password_login_policy(policy(true)).is_ok());
+    }
+
+    #[test]
+    fn password_login_policy_returns_stable_forbidden_error_when_disabled() {
+        let error =
+            ensure_password_login_policy(policy(false)).expect_err("login should be blocked");
+
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::AuthPasswordLoginDisabled
+        );
+        assert_eq!(
+            error.message(),
+            "password login is disabled by administrator policy"
+        );
     }
 }

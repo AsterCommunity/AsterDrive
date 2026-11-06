@@ -5,6 +5,7 @@ use crate::cli::common::{
     terminal::CliTerminalPalette,
 };
 use crate::errors::AsterError;
+
 /// Renders a successful migration report in the selected output format.
 pub fn render_database_migration_success(
     format: OutputFormat,

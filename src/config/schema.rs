@@ -111,15 +111,19 @@ impl ServerConfig {
     fn default_host() -> String {
         "127.0.0.1".to_string()
     }
+
     fn default_port() -> u16 {
         3000
     }
+
     fn default_temp_dir() -> String {
         crate::config::paths::DEFAULT_CONFIG_TEMP_DIR.to_string()
     }
+
     fn default_upload_temp_dir() -> String {
         crate::config::paths::DEFAULT_CONFIG_UPLOAD_TEMP_DIR.to_string()
     }
+
     fn default_upload_temp_min_free_bytes() -> u64 {
         256 * 1024 * 1024
     }
@@ -149,9 +153,11 @@ impl DatabaseConfig {
     fn default_url() -> aster_forge_db::DatabaseUrl {
         crate::config::paths::DEFAULT_CONFIG_SQLITE_DATABASE_URL.into()
     }
+
     fn default_pool_size() -> u32 {
         10
     }
+
     fn default_retry_count() -> u32 {
         3
     }
@@ -208,27 +214,35 @@ impl AuthConfig {
         let bytes: [u8; 32] = rng.random();
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
+
     fn default_jwt_secret() -> String {
         Self::random_hex_secret()
     }
+
     fn default_share_cookie_secret() -> String {
         Self::random_hex_secret()
     }
+
     fn default_direct_link_secret() -> String {
         Self::random_hex_secret()
     }
+
     fn default_mfa_secret_key() -> String {
         Self::random_hex_secret()
     }
+
     fn default_storage_credential_secret_key() -> String {
         Self::random_hex_secret()
     }
+
     fn default_webdav_auth_cache_secret() -> String {
         Self::random_hex_secret()
     }
+
     fn default_password_hash_max_concurrency() -> usize {
         aster_forge_auth::DEFAULT_PASSWORD_HASH_MAX_CONCURRENCY
     }
+
     fn default_bootstrap_insecure_cookies() -> bool {
         true
     }
@@ -266,9 +280,11 @@ impl WebDavConfig {
     fn default_prefix() -> String {
         "/webdav".to_string()
     }
+
     fn default_payload_limit() -> u64 {
         10_737_418_240 // 10 GB 硬上限
     }
+
     fn default_xml_payload_limit() -> u64 {
         1_048_576 // 1 MiB XML 请求体上限
     }
@@ -350,24 +366,28 @@ impl RateLimitConfig {
     fn default_enabled() -> bool {
         false
     }
+
     fn default_auth() -> RateLimitTier {
         RateLimitTier {
             seconds_per_request: nonzero_u64_or_min(2),
             burst_size: nonzero_u32_or_min(5),
         }
     }
+
     fn default_public() -> RateLimitTier {
         RateLimitTier {
             seconds_per_request: nonzero_u64_or_min(1),
             burst_size: nonzero_u32_or_min(30),
         }
     }
+
     fn default_api() -> RateLimitTier {
         RateLimitTier {
             seconds_per_request: nonzero_u64_or_min(1),
             burst_size: nonzero_u32_or_min(120),
         }
     }
+
     fn default_write() -> RateLimitTier {
         RateLimitTier {
             seconds_per_request: nonzero_u64_or_min(2),
@@ -397,6 +417,7 @@ impl RateLimitTier {
     fn default_seconds() -> NonZeroU64 {
         nonzero_u64_or_min(1)
     }
+
     fn default_burst() -> NonZeroU32 {
         nonzero_u32_or_min(60)
     }

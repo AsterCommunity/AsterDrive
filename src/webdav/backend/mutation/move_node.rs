@@ -26,6 +26,17 @@ impl AsterDavFs {
         destination: &DavPath,
         conditions: DavMutationConditions<'_>,
     ) -> Result<(), AsterDavMutationError> {
+        enum Moved {
+            File {
+                previous: file_entity::Model,
+                current: file_entity::Model,
+            },
+            Folder {
+                previous: aster_drive_model::entities::folder::Model,
+                current: aster_drive_model::entities::folder::Model,
+            },
+        }
+
         let txn = transaction::begin(self.state.writer_db())
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
@@ -194,17 +205,6 @@ impl AsterDavFs {
         )
         .await
         .map_err(AsterDavMutationError::FileSystem)?;
-        enum Moved {
-            File {
-                previous: file_entity::Model,
-                current: file_entity::Model,
-            },
-            Folder {
-                previous: aster_drive_model::entities::folder::Model,
-                current: aster_drive_model::entities::folder::Model,
-            },
-        }
-
         let (entity_type, entity_id, event, moved) = match source_node {
             ResolvedNode::File(file) => {
                 let mut active: file_entity::ActiveModel = file.clone().into();

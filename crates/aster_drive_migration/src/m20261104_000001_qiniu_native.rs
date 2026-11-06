@@ -6,6 +6,7 @@ use serde_json::Value;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
+
 const CONNECTOR: &str = "asterdrive.storage.qiniu";
 
 #[async_trait::async_trait]
@@ -113,6 +114,7 @@ impl MigrationTrait for Migration {
         }
         tx.commit().await
     }
+
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in ["storage_policies", "remote_storage_targets"] {
             let row = manager
@@ -159,6 +161,7 @@ fn upgrade(config: &mut Value) -> Result<bool, ()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
     #[test]
     fn schema_only_upgrade_refuses_unverified_v1_and_accepts_verified_native_configuration() {
         let mut old = json!({"format_version":1,"connector_id":CONNECTOR,"schema_version":1,"values":{"bucket":"legacy-s3","base_path":"retained"}});
@@ -168,6 +171,7 @@ mod tests {
         let mut native = json!({"format_version":1,"connector_id":CONNECTOR,"schema_version":2,"values":{"bucket":"confirmed-native","download_origin":"https://native.example.test"}});
         assert!(!upgrade(&mut native).unwrap());
     }
+
     #[tokio::test]
     async fn schema_gate_rejects_corruption_and_validates_all_configuration_owners() {
         use sea_orm_migration::sea_orm::Database;

@@ -67,16 +67,19 @@ pub struct GoogleDriveConnector;
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct GoogleDriveClientSecret(String);
+
 impl std::fmt::Debug for GoogleDriveClientSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("<redacted>")
     }
 }
+
 impl From<&str> for GoogleDriveClientSecret {
     fn from(value: &str) -> Self {
         Self(value.into())
     }
 }
+
 impl GoogleDriveClientSecret {
     fn as_str(&self) -> &str {
         &self.0
@@ -147,6 +150,7 @@ pub(crate) struct GoogleDriveCredentialV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorization: Option<GoogleDriveAuthorizationV1>,
 }
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GoogleDriveAuthorizationV1 {
@@ -171,6 +175,7 @@ pub(crate) struct GoogleDriveAuthorizationV1 {
 struct GoogleDriveRuntimeCredential {
     token_provider: Arc<dyn GoogleDriveTokenProvider>,
 }
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GoogleDriveFlowContext {
@@ -178,11 +183,13 @@ struct GoogleDriveFlowContext {
     credential_revision: i64,
     scope: String,
 }
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GoogleDriveCleanupSnapshot {
     credential_ciphertext: String,
 }
+
 fn scope(config: &GoogleDriveConnectorConfigV1) -> &'static str {
     if config.app_data_folder {
         "https://www.googleapis.com/auth/drive.appdata"
@@ -190,12 +197,14 @@ fn scope(config: &GoogleDriveConnectorConfigV1) -> &'static str {
         "https://www.googleapis.com/auth/drive"
     }
 }
+
 fn audit() -> StorageConnectorAuthorizationAudit {
     StorageConnectorAuthorizationAudit {
         provider: StorageCredentialProvider::GoogleDrive,
         fields: serde_json::Map::new(),
     }
 }
+
 fn decode(
     key: &str,
     row: &storage_policy_connector_credential::Model,
@@ -207,15 +216,19 @@ fn decode(
         1,
     )
 }
+
 fn encode(payload: &GoogleDriveCredentialV1) -> Result<serde_json::Value> {
     serde_json::to_value(payload)
         .map_err(|_| AsterError::internal_error("serialize Google Drive credential"))
 }
+
 fn flow_aad(policy_id: i64, state_hash: &str) -> String {
     format!("google_drive_oauth:{policy_id}:{state_hash}")
 }
+
 impl GoogleDriveConnector {
     pub const ID: &'static str = "asterdrive.storage.google_drive";
+
     fn decode_config(policy: &storage_policy::Model) -> Result<GoogleDriveConnectorConfigV1> {
         super::common::decode_typed_policy_config(policy, Self::ID, 1).map(|(c, _)| c)
     }
@@ -230,9 +243,11 @@ impl StorageConnector for GoogleDriveConnector {
             revision: "1",
         })
     }
+
     fn descriptor(&self) -> StorageConnectorDescriptor {
         Self::descriptor_definition()
     }
+
     fn localization(&self) -> Result<aster_drive_storage::StorageConnectorLocalization> {
         super::localization::builtin_connector_localization(
             Self::ID,
@@ -240,6 +255,7 @@ impl StorageConnector for GoogleDriveConnector {
             localization::MESSAGES,
         )
     }
+
     fn validate_connector_config(
         &self,
         input: &aster_drive_storage::ConnectorConfigEnvelope,
@@ -276,6 +292,7 @@ impl StorageConnector for GoogleDriveConnector {
         }
         super::common::encode_normalized_connector_config(n.connector_id, n.schema_version, c)
     }
+
     fn validate_credential_input(&self, input: &StorageConnectorCredentialInput) -> Result<()> {
         let c: GoogleDriveAuthorizationApplicationV1 =
             super::common::decode_authorization_application(input, Self::ID)?;
@@ -284,6 +301,7 @@ impl StorageConnector for GoogleDriveConnector {
         // inside persist_credential's transaction.
         super::common::validate_required_credential_field(&c.client_id, "client_id", Self::ID)
     }
+
     async fn validate_policy_update(
         &self,
         db: &sea_orm::DatabaseTransaction,
@@ -328,6 +346,7 @@ impl StorageConnector for GoogleDriveConnector {
         }
         Ok(())
     }
+
     async fn persist_credential(
         &self,
         db: &sea_orm::DatabaseTransaction,
@@ -379,6 +398,7 @@ impl StorageConnector for GoogleDriveConnector {
         )
         .await
     }
+
     async fn build_driver_from_connection(
         &self,
         _context: &super::StorageConnectorContext<'_>,
@@ -389,6 +409,7 @@ impl StorageConnector for GoogleDriveConnector {
             "Google Drive draft connection test requires authorization",
         ))
     }
+
     fn build_runtime_driver(
         &self,
         registry: &crate::storage::DriverRegistry,
@@ -404,6 +425,7 @@ impl StorageConnector for GoogleDriveConnector {
             self.build_authorized_driver(policy, credential)?,
         ))
     }
+
     fn build_authorized_driver(
         &self,
         policy: &storage_policy::Model,
@@ -420,6 +442,7 @@ impl StorageConnector for GoogleDriveConnector {
             std::time::Duration::from_secs(config.capacity_probe_timeout_secs),
         )?))
     }
+
     async fn start_authorization(
         &self,
         context: &super::StorageConnectorContext<'_>,
@@ -475,6 +498,7 @@ impl StorageConnector for GoogleDriveConnector {
             audit: audit(),
         })
     }
+
     async fn finish_authorization(
         &self,
         context: &super::StorageConnectorContext<'_>,
@@ -490,6 +514,7 @@ impl StorageConnector for GoogleDriveConnector {
             .await
             .map_err(oauth::authorization_error)
     }
+
     async fn load_runtime_credential(
         &self,
         _db: &sea_orm::DatabaseConnection,
@@ -518,6 +543,7 @@ impl StorageConnector for GoogleDriveConnector {
             },
         )))
     }
+
     fn credential_info(
         &self,
         _config: &crate::config::Config,
@@ -546,6 +572,7 @@ impl StorageConnector for GoogleDriveConnector {
             updated_at: credential.updated_at,
         }))
     }
+
     fn credential_validation_failure_payload(
         &self,
         _config: &crate::config::Config,
@@ -578,6 +605,7 @@ impl StorageConnector for GoogleDriveConnector {
         );
         encode(&payload).map(Some)
     }
+
     async fn validate_credential(
         &self,
         _db: &sea_orm::DatabaseConnection,
@@ -648,6 +676,7 @@ impl StorageConnector for GoogleDriveConnector {
             root_item_name,
         })
     }
+
     fn upload_transport(
         &self,
         policy: &storage_policy::Model,
@@ -656,6 +685,7 @@ impl StorageConnector for GoogleDriveConnector {
             Self::decode_config(policy)?.provider_resumable_upload_strategy,
         ))
     }
+
     async fn cleanup_snapshot_for_policy(
         &self,
         context: &super::StorageConnectorContext<'_>,
@@ -689,9 +719,11 @@ impl StorageConnector for GoogleDriveConnector {
         )
         .map(Some)
     }
+
     fn cleanup_snapshot_required(&self) -> bool {
         true
     }
+
     async fn build_cleanup_driver(
         &self,
         context: &super::StorageConnectorContext<'_>,

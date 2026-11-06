@@ -56,6 +56,7 @@ pub(crate) fn payload_deferred(
 type DeferredGuard = std::rc::Rc<std::cell::RefCell<Option<TransferGuard>>>;
 
 pub(crate) struct TransferCompletion(Option<DeferredGuard>);
+
 impl TransferCompletion {
     pub(crate) fn finish(&self, outcome: TransferOutcome) {
         if let Some(shared) = &self.0
@@ -65,6 +66,7 @@ impl TransferCompletion {
         }
     }
 }
+
 impl Drop for TransferCompletion {
     fn drop(&mut self) {
         self.finish(TransferOutcome::Cancelled);
@@ -77,8 +79,10 @@ struct DeferredPayload {
     metrics: SharedMetricsRecorder,
     labels: TransferLabels,
 }
+
 impl Stream for DeferredPayload {
     type Item = Result<Bytes, actix_web::error::PayloadError>;
+
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let result = Pin::new(&mut this.inner).poll_next(context);
@@ -101,8 +105,10 @@ struct ObservedPayload {
     metrics: SharedMetricsRecorder,
     labels: TransferLabels,
 }
+
 impl Stream for ObservedPayload {
     type Item = Result<Bytes, actix_web::error::PayloadError>;
+
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let guard = this
@@ -131,16 +137,19 @@ pub(crate) fn stream<S>(
         expected,
     }
 }
+
 pub(crate) struct ObservedStream<S> {
     inner: S,
     guard: TransferGuard,
     expected: Option<u64>,
 }
+
 impl<S, E> Stream for ObservedStream<S>
 where
     S: Stream<Item = Result<Bytes, E>> + Unpin,
 {
     type Item = Result<Bytes, E>;
+
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let result = Pin::new(&mut this.inner).poll_next(context);
@@ -165,6 +174,7 @@ where
         result
     }
 }
+
 impl<S> Drop for ObservedStream<S> {
     fn drop(&mut self) {
         if self.expected == Some(0) {
@@ -201,20 +211,25 @@ mod tests {
         active: Mutex<i64>,
         outcomes: Mutex<Vec<TransferOutcome>>,
     }
+
     impl MetricsRecorder for Capture {
         fn enabled(&self) -> bool {
             true
         }
+
         fn transfer_bytes(&self, _: TransferLabels, bytes: u64) {
             *self.bytes.lock().unwrap() += bytes;
         }
+
         fn transfer_active(&self, _: TransferLabels, delta: i64) {
             *self.active.lock().unwrap() += delta;
         }
+
         fn transfer_finished(&self, _: TransferLabels, outcome: TransferOutcome, _: f64) {
             self.outcomes.lock().unwrap().push(outcome);
         }
     }
+
     fn labels() -> TransferLabels {
         TransferLabels {
             direction: TransferDirection::Egress,
@@ -222,6 +237,7 @@ mod tests {
             mode: TransferMode::Range,
         }
     }
+
     fn assert_capture(capture: &Capture, bytes: u64, outcome: TransferOutcome) {
         assert_eq!(*capture.bytes.lock().unwrap(), bytes);
         assert_eq!(*capture.active.lock().unwrap(), 0);
@@ -275,6 +291,7 @@ mod tests {
     struct FailingReader {
         sent: bool,
     }
+
     impl AsyncRead for FailingReader {
         fn poll_read(
             mut self: Pin<&mut Self>,
@@ -354,6 +371,7 @@ mod tests {
         assert!(observed.read_to_end(&mut body).await.is_err());
         assert_eq!(body, b"abc");
     }
+
     #[test]
     fn unconsumed_payload_does_not_create_or_cancel_a_transfer() {
         let capture = Arc::new(Capture::default());
@@ -363,6 +381,7 @@ mod tests {
         assert_eq!(*capture.bytes.lock().unwrap(), 0);
         assert!(capture.outcomes.lock().unwrap().is_empty());
     }
+
     fn input_payload(
         items: Vec<Result<Bytes, actix_web::error::PayloadError>>,
     ) -> actix_web::dev::Payload {

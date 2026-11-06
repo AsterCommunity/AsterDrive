@@ -147,6 +147,7 @@ async fn list_records(
 
 impl TryFrom<workspace_activity::Model> for WorkspaceActivity {
     type Error = crate::errors::AsterError;
+
     fn try_from(m: workspace_activity::Model) -> Result<Self> {
         let action = AuditAction::from_str_name(&m.action).ok_or_else(|| {
             crate::errors::AsterError::internal_error("unsupported workspace activity action")
@@ -218,6 +219,7 @@ impl ActivityContext {
             operation_id: uuid::Uuid::new_v4().to_string(),
         })
     }
+
     pub fn creator(user_id: Option<i64>, name: &str) -> Self {
         Self {
             actor_user_id: user_id,
@@ -500,6 +502,7 @@ pub struct ActivityChange {
     action: AuditAction,
     details: serde_json::Value,
 }
+
 impl From<AuditAction> for ActivityChange {
     fn from(action: AuditAction) -> Self {
         Self {
@@ -508,11 +511,13 @@ impl From<AuditAction> for ActivityChange {
         }
     }
 }
+
 impl ActivityChange {
     pub fn with_details(action: AuditAction, details: serde_json::Value) -> Self {
         Self { action, details }
     }
 }
+
 fn merge_details(mut base: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
     if let (Some(base), serde_json::Value::Object(extra)) = (base.as_object_mut(), extra) {
         base.extend(extra);
@@ -551,6 +556,7 @@ pub enum ActivitySource {
     Task,
     Service,
 }
+
 impl ActivitySource {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -561,6 +567,7 @@ impl ActivitySource {
             Self::Service => "service",
         }
     }
+
     fn parse(value: &str) -> Result<Self> {
         match value {
             "rest" => Ok(Self::Rest),
@@ -580,6 +587,7 @@ pub(crate) enum ResourceSnapshot {
     File(file::Model),
     Folder(folder::Model),
 }
+
 impl ResourceSnapshot {
     pub(crate) async fn lock<C: ConnectionTrait>(
         db: &C,
@@ -610,6 +618,7 @@ impl ResourceSnapshot {
             }
         }
     }
+
     /// Protocol adapters already validate their submitted lock credentials.
     pub(crate) async fn lock_authorized<C: ConnectionTrait>(
         db: &C,
@@ -630,6 +639,7 @@ impl ResourceSnapshot {
             }
         }
     }
+
     pub(crate) async fn record<C: ConnectionTrait>(
         &self,
         db: &C,
@@ -701,6 +711,7 @@ pub(crate) async fn file_copied<C: ConnectionTrait>(
     file_copy_records(&mut records, ctx, source, target, Utc::now());
     workspace_activity_repo::append_many(db, records).await
 }
+
 fn file_copy_records(
     records: &mut Vec<workspace_activity::ActiveModel>,
     ctx: &ActivityContext,
@@ -740,6 +751,7 @@ pub(crate) async fn folder_copied<C: ConnectionTrait>(
     folder_copy_records(&mut records, ctx, source, target, Utc::now());
     workspace_activity_repo::append_many(db, records).await
 }
+
 fn folder_copy_records(
     records: &mut Vec<workspace_activity::ActiveModel>,
     ctx: &ActivityContext,

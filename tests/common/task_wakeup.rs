@@ -18,22 +18,28 @@ struct ProbeConsumer {
 impl TaskConsumer for ProbeConsumer {
     type Task = ();
     type Error = &'static str;
+
     fn name(&self) -> &'static str {
         "test_wakeup_probe"
     }
+
     fn concurrency(&self) -> usize {
         1
     }
+
     fn poll_interval(&self) -> Duration {
         Duration::from_hours(1)
     }
+
     fn wakeup(&self) -> &TaskWakeup {
         &self.wakeup
     }
+
     async fn claim(&self, _: usize) -> Result<Vec<()>, Self::Error> {
         self.claims.send(()).map_err(|_| "probe receiver closed")?;
         Ok(Vec::new())
     }
+
     async fn execute(
         &self,
         (): (),
@@ -41,6 +47,7 @@ impl TaskConsumer for ProbeConsumer {
     ) -> Result<TaskDispatchOutcome, Self::Error> {
         unreachable!("probe never claims tasks")
     }
+
     async fn release_unstarted(&self, (): ()) -> Result<(), Self::Error> {
         unreachable!("probe never claims tasks")
     }
@@ -75,6 +82,7 @@ impl TaskWakeupProbe {
         probe.notified().await;
         probe
     }
+
     pub async fn notified(&mut self) {
         tokio::time::timeout(Duration::from_secs(2), self.claims.recv())
             .await

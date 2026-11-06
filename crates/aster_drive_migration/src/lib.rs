@@ -107,6 +107,7 @@ const APPLICATION_SCHEMA_SENTINELS: &[&str] = &[
 ];
 
 pub struct Migrator;
+
 pub struct CurrentMigrator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

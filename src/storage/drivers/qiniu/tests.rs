@@ -22,6 +22,7 @@ fn config() -> QiniuDriverConfig {
         operation_timeout: Duration::from_secs(10),
     }
 }
+
 pub(super) fn driver() -> QiniuDriver {
     QiniuDriver::new(
         config(),
@@ -240,19 +241,23 @@ struct State {
     upload_completed: bool,
     max_source_ttl: Option<i64>,
 }
+
 struct Server {
     base: String,
     state: Arc<std::sync::Mutex<State>>,
     handle: actix_web::dev::ServerHandle,
 }
+
 impl Server {
     async fn driver(&self) -> QiniuDriver {
         http_fixture_driver(&self.base).await
     }
+
     async fn stop(self) {
         self.handle.stop(true).await;
     }
 }
+
 pub(crate) async fn http_fixture_driver(base: &str) -> QiniuDriver {
     let mut driver = driver();
     driver.config.download_origin = base.to_string();
@@ -265,6 +270,7 @@ pub(crate) async fn http_fixture_driver(base: &str) -> QiniuDriver {
     });
     driver
 }
+
 async fn spawn() -> Server {
     async fn handler(
         req: HttpRequest,
@@ -503,6 +509,7 @@ async fn spawn() -> Server {
         }
         HttpResponse::Ok().body(bytes.clone())
     }
+
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let state = Arc::new(std::sync::Mutex::new(State::default()));
@@ -1017,10 +1024,12 @@ async fn streaming_multipart_uses_small_read_buffers_and_cleans_failed_or_cancel
         sync::atomic::{AtomicUsize, Ordering},
         task::{Context, Poll},
     };
+
     struct Counted<R> {
         source: R,
         largest: Arc<AtomicUsize>,
     }
+
     impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Counted<R> {
         fn poll_read(
             mut self: Pin<&mut Self>,
@@ -1031,6 +1040,20 @@ async fn streaming_multipart_uses_small_read_buffers_and_cleans_failed_or_cancel
             Pin::new(&mut self.source).poll_read(cx, buffer)
         }
     }
+
+    struct PendingInput(Arc<tokio::sync::Notify>);
+
+    impl tokio::io::AsyncRead for PendingInput {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _buffer: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            self.0.notify_one();
+            Poll::Pending
+        }
+    }
+
     let server = spawn().await;
     let driver = server.driver().await;
     let size = 9 * 1024 * 1024;
@@ -1061,17 +1084,6 @@ async fn streaming_multipart_uses_small_read_buffers_and_cleans_failed_or_cancel
             .is_err()
     );
     assert!(server.state.lock().unwrap().aborted >= 2);
-    struct PendingInput(Arc<tokio::sync::Notify>);
-    impl tokio::io::AsyncRead for PendingInput {
-        fn poll_read(
-            self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
-            _buffer: &mut tokio::io::ReadBuf<'_>,
-        ) -> Poll<std::io::Result<()>> {
-            self.0.notify_one();
-            Poll::Pending
-        }
-    }
     let started = Arc::new(tokio::sync::Notify::new());
     let pending = PendingInput(started.clone());
     let cloned = driver.clone();
@@ -1443,6 +1455,7 @@ async fn provider_control_responses_are_bounded_and_request_ids_are_sanitized() 
 #[tokio::test]
 async fn data_transfers_outlive_control_deadline_but_keep_idle_read_timeout() {
     use futures::stream;
+
     async fn handler(req: HttpRequest, body: web::Bytes) -> HttpResponse {
         if req.path().starts_with("/stat/") {
             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -1488,6 +1501,7 @@ async fn data_transfers_outlive_control_deadline_but_keep_idle_read_timeout() {
             HttpResponse::Ok().streaming(chunks)
         }
     }
+
     fn slow_reader(delay_ms: u64) -> Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync> {
         let chunks = stream::unfold(0, move |index| async move {
             if index == 8 {
@@ -1501,6 +1515,7 @@ async fn data_transfers_outlive_control_deadline_but_keep_idle_read_timeout() {
         });
         Box::new(tokio_util::io::StreamReader::new(Box::pin(chunks)))
     }
+
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = HttpServer::new(|| App::new().default_service(web::to(handler)))

@@ -25,10 +25,12 @@ struct Initiated {
     #[serde(rename = "expireAt")]
     expires_at: i64,
 }
+
 #[derive(Deserialize)]
 struct PartResult {
     etag: String,
 }
+
 #[derive(Deserialize)]
 pub(super) struct Part {
     #[serde(rename = "partNumber")]
@@ -36,6 +38,7 @@ pub(super) struct Part {
     pub(super) size: i64,
     pub(super) etag: String,
 }
+
 #[derive(Deserialize)]
 struct PartList {
     #[serde(default)]
@@ -63,6 +66,7 @@ impl QiniuDriver {
         }
         Ok(session)
     }
+
     async fn multipart_url(&self, key: &str, id: Option<&str>) -> Result<Url> {
         let mut url = self.endpoint(ServiceKind::Upload).await?;
         {
@@ -82,6 +86,7 @@ impl QiniuDriver {
         }
         Ok(url)
     }
+
     async fn session_request(
         &self,
         method: Method,
@@ -107,6 +112,7 @@ impl QiniuDriver {
             session,
         ))
     }
+
     pub(super) async fn uploaded_parts(&self, path: &str, id: &str) -> Result<Vec<Part>> {
         let mut marker = 0;
         let mut parts = Vec::new();
@@ -147,6 +153,7 @@ impl QiniuDriver {
         }
         Ok(parts)
     }
+
     async fn native_part_request(
         &self,
         path: &str,
@@ -193,6 +200,7 @@ impl QiniuDriver {
             response_headers: Vec::new(),
         })
     }
+
     async fn upload_part_body(
         &self,
         path: &str,
@@ -225,6 +233,7 @@ impl QiniuDriver {
         Ok(result.etag)
     }
 }
+
 fn validate_part_number(number: i32) -> Result<()> {
     if !(1..=10_000).contains(&number) {
         return Err(invalid("Kodo part number must be between 1 and 10000"));
@@ -243,6 +252,7 @@ impl MultipartStorageDriver for QiniuDriver {
             upload_mode: MultipartUploadMode::NativeStreaming,
         }
     }
+
     async fn create_multipart_upload(&self, path: &str) -> Result<String> {
         let key = self.key(path)?;
         let token = self.upload_token(&key, chrono::Utc::now().timestamp() + 3600, None, false)?;
@@ -267,6 +277,7 @@ impl MultipartStorageDriver for QiniuDriver {
         })
         .map_err(|_| invalid("cannot encode Kodo multipart session"))
     }
+
     async fn browser_part_request(
         &self,
         path: &str,
@@ -276,6 +287,7 @@ impl MultipartStorageDriver for QiniuDriver {
     ) -> Result<BrowserUploadRequest> {
         self.native_part_request(path, id, number, expires).await
     }
+
     async fn complete_multipart_upload(
         &self,
         path: &str,
@@ -327,6 +339,7 @@ impl MultipartStorageDriver for QiniuDriver {
         .await?;
         Ok(())
     }
+
     async fn upload_multipart_part(
         &self,
         path: &str,
@@ -337,6 +350,7 @@ impl MultipartStorageDriver for QiniuDriver {
         self.upload_multipart_part_bytes(path, id, number, Bytes::copy_from_slice(data))
             .await
     }
+
     async fn upload_multipart_part_bytes(
         &self,
         path: &str,
@@ -348,6 +362,7 @@ impl MultipartStorageDriver for QiniuDriver {
         self.upload_part_body(path, id, number, data.into(), size)
             .await
     }
+
     async fn upload_multipart_part_reader(
         &self,
         path: &str,
@@ -361,6 +376,7 @@ impl MultipartStorageDriver for QiniuDriver {
         self.upload_part_body(path, id, number, reqwest::Body::wrap_stream(stream), size)
             .await
     }
+
     async fn abort_multipart_upload(&self, path: &str, id: &str) -> Result<()> {
         let (request, _) = match self.session_request(Method::DELETE, path, id).await {
             Ok(value) => value,
@@ -373,6 +389,7 @@ impl MultipartStorageDriver for QiniuDriver {
             Err(error) => Err(error),
         }
     }
+
     async fn list_uploaded_part_details(
         &self,
         path: &str,

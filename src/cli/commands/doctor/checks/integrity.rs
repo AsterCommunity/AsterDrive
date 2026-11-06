@@ -2,6 +2,7 @@
 use super::super::report::{DoctorCheck, DoctorStatus};
 use crate::errors::Result;
 use crate::services::ops::integrity;
+
 pub(in crate::cli::commands::doctor) async fn doctor_storage_usage_check(
     db: &sea_orm::DatabaseConnection,
     fix: bool,

@@ -76,6 +76,7 @@ impl QiniuDriver {
             .checked_add(seconds)
             .ok_or_else(|| invalid("Kodo source deadline overflow"))
     }
+
     pub(super) fn private_url(
         &self,
         domain: &str,

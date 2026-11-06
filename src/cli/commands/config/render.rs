@@ -10,6 +10,7 @@ use crate::errors::AsterError;
 use crate::services::ops::config::SystemConfig;
 use aster_forge_config::ConfigValue;
 use aster_forge_validation::filename::char_count;
+
 /// Renders a successful config command result in the requested output format.
 pub(in crate::cli) fn render_success(format: OutputFormat, data: &ConfigCommandReport) -> String {
     if let ConfigCommandPayload::Backup(backup) = &data.payload {

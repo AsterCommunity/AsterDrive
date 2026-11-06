@@ -885,24 +885,30 @@ mod tests {
         async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Err(self.0.clone())
         }
+
         async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Err(self.0.clone())
         }
+
         async fn get_stream(
             &self,
             _path: &str,
         ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Err(self.0.clone())
         }
+
         async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             Err(self.0.clone())
         }
+
         async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Err(self.0.clone())
         }
+
         async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Err(self.0.clone())
         }
+
         async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
             Err(self.0.clone())
         }

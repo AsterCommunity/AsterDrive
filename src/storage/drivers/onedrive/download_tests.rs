@@ -8,6 +8,7 @@ enum Mode {
     Redirect(String),
     IdleContent,
 }
+
 async fn server(mode: Mode) -> (String, tokio::task::JoinHandle<String>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -53,6 +54,7 @@ async fn server(mode: Mode) -> (String, tokio::task::JoinHandle<String>) {
     });
     (url, task)
 }
+
 fn graph(base: &str) -> MicrosoftGraphClient {
     let mut client =
         MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(base, "private-graph-token"))

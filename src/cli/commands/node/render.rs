@@ -5,6 +5,7 @@ use crate::cli::common::{
     terminal::{CliTerminalPalette, human_key},
 };
 use crate::errors::AsterError;
+
 pub(in crate::cli) fn render_node_success(
     format: OutputFormat,
     report: &NodeEnrollReport,

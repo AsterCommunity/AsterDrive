@@ -12,6 +12,7 @@ enum Reply {
     TrickleBody,
     ErrorStallBody,
 }
+
 async fn peer(reply: Reply) -> (String, tokio::task::JoinHandle<String>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!(
@@ -82,6 +83,7 @@ async fn peer(reply: Reply) -> (String, tokio::task::JoinHandle<String>) {
     });
     (url, task)
 }
+
 fn client(idle: Duration) -> MicrosoftGraphClient {
     let mut client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
         "http://graph.invalid",
@@ -102,6 +104,7 @@ fn client(idle: Duration) -> MicrosoftGraphClient {
     client.upload_idle_timeout = idle;
     client
 }
+
 fn slow_reader(delay: Duration) -> Box<dyn AsyncRead + Unpin + Send + Sync> {
     let (mut writer, reader) = tokio::io::duplex(1);
     tokio::spawn(async move {
@@ -178,11 +181,13 @@ async fn stalled_upload_header_wait_and_acknowledgement_decode_each_have_a_deadl
 }
 
 struct PendingReader(Arc<AtomicBool>);
+
 impl Drop for PendingReader {
     fn drop(&mut self) {
         self.0.store(true, Ordering::SeqCst);
     }
 }
+
 impl AsyncRead for PendingReader {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
@@ -192,6 +197,7 @@ impl AsyncRead for PendingReader {
         std::task::Poll::Pending
     }
 }
+
 #[tokio::test]
 async fn caller_deadline_cancels_fragment_reader_before_the_upload_idle_limit() {
     let client = client(Duration::from_secs(1));

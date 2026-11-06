@@ -8,6 +8,7 @@ use sea_orm::ActiveModelTrait;
 use serde_json::json;
 
 const KEY: &str = "google-drive-test-master-key-32bytes";
+
 async fn database() -> (sea_orm::DatabaseConnection, i64) {
     let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
     test_support::migrate_current_storage_test_schema(&db).await;
@@ -22,6 +23,7 @@ async fn database() -> (sea_orm::DatabaseConnection, i64) {
     .unwrap();
     (db, policy.id)
 }
+
 async fn store(db: &sea_orm::DatabaseConnection, id: i64, payload: &GoogleDriveCredentialV1) {
     crate::storage::connectors::persist_connector_credential_payload(
         db,
@@ -34,6 +36,7 @@ async fn store(db: &sea_orm::DatabaseConnection, id: i64, payload: &GoogleDriveC
     .await
     .unwrap();
 }
+
 async fn save(db: &sea_orm::DatabaseConnection, id: i64) -> GoogleDriveCredentialV1 {
     let mut payload = super::super::tests::payload();
     payload.authorization.as_mut().unwrap().expires_at =
@@ -41,9 +44,11 @@ async fn save(db: &sea_orm::DatabaseConnection, id: i64) -> GoogleDriveCredentia
     store(db, id, &payload).await;
     payload
 }
+
 fn token() -> serde_json::Value {
     json!({"access_token":"rotated-access","refresh_token":"rotated-refresh","expires_in":3600,"token_type":"Bearer"})
 }
+
 fn new_provider(
     db: &sea_orm::DatabaseConnection,
     id: i64,
@@ -61,6 +66,7 @@ fn new_provider(
     Arc::get_mut(&mut provider).unwrap().token_url = format!("{}/token", peer.base);
     provider
 }
+
 fn assert_form(peer: &HttpFixture) {
     for req in peer.requests() {
         assert_eq!(req.method, "POST");

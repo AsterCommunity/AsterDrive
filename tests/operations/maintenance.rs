@@ -1545,6 +1545,7 @@ async fn test_integrity_storage_scan_bounds_path_batch_and_keeps_exact_totals() 
     };
 
     struct FindingCollector(usize);
+
     impl StorageObjectFindingSink for FindingCollector {
         fn record(&mut self, _finding: StorageObjectFinding) -> aster_drive::errors::Result<()> {
             self.0 += 1;

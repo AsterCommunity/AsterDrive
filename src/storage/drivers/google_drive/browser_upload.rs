@@ -30,6 +30,7 @@ impl BrowserUploadDriver for GoogleDriveDriver {
             version: 1,
         }
     }
+
     async fn advance(
         &self,
         context: BrowserUploadContext<'_>,
@@ -70,6 +71,7 @@ mod tests {
         BrowserUploadMethod, BrowserUploadObservation, BrowserUploadRange, BrowserUploadRequest,
     };
     use std::collections::BTreeMap;
+
     #[test]
     fn google_acknowledgements_require_a_visible_valid_contiguous_range() {
         let request = BrowserUploadRequest {

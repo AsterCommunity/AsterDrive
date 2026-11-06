@@ -40,9 +40,13 @@ pub trait MetricsRecorder: Send + Sync {
     }
 
     fn admission_rejection(&self, reason: AdmissionReason) {}
+
     fn transfer_bytes(&self, labels: TransferLabels, bytes: u64) {}
+
     fn transfer_active(&self, labels: TransferLabels, delta: i64) {}
+
     fn transfer_finished(&self, labels: TransferLabels, outcome: TransferOutcome, seconds: f64) {}
+
     fn upload_phase(
         &self,
         mode: &'static str,
@@ -51,6 +55,7 @@ pub trait MetricsRecorder: Send + Sync {
         seconds: f64,
     ) {
     }
+
     fn upload_backlog(
         &self,
         mode: &'static str,
@@ -59,9 +64,13 @@ pub trait MetricsRecorder: Send + Sync {
         oldest_seconds: f64,
     ) {
     }
+
     fn blob_cleanup_backlog(&self, count: u64, oldest_seconds: f64) {}
+
     fn blob_cleanup(&self, outcome: CleanupOutcome, retired_bytes: u64) {}
+
     fn snapshot_status(&self, source: &'static str, valid: bool, last_success: f64) {}
+
     fn capacity_snapshot(
         &self,
         scope: &'static str,
@@ -70,10 +79,15 @@ pub trait MetricsRecorder: Send + Sync {
         used: Option<u64>,
     ) {
     }
+
     fn staging_snapshot(&self, kind: &'static str, bytes: u64) {}
+
     fn remote_nodes(&self, status: &'static str, count: u64) {}
+
     fn remote_connections(&self, delta: i64) {}
+
     fn remote_reconnect(&self, reason: RemoteReason) {}
+
     fn remote_request(
         &self,
         transport: RemoteTransport,
@@ -461,12 +475,14 @@ impl MetricsRecorder for DriveMetricsRecorder {
             product.transfer_bytes.inc(&labels.values(), bytes);
         }
     }
+
     fn transfer_active(&self, labels: TransferLabels, delta: i64) {
         {
             let product = &self.product;
             product.transfer_active.add(&labels.values(), delta as f64);
         }
     }
+
     fn transfer_finished(&self, labels: TransferLabels, outcome: TransferOutcome, seconds: f64) {
         {
             let product = &self.product;
@@ -476,6 +492,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
                 .observe(&[direction, source, mode, outcome.label()], seconds);
         }
     }
+
     fn upload_phase(
         &self,
         mode: &'static str,
@@ -490,6 +507,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
                 .observe(&[mode, phase.label(), outcome.label()], seconds);
         }
     }
+
     fn upload_backlog(
         &self,
         mode: &'static str,
@@ -503,6 +521,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
             product.upload_oldest.set(&[mode, state], oldest_seconds);
         }
     }
+
     fn blob_cleanup_backlog(&self, count: u64, oldest_seconds: f64) {
         {
             let product = &self.product;
@@ -510,6 +529,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
             product.cleanup_oldest.set(&[], oldest_seconds);
         }
     }
+
     fn blob_cleanup(&self, outcome: CleanupOutcome, retired_bytes: u64) {
         {
             let product = &self.product;
@@ -517,6 +537,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
             product.cleanup_retired.inc(&[], retired_bytes);
         }
     }
+
     fn snapshot_status(&self, source: &'static str, valid: bool, last_success: f64) {
         {
             let product = &self.product;
@@ -528,6 +549,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
             }
         }
     }
+
     fn capacity_snapshot(
         &self,
         scope: &'static str,
@@ -547,30 +569,35 @@ impl MetricsRecorder for DriveMetricsRecorder {
             }
         }
     }
+
     fn staging_snapshot(&self, kind: &'static str, bytes: u64) {
         {
             let product = &self.product;
             product.staging.set(&[kind], bytes as f64);
         }
     }
+
     fn remote_nodes(&self, status: &'static str, count: u64) {
         {
             let product = &self.product;
             product.remote_nodes.set(&[status], count as f64);
         }
     }
+
     fn remote_connections(&self, delta: i64) {
         {
             let product = &self.product;
             product.remote_connections.add(&[], delta as f64);
         }
     }
+
     fn remote_reconnect(&self, reason: RemoteReason) {
         {
             let product = &self.product;
             product.remote_reconnects.inc(&[reason.label()], 1);
         }
     }
+
     fn remote_request(
         &self,
         transport: RemoteTransport,
@@ -1084,6 +1111,7 @@ mod tests {
         assert!(body.contains("data_plane=\"streaming_direct\""));
         assert!(body.contains("data_plane=\"staged\""));
     }
+
     #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn data_plane_records_counts_terminal_outcomes_and_remote_reasons_exactly_once() {
@@ -1193,6 +1221,7 @@ mod tests {
             );
         }
     }
+
     #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn product_and_shared_recorders_use_the_same_provider_without_cross_instance_writes() {

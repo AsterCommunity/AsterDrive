@@ -389,6 +389,7 @@ impl StorageConnector for RemoteConnector {
         Self::decode_config(policy)
             .map(|config| config.remote_download_strategy == RemoteDownloadStrategy::Presigned)
     }
+
     async fn cleanup_snapshot_for_policy(
         &self,
         context: &super::StorageConnectorContext<'_>,

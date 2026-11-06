@@ -161,6 +161,7 @@ async fn flow(
         consumed_at: Some(now),
     }
 }
+
 fn token() -> serde_json::Value {
     json!({"access_token":"fresh-access","refresh_token":"fresh-refresh","expires_in":3600,"token_type":"Bearer","scope":"https://www.googleapis.com/auth/drive"})
 }

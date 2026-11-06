@@ -38,6 +38,7 @@ struct CorsRule {
     expose_headers: Vec<String>,
     max_age_seconds: Option<i64>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CorsConfiguration {
     rules: Vec<CorsRule>,

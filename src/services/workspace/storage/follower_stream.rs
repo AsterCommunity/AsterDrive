@@ -382,24 +382,30 @@ mod tests {
         async fn put(&self, _: &str, _: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!("publish must not read or upload object contents")
         }
+
         async fn get(&self, _: &str) -> aster_drive_storage::Result<Vec<u8>> {
             unreachable!("publish must not read or upload object contents")
         }
+
         async fn get_stream(
             &self,
             _: &str,
         ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
             unreachable!("publish must not read or upload object contents")
         }
+
         async fn delete(&self, _: &str) -> aster_drive_storage::Result<()> {
             unreachable!("publication dispatch must not delete the final object")
         }
+
         async fn exists(&self, _: &str) -> aster_drive_storage::Result<bool> {
             unreachable!()
         }
+
         async fn metadata(&self, _: &str) -> aster_drive_storage::Result<BlobMetadata> {
             unreachable!()
         }
+
         async fn copy_object(
             &self,
             source: &str,
@@ -409,6 +415,7 @@ mod tests {
             self.copies.fetch_add(1, Ordering::SeqCst);
             Ok(target.to_owned())
         }
+
         fn extensions(&self) -> StorageDriverExtensions<'_> {
             StorageDriverExtensions {
                 native_publish: self.native.then_some(self),

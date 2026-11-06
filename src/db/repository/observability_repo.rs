@@ -72,6 +72,7 @@ pub struct BlobBacklog {
     pub count: i64,
     pub oldest: Option<DateTime<Utc>>,
 }
+
 pub async fn blob_backlog<C: ConnectionTrait>(db: &C) -> Result<BlobBacklog> {
     use file_blob::Column as C;
     Ok(file_blob::Entity::find()
@@ -94,6 +95,7 @@ pub struct RemoteNodeCount {
     pub status: String,
     pub count: i64,
 }
+
 pub async fn remote_node_counts<C: ConnectionTrait>(db: &C) -> Result<Vec<RemoteNodeCount>> {
     use managed_follower::Column as C;
     let status = sea_orm::sea_query::Expr::Case(Box::new(

@@ -4,6 +4,7 @@ use crate::cli::common::{
     output::{OutputFormat, ResolvedOutputFormat, render_success_envelope},
     terminal::{CliTerminalPalette, human_key},
 };
+
 /// Renders a successful doctor report in the requested output format.
 pub(in crate::cli) fn render_doctor_success(format: OutputFormat, report: &DoctorReport) -> String {
     match format.resolve() {

@@ -430,6 +430,7 @@ fn git_output(directory: &Path, args: &[&str]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use aster_forge_utils::raii::TempDirGuard;
+
     fn directory(label: &str) -> TempDirGuard {
         let guard = TempDirGuard::new(
             std::env::temp_dir().join(format!("aster-build-{label}-{}", uuid::Uuid::new_v4())),

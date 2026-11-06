@@ -21,6 +21,7 @@ pub(crate) struct FileCursorQuery {
     pub sort_order: SortOrder,
     pub deleted: bool,
 }
+
 pub(crate) async fn find_by_folder_cursor_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: FileScope,

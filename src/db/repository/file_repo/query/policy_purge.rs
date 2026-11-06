@@ -90,6 +90,11 @@ pub async fn find_files_referencing_policy_blobs_paginated<C: ConnectionTrait>(
     after_file_id: i64,
     limit: u64,
 ) -> Result<Vec<file::Model>> {
+    #[derive(FromQueryResult)]
+    struct FileIdRow {
+        file_id: i64,
+    }
+
     if limit == 0 {
         return Ok(Vec::new());
     }
@@ -99,10 +104,6 @@ pub async fn find_files_referencing_policy_blobs_paginated<C: ConnectionTrait>(
         } else {
             ("?", "?", "?")
         };
-    #[derive(FromQueryResult)]
-    struct FileIdRow {
-        file_id: i64,
-    }
     let sql = format!(
         "SELECT DISTINCT h.file_id AS file_id \
          FROM file_revision_histories h \

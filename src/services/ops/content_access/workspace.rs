@@ -21,6 +21,7 @@ pub struct AdminWorkspaceQuery {
     pub deleted: bool,
     pub pagination: crate::api::pagination::FolderListQuery,
 }
+
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AdminWorkspaceContents {

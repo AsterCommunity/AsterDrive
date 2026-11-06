@@ -43,6 +43,7 @@ pub trait MicrosoftGraphAccessTokenProvider: Send + Sync + std::fmt::Debug {
     }
 
     async fn access_token(&self) -> AsterResult<String>;
+
     async fn refresh_access_token(&self) -> AsterResult<String>;
 }
 

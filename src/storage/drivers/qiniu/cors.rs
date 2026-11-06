@@ -273,6 +273,7 @@ fn rules_equivalent(left: &[CorsRule], right: &[CorsRule]) -> bool {
         }
         rule
     }
+
     left.len() == right.len()
         && left
             .iter()

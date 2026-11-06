@@ -415,6 +415,7 @@ mod tests {
             validate_cdn_auth_key(key).unwrap();
         }
     }
+
     #[tokio::test]
     async fn cdn_mode_keeps_presigned_upload_on_the_cos_origin() {
         use aster_drive_storage::traits::extensions::PresignedUploadStorageDriver;

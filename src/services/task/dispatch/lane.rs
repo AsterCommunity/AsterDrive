@@ -22,6 +22,7 @@ pub(super) const TASK_LANES: [TaskLane; 5] = [
     TaskLane::StorageMigration,
     TaskLane::Fallback,
 ];
+
 pub(super) fn task_lane_configs(state: &impl SharedRuntimeState) -> Vec<TaskLaneConfig> {
     TASK_LANES
         .into_iter()

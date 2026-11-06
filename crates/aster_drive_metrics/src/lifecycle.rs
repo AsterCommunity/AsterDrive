@@ -27,6 +27,7 @@ pub struct TransferLabels {
     pub source: TransferSource,
     pub mode: TransferMode,
 }
+
 impl TransferLabels {
     pub const fn values(self) -> [&'static str; 3] {
         [
@@ -45,6 +46,7 @@ pub struct TransferGuard {
     started: Option<Instant>,
     pending_bytes: u64,
 }
+
 impl TransferGuard {
     pub fn new(metrics: SharedMetricsRecorder, labels: TransferLabels) -> Self {
         let started = metrics.enabled().then(Instant::now);
@@ -58,6 +60,7 @@ impl TransferGuard {
             pending_bytes: 0,
         }
     }
+
     pub fn bytes(&mut self, bytes: u64) {
         if self.started.is_none() {
             return;
@@ -67,12 +70,14 @@ impl TransferGuard {
             self.flush_bytes();
         }
     }
+
     fn flush_bytes(&mut self) {
         if self.pending_bytes > 0 {
             self.metrics
                 .transfer_bytes(self.labels, std::mem::take(&mut self.pending_bytes));
         }
     }
+
     pub fn finish(&mut self, outcome: TransferOutcome) {
         if let Some(started) = self.started.take() {
             self.flush_bytes();
@@ -82,6 +87,7 @@ impl TransferGuard {
         }
     }
 }
+
 impl Drop for TransferGuard {
     fn drop(&mut self) {
         self.finish(TransferOutcome::Cancelled);
@@ -94,6 +100,7 @@ pub struct UploadPhaseGuard {
     phase: UploadPhase,
     started: Option<Instant>,
 }
+
 impl UploadPhaseGuard {
     pub fn new(metrics: SharedMetricsRecorder, mode: &'static str, phase: UploadPhase) -> Self {
         let started = metrics.enabled().then(Instant::now);
@@ -104,6 +111,7 @@ impl UploadPhaseGuard {
             started,
         }
     }
+
     pub fn finish(&mut self, outcome: TransferOutcome) {
         if let Some(started) = self.started.take() {
             self.metrics.upload_phase(
@@ -115,6 +123,7 @@ impl UploadPhaseGuard {
         }
     }
 }
+
 impl Drop for UploadPhaseGuard {
     fn drop(&mut self) {
         self.finish(TransferOutcome::Cancelled);
@@ -127,6 +136,7 @@ pub struct RemoteRequestGuard {
     operation: RemoteOperation,
     started: Option<Instant>,
 }
+
 impl RemoteRequestGuard {
     pub fn new(
         metrics: SharedMetricsRecorder,
@@ -141,6 +151,7 @@ impl RemoteRequestGuard {
             started,
         }
     }
+
     pub fn finish(&mut self, outcome: TransferOutcome, reason: RemoteReason) {
         if let Some(started) = self.started.take() {
             self.metrics.remote_request(
@@ -153,6 +164,7 @@ impl RemoteRequestGuard {
         }
     }
 }
+
 impl Drop for RemoteRequestGuard {
     fn drop(&mut self) {
         self.finish(TransferOutcome::Cancelled, RemoteReason::Cancelled);
@@ -162,12 +174,14 @@ impl Drop for RemoteRequestGuard {
 pub struct RemoteConnectionGuard {
     metrics: SharedMetricsRecorder,
 }
+
 impl RemoteConnectionGuard {
     pub fn new(metrics: SharedMetricsRecorder) -> Self {
         metrics.remote_connections(1);
         Self { metrics }
     }
 }
+
 impl Drop for RemoteConnectionGuard {
     fn drop(&mut self) {
         self.metrics.remote_connections(-1);
@@ -178,6 +192,7 @@ pub struct BlobCleanupGuard {
     metrics: SharedMetricsRecorder,
     finished: bool,
 }
+
 impl BlobCleanupGuard {
     pub fn new(metrics: SharedMetricsRecorder) -> Self {
         Self {
@@ -185,6 +200,7 @@ impl BlobCleanupGuard {
             finished: false,
         }
     }
+
     pub fn finish(&mut self, outcome: CleanupOutcome, retired_bytes: u64) {
         if !self.finished {
             self.finished = true;
@@ -192,6 +208,7 @@ impl BlobCleanupGuard {
         }
     }
 }
+
 impl Drop for BlobCleanupGuard {
     fn drop(&mut self) {
         self.finish(CleanupOutcome::Cancelled, 0);
@@ -228,22 +245,28 @@ mod tests {
         phases: Mutex<Vec<TransferOutcome>>,
         cleanup: Mutex<Vec<(CleanupOutcome, u64)>>,
     }
+
     impl crate::MetricsRecorder for Capture {
         fn enabled(&self) -> bool {
             true
         }
+
         fn transfer_bytes(&self, _: TransferLabels, bytes: u64) {
             *self.bytes.lock().unwrap() += bytes;
         }
+
         fn transfer_active(&self, _: TransferLabels, delta: i64) {
             *self.active.lock().unwrap() += delta;
         }
+
         fn transfer_finished(&self, _: TransferLabels, outcome: TransferOutcome, _: f64) {
             self.transfers.lock().unwrap().push(outcome);
         }
+
         fn upload_phase(&self, _: &'static str, _: UploadPhase, outcome: TransferOutcome, _: f64) {
             self.phases.lock().unwrap().push(outcome);
         }
+
         fn blob_cleanup(&self, outcome: CleanupOutcome, bytes: u64) {
             self.cleanup.lock().unwrap().push((outcome, bytes));
         }

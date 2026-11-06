@@ -69,6 +69,7 @@ impl From<String> for SecretArg {
 
 impl FromStr for SecretArg {
     type Err = std::convert::Infallible;
+
     fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
         Ok(Self(value.to_owned().into()))
     }
@@ -136,6 +137,7 @@ fn read_bounded(reader: impl Read) -> Result<SecretString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn bounded_input_preserves_spaces_and_multiline_and_never_debugs_secrets() {
         let value = read_bounded("  first\nsecond  \r\n".as_bytes()).unwrap();

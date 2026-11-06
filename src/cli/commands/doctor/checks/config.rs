@@ -1,5 +1,6 @@
 //! Effective runtime settings checks.
 use super::super::report::{DoctorCheck, DoctorStatus};
+
 pub(in crate::cli::commands::doctor) fn doctor_public_site_url_check(
     runtime_config: &crate::config::RuntimeConfig,
 ) -> DoctorCheck {

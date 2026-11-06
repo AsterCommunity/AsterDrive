@@ -3606,6 +3606,7 @@ async fn expired_storage_compat_cleanup_sqlite() {
     assert_expired_storage_compat_cleanup(&Database::connect("sqlite::memory:").await.unwrap())
         .await;
 }
+
 /// Verify expired storage compat cleanup postgres.
 #[tokio::test]
 async fn expired_storage_compat_cleanup_postgres() {
@@ -3614,6 +3615,7 @@ async fn expired_storage_compat_cleanup_postgres() {
         .unwrap();
     assert_expired_storage_compat_cleanup(&db).await;
 }
+
 /// Verify expired storage compat cleanup mysql.
 #[tokio::test]
 async fn expired_storage_compat_cleanup_mysql() {
@@ -3622,12 +3624,14 @@ async fn expired_storage_compat_cleanup_mysql() {
         .unwrap();
     assert_expired_storage_compat_cleanup(&db).await;
 }
+
 /// Verify expired storage compat preflight sqlite.
 #[tokio::test]
 async fn expired_storage_compat_preflight_sqlite() {
     assert_expired_storage_compat_preflight(&Database::connect("sqlite::memory:").await.unwrap())
         .await;
 }
+
 /// Verify expired storage compat preflight postgres.
 #[tokio::test]
 async fn expired_storage_compat_preflight_postgres() {
@@ -3636,6 +3640,7 @@ async fn expired_storage_compat_preflight_postgres() {
         .unwrap();
     assert_expired_storage_compat_preflight(&db).await;
 }
+
 /// Verify expired storage compat preflight mysql.
 #[tokio::test]
 async fn expired_storage_compat_preflight_mysql() {

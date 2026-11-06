@@ -61,6 +61,7 @@ pub fn declared_content_sha256(headers: &actix_web::http::header::HeaderMap) -> 
         .unwrap_or_default()
         .to_owned()
 }
+
 /// 对象上传响应携带的 body digest 与响应签名（v7：占位签请求靠响应对账闭环）。
 pub const INTERNAL_RESPONSE_OBJECT_SHA256_HEADER: &str = "x-aster-object-sha256";
 pub const INTERNAL_RESPONSE_SIGNATURE_HEADER: &str = "x-aster-response-signature";

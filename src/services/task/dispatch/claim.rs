@@ -25,6 +25,7 @@ impl<S: SharedRuntimeState + Sync>
     for BackgroundTaskClaimStore<'_, S>
 {
     type Error = AsterError;
+
     async fn claim(
         &self,
         request: TaskClaimRequest<BackgroundTaskKind, TaskLane>,

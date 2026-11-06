@@ -105,6 +105,7 @@ fn generate_temporary_password() -> String {
     }
     bytes.into_iter().map(|byte| byte as char).collect()
 }
+
 pub async fn create(
     state: &impl SharedRuntimeState,
     input: CreateUserInput<'_>,

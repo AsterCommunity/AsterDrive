@@ -54,6 +54,7 @@ pub struct GoogleDriveDriver {
     api: String,
     upload: String,
 }
+
 impl std::fmt::Debug for GoogleDriveDriver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GoogleDriveDriver")
@@ -64,6 +65,7 @@ impl std::fmt::Debug for GoogleDriveDriver {
             .finish_non_exhaustive()
     }
 }
+
 impl GoogleDriveDriver {
     /// Construct a redirect-free, streaming driver. Client construction and
     /// incompatible pool options return typed errors rather than panicking.
@@ -118,6 +120,7 @@ impl GoogleDriveDriver {
             upload: UPLOAD.into(),
         })
     }
+
     fn root(&self) -> &str {
         if self.app_data_folder {
             "appDataFolder"
@@ -129,6 +132,7 @@ impl GoogleDriveDriver {
         }
     }
 }
+
 #[async_trait]
 impl StorageDriver for GoogleDriveDriver {
     async fn capacity_info(&self) -> Result<aster_drive_storage::StorageCapacityInfo> {
@@ -138,6 +142,7 @@ impl StorageDriver for GoogleDriveDriver {
     fn capacity_probe_policy(&self) -> aster_drive_storage::StorageCapacityProbePolicy {
         aster_drive_storage::StorageCapacityProbePolicy::network(self.capacity_probe_timeout)
     }
+
     async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
         self.put_reader(
             path,
@@ -146,6 +151,7 @@ impl StorageDriver for GoogleDriveDriver {
         )
         .await
     }
+
     async fn get(&self, path: &str) -> Result<Vec<u8>> {
         self.download(path, None)
             .await?
@@ -154,6 +160,7 @@ impl StorageDriver for GoogleDriveDriver {
             .map(|v| v.to_vec())
             .map_err(|e| map_transport("read Google Drive object", e))
     }
+
     async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(StreamReader::new(
             self.download(path, None)
@@ -162,6 +169,7 @@ impl StorageDriver for GoogleDriveDriver {
                 .map_err(std::io::Error::other),
         )))
     }
+
     async fn get_range(
         &self,
         path: &str,
@@ -187,12 +195,15 @@ impl StorageDriver for GoogleDriveDriver {
                 .map_err(std::io::Error::other),
         )))
     }
+
     fn supports_efficient_range(&self) -> bool {
         true
     }
+
     fn max_single_put_size(&self) -> Option<u64> {
         Some(MAX_SIMPLE)
     }
+
     async fn delete(&self, path: &str) -> Result<()> {
         let Some(info) = self.find(path).await? else {
             return Ok(());
@@ -210,9 +221,11 @@ impl StorageDriver for GoogleDriveDriver {
             Err(map_http(response).await)
         }
     }
+
     async fn exists(&self, path: &str) -> Result<bool> {
         Ok(self.find(path).await?.is_some())
     }
+
     async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
         let info = self.find(path).await?.ok_or_else(|| {
             storage_driver_error(StorageErrorKind::NotFound, "Google Drive object not found")
@@ -225,6 +238,7 @@ impl StorageDriver for GoogleDriveDriver {
             content_type: info.mime_type,
         })
     }
+
     async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
         let size = self.metadata(src_path).await?.size;
         let reader = self.get_stream(src_path).await?;
@@ -236,6 +250,7 @@ impl StorageDriver for GoogleDriveDriver {
         )
         .await
     }
+
     fn extensions(&self) -> StorageDriverExtensions<'_> {
         StorageDriverExtensions {
             stream_upload: Some(self),

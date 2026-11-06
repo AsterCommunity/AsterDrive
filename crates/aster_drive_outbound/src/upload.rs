@@ -71,9 +71,11 @@ struct ProgressBody {
     body: reqwest::Body,
     progress: Arc<tokio::sync::Notify>,
 }
+
 impl http_body::Body for ProgressBody {
     type Data = bytes::Bytes;
     type Error = reqwest::Error;
+
     fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -88,9 +90,11 @@ impl http_body::Body for ProgressBody {
         }
         frame
     }
+
     fn size_hint(&self) -> http_body::SizeHint {
         self.body.size_hint()
     }
+
     fn is_end_stream(&self) -> bool {
         self.body.is_end_stream()
     }

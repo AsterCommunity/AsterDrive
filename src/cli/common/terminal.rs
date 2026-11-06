@@ -30,6 +30,7 @@ impl CliTerminalPalette {
     pub(in crate::cli) fn new(enabled: bool) -> Self {
         Self { enabled }
     }
+
     pub(in crate::cli) fn stdout() -> Self {
         Self {
             enabled: cli_colors_enabled(io::stdout().is_terminal()),

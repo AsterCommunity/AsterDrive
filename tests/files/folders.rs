@@ -86,10 +86,6 @@ async fn test_folders_crud() {
 
 #[actix_web::test]
 async fn test_folder_icon_contract_validation_projection_lock_and_lifecycle() {
-    let state = common::setup().await;
-    let app = create_test_app!(state.clone());
-    let (token, _) = register_and_login!(app);
-
     async fn create_folder(
         app: &impl actix_web::dev::Service<
             actix_http::Request,
@@ -137,6 +133,10 @@ async fn test_folder_icon_contract_validation_projection_lock_and_lifecycle() {
         let status = response.status();
         (status, test::read_body_json(response).await)
     }
+
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
 
     let root = create_folder(&app, &token, "Icon Root", None).await;
     let root_id = root["data"]["id"].as_i64().unwrap();

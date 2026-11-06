@@ -12,6 +12,7 @@ fn transport(limits: PluginLimits, cancellation: CancellationToken) -> PluginTra
     )
     .unwrap()
 }
+
 fn request(url: &str) -> PluginHttpRequest {
     PluginHttpRequest {
         method: reqwest::Method::POST,
@@ -170,6 +171,7 @@ async fn dispatcher_errors_are_redacted_and_distinguish_transport_timeout_and_bo
 }
 
 struct Dropped(Arc<AtomicBool>);
+
 impl Drop for Dropped {
     fn drop(&mut self) {
         self.0.store(true, Ordering::SeqCst);

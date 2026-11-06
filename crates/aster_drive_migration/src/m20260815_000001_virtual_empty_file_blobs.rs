@@ -487,16 +487,19 @@ enum FileBlobs {
     CreatedAt,
     UpdatedAt,
 }
+
 #[derive(DeriveIden)]
 enum Files {
     Table,
     Id,
 }
+
 #[derive(DeriveIden)]
 enum StoragePolicies {
     Table,
     Id,
 }
+
 #[derive(DeriveIden)]
 enum FileCreateIdempotencies {
     Table,

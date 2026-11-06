@@ -171,9 +171,11 @@ impl aster_forge_tasks::RegisteredRuntimeTaskKind for SystemRuntimeTaskKind {
     fn as_str(self) -> &'static str {
         Self::as_str(self)
     }
+
     fn display_name(self) -> &'static str {
         Self::display_name(self)
     }
+
     fn from_wire_value(value: &str) -> Option<Self> {
         Self::from_wire_value(value)
     }

@@ -38,6 +38,7 @@ pub struct QiniuStaticCredentials {
     pub access_key: String,
     pub secret_key: String,
 }
+
 impl std::fmt::Debug for QiniuStaticCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QiniuStaticCredentials")
@@ -65,12 +66,14 @@ pub struct QiniuDriver {
     bucket_api: Url,
     endpoints: std::sync::Arc<Mutex<Option<Endpoints>>>,
 }
+
 struct Endpoints {
     upload: Url,
     management: Url,
     list: Url,
     expires_at: Instant,
 }
+
 #[derive(Serialize, Deserialize)]
 struct MultipartSession {
     upload_id: String,
@@ -116,6 +119,7 @@ impl QiniuDriver {
         }
         Ok(())
     }
+
     pub fn new(mut config: QiniuDriverConfig, credentials: QiniuStaticCredentials) -> Result<Self> {
         Self::validate_config(&config, &credentials)?;
         config.base_path = config.base_path.trim_matches('/').to_string();
@@ -155,6 +159,7 @@ impl QiniuDriver {
             endpoints: std::sync::Arc::new(Mutex::new(None)),
         })
     }
+
     fn key(&self, path: &str) -> Result<String> {
         validate_key(path, false)?;
         Ok(aster_drive_storage::object_key::join_key_prefix(
@@ -162,6 +167,7 @@ impl QiniuDriver {
             path,
         ))
     }
+
     fn entry(&self, path: &str) -> Result<String> {
         Ok(auth::encode(format!(
             "{}:{}",
@@ -170,9 +176,11 @@ impl QiniuDriver {
         )))
     }
 }
+
 fn invalid(message: &'static str) -> aster_drive_storage::StorageError {
     storage_driver_error(StorageErrorKind::Misconfigured, message)
 }
+
 fn validate_key(key: &str, allow_empty: bool) -> Result<()> {
     if (!allow_empty && key.is_empty())
         || key.starts_with('/')

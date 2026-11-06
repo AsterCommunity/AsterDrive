@@ -110,6 +110,7 @@ pub(crate) fn remote_storage_target_connector_catalog(
         },
     )
 }
+
 pub(in crate::services::remote::storage_target) async fn validate_driver_from_target<
     S: FollowerRuntimeState,
 >(

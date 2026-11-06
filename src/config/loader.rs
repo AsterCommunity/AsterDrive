@@ -1203,6 +1203,7 @@ burst_size = 0
 
         let _ = std::fs::remove_dir_all(dir);
     }
+
     #[cfg(feature = "metrics")]
     #[test]
     fn metrics_credentials_survive_default_backfill_and_reload() {
@@ -1290,6 +1291,7 @@ burst_size = 0
             assert!(!error.contains("credential-marker"), "{error}");
         }
     }
+
     #[test]
     fn strict_unknown_fields_keep_safe_keys_and_parse_errors_keep_positions_without_values() {
         for (content, field) in [

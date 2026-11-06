@@ -15,11 +15,13 @@ struct About {
     #[serde(rename = "storageQuota")]
     storage_quota: Option<Quota>,
 }
+
 #[derive(Deserialize)]
 struct Quota {
     limit: Option<String>,
     usage: Option<String>,
 }
+
 fn bytes(value: Option<String>) -> Result<Option<i64>> {
     value
         .map(|value| {
@@ -31,6 +33,7 @@ fn bytes(value: Option<String>) -> Result<Option<i64>> {
         })
         .transpose()
 }
+
 impl GoogleDriveDriver {
     pub(super) async fn observe_capacity(&self) -> Result<StorageCapacityInfo> {
         let mut info = StorageCapacityInfo {

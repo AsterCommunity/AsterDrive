@@ -227,6 +227,7 @@ async fn assert_invalid_config(db: &DatabaseConnection) {
 async fn audit_names_migrate_sqlite() {
     assert_migration(&Database::connect("sqlite::memory:").await.unwrap()).await;
 }
+
 /// Verify audit names migrate postgres.
 #[tokio::test]
 async fn audit_names_migrate_postgres() {
@@ -237,6 +238,7 @@ async fn audit_names_migrate_postgres() {
     )
     .await;
 }
+
 /// Verify audit names migrate mysql.
 #[tokio::test]
 async fn audit_names_migrate_mysql() {
@@ -247,11 +249,13 @@ async fn audit_names_migrate_mysql() {
     )
     .await;
 }
+
 /// Verify audit names invalid config sqlite.
 #[tokio::test]
 async fn audit_names_invalid_config_sqlite() {
     assert_invalid_config(&Database::connect("sqlite::memory:").await.unwrap()).await;
 }
+
 /// Verify audit names invalid config postgres.
 #[tokio::test]
 async fn audit_names_invalid_config_postgres() {
@@ -262,6 +266,7 @@ async fn audit_names_invalid_config_postgres() {
     )
     .await;
 }
+
 /// Verify audit names invalid config mysql.
 #[tokio::test]
 async fn audit_names_invalid_config_mysql() {

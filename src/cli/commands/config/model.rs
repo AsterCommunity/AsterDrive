@@ -2,6 +2,7 @@
 use super::transfer::ConfigBackup;
 use crate::services::ops::config::SystemConfig;
 use serde::Serialize;
+
 #[derive(Debug, Serialize)]
 pub(super) struct ConfigListOutput {
     pub(super) count: usize,

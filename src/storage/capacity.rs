@@ -1018,6 +1018,7 @@ mod tests {
         ));
         assert_eq!(driver.calls.load(Ordering::SeqCst), 2);
     }
+
     #[test]
     fn metric_projection_ignores_unsupported_failed_and_expired_observations() {
         let coordinator = coordinator(4);

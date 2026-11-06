@@ -66,6 +66,7 @@ pub(crate) struct BrowserSession {
     provider_completed: bool,
     pending: Option<BrowserUploadInstruction>,
 }
+
 impl BrowserSession {
     pub(crate) fn new(protocol: BrowserUploadProtocol) -> Self {
         Self {
@@ -77,6 +78,7 @@ impl BrowserSession {
             pending: None,
         }
     }
+
     pub(crate) fn step(&self) -> BrowserUploadStep {
         BrowserUploadStep {
             executor_version: 1,
@@ -114,12 +116,14 @@ fn validate_report(report: &BrowserUploadReport) -> Result<()> {
     }
     Ok(())
 }
+
 fn valid_header_name(name: &str) -> bool {
     !name.is_empty()
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
+
 fn forbidden_header(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     matches!(
@@ -141,6 +145,7 @@ fn forbidden_header(name: &str) -> bool {
         || name.starts_with("proxy-")
         || name.starts_with("access-control-")
 }
+
 fn validate_transition(value: &BrowserUploadTransition, previous: u64, total: u64) -> Result<()> {
     if total == 0
         || total > MAX_SAFE_INTEGER
@@ -404,6 +409,7 @@ pub async fn coordinate_browser_upload(
     )
     .await
 }
+
 pub async fn coordinate_browser_upload_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -424,6 +430,7 @@ pub async fn coordinate_browser_upload_for_team(
 mod tests {
     use super::*;
     use aster_drive_storage::{BrowserUploadMethod, BrowserUploadRange};
+
     fn transition() -> BrowserUploadTransition {
         BrowserUploadTransition {
             private_state: serde_json::json!({}),
@@ -460,6 +467,7 @@ mod tests {
         assert_eq!(snapshot.protocol.id, "plugin.new");
         assert_eq!(snapshot.protocol.version, 9);
     }
+
     #[test]
     fn persisted_snapshots_preserve_opaque_protocol_state_and_decode_old_sessions() {
         let legacy: super::super::provider::ProviderSessionSecret = serde_json::from_value(
@@ -478,6 +486,7 @@ mod tests {
         assert_eq!(restored.private_state, session.private_state);
         assert_eq!(restored.step().executor_version, 1);
     }
+
     #[test]
     fn instruction_contract_checks_integer_bounds_progress_and_completion() {
         assert!(validate_transition(&transition(), 0, 8).is_ok());
@@ -501,6 +510,7 @@ mod tests {
         t.request = None;
         assert!(validate_transition(&t, 4, 8).is_ok());
     }
+
     #[test]
     fn execution_contract_rejects_credentials_forbidden_headers_and_invalid_ranges() {
         for url in [
@@ -541,6 +551,7 @@ mod tests {
             assert!(validate_transition(&t, 0, 8).is_err());
         }
     }
+
     #[test]
     fn upload_capabilities_validate_scheme_token_and_get_body() {
         for (scheme, token) in [

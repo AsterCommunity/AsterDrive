@@ -10008,6 +10008,7 @@ async fn trash_purge_blocks_webdav_deletion(team_scope: bool) {
 async fn test_personal_trash_purge_blocks_webdav_delete() {
     trash_purge_blocks_webdav_deletion(false).await;
 }
+
 #[actix_web::test]
 async fn test_team_trash_purge_blocks_webdav_delete() {
     trash_purge_blocks_webdav_deletion(true).await;

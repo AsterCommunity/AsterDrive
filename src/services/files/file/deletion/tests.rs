@@ -32,10 +32,12 @@ struct TrackingDeleteDriver {
 
 #[derive(Default)]
 struct CleanupMetrics(Mutex<Vec<(aster_drive_metrics::CleanupOutcome, u64)>>);
+
 impl aster_drive_metrics::MetricsRecorder for CleanupMetrics {
     fn enabled(&self) -> bool {
         true
     }
+
     fn blob_cleanup(&self, outcome: aster_drive_metrics::CleanupOutcome, bytes: u64) {
         self.0.lock().unwrap().push((outcome, bytes));
     }

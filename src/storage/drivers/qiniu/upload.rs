@@ -21,6 +21,7 @@ struct MultipartCleanup {
     path: String,
     id: Option<String>,
 }
+
 impl Drop for MultipartCleanup {
     fn drop(&mut self) {
         let Some(id) = self.id.take() else {
@@ -42,8 +43,10 @@ impl Drop for MultipartCleanup {
         }
     }
 }
+
 /// Per-upload ownership bridge. The lock covers a single nonblocking poll, never network I/O.
 struct SharedReader(Arc<Mutex<ExactSizeReader<UploadReader>>>);
+
 impl AsyncRead for SharedReader {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -58,6 +61,7 @@ impl AsyncRead for SharedReader {
         }
     }
 }
+
 #[derive(Deserialize)]
 struct Uploaded {
     key: String,
@@ -120,6 +124,7 @@ impl QiniuDriver {
         cleanup.id = None;
         result
     }
+
     pub(super) async fn upload_form(
         &self,
         path: &str,
@@ -176,6 +181,7 @@ impl StreamUploadDriver for QiniuDriver {
         }
         self.put_multipart_reader(path, reader, size).await
     }
+
     async fn put_file(&self, path: &str, local_path: &str) -> Result<String> {
         let file = tokio::fs::File::open(local_path).await.map_err(|_| {
             storage_driver_error(

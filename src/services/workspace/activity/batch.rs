@@ -7,6 +7,7 @@ struct PendingChange {
     details: serde_json::Value,
     location: Option<(Option<i64>, Option<i64>, String)>,
 }
+
 pub(crate) struct ActivityBatch<'a> {
     context: &'a ActivityContext,
     files: Vec<i64>,
@@ -14,6 +15,7 @@ pub(crate) struct ActivityBatch<'a> {
     changes: Vec<PendingChange>,
     copies: Vec<workspace_activity::ActiveModel>,
 }
+
 impl<'a> ActivityBatch<'a> {
     pub fn new(context: &'a ActivityContext) -> Self {
         Self {
@@ -24,6 +26,7 @@ impl<'a> ActivityBatch<'a> {
             copies: Vec::new(),
         }
     }
+
     fn file_change(
         &mut self,
         before: &file::Model,
@@ -44,6 +47,7 @@ impl<'a> ActivityBatch<'a> {
             location: target.map(|parent| (before.folder_id, parent, before.name.clone())),
         });
     }
+
     fn folder_change(
         &mut self,
         before: &folder::Model,
@@ -64,6 +68,7 @@ impl<'a> ActivityBatch<'a> {
             location: target.map(|parent| (before.parent_id, parent, before.name.clone())),
         });
     }
+
     pub fn file_moved(&mut self, before: &file::Model, target: Option<i64>) -> Result<()> {
         self.file_change(
             before,
@@ -87,6 +92,7 @@ impl<'a> ActivityBatch<'a> {
         );
         Ok(())
     }
+
     pub fn folder_moved(&mut self, before: &folder::Model, target: Option<i64>) -> Result<()> {
         self.folder_change(
             before,
@@ -110,6 +116,7 @@ impl<'a> ActivityBatch<'a> {
         );
         Ok(())
     }
+
     pub fn file_lifecycle(&mut self, before: &file::Model, action: AuditAction) -> Result<()> {
         debug_assert!(matches!(
             action,
@@ -137,6 +144,7 @@ impl<'a> ActivityBatch<'a> {
         );
         Ok(())
     }
+
     pub fn folder_lifecycle(&mut self, before: &folder::Model, action: AuditAction) -> Result<()> {
         debug_assert!(matches!(
             action,
@@ -164,12 +172,15 @@ impl<'a> ActivityBatch<'a> {
         );
         Ok(())
     }
+
     pub fn file_copied(&mut self, source: &file::Model, target: &file::Model) {
         file_copy_records(&mut self.copies, self.context, source, target, Utc::now());
     }
+
     pub fn folder_copied(&mut self, source: &folder::Model, target: &folder::Model) {
         folder_copy_records(&mut self.copies, self.context, source, target, Utc::now());
     }
+
     /// Producers bound the batch by the API selection or staged tree page. Shared parent
     /// paths are captured before structural writes, once per batch instead of per resource.
     pub async fn persist<C: ConnectionTrait>(self, db: &C) -> Result<()> {

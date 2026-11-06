@@ -42,6 +42,7 @@ pub struct OtlpMetricsConfig {
     pub interval_seconds: u64,
     pub timeout_seconds: u64,
 }
+
 impl Default for OtlpMetricsConfig {
     fn default() -> Self {
         Self {
@@ -53,6 +54,7 @@ impl Default for OtlpMetricsConfig {
         }
     }
 }
+
 impl fmt::Debug for OtlpMetricsConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OtlpMetricsConfig")
@@ -62,6 +64,7 @@ impl fmt::Debug for OtlpMetricsConfig {
             .finish_non_exhaustive()
     }
 }
+
 impl ObservabilityConfig {
     /// Only compiled exporters participate in runtime validation and initialization.
     pub fn validate(&self) -> Result<()> {
@@ -143,6 +146,7 @@ impl ObservabilityConfig {
             .map_err(metrics_error)
     }
 }
+
 #[cfg(feature = "otlp-metrics")]
 impl OtlpMetricsConfig {
     fn forge_config(&self) -> aster_forge_metrics::OtlpMetricsConfig {
@@ -156,6 +160,7 @@ impl OtlpMetricsConfig {
         }
     }
 }
+
 fn metrics_error(error: aster_forge_metrics::MetricError) -> AsterError {
     AsterError::config_error(error.to_string())
 }
@@ -536,6 +541,7 @@ mod tests {
         let debug = format!("{config:?}");
         assert!(!debug.contains("env-user") && !debug.contains("env-hash"));
     }
+
     #[cfg(any(feature = "metrics", feature = "otlp-metrics"))]
     #[test]
     fn enabled_exporters_require_a_nonblank_bounded_environment() {

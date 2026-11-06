@@ -48,10 +48,12 @@ impl StorageOperationContext {
         self.activity_source = source;
         self
     }
+
     pub(crate) fn with_content_edit(mut self) -> Self {
         self.content_edit = true;
         self
     }
+
     pub(crate) fn content_action(&self) -> aster_drive_model::types::AuditAction {
         if self.content_edit
             || matches!(
@@ -65,9 +67,11 @@ impl StorageOperationContext {
             aster_drive_model::types::AuditAction::FileUpload
         }
     }
+
     pub(crate) fn activity_source(&self) -> crate::services::workspace::activity::ActivitySource {
         self.activity_source
     }
+
     pub(crate) fn checkpoint(&self) -> Result<()> {
         if let Some(cancellation) = &self.cancellation {
             cancellation.checkpoint()?;

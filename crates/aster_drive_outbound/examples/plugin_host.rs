@@ -1,6 +1,7 @@
 //! Host-side example; the guest receives neither PluginTransport nor a client/builder.
 use aster_drive_outbound::{NetworkGrant, PluginHttpRequest, PluginLimits, PluginTransport};
 use tokio_util::sync::CancellationToken;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // First check the manifest's network:https://hooks.example.com capability and audit it.

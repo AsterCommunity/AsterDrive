@@ -22,11 +22,13 @@ async fn enable(state: &aster_drive::runtime::PrimaryAppState) {
     .await
     .unwrap();
 }
+
 fn get(token: &str, uri: &str) -> test::TestRequest {
     test::TestRequest::get()
         .uri(uri)
         .insert_header(("Cookie", common::access_cookie_header(token)))
 }
+
 fn post(token: &str, uri: &str, body: Value) -> test::TestRequest {
     test::TestRequest::post()
         .uri(uri)
@@ -34,6 +36,7 @@ fn post(token: &str, uri: &str, body: Value) -> test::TestRequest {
         .insert_header(common::csrf_header_for(token))
         .set_json(body)
 }
+
 macro_rules! grant {
     ($app:expr, $token:expr, $id:expr) => {{
         let response = test::call_service(&$app, post(&$token, "/api/v1/admin/content-access", json!({"scope_kind":"personal","target_id":$id,"reason":"user_support","remark":"private case note"})).to_request()).await;
@@ -220,6 +223,7 @@ macro_rules! init_download {
         body["data"].clone()
     }};
 }
+
 fn stream_uri(info: &Value) -> String {
     format!(
         "/api/v1{}",

@@ -138,6 +138,7 @@ pub async fn staged_files<C: ConnectionTrait>(
         .await
         .map_err(AsterError::from)
 }
+
 pub async fn staged_folders<C: ConnectionTrait>(
     db: &C,
     task_id: i64,

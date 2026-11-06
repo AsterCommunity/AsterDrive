@@ -137,6 +137,7 @@ pub async fn admin_team(
     let page = activity::list_admin_team(state.get_ref(), *id, &query).await?;
     Ok(HttpResponse::Ok().json(crate::api::response::success(page)))
 }
+
 #[aster_forge_api_docs_macros::path(get,path="/api/v1/admin/teams/{id}/activities/export",tag="admin",operation_id="admin_export_team_activities",params(("id"=i64,Path)),responses((status=200,description="Workspace activity CSV")),security(("bearer"=[])))]
 pub async fn admin_export_team(
     state: web::Data<PrimaryAppState>,

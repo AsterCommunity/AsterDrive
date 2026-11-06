@@ -44,6 +44,7 @@ impl GoogleDriveDriver {
         self.validate_session_url(location)?;
         Ok(location.into())
     }
+
     pub(super) fn validate_session_url(&self, value: &str) -> Result<()> {
         let url = reqwest::Url::parse(value)
             .map_err(|_| invalid("invalid Google Drive upload session URL"))?;
@@ -80,6 +81,7 @@ impl GoogleDriveDriver {
         }
         Ok(())
     }
+
     pub(super) async fn upload_bytes(
         &self,
         url: &str,
@@ -161,6 +163,7 @@ impl GoogleDriveDriver {
             aster_drive_outbound::UploadError::Response(error) => error,
         })
     }
+
     pub(super) async fn upload_reader(
         &self,
         path: &str,
@@ -220,6 +223,7 @@ impl GoogleDriveDriver {
         result
     }
 }
+
 #[async_trait]
 impl StreamUploadDriver for GoogleDriveDriver {
     async fn put_reader(
@@ -230,6 +234,7 @@ impl StreamUploadDriver for GoogleDriveDriver {
     ) -> Result<String> {
         self.upload_reader(path, reader, size, None).await
     }
+
     async fn stage_attempt(
         &self,
         attempt: &StreamUploadAttempt,
@@ -244,6 +249,7 @@ impl StreamUploadDriver for GoogleDriveDriver {
         .await
         .map(|_| ())
     }
+
     async fn abort_attempt(&self, attempt: &StreamUploadAttempt) -> Result<StreamUploadCleanup> {
         // storage_path is the eventual blob identity, not attempt-owned staging.
         // The caller owns cleanup of a uniquely allocated unpublished blob. A
@@ -258,6 +264,7 @@ impl StreamUploadDriver for GoogleDriveDriver {
         drop(attempt.take_provider_session());
         Ok(StreamUploadCleanup::Cleaned)
     }
+
     async fn put_file(&self, path: &str, local_path: &str) -> Result<String> {
         let file = tokio::fs::File::open(local_path)
             .await
@@ -275,11 +282,13 @@ impl StreamUploadDriver for GoogleDriveDriver {
         .await
     }
 }
+
 #[async_trait]
 impl ProviderResumableUploadDriver for GoogleDriveDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         google_drive_upload_capabilities()
     }
+
     fn browser_upload(&self) -> Option<&dyn aster_drive_storage::BrowserUploadDriver> {
         Some(self)
     }
@@ -291,6 +300,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
             next_expected_ranges: vec!["0-".into()],
         })
     }
+
     async fn query_upload_session(&self, url: &str) -> Result<ProviderResumableUploadStatus> {
         self.validate_session_url(url)?;
         let response = self
@@ -313,6 +323,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
             next_expected_ranges,
         })
     }
+
     async fn abort_upload_session(&self, url: &str) -> Result<()> {
         self.validate_session_url(url)?;
         let response = self.auth(self.control_client.delete(url)).await?;
@@ -325,6 +336,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
             Err(map_http(response).await)
         }
     }
+
     async fn upload_session_fragment_reader(
         &self,
         url: &str,
@@ -353,6 +365,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
         self.upload_bytes(url, start, total_size, data).await
     }
 }
+
 fn next_offset(headers: &reqwest::header::HeaderMap) -> Result<u64> {
     let next = match headers.get(RANGE) {
         None => 0,
@@ -366,6 +379,7 @@ fn next_offset(headers: &reqwest::header::HeaderMap) -> Result<u64> {
     };
     Ok(next)
 }
+
 fn map_reader_error(error: std::io::Error) -> StorageError {
     storage_driver_error(
         exact_size_error_kind(&error).unwrap_or(StorageErrorKind::Transient),

@@ -37,6 +37,7 @@ struct CorsRule {
     expose_headers: Vec<String>,
     max_age_seconds: Option<u32>,
 }
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CorsConfiguration {
     rules: Vec<CorsRule>,
@@ -356,6 +357,7 @@ fn equivalent(left: &CorsRule, right: &CorsRule) -> bool {
         values.dedup();
         values
     }
+
     sorted(&left.origins) == sorted(&right.origins)
         && sorted(&left.methods) == sorted(&right.methods)
         && sorted(&left.headers) == sorted(&right.headers)

@@ -25,12 +25,14 @@ struct Change {
     updated: String,
     credential: Credential,
 }
+
 struct Credential {
     table: &'static str,
     id_column: &'static str,
     id: i64,
     ciphertext: String,
 }
+
 #[derive(Deserialize)]
 struct Credentials {
     qiniu_access_key: String,
@@ -405,6 +407,7 @@ async fn convert_with(
     tx.commit().await?;
     Ok(())
 }
+
 async fn read_string<C: ConnectionTrait>(
     db: &C,
     table: &str,
@@ -423,6 +426,7 @@ async fn read_string<C: ConnectionTrait>(
     .map(|row| row.try_get_by_index(0).map_err(Into::into))
     .transpose()
 }
+
 fn failure(table: &str, id: i64, reason: &str) -> AsterError {
     AsterError::database_operation(format!(
         "native Kodo upgrade: {table} row {id}: {reason}; original configuration retained, no values logged"
@@ -434,10 +438,12 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     const KEY: &str = "qiniu-online-upgrade-master-key-32bytes";
+
     struct Resolver {
         calls: AtomicUsize,
         fail: Option<usize>,
     }
+
     #[async_trait::async_trait]
     impl NativeUpgradeResolver for Resolver {
         async fn resolve(
@@ -461,15 +467,18 @@ mod tests {
             })
         }
     }
+
     fn resolver(fail: Option<usize>) -> Resolver {
         Resolver {
             calls: AtomicUsize::new(0),
             fail,
         }
     }
+
     fn old(bucket: &str) -> Value {
         json!({"format_version":1,"connector_id":CONNECTOR,"schema_version":1,"values":{"endpoint":"https://s3.cn-east-1.qiniucs.com","bucket":bucket,"s3_region":"cn-east-1","base_path":"existing/prefix","object_storage_upload_strategy":"presigned","object_storage_download_strategy":"relay_stream"}})
     }
+
     async fn db() -> DatabaseConnection {
         let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
         for sql in [
@@ -484,6 +493,7 @@ mod tests {
         }
         db
     }
+
     fn encrypted(id: i64) -> String {
         crate::services::storage_policy::credential::crypto::encrypt_connector_credential(
             KEY,
@@ -494,6 +504,7 @@ mod tests {
         )
         .unwrap()
     }
+
     async fn insert(db: &DatabaseConnection, table: &str, id: i64, bucket: &str) -> String {
         let (column, credentials, id_column, value) = if table == "storage_policies" {
             (
@@ -540,6 +551,7 @@ mod tests {
         .unwrap();
         raw
     }
+
     #[tokio::test]
     async fn converts_policy_target_and_cleanup_atomically_with_existing_credentials() {
         let db = db().await;
@@ -640,6 +652,7 @@ mod tests {
             "native rows must not access the network on later restarts"
         );
     }
+
     #[tokio::test]
     async fn cleanup_without_snapshot_never_uses_colliding_remote_target_credentials() {
         for colliding_target in [true, false] {
@@ -757,6 +770,7 @@ mod tests {
                 .unwrap()
         );
     }
+
     #[tokio::test]
     async fn only_writable_legacy_upload_states_block_conversion() {
         for status in [
@@ -829,9 +843,11 @@ mod tests {
                 .unwrap()
         );
     }
+
     struct ConcurrentChange {
         db: DatabaseConnection,
     }
+
     #[async_trait::async_trait]
     impl NativeUpgradeResolver for ConcurrentChange {
         async fn resolve(
@@ -851,6 +867,7 @@ mod tests {
             })
         }
     }
+
     #[tokio::test]
     async fn concurrent_configuration_edits_are_not_overwritten() {
         let db = db().await;
@@ -943,10 +960,12 @@ mod tests {
             Some(original.as_str())
         );
     }
+
     struct CredentialMutation {
         db: DatabaseConnection,
         identity: bool,
     }
+
     #[async_trait::async_trait]
     impl NativeUpgradeResolver for CredentialMutation {
         async fn resolve(
@@ -974,6 +993,7 @@ mod tests {
             })
         }
     }
+
     #[tokio::test]
     async fn online_upgrade_never_overwrites_concurrent_credential_rotation_or_identity_changes() {
         for identity in [false, true] {

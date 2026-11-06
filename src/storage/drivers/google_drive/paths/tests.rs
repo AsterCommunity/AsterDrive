@@ -4,18 +4,22 @@ use serde_json::json;
 
 #[derive(Debug)]
 struct Token;
+
 #[async_trait]
 impl GoogleDriveTokenProvider for Token {
     async fn access_token(&self) -> Result<String> {
         Ok("private-token".into())
     }
 }
+
 fn folder(id: &str) -> serde_json::Value {
     json!({"id":id,"mimeType":FOLDER_MIME,"name":"folder"})
 }
+
 fn list(files: Vec<serde_json::Value>) -> HttpReply {
     HttpReply::json(200, json!({"files":files}))
 }
+
 fn driver(peer: &HttpFixture, appdata: bool, shared: bool, base: &str) -> GoogleDriveDriver {
     let mut driver = GoogleDriveDriver::new(
         Arc::new(Token),

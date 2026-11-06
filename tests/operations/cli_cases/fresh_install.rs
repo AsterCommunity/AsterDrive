@@ -233,26 +233,31 @@ async fn fresh_server_installs_and_restarts(backend: DbBackend, mode: &str) {
 async fn fresh_deployment_sqlite_primary() {
     fresh_server_installs_and_restarts(DbBackend::Sqlite, "primary").await;
 }
+
 /// Verify fresh deployment sqlite follower.
 #[tokio::test]
 async fn fresh_deployment_sqlite_follower() {
     fresh_server_installs_and_restarts(DbBackend::Sqlite, "follower").await;
 }
+
 /// Verify fresh deployment postgres primary.
 #[tokio::test]
 async fn fresh_deployment_postgres_primary() {
     fresh_server_installs_and_restarts(DbBackend::Postgres, "primary").await;
 }
+
 /// Verify fresh deployment postgres follower.
 #[tokio::test]
 async fn fresh_deployment_postgres_follower() {
     fresh_server_installs_and_restarts(DbBackend::Postgres, "follower").await;
 }
+
 /// Verify fresh deployment mysql primary.
 #[tokio::test]
 async fn fresh_deployment_mysql_primary() {
     fresh_server_installs_and_restarts(DbBackend::MySql, "primary").await;
 }
+
 /// Verify fresh deployment mysql follower.
 #[tokio::test]
 async fn fresh_deployment_mysql_follower() {

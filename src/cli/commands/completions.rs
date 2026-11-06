@@ -2,6 +2,7 @@
 use clap::{Subcommand, ValueEnum};
 use clap_complete::Shell;
 use std::path::{Path, PathBuf};
+
 #[derive(Debug, Clone, Subcommand)]
 pub(in crate::cli) enum CompletionCommand {
     /// Install the generated completion script for a shell

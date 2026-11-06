@@ -43,6 +43,7 @@ pub(super) fn sdk_presigned_upload_request(
 ) -> PresignedUploadRequest {
     PresignedUploadRequest::from_header_pairs(request.uri(), request.headers())
 }
+
 // =============================================================================
 // Direct-download and presigned-upload extensions
 // =============================================================================

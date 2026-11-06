@@ -46,6 +46,7 @@ async fn endpoint(
     });
     (url, task)
 }
+
 fn client(endpoint: &str) -> MicrosoftGraphOAuthClient {
     let mut client = MicrosoftGraphOAuthClient::new(MicrosoftGraphCloud::Global, "common").unwrap();
     client.http =

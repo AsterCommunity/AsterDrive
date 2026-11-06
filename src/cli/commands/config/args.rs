@@ -2,6 +2,7 @@ use crate::cli::common::input::SecretArg;
 use crate::errors::{AsterError, Result};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
+
 #[derive(Debug, Clone, Subcommand)]
 pub enum ConfigCommand {
     /// List saved runtime settings

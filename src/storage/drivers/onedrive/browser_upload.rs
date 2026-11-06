@@ -31,6 +31,7 @@ impl BrowserUploadDriver for OneDriveDriver {
             version: 1,
         }
     }
+
     async fn advance(
         &self,
         context: BrowserUploadContext<'_>,
@@ -73,6 +74,7 @@ mod tests {
         BrowserUploadMethod, BrowserUploadObservation, BrowserUploadRange, BrowserUploadRequest,
     };
     use std::collections::BTreeMap;
+
     #[test]
     fn graph_acknowledgements_are_strict_and_bounded() {
         let request = BrowserUploadRequest {

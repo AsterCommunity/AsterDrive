@@ -26,25 +26,6 @@ impl ExternalAuthCallbackMode {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::ExternalAuthCallbackMode;
-
-    #[test]
-    fn callback_modes_have_stable_wire_values() {
-        assert_eq!(ExternalAuthCallbackMode::Legacy.as_str(), "legacy");
-        assert_eq!(ExternalAuthCallbackMode::Unified.as_str(), "unified");
-        assert_eq!(
-            serde_json::to_string(&ExternalAuthCallbackMode::Legacy).unwrap(),
-            "\"legacy\""
-        );
-        assert_eq!(
-            serde_json::to_string(&ExternalAuthCallbackMode::Unified).unwrap(),
-            "\"unified\""
-        );
-    }
-}
-
 /// Raw JSON object stored in `external_auth_providers.options`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, DeriveValueType)]
 pub struct StoredExternalAuthProviderOptions(pub String);
@@ -72,5 +53,24 @@ impl From<String> for StoredExternalAuthProviderOptions {
 impl From<StoredExternalAuthProviderOptions> for String {
     fn from(value: StoredExternalAuthProviderOptions) -> Self {
         value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExternalAuthCallbackMode;
+
+    #[test]
+    fn callback_modes_have_stable_wire_values() {
+        assert_eq!(ExternalAuthCallbackMode::Legacy.as_str(), "legacy");
+        assert_eq!(ExternalAuthCallbackMode::Unified.as_str(), "unified");
+        assert_eq!(
+            serde_json::to_string(&ExternalAuthCallbackMode::Legacy).unwrap(),
+            "\"legacy\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ExternalAuthCallbackMode::Unified).unwrap(),
+            "\"unified\""
+        );
     }
 }

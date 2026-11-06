@@ -200,6 +200,18 @@ async fn publish_staged_avatar(
     staged: &StagedAvatarUpload,
     avatar_root_dir: &std::path::Path,
 ) -> Result<AvatarUploadResult> {
+    enum PublishOutcome {
+        Superseded {
+            user: aster_drive_model::entities::user::Model,
+            current_profile: Option<user_profile::Model>,
+        },
+        Applied {
+            user: aster_drive_model::entities::user::Model,
+            saved: user_profile::Model,
+            previous: Option<user_profile::Model>,
+        },
+    }
+
     tracing::debug!(
         user_id = user.id,
         submission_id = %staged.submission_id,
@@ -232,18 +244,6 @@ async fn publish_staged_avatar(
             "create avatar user directory",
             AsterError::storage_driver_error,
         )?;
-    enum PublishOutcome {
-        Superseded {
-            user: aster_drive_model::entities::user::Model,
-            current_profile: Option<user_profile::Model>,
-        },
-        Applied {
-            user: aster_drive_model::entities::user::Model,
-            saved: user_profile::Model,
-            previous: Option<user_profile::Model>,
-        },
-    }
-
     let published_prefix = std::sync::Arc::new(parking_lot::Mutex::new(None));
     let callback_published_prefix = published_prefix.clone();
     let callback_metrics = state.metrics().clone();

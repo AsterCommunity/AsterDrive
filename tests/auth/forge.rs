@@ -24,14 +24,17 @@ struct UnavailableLegacyAuthCache {
     inner: Arc<dyn CacheBackend>,
     accesses: AtomicUsize,
 }
+
 #[async_trait::async_trait]
 impl CacheBackend for UnavailableLegacyAuthCache {
     fn backend_name(&self) -> &'static str {
         self.inner.backend_name()
     }
+
     async fn health_check(&self) -> aster_forge_cache::Result<()> {
         self.inner.health_check().await
     }
+
     async fn get_bytes(&self, key: &str) -> Option<Vec<u8>> {
         if key.starts_with("auth_snapshot:") {
             self.accesses.fetch_add(1, Ordering::SeqCst);
@@ -40,15 +43,19 @@ impl CacheBackend for UnavailableLegacyAuthCache {
             self.inner.get_bytes(key).await
         }
     }
+
     async fn take_bytes(&self, key: &str) -> Option<Vec<u8>> {
         self.inner.take_bytes(key).await
     }
+
     async fn set_bytes(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>) {
         self.inner.set_bytes(key, value, ttl_secs).await;
     }
+
     async fn set_bytes_if_absent(&self, key: &str, value: Vec<u8>, ttl_secs: Option<u64>) -> bool {
         self.inner.set_bytes_if_absent(key, value, ttl_secs).await
     }
+
     async fn delete(&self, key: &str) {
         if key.starts_with("auth_snapshot:") {
             self.accesses.fetch_add(1, Ordering::SeqCst);
@@ -56,6 +63,7 @@ impl CacheBackend for UnavailableLegacyAuthCache {
             self.inner.delete(key).await;
         }
     }
+
     async fn invalidate_prefix(&self, prefix: &str) {
         self.inner.invalidate_prefix(prefix).await;
     }
@@ -80,6 +88,7 @@ async fn fixture() -> (PrimaryAppState, String, String, i64) {
     common::seed_csrf_token(&refresh);
     (state, access, refresh, admin.id)
 }
+
 /// Inspects tokens with the real strict verifier, without relying on unchecked JWT JSON.
 fn claims(state: &PrimaryAppState, token: &str, kind: AuthTokenType) -> TokenClaims {
     JwtVerifier::with_system_clock(
@@ -90,6 +99,7 @@ fn claims(state: &PrimaryAppState, token: &str, kind: AuthTokenType) -> TokenCla
     .unwrap()
     .into_claims()
 }
+
 /// Reuses the fixture's explicit browser fingerprint for deterministic stale classification.
 async fn refresh(
     state: &PrimaryAppState,
@@ -97,6 +107,7 @@ async fn refresh(
 ) -> aster_drive::errors::Result<(String, String)> {
     local::refresh_tokens(state, token, Some("127.0.0.1"), Some("browser")).await
 }
+
 /// Counts the security facts persisted by the same transaction as reuse revocation.
 async fn audit_count(state: &PrimaryAppState, id: i64) -> u64 {
     audit_log::Entity::find()

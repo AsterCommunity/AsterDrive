@@ -42,6 +42,7 @@ pub(super) fn authorization_url(
     .map(|u| u.to_string())
     .map_err(|_| AsterError::validation_error("invalid Google OAuth parameters"))
 }
+
 impl GoogleDriveConnector {
     pub(super) async fn complete_authorization(
         &self,

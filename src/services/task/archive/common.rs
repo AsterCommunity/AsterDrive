@@ -652,11 +652,13 @@ mod tests {
     #[test]
     fn archive_entry_corruption_and_source_io_keep_distinct_error_boundaries() {
         struct ReadFailure(std::io::ErrorKind);
+
         impl Read for ReadFailure {
             fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
                 Err(std::io::Error::new(self.0, "injected read failure"))
             }
         }
+
         for (kind, invalid_input) in [
             (std::io::ErrorKind::InvalidData, true),
             (std::io::ErrorKind::Other, false),

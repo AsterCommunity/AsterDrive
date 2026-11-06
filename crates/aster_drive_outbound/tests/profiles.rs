@@ -15,6 +15,7 @@ async fn server(delay: Duration) -> (String, tokio::task::JoinHandle<String>) {
     });
     (url, task)
 }
+
 #[tokio::test]
 async fn every_profile_uses_product_identity_and_leaves_redirect_to_protocol_owner() {
     for profile in [
@@ -58,6 +59,7 @@ async fn every_profile_uses_product_identity_and_leaves_redirect_to_protocol_own
         }
     }
 }
+
 #[tokio::test]
 async fn control_deadline_and_upload_progress_owner_remain_distinct() {
     let (url, task) = server(Duration::from_millis(120)).await;
@@ -96,6 +98,7 @@ async fn control_deadline_and_upload_progress_owner_remain_distinct() {
     );
     task.await.unwrap();
 }
+
 #[test]
 fn invalid_identity_fails_before_sending_requests() {
     assert!(
@@ -105,6 +108,7 @@ fn invalid_identity_fails_before_sending_requests() {
             .is_err()
     );
 }
+
 #[tokio::test]
 async fn pinning_a_validated_host_takes_precedence_over_a_proxy() {
     let (url, task) = server(Duration::ZERO).await;

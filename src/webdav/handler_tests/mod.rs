@@ -2174,16 +2174,20 @@ async fn put_transfer_outcome_waits_for_writer_finalization_and_keeps_exact_byte
         active: Mutex<i64>,
         outcomes: Mutex<Vec<aster_drive_metrics::TransferOutcome>>,
     }
+
     impl aster_drive_metrics::MetricsRecorder for Capture {
         fn enabled(&self) -> bool {
             true
         }
+
         fn transfer_bytes(&self, _: aster_drive_metrics::TransferLabels, bytes: u64) {
             *self.bytes.lock().unwrap() += bytes;
         }
+
         fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, delta: i64) {
             *self.active.lock().unwrap() += delta;
         }
+
         fn transfer_finished(
             &self,
             _: aster_drive_metrics::TransferLabels,
@@ -2193,6 +2197,7 @@ async fn put_transfer_outcome_waits_for_writer_finalization_and_keeps_exact_byte
             self.outcomes.lock().unwrap().push(outcome);
         }
     }
+
     for finalization_fails in [false, true] {
         let driver = CountingDirectUploadDriver::default();
         let (mut state, user, _, temp_root) = build_webdav_test_state(None, Arc::new(driver)).await;

@@ -9,6 +9,7 @@ struct Fixture {
     runtime: crate::config::RuntimeConfig,
     registry: crate::storage::DriverRegistry,
 }
+
 impl Fixture {
     async fn new() -> Self {
         let db = sea_orm::Database::connect("sqlite::memory:").await.unwrap();
@@ -48,6 +49,7 @@ impl Fixture {
             registry: crate::storage::DriverRegistry::noop().unwrap(),
         }
     }
+
     fn context(&self) -> crate::storage::connectors::StorageConnectorContext<'_> {
         crate::storage::connectors::StorageConnectorContext::new(
             &self.db,
@@ -57,6 +59,7 @@ impl Fixture {
             None,
         )
     }
+
     async fn flow(&self) -> aster_drive_model::entities::storage_policy_authorization_flow::Model {
         let start = OneDriveConnector
             .start_authorization(&self.context(), &self.policy, "https://drive.test/callback")
@@ -81,6 +84,7 @@ impl Fixture {
             consumed_at: Some(now),
         }
     }
+
     async fn replace_application(&self) {
         let config = OneDriveConnector::decode_config(&self.policy).unwrap();
         OneDriveConnector::upsert_application_config(

@@ -342,6 +342,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         self.record("browser_part_request", &result, started_at);
         result
     }
+
     fn capabilities(&self) -> aster_drive_storage::traits::multipart::MultipartStorageCapabilities {
         self.inner.capabilities()
     }
@@ -558,6 +559,7 @@ mod tests {
         async fn create_multipart_upload(&self, _: &str) -> Result<String> {
             Ok("upload".to_string())
         }
+
         async fn presigned_upload_part_request(
             &self,
             _: &str,
@@ -570,6 +572,7 @@ mod tests {
                 "not used",
             ))
         }
+
         async fn complete_multipart_upload(
             &self,
             _: &str,
@@ -578,6 +581,7 @@ mod tests {
         ) -> Result<()> {
             Ok(())
         }
+
         async fn upload_multipart_part(
             &self,
             _: &str,
@@ -587,9 +591,11 @@ mod tests {
         ) -> Result<String> {
             Ok("etag".to_string())
         }
+
         async fn abort_multipart_upload(&self, _: &str, _: &str) -> Result<()> {
             Ok(())
         }
+
         async fn list_uploaded_part_details(
             &self,
             _: &str,

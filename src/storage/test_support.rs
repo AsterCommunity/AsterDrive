@@ -63,13 +63,16 @@ impl HttpReply {
             gate: None,
         }
     }
+
     pub fn json(status: u16, body: serde_json::Value) -> Self {
         Self::text(status, body.to_string()).header("content-type", "application/json")
     }
+
     pub fn header(mut self, key: &str, value: impl Into<String>) -> Self {
         self.headers.push((key.into(), value.into()));
         self
     }
+
     pub fn gated(mut self, gate: Arc<ResponseGate>) -> Self {
         self.gate = Some(gate);
         self
@@ -139,6 +142,7 @@ impl HttpFixture {
             }
             response.body(reply.body)
         }
+
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(Script {
@@ -164,9 +168,11 @@ impl HttpFixture {
             handle,
         }
     }
+
     pub fn requests(&self) -> Vec<RecordedRequest> {
         self.state.lock().unwrap().requests.clone()
     }
+
     pub async fn stop(self) {
         self.handle.stop(true).await;
         assert!(

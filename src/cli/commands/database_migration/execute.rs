@@ -19,6 +19,7 @@ use crate::cli::common::database::{backend_name, pending_migrations, redact_data
 use crate::errors::{AsterError, Result};
 use aster_forge_utils::numbers::usize_to_i64;
 use std::time::Instant;
+
 /// Executes an end-to-end cross-database migration or verification flow.
 pub async fn execute_database_migration(
     args: &DatabaseMigrateArgs,

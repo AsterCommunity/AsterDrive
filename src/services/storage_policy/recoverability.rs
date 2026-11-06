@@ -226,7 +226,6 @@ fn build_policy_recovery_probe(
     virtual_empty_blob_count: i64,
     samples: Vec<StoragePolicyRecoveryProbeSample>,
 ) -> Result<StoragePolicyRecoveryProbe> {
-    let status = aggregate_recoverability(stored.count, &samples);
     #[derive(Serialize)]
     struct PlanIdentity<'a> {
         policy_id: i64,
@@ -236,6 +235,8 @@ fn build_policy_recovery_probe(
         virtual_empty_blob_count: i64,
         samples: &'a [StoragePolicyRecoveryProbeSample],
     }
+
+    let status = aggregate_recoverability(stored.count, &samples);
     let identity = PlanIdentity {
         policy_id: policy.id,
         policy_updated_at: policy.updated_at,

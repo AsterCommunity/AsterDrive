@@ -175,6 +175,7 @@ pub struct RemoteTransportError {
     pub error: AsterError,
     pub reason: aster_drive_metrics::RemoteReason,
 }
+
 impl From<AsterError> for RemoteTransportError {
     fn from(error: AsterError) -> Self {
         let reason = match error.storage_error_context() {
@@ -189,6 +190,7 @@ impl From<AsterError> for RemoteTransportError {
         Self { error, reason }
     }
 }
+
 impl std::fmt::Debug for RemoteTransportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RemoteTransportError")

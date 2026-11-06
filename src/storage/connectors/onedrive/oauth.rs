@@ -85,6 +85,7 @@ pub(super) struct MicrosoftGraphOAuthClient {
     http: aster_forge_http::HttpClient,
     token_endpoint: String,
 }
+
 impl MicrosoftGraphOAuthClient {
     pub(super) fn new(cloud: MicrosoftGraphCloud, tenant: &str) -> Result<Self> {
         let token_endpoint = cloud.token_endpoint(tenant).map_aster_err_ctx(

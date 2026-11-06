@@ -181,8 +181,11 @@ impl<'a> DriveDavCapabilityProvider<'a> {
 }
 
 impl DavClass1Support for DriveDavCapabilityProvider<'_> {}
+
 impl DavClass2Support for DriveDavCapabilityProvider<'_> {}
+
 impl DavQuotaSupport for DriveDavCapabilityProvider<'_> {}
+
 impl DavVersionControlSupport for DriveDavCapabilityProvider<'_> {}
 
 impl DavCapabilityProvider for DriveDavCapabilityProvider<'_> {

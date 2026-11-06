@@ -3,6 +3,7 @@ use crate::errors::AsterError;
 use clap::ValueEnum;
 use serde::Serialize;
 use std::io::{self, IsTerminal};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
     Auto,

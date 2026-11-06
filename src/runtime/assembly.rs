@@ -309,6 +309,7 @@ mod tests {
     fn worker_count_uses_explicit_value() {
         assert_eq!(http_worker_count(4, true), 4);
     }
+
     #[test]
     fn worker_operational_http_defaults_to_one_thread() {
         assert_eq!(http_worker_count(0, false), 1);

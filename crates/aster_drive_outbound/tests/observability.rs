@@ -5,17 +5,21 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Clone, Default)]
 struct Logs(Arc<Mutex<Vec<u8>>>);
+
 impl std::io::Write for Logs {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.lock().unwrap().extend_from_slice(bytes);
         Ok(bytes.len())
     }
+
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
+
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Logs {
     type Writer = Self;
+
     fn make_writer(&'a self) -> Self::Writer {
         self.clone()
     }

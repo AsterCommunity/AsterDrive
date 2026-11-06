@@ -1,4 +1,5 @@
 use serde::Serialize;
+
 #[derive(Debug, Serialize)]
 pub(in crate::cli) struct NodeEnrollReport {
     pub(super) action: &'static str,

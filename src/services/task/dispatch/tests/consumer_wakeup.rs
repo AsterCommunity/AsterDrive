@@ -195,11 +195,13 @@ async fn real_consumer_diagnostics_preserve_lane_identity_and_safe_failure_bound
     use aster_forge_test::logs::CapturedLogs;
 
     struct SamplingEnabled;
+
     impl aster_drive_metrics::MetricsRecorder for SamplingEnabled {
         fn enabled(&self) -> bool {
             true
         }
     }
+
     let logs = CapturedLogs::default();
     logs.capture_future(async {
         let state = exercise_real_consumers(false, false).await;

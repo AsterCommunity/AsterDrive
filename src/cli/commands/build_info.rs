@@ -12,6 +12,7 @@ pub(in crate::cli) fn render_build_info(json: bool) -> crate::errors::Result<Str
         features: Vec<&'static str>,
         build_time: &'static str,
     }
+
     let info = BuildInfo {
         product: "AsterDrive",
         version: env!("CARGO_PKG_VERSION"),

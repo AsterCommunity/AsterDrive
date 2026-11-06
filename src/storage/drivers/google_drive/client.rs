@@ -28,11 +28,13 @@ pub(super) struct FileInfo {
     drive_id: Option<String>,
     capabilities: Option<FolderCapabilities>,
 }
+
 #[derive(Deserialize)]
 struct FolderCapabilities {
     #[serde(rename = "canAddChildren", default)]
     can_add_children: bool,
 }
+
 #[derive(Deserialize)]
 struct FileList {
     #[serde(default)]
@@ -42,16 +44,20 @@ struct FileList {
     #[serde(rename = "incompleteSearch", default)]
     incomplete_search: bool,
 }
+
 pub(super) fn invalid(message: &str) -> StorageError {
     storage_driver_error(StorageErrorKind::Precondition, message)
 }
+
 pub(super) fn transient(message: &str) -> StorageError {
     storage_driver_error(StorageErrorKind::Transient, message)
 }
+
 pub(super) fn escape_query(value: &str) -> String {
     // Drive q has its own escaping rules, separate from URL query encoding.
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
+
 pub(super) fn validate_path(path: &str) -> Result<()> {
     // Drive limits each property key + value to 124 UTF-8 bytes.
     if path.is_empty() || APP_KEY.len() + path.len() > 124 || path.chars().any(char::is_control) {
@@ -59,6 +65,7 @@ pub(super) fn validate_path(path: &str) -> Result<()> {
     }
     Ok(())
 }
+
 impl GoogleDriveDriver {
     pub(super) async fn auth(
         &self,
@@ -70,6 +77,7 @@ impl GoogleDriveDriver {
             .await
             .map_err(|e| map_transport("Google Drive request", e))
     }
+
     pub(super) async fn response<T: for<'de> Deserialize<'de>>(
         &self,
         response: reqwest::Response,
@@ -82,6 +90,7 @@ impl GoogleDriveDriver {
             .await
             .map_err(|_| transient("invalid Google Drive JSON response"))
     }
+
     pub(super) fn object_query(&self, path: &str, parent: &str) -> Result<String> {
         validate_path(path)?;
         Ok(format!(
@@ -90,6 +99,7 @@ impl GoogleDriveDriver {
             escape_query(parent)
         ))
     }
+
     pub(super) async fn find(&self, path: &str) -> Result<Option<FileInfo>> {
         validate_path(path)?;
         let Some(parent) = self.resolve_base_folder(false).await? else {
@@ -178,9 +188,11 @@ impl GoogleDriveDriver {
             "Google Drive object search exceeded the page limit",
         ))
     }
+
     pub(super) fn file_url(&self, id: &str) -> String {
         format!("{}/files/{}", self.api, urlencoding::encode(id))
     }
+
     pub(crate) async fn validate_root(&self) -> Result<(String, Option<String>)> {
         if self.app_data_folder {
             // appDataFolder is a reserved space, not a normal folder resource.
@@ -248,6 +260,7 @@ impl GoogleDriveDriver {
         }
         Ok((info.id, info.name))
     }
+
     pub(super) async fn download(
         &self,
         path: &str,
@@ -273,6 +286,7 @@ impl GoogleDriveDriver {
         Ok(response)
     }
 }
+
 pub(crate) async fn map_http(response: reqwest::Response) -> StorageError {
     let status = response.status();
     // Provider messages may contain private file names or upload URLs. Only inspect the reason.
@@ -307,6 +321,7 @@ pub(crate) async fn map_http(response: reqwest::Response) -> StorageError {
         format!("Google Drive request failed (HTTP {})", status.as_u16()),
     )
 }
+
 pub(super) fn map_transport(context: &str, error: reqwest::Error) -> StorageError {
     storage_driver_error(
         StorageErrorKind::Transient,

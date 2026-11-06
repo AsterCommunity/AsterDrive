@@ -5,9 +5,11 @@ use base64::{Engine, engine::general_purpose::URL_SAFE};
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::json;
 use sha1::Sha1;
+
 pub(super) fn encode(value: impl AsRef<[u8]>) -> String {
     URL_SAFE.encode(value)
 }
+
 impl QiniuDriver {
     pub(super) fn sign(&self, data: &[u8]) -> Result<String> {
         let mut mac = Hmac::<Sha1>::new_from_slice(self.credentials.secret_key.as_bytes())
@@ -19,6 +21,7 @@ impl QiniuDriver {
             encode(mac.finalize().into_bytes())
         ))
     }
+
     pub(super) fn upload_token(
         &self,
         key: &str,
@@ -38,6 +41,7 @@ impl QiniuDriver {
             encode(serde_json::to_vec(&policy).map_err(|_| invalid("invalid upload policy"))?);
         Ok(format!("{}:{encoded}", self.sign(encoded.as_bytes())?))
     }
+
     pub(super) fn sign_management(&self, request: &mut reqwest::Request) -> Result<()> {
         let date = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
         let content_type = request

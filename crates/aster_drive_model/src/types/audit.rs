@@ -341,145 +341,6 @@ impl fmt::Display for ParseAuditEntityTypeError {
 
 impl std::error::Error for ParseAuditEntityTypeError {}
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::{AUDIT_ENTITY_TYPE_NAMES, AuditAction, AuditEntityType};
-
-    #[test]
-    fn audit_entity_type_round_trips_string_names() {
-        let names: Vec<_> = AuditEntityType::ALL
-            .iter()
-            .map(|entity_type| entity_type.as_str())
-            .collect();
-        assert_eq!(AUDIT_ENTITY_TYPE_NAMES, names.as_slice());
-
-        for entity_type in AuditEntityType::ALL {
-            let name = entity_type.as_str();
-
-            assert_eq!(entity_type.as_ref(), name);
-            assert_eq!(entity_type.to_string(), name);
-            assert_eq!(AuditEntityType::from_str_name(name), Some(entity_type));
-            assert_eq!(
-                serde_json::to_value(entity_type).expect("audit entity type serializes"),
-                serde_json::json!(name)
-            );
-            assert_eq!(
-                serde_json::from_value::<AuditEntityType>(serde_json::json!(name))
-                    .expect("audit entity type deserializes"),
-                entity_type
-            );
-        }
-
-        assert_eq!(AuditEntityType::from_str_name("unknown"), None);
-        assert!(serde_json::from_value::<AuditEntityType>(serde_json::json!("unknown")).is_err());
-    }
-
-    /// Verify remote target audit contract uses storage target wire values.
-    #[test]
-    fn remote_target_audit_contract_uses_storage_target_wire_values() {
-        use sea_orm::ActiveEnum;
-        for (action, index, name) in [
-            (
-                AuditAction::AdminCreateRemoteStorageTarget,
-                29,
-                "admin_create_remote_storage_target",
-            ),
-            (
-                AuditAction::AdminUpdateRemoteStorageTarget,
-                30,
-                "admin_update_remote_storage_target",
-            ),
-            (
-                AuditAction::AdminDeleteRemoteStorageTarget,
-                31,
-                "admin_delete_remote_storage_target",
-            ),
-            (
-                AuditAction::FollowerStorageTargetCreate,
-                137,
-                "follower_storage_target_create",
-            ),
-            (
-                AuditAction::FollowerStorageTargetUpdate,
-                138,
-                "follower_storage_target_update",
-            ),
-            (
-                AuditAction::FollowerStorageTargetDelete,
-                139,
-                "follower_storage_target_delete",
-            ),
-        ] {
-            assert_eq!(action.index(), index);
-            assert_eq!(action.as_str(), name);
-            assert_eq!(action.to_value(), name);
-            assert_eq!(
-                serde_json::to_value(action).unwrap(),
-                serde_json::json!(name)
-            );
-            assert_eq!(
-                serde_json::from_str::<AuditAction>(&format!("\"{name}\"")).unwrap(),
-                action
-            );
-        }
-        assert_eq!(
-            AuditEntityType::RemoteStorageTarget.as_str(),
-            "remote_storage_target"
-        );
-        assert_eq!(
-            serde_json::to_value(AuditEntityType::RemoteStorageTarget).unwrap(),
-            serde_json::json!("remote_storage_target")
-        );
-    }
-
-    /// Verify retired ingress names are not runtime aliases.
-    #[test]
-    fn retired_ingress_names_are_not_runtime_aliases() {
-        for old in [
-            "admin_create_remote_ingress_profile",
-            "admin_update_remote_ingress_profile",
-            "admin_delete_remote_ingress_profile",
-            "follower_ingress_profile_create",
-            "follower_ingress_profile_update",
-            "follower_ingress_profile_delete",
-        ] {
-            assert!(AuditAction::from_str_name(old).is_none());
-            assert!(serde_json::from_value::<AuditAction>(serde_json::json!(old)).is_err());
-        }
-        assert!(AuditEntityType::from_str_name("remote_ingress_profile").is_none());
-    }
-
-    #[test]
-    fn audit_action_all_covers_every_stable_index() {
-        assert_eq!(AuditAction::COUNT, AuditAction::ALL.len());
-        let mut indexes = HashSet::new();
-        let mut names = HashSet::new();
-
-        for (expected_index, action) in AuditAction::ALL.iter().copied().enumerate() {
-            assert_eq!(action.index(), expected_index);
-            assert!(indexes.insert(action.index()));
-            assert!(names.insert(action.as_str()));
-            assert_eq!(AuditAction::from_str_name(action.as_str()), Some(action));
-            assert_eq!(
-                serde_json::to_value(action).expect("audit action serializes"),
-                serde_json::json!(action.as_str())
-            );
-            assert_eq!(
-                serde_json::from_value::<AuditAction>(serde_json::json!(action.as_str()))
-                    .expect("audit action deserializes"),
-                action
-            );
-        }
-
-        assert_eq!(indexes.len(), AuditAction::COUNT);
-        assert_eq!(names.len(), AuditAction::COUNT);
-        assert_eq!(AuditAction::from_str_name("unknown"), None);
-        assert!(serde_json::from_value::<AuditAction>(serde_json::json!("unknown")).is_err());
-    }
-}
-
 /// 审计日志动作
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -1506,5 +1367,144 @@ impl AsRef<str> for AuditAction {
 impl fmt::Display for AuditAction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{AUDIT_ENTITY_TYPE_NAMES, AuditAction, AuditEntityType};
+
+    #[test]
+    fn audit_entity_type_round_trips_string_names() {
+        let names: Vec<_> = AuditEntityType::ALL
+            .iter()
+            .map(|entity_type| entity_type.as_str())
+            .collect();
+        assert_eq!(AUDIT_ENTITY_TYPE_NAMES, names.as_slice());
+
+        for entity_type in AuditEntityType::ALL {
+            let name = entity_type.as_str();
+
+            assert_eq!(entity_type.as_ref(), name);
+            assert_eq!(entity_type.to_string(), name);
+            assert_eq!(AuditEntityType::from_str_name(name), Some(entity_type));
+            assert_eq!(
+                serde_json::to_value(entity_type).expect("audit entity type serializes"),
+                serde_json::json!(name)
+            );
+            assert_eq!(
+                serde_json::from_value::<AuditEntityType>(serde_json::json!(name))
+                    .expect("audit entity type deserializes"),
+                entity_type
+            );
+        }
+
+        assert_eq!(AuditEntityType::from_str_name("unknown"), None);
+        assert!(serde_json::from_value::<AuditEntityType>(serde_json::json!("unknown")).is_err());
+    }
+
+    /// Verify remote target audit contract uses storage target wire values.
+    #[test]
+    fn remote_target_audit_contract_uses_storage_target_wire_values() {
+        use sea_orm::ActiveEnum;
+        for (action, index, name) in [
+            (
+                AuditAction::AdminCreateRemoteStorageTarget,
+                29,
+                "admin_create_remote_storage_target",
+            ),
+            (
+                AuditAction::AdminUpdateRemoteStorageTarget,
+                30,
+                "admin_update_remote_storage_target",
+            ),
+            (
+                AuditAction::AdminDeleteRemoteStorageTarget,
+                31,
+                "admin_delete_remote_storage_target",
+            ),
+            (
+                AuditAction::FollowerStorageTargetCreate,
+                137,
+                "follower_storage_target_create",
+            ),
+            (
+                AuditAction::FollowerStorageTargetUpdate,
+                138,
+                "follower_storage_target_update",
+            ),
+            (
+                AuditAction::FollowerStorageTargetDelete,
+                139,
+                "follower_storage_target_delete",
+            ),
+        ] {
+            assert_eq!(action.index(), index);
+            assert_eq!(action.as_str(), name);
+            assert_eq!(action.to_value(), name);
+            assert_eq!(
+                serde_json::to_value(action).unwrap(),
+                serde_json::json!(name)
+            );
+            assert_eq!(
+                serde_json::from_str::<AuditAction>(&format!("\"{name}\"")).unwrap(),
+                action
+            );
+        }
+        assert_eq!(
+            AuditEntityType::RemoteStorageTarget.as_str(),
+            "remote_storage_target"
+        );
+        assert_eq!(
+            serde_json::to_value(AuditEntityType::RemoteStorageTarget).unwrap(),
+            serde_json::json!("remote_storage_target")
+        );
+    }
+
+    /// Verify retired ingress names are not runtime aliases.
+    #[test]
+    fn retired_ingress_names_are_not_runtime_aliases() {
+        for old in [
+            "admin_create_remote_ingress_profile",
+            "admin_update_remote_ingress_profile",
+            "admin_delete_remote_ingress_profile",
+            "follower_ingress_profile_create",
+            "follower_ingress_profile_update",
+            "follower_ingress_profile_delete",
+        ] {
+            assert!(AuditAction::from_str_name(old).is_none());
+            assert!(serde_json::from_value::<AuditAction>(serde_json::json!(old)).is_err());
+        }
+        assert!(AuditEntityType::from_str_name("remote_ingress_profile").is_none());
+    }
+
+    #[test]
+    fn audit_action_all_covers_every_stable_index() {
+        assert_eq!(AuditAction::COUNT, AuditAction::ALL.len());
+        let mut indexes = HashSet::new();
+        let mut names = HashSet::new();
+
+        for (expected_index, action) in AuditAction::ALL.iter().copied().enumerate() {
+            assert_eq!(action.index(), expected_index);
+            assert!(indexes.insert(action.index()));
+            assert!(names.insert(action.as_str()));
+            assert_eq!(AuditAction::from_str_name(action.as_str()), Some(action));
+            assert_eq!(
+                serde_json::to_value(action).expect("audit action serializes"),
+                serde_json::json!(action.as_str())
+            );
+            assert_eq!(
+                serde_json::from_value::<AuditAction>(serde_json::json!(action.as_str()))
+                    .expect("audit action deserializes"),
+                action
+            );
+        }
+
+        assert_eq!(indexes.len(), AuditAction::COUNT);
+        assert_eq!(names.len(), AuditAction::COUNT);
+        assert_eq!(AuditAction::from_str_name("unknown"), None);
+        assert!(serde_json::from_value::<AuditAction>(serde_json::json!("unknown")).is_err());
     }
 }

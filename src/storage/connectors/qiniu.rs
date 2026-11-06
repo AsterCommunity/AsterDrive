@@ -329,6 +329,7 @@ impl StorageConnector for QiniuConnector {
         )?;
         Self::probe(&driver).await
     }
+
     fn icon(&self) -> Option<StorageConnectorIcon> {
         Some(StorageConnectorIcon {
             bytes: include_bytes!("assets/qiniuyun-kodo.svg"),
@@ -520,6 +521,7 @@ mod tests {
             handle.stop(true).await;
         }
     }
+
     #[tokio::test]
     async fn runtime_and_cleanup_factories_use_encrypted_credentials_and_survive_row_deletion() {
         use crate::storage::connectors::{

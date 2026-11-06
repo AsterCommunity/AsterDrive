@@ -274,6 +274,7 @@ pub(crate) struct FolderChildrenQuery {
     pub sort_order: SortOrder,
     pub deleted: bool,
 }
+
 pub(crate) async fn find_children_paginated_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: FolderScope,

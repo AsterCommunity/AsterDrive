@@ -522,6 +522,7 @@ impl MultipartStorageDriver for UploadDataPlaneProbe {
             response_headers: vec!["etag".into()],
         })
     }
+
     fn capabilities(&self) -> MultipartStorageCapabilities {
         self.multipart_capabilities
             .unwrap_or_else(MultipartStorageCapabilities::conservative_default)
@@ -629,6 +630,7 @@ impl ProviderResumableUploadDriver for UploadDataPlaneProbe {
     fn numbered_parts(&self) -> Option<&dyn MultipartStorageDriver> {
         self.native_numbered.then_some(self)
     }
+
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         self.provider_calls.fetch_add(1, Ordering::SeqCst);
         ProviderResumableUploadCapabilities {
@@ -8853,16 +8855,20 @@ struct UploadPhaseMetrics {
     active: Mutex<i64>,
     transfers: Mutex<Vec<aster_drive_metrics::TransferOutcome>>,
 }
+
 impl aster_drive_metrics::MetricsRecorder for UploadPhaseMetrics {
     fn enabled(&self) -> bool {
         true
     }
+
     fn transfer_bytes(&self, _: aster_drive_metrics::TransferLabels, bytes: u64) {
         *self.bytes.lock().unwrap() += bytes;
     }
+
     fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, delta: i64) {
         *self.active.lock().unwrap() += delta;
     }
+
     fn transfer_finished(
         &self,
         _: aster_drive_metrics::TransferLabels,
@@ -8871,6 +8877,7 @@ impl aster_drive_metrics::MetricsRecorder for UploadPhaseMetrics {
     ) {
         self.transfers.lock().unwrap().push(outcome);
     }
+
     fn upload_phase(
         &self,
         _: &'static str,
@@ -8997,10 +9004,12 @@ async fn test_metrics_short_chunk_eof_is_failure_and_new_upload_is_success() {
 
 #[derive(Default)]
 struct AdmissionMetrics(Mutex<Vec<aster_drive_metrics::AdmissionReason>>);
+
 impl aster_drive_metrics::MetricsRecorder for AdmissionMetrics {
     fn enabled(&self) -> bool {
         true
     }
+
     fn admission_rejection(&self, reason: aster_drive_metrics::AdmissionReason) {
         self.0.lock().unwrap().push(reason);
     }

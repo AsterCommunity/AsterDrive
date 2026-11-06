@@ -219,6 +219,7 @@ async fn lifecycle(team: bool) {
 async fn personal_trash_restore_lifecycle() {
     lifecycle(false).await;
 }
+
 #[actix_web::test]
 async fn team_trash_restore_lifecycle() {
     lifecycle(true).await;
@@ -343,10 +344,12 @@ async fn race(team: bool, folder_mode: bool) {
         }
     }
 }
+
 #[actix_web::test]
 async fn personal_trash_restore_enqueue_race() {
     race(false, false).await;
 }
+
 #[actix_web::test]
 async fn team_trash_restore_enqueue_race() {
     race(true, false).await;
@@ -637,6 +640,7 @@ async fn processing_purge_cancellation_retains_remaining_items_and_unlocks_resto
 async fn personal_folder_restore_enqueue_race() {
     race(false, true).await;
 }
+
 #[actix_web::test]
 async fn team_folder_restore_enqueue_race() {
     race(true, true).await;
@@ -1089,6 +1093,7 @@ async fn deletion_lifecycle(team: bool) {
 async fn personal_trash_blocks_soft_and_permanent_deletion() {
     deletion_lifecycle(false).await;
 }
+
 #[actix_web::test]
 async fn team_trash_blocks_soft_and_permanent_deletion() {
     deletion_lifecycle(true).await;
@@ -1376,14 +1381,17 @@ async fn deletion_enqueue_race(team: bool, permanent: bool) {
 async fn personal_soft_delete_enqueue_race() {
     deletion_enqueue_race(false, false).await;
 }
+
 #[actix_web::test]
 async fn team_soft_delete_enqueue_race() {
     deletion_enqueue_race(true, false).await;
 }
+
 #[actix_web::test]
 async fn personal_permanent_delete_enqueue_race() {
     deletion_enqueue_race(false, true).await;
 }
+
 #[actix_web::test]
 async fn team_permanent_delete_enqueue_race() {
     deletion_enqueue_race(true, true).await;

@@ -86,6 +86,7 @@ impl Default for BindingConnectionState {
         }
     }
 }
+
 impl BindingConnectionState {
     fn mark_primary_shutdown(&self) {
         self.primary_shutdown.store(true, Ordering::Release);

@@ -24,6 +24,7 @@ pub async fn status(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
             enabled: content_access::is_enabled(state.get_ref()).await?,
         })))
 }
+
 #[aster_forge_api_docs_macros::path(post, path = "/api/v1/admin/content-access", tag = "admin", operation_id = "admin_create_content_access",
  request_body = CreateAdminContentAccess, responses((status = 200, body = inline(ApiResponse<AdminContentAccessInfo>))), security(("bearer" = [])))]
 pub async fn create(
@@ -38,6 +39,7 @@ pub async fn create(
         .insert_header(("Cache-Control", "no-store"))
         .json(crate::api::response::success(info)))
 }
+
 #[derive(serde::Deserialize)]
 pub struct WorkspaceAccessQuery {
     pub access_id: String,
@@ -45,6 +47,7 @@ pub struct WorkspaceAccessQuery {
     #[serde(default)]
     pub deleted: bool,
 }
+
 #[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/workspace", tag = "admin", operation_id = "admin_workspace_contents",
  params(("access_id" = String, Query), ("folder_id" = Option<i64>, Query), ("deleted" = Option<bool>, Query), ("folder_limit" = Option<u64>, Query), ("folder_offset" = Option<u64>, Query),
  ("file_limit" = Option<u64>, Query), ("file_after_value" = Option<String>, Query), ("file_after_id" = Option<i64>, Query),
@@ -71,6 +74,7 @@ pub async fn workspace(
         .insert_header(("Cache-Control", "no-store"))
         .json(crate::api::response::success(info)))
 }
+
 #[aster_forge_api_docs_macros::path(post, path = "/api/v1/admin/files/{id}/download-init", tag = "admin", operation_id = "admin_file_download_init",
  params(("id" = i64, Path)), request_body = AdminDownloadInitRequest,
  responses((status = 200, body = inline(ApiResponse<AdminDownloadInfo>))), security(("bearer" = [])))]
@@ -87,6 +91,7 @@ pub async fn init_download(
         .insert_header(("Cache-Control", "no-store"))
         .json(crate::api::response::success(info)))
 }
+
 #[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/{id}/download", tag = "admin", operation_id = "admin_download_content",
  params(("id" = String, Path), ("Range" = Option<String>, Header), ("If-None-Match" = Option<String>, Header)),
  responses((status = 200, description = "Attachment stream"), (status = 206, description = "Partial content"), (status = 304, description = "Not modified"), (status = 400, description = "Invalid or unsatisfiable range")), security(("bearer" = [])))]
@@ -113,6 +118,7 @@ pub async fn download(
 pub struct ContentFileQuery {
     pub access_id: String,
 }
+
 #[aster_forge_api_docs_macros::path(get, path = "/api/v1/admin/content-access/files/{id}", tag = "admin", operation_id = "admin_workspace_file",
  params(("id" = i64, Path), ("access_id" = String, Query)),
  responses((status = 200, body = inline(ApiResponse<crate::services::workspace::models::FileInfo>))), security(("bearer" = [])))]

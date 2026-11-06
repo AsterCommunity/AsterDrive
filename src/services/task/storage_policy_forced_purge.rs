@@ -494,6 +494,7 @@ fn build_forced_purge_preview(
         placement_target_count: u64,
         upload_session_count: u64,
     }
+
     let identity = ImpactIdentity {
         policy_id: policy.id,
         policy_name: &policy.name,

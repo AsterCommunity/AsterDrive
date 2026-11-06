@@ -653,6 +653,7 @@ mod tests {
         assert_eq!(audit_writer.snapshot().persisted, 2);
         audit_writer.stop(tokio::time::Instant::now()).await;
     }
+
     /// Disabled synchronization waits for shutdown and performs no database reload.
     #[tokio::test]
     async fn disabled_subscription_cancels_without_database_access() {
@@ -849,6 +850,7 @@ mod tests {
         shutdown.cancel();
         worker.await.unwrap().unwrap();
     }
+
     /// Observe a delivered callback failure, then verify its retry publishes the changed policy.
     #[tokio::test]
     async fn notification_read_failures_recover_without_republishing() {

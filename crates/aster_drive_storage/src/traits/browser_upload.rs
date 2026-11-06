@@ -115,9 +115,11 @@ pub struct BrowserUploadTransition {
 #[async_trait]
 pub trait BrowserUploadDriver: Send + Sync {
     fn protocol(&self) -> BrowserUploadProtocol;
+
     fn supports_protocol(&self, protocol: &BrowserUploadProtocol) -> bool {
         *protocol == self.protocol()
     }
+
     async fn advance(
         &self,
         context: BrowserUploadContext<'_>,

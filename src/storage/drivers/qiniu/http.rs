@@ -5,10 +5,12 @@ use reqwest::{Method, Response};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::time::{Duration, Instant};
 use url::Url;
+
 #[derive(Deserialize)]
 struct Service {
     domains: Vec<String>,
 }
+
 #[derive(Deserialize)]
 struct Region {
     ttl: u64,
@@ -16,15 +18,18 @@ struct Region {
     rs: Service,
     rsf: Service,
 }
+
 #[derive(Deserialize)]
 struct RegionResponse {
     hosts: Vec<Region>,
 }
+
 pub(super) enum ServiceKind {
     Upload,
     Management,
     List,
 }
+
 impl QiniuDriver {
     pub(super) async fn endpoint(&self, service: ServiceKind) -> Result<Url> {
         let mut cache = self.endpoints.lock().await;
@@ -72,6 +77,7 @@ impl QiniuDriver {
             ServiceKind::List => endpoints.list.clone(),
         })
     }
+
     pub(super) async fn management(&self, method: Method, url: Url) -> Result<Response> {
         let mut request = self
             .control_client
@@ -88,6 +94,7 @@ impl QiniuDriver {
         .await
     }
 }
+
 impl QiniuDriver {
     /// Bound inactivity while sending a body, then bound the small provider reply.
     /// reqwest's read_timeout starts before upload completion and cannot express
@@ -140,6 +147,7 @@ pub(super) fn transport_error(error: reqwest::Error) -> StorageError {
         },
     )
 }
+
 pub(super) async fn checked(response: Response) -> Result<Response> {
     if response.status().is_success() {
         return Ok(response);
@@ -200,6 +208,7 @@ pub(super) fn request_id(response: &Response) -> Option<String> {
         })
         .map(str::to_owned)
 }
+
 pub(super) async fn decode<T: DeserializeOwned>(response: Response) -> Result<T> {
     let mut stream = checked(response).await?.bytes_stream();
     let mut body = Vec::new();

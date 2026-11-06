@@ -5,6 +5,7 @@ use aster_forge_utils::numbers::{u64_to_usize, u128_to_u64, usize_to_u64};
 use parking_lot::Mutex;
 use std::io::{self, IsTerminal, Write};
 const PROGRESS_BAR_WIDTH: usize = 28;
+
 #[derive(Debug, Default)]
 struct ProgressState {
     active_line: bool,

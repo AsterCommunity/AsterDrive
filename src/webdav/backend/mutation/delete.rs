@@ -24,6 +24,11 @@ impl AsterDavFs {
         role: DavMutationTargetRole,
         conditions: DavMutationConditions<'_>,
     ) -> Result<(), AsterDavMutationError> {
+        enum Deleted {
+            File(file_entity::Model),
+            Folder(folder::FolderTreeDeletion),
+        }
+
         let txn = transaction::begin(self.state.writer_db())
             .await
             .map_err(|_| AsterDavMutationError::Backend)?;
@@ -39,11 +44,6 @@ impl AsterDavFs {
             path_resolver::resolve_path_in_scope(&txn, self.scope, path, self.root_folder_id)
                 .await
                 .map_err(AsterDavMutationError::FileSystem)?;
-
-        enum Deleted {
-            File(file_entity::Model),
-            Folder(folder::FolderTreeDeletion),
-        }
 
         let prepared_folder = match (&node, is_collection) {
             (ResolvedNode::Folder(folder), true) => Some(

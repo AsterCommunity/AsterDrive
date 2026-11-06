@@ -112,6 +112,7 @@ impl TaskResourcePublication {
             )),
         }
     }
+
     pub async fn find_folder<C: ConnectionTrait>(&self, db: &C) -> Result<Option<folder::Model>> {
         match self.find(db).await? {
             None => Ok(None),
@@ -168,9 +169,11 @@ impl TaskResourcePublication {
         .await?;
         Ok(())
     }
+
     pub async fn insert_file<C: ConnectionTrait>(&self, db: &C, file: &file::Model) -> Result<()> {
         self.insert(db, Resource::File(file.clone())).await
     }
+
     pub async fn insert_folder<C: ConnectionTrait>(
         &self,
         db: &C,

@@ -135,29 +135,35 @@ struct GoogleSessionProbe {
     aborts: std::sync::atomic::AtomicUsize,
     deletes: std::sync::atomic::AtomicUsize,
 }
+
 #[async_trait::async_trait]
 impl aster_drive_storage::StorageDriver for GoogleSessionProbe {
     async fn put(&self, _: &str, _: &[u8]) -> aster_drive_storage::Result<String> {
         unreachable!("test simulates browser bytes")
     }
+
     async fn get(&self, _: &str) -> aster_drive_storage::Result<Vec<u8>> {
         unreachable!("finalization only inspects metadata")
     }
+
     async fn get_stream(
         &self,
         _: &str,
     ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
         unreachable!("finalization only inspects metadata")
     }
+
     async fn delete(&self, _: &str) -> aster_drive_storage::Result<()> {
         self.deletes
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.object_size.lock().unwrap() = None;
         Ok(())
     }
+
     async fn exists(&self, _: &str) -> aster_drive_storage::Result<bool> {
         Ok(self.object_size.lock().unwrap().is_some())
     }
+
     async fn metadata(
         &self,
         _: &str,
@@ -176,9 +182,11 @@ impl aster_drive_storage::StorageDriver for GoogleSessionProbe {
                 )
             })
     }
+
     fn max_single_put_size(&self) -> Option<u64> {
         Some(5 * 1024 * 1024)
     }
+
     fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {
         aster_drive_storage::StorageDriverExtensions {
             provider_resumable: Some(self),
@@ -186,6 +194,7 @@ impl aster_drive_storage::StorageDriver for GoogleSessionProbe {
         }
     }
 }
+
 #[async_trait::async_trait]
 impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
     fn provider_resumable_upload_capabilities(
@@ -206,9 +215,11 @@ impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
             status_query_supported: true,
         }
     }
+
     fn browser_upload(&self) -> Option<&dyn aster_drive_storage::BrowserUploadDriver> {
         Some(self)
     }
+
     async fn create_upload_session(
         &self,
         _: &str,
@@ -220,6 +231,7 @@ impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
             next_expected_ranges: vec!["0-".into()],
         })
     }
+
     async fn query_upload_session(
         &self,
         _: &str,
@@ -234,11 +246,13 @@ impl aster_drive_storage::ProviderResumableUploadDriver for GoogleSessionProbe {
             },
         })
     }
+
     async fn abort_upload_session(&self, _: &str) -> aster_drive_storage::Result<()> {
         self.aborts
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
+
     async fn upload_session_fragment_reader(
         &self,
         _: &str,
@@ -545,6 +559,7 @@ impl aster_drive_storage::BrowserUploadDriver for GoogleSessionProbe {
                 .max(7),
         }
     }
+
     async fn advance(
         &self,
         context: aster_drive_storage::BrowserUploadContext<'_>,

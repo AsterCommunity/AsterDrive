@@ -18,9 +18,11 @@ impl ServeRole {
             Self::Worker => "worker",
         }
     }
+
     pub const fn serves_api(self) -> bool {
         !matches!(self, Self::Worker)
     }
+
     pub const fn consumes_tasks(self) -> bool {
         !matches!(self, Self::Api)
     }
@@ -54,6 +56,7 @@ impl RoleHealth {
                 .iter()
                 .all(aster_forge_tasks::TaskRuntimeStatus::ready)
     }
+
     pub fn live(&self) -> bool {
         self.initialized.load(std::sync::atomic::Ordering::Acquire)
             && (self.shutdown.is_cancelled()
@@ -68,6 +71,7 @@ impl RoleHealth {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn node_mode_and_role_matrix() {
         for role in [ServeRole::All, ServeRole::Api, ServeRole::Worker] {
@@ -80,6 +84,7 @@ mod tests {
             assert_eq!(role.consumes_tasks(), role != ServeRole::Api);
         }
     }
+
     #[test]
     fn draining_and_unstarted_consumers_are_not_ready() {
         let mut health = RoleHealth {

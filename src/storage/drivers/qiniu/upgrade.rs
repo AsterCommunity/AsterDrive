@@ -23,6 +23,7 @@ pub(crate) struct LegacyConfig {
     pub object_storage_upload_strategy: aster_drive_model::types::ObjectStorageUploadStrategy,
     pub object_storage_download_strategy: aster_drive_model::types::ObjectStorageDownloadStrategy,
 }
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct NativeLocation {
     pub bucket: String,
@@ -37,6 +38,7 @@ pub(crate) trait NativeUpgradeResolver: Send + Sync {
         credentials: QiniuStaticCredentials,
     ) -> Result<NativeLocation>;
 }
+
 pub(crate) struct OfficialResolver;
 
 #[derive(Deserialize)]
@@ -44,15 +46,18 @@ struct Service {
     #[serde(default)]
     domains: Vec<String>,
 }
+
 #[derive(Deserialize)]
 struct S3Region {
     region_alias: String,
 }
+
 #[derive(Deserialize)]
 struct Region {
     io_src: Service,
     s3: S3Region,
 }
+
 #[derive(Deserialize)]
 struct Query {
     hosts: Vec<Region>,
@@ -64,6 +69,7 @@ struct ProbeCleanup {
     driver: Arc<dyn StorageDriver>,
     key: Option<String>,
 }
+
 impl Drop for ProbeCleanup {
     fn drop(&mut self) {
         let Some(key) = self.key.take() else {
@@ -165,7 +171,9 @@ fn legacy_source_driver(
 #[async_trait::async_trait]
 trait UpgradeDiscovery: Send + Sync {
     async fn buckets(&self) -> Result<Vec<String>>;
+
     async fn source(&self, bucket: &str, region: &str) -> Result<Option<String>>;
+
     async fn contains(
         &self,
         bucket: &str,
@@ -175,11 +183,13 @@ trait UpgradeDiscovery: Send + Sync {
         nonce: &[u8],
     ) -> Result<bool>;
 }
+
 struct OfficialDiscovery {
     signer: QiniuDriver,
     credentials: QiniuStaticCredentials,
     bucket_url: Url,
 }
+
 #[async_trait::async_trait]
 impl UpgradeDiscovery for OfficialDiscovery {
     async fn buckets(&self) -> Result<Vec<String>> {
@@ -190,6 +200,7 @@ impl UpgradeDiscovery for OfficialDiscovery {
         )
         .await
     }
+
     async fn source(&self, bucket: &str, region: &str) -> Result<Option<String>> {
         let mut query = self.signer.region_query.clone();
         query
@@ -223,6 +234,7 @@ impl UpgradeDiscovery for OfficialDiscovery {
                 .to_string(),
         ))
     }
+
     async fn contains(
         &self,
         bucket: &str,
@@ -352,6 +364,7 @@ fn discovery_driver(
         credentials,
     )
 }
+
 impl QiniuDriver {
     async fn read_upgrade_probe(&self, path: &str, expected: &[u8]) -> Result<bool> {
         use futures::StreamExt;
@@ -390,6 +403,7 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
     #[derive(Default)]
     struct Source {
         objects: Mutex<std::collections::BTreeMap<String, Vec<u8>>>,
@@ -397,6 +411,7 @@ mod tests {
         deletes: AtomicUsize,
         fail_delete: bool,
     }
+
     #[async_trait::async_trait]
     impl StorageDriver for Source {
         async fn put(&self, key: &str, data: &[u8]) -> Result<String> {
@@ -406,6 +421,7 @@ mod tests {
             self.objects.lock().unwrap().insert(key.into(), data.into());
             Ok(key.into())
         }
+
         async fn get(&self, key: &str) -> Result<Vec<u8>> {
             self.objects
                 .lock()
@@ -414,12 +430,14 @@ mod tests {
                 .cloned()
                 .ok_or_else(|| storage_driver_error(StorageErrorKind::NotFound, "absent probe"))
         }
+
         async fn get_stream(
             &self,
             _: &str,
         ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
             Err(invalid("probe must not read user streams"))
         }
+
         async fn delete(&self, key: &str) -> Result<()> {
             self.deletes.fetch_add(1, Ordering::SeqCst);
             if self.fail_delete {
@@ -428,28 +446,34 @@ mod tests {
             self.objects.lock().unwrap().remove(key);
             Ok(())
         }
+
         async fn exists(&self, key: &str) -> Result<bool> {
             Ok(self.objects.lock().unwrap().contains_key(key))
         }
+
         async fn metadata(&self, _: &str) -> Result<aster_drive_storage::BlobMetadata> {
             Err(invalid(
                 "probe uses nonce equality, not metadata coincidence",
             ))
         }
     }
+
     struct Discovery {
         source: Arc<Source>,
         matching: Vec<&'static str>,
         outage: bool,
     }
+
     #[async_trait::async_trait]
     impl UpgradeDiscovery for Discovery {
         async fn buckets(&self) -> Result<Vec<String>> {
             Ok(vec!["candidate-a".into(), "candidate-b".into()])
         }
+
         async fn source(&self, bucket: &str, _: &str) -> Result<Option<String>> {
             Ok(Some(format!("https://{bucket}.provider.test")))
         }
+
         async fn contains(
             &self,
             bucket: &str,
@@ -469,6 +493,7 @@ mod tests {
             Ok(self.matching.contains(&bucket))
         }
     }
+
     fn old() -> LegacyConfig {
         LegacyConfig {
             endpoint: "https://s3.cn-east-1.qiniucs.com".into(),
@@ -481,6 +506,7 @@ mod tests {
                 aster_drive_model::types::ObjectStorageDownloadStrategy::RelayStream,
         }
     }
+
     #[tokio::test]
     async fn confirms_different_native_name_with_random_nonce_and_cleans_only_its_probe() {
         let source = Arc::new(Source::default());
@@ -510,6 +536,7 @@ mod tests {
             b"do-not-touch"
         );
     }
+
     #[tokio::test]
     async fn no_mapping_multiple_mappings_and_outages_never_guess_and_always_clean() {
         for (matching, outage) in [
@@ -532,6 +559,7 @@ mod tests {
             assert_eq!(source.deletes.load(Ordering::SeqCst), 1);
         }
     }
+
     #[tokio::test]
     async fn cleanup_failure_prevents_configuration_conversion() {
         let source = Arc::new(Source {
@@ -545,6 +573,7 @@ mod tests {
         };
         assert!(verify_namespace(&old(), source, &discovery).await.is_err());
     }
+
     struct CandidateDiscovery {
         source: Arc<Source>,
         matching: Vec<String>,
@@ -553,11 +582,13 @@ mod tests {
         active: AtomicUsize,
         peak: AtomicUsize,
     }
+
     #[async_trait::async_trait]
     impl UpgradeDiscovery for CandidateDiscovery {
         async fn buckets(&self) -> Result<Vec<String>> {
             Ok((0..48).map(|n| format!("bucket-{n:02}")).collect())
         }
+
         async fn source(&self, bucket: &str, _: &str) -> Result<Option<String>> {
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
@@ -571,6 +602,7 @@ mod tests {
             }
             Ok(Some(format!("https://{bucket}.provider.test")))
         }
+
         async fn contains(
             &self,
             bucket: &str,
@@ -589,6 +621,7 @@ mod tests {
             Ok(self.matching.iter().any(|name| name == bucket))
         }
     }
+
     #[tokio::test]
     async fn candidate_errors_do_not_hide_unique_nonce_match_and_probes_are_bounded_parallel() {
         for query_failure in [false, true] {
@@ -616,6 +649,7 @@ mod tests {
             assert!(source.objects.lock().unwrap().is_empty());
         }
     }
+
     #[tokio::test]
     async fn candidate_errors_propagate_without_match_and_never_allow_ambiguous_match() {
         for matching in [vec![], vec!["bucket-23".into(), "bucket-24".into()]] {
@@ -642,6 +676,7 @@ mod tests {
             assert!(source.objects.lock().unwrap().is_empty());
         }
     }
+
     fn credentials() -> QiniuStaticCredentials {
         QiniuStaticCredentials {
             access_key: "AK".into(),
@@ -831,6 +866,7 @@ mod tests {
             assert_eq!(source.objects.lock().unwrap().contains_key("owned"), fail);
         }
     }
+
     #[test]
     fn dropping_probe_guard_without_runtime_does_not_panic() {
         let source = Arc::new(Source::default());

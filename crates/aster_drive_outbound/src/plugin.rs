@@ -12,6 +12,7 @@ use url::Url;
 pub struct NetworkGrant {
     origin: Url,
 }
+
 impl NetworkGrant {
     /// Exact HTTPS origin, without wildcard, userinfo, path, query or fragment.
     /// # Errors
@@ -30,6 +31,7 @@ impl NetworkGrant {
         }
         Ok(Self { origin })
     }
+
     fn permits(&self, url: &Url) -> bool {
         url.origin() == self.origin.origin()
             && url.username().is_empty()
@@ -45,6 +47,7 @@ pub struct PluginLimits {
     pub response_bytes: usize,
     pub timeout: Duration,
 }
+
 impl Default for PluginLimits {
     fn default() -> Self {
         Self {
@@ -61,6 +64,7 @@ pub struct PluginHttpRequest {
     pub headers: reqwest::header::HeaderMap,
     pub body: Vec<u8>,
 }
+
 pub struct PluginHttpResponse {
     pub status: u16,
     pub headers: reqwest::header::HeaderMap,
@@ -88,6 +92,7 @@ pub struct PluginTransport {
     user_agent: String,
     cancellation: CancellationToken,
 }
+
 impl PluginTransport {
     /// Cancellation belongs to the host invocation/runtime and covers DNS, headers and body.
     /// # Errors
@@ -144,6 +149,7 @@ impl PluginTransport {
             result = tokio::time::timeout(self.limits.timeout, exchange) => result.map_err(|_| PluginTransportError::Timeout)?,
         }
     }
+
     fn validate_request(
         &self,
         request: &PluginHttpRequest,
@@ -190,6 +196,7 @@ impl PluginTransport {
         }
         Ok(())
     }
+
     async fn exchange(
         &self,
         request: PluginHttpRequest,
@@ -252,6 +259,7 @@ impl PluginTransport {
             })?;
         self.read_response(response).await
     }
+
     async fn read_response(
         &self,
         response: reqwest::Response,
@@ -322,6 +330,7 @@ fn is_public_destination(ip: IpAddr) -> bool {
 mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
     fn transport(limits: PluginLimits, cancellation: CancellationToken) -> PluginTransport {
         PluginTransport::new(
             NetworkGrant::approved_origin("https://plugin.example").unwrap(),
@@ -330,6 +339,7 @@ mod tests {
         )
         .unwrap()
     }
+
     fn request(url: &str) -> PluginHttpRequest {
         PluginHttpRequest {
             method: reqwest::Method::POST,
@@ -338,6 +348,7 @@ mod tests {
             body: Vec::new(),
         }
     }
+
     #[test]
     fn host_transport_inherits_product_identity_and_accepts_an_explicit_override() {
         let transport = transport(PluginLimits::default(), CancellationToken::new());
@@ -371,6 +382,7 @@ mod tests {
             assert!(!grant.permits(&Url::parse(url).unwrap()));
         }
     }
+
     #[tokio::test]
     async fn capability_and_size_rejections_precede_dns_or_socket_io() {
         let transport = transport(
@@ -408,6 +420,7 @@ mod tests {
             Some(PluginTransportError::Denied)
         );
     }
+
     #[tokio::test]
     async fn cancellation_and_private_addresses_fail_without_an_http_request() {
         let cancellation = CancellationToken::new();
@@ -438,6 +451,7 @@ mod tests {
                 .is_err()
         );
     }
+
     #[test]
     fn special_address_families_cannot_bypass_public_egress_policy() {
         use std::net::{Ipv4Addr, Ipv6Addr};
@@ -466,6 +480,7 @@ mod tests {
             Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888).into()
         ));
     }
+
     async fn response(bytes: &'static [u8]) -> reqwest::Response {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -484,6 +499,7 @@ mod tests {
             .await
             .unwrap()
     }
+
     #[tokio::test]
     async fn body_limit_is_enforced_on_actual_chunks_and_declared_length() {
         let transport = transport(

@@ -5,6 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Default)]
 struct Events(Mutex<Vec<HttpObservation>>);
+
 impl HttpObserver for Events {
     fn observe(&self, event: HttpObservation) {
         self.0.lock().unwrap().push(event);

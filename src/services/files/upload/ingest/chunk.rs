@@ -1429,21 +1429,26 @@ mod tests {
             Some(ApiErrorCode::UploadStatusConflict)
         );
     }
+
     #[tokio::test]
     async fn rejected_chunk_payloads_do_not_start_or_cancel_data_plane_transfers() {
         use std::sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
         };
+
         #[derive(Default)]
         struct Capture(AtomicUsize);
+
         impl aster_drive_metrics::MetricsRecorder for Capture {
             fn enabled(&self) -> bool {
                 true
             }
+
             fn transfer_active(&self, _: aster_drive_metrics::TransferLabels, _: i64) {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
+
             fn transfer_finished(
                 &self,
                 _: aster_drive_metrics::TransferLabels,
@@ -1453,6 +1458,7 @@ mod tests {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
         }
+
         let mut state = crate::runtime::tasks::test_support::setup_primary_state()
             .await
             .get_ref()

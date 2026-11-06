@@ -844,6 +844,7 @@ mod tests {
             assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
         }
     }
+
     use tokio::sync::Barrier;
 
     struct AtomicAttemptDriver {

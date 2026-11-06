@@ -58,6 +58,7 @@ impl MigrationTrait for Migration {
         .await?;
         Ok(())
     }
+
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for (table, name) in [
             ("file_blobs", "idx_file_blobs_cleanup_observation"),

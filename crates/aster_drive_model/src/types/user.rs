@@ -38,6 +38,7 @@ impl UserStatus {
         matches!(self, Self::Active)
     }
 }
+
 /// 用户头像来源
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

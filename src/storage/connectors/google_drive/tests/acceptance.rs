@@ -12,6 +12,7 @@ fn required(name: &str) -> String {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| panic!("set {name} to run Google Drive acceptance"))
 }
+
 fn optional(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()

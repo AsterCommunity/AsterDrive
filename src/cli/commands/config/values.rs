@@ -18,6 +18,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     path::PathBuf,
 };
+
 #[derive(Clone)]
 pub(super) struct NormalizedImportItem {
     pub(super) key: String,

@@ -155,6 +155,7 @@ impl MultipartStorageDriver for CapabilityMultipartDriver {
     async fn create_multipart_upload(&self, _: &str) -> StorageResult<String> {
         Ok("upload".into())
     }
+
     async fn presigned_upload_part_request(
         &self,
         _: &str,
@@ -167,6 +168,7 @@ impl MultipartStorageDriver for CapabilityMultipartDriver {
             "not used",
         ))
     }
+
     async fn complete_multipart_upload(
         &self,
         _: &str,
@@ -175,6 +177,7 @@ impl MultipartStorageDriver for CapabilityMultipartDriver {
     ) -> StorageResult<()> {
         Ok(())
     }
+
     async fn upload_multipart_part(
         &self,
         _: &str,
@@ -184,9 +187,11 @@ impl MultipartStorageDriver for CapabilityMultipartDriver {
     ) -> StorageResult<String> {
         Ok("etag".into())
     }
+
     async fn abort_multipart_upload(&self, _: &str, _: &str) -> StorageResult<()> {
         Ok(())
     }
+
     async fn list_uploaded_part_details(
         &self,
         _: &str,

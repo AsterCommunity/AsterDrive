@@ -31,6 +31,7 @@ pub enum Profile {
     OfflineDownload,
     Plugin,
 }
+
 impl Profile {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -100,53 +101,64 @@ impl ClientConfig {
             observer: None,
         }
     }
+
     /// Override product identity for this client without changing its transport profile.
     /// Invalid header values fail at build time, before any request is sent.
     pub fn user_agent(mut self, value: impl Into<String>) -> Self {
         self.user_agent = value.into();
         self
     }
+
     pub fn connect_timeout(mut self, value: Duration) -> Self {
         self.connect_timeout = value;
         self
     }
+
     pub fn read_timeout(mut self, value: Duration) -> Self {
         self.read_timeout = Some(value);
         self
     }
+
     pub fn timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);
         self
     }
+
     /// Used only when preserving a reviewed streaming protocol's existing idle policy.
     pub fn without_read_timeout(mut self) -> Self {
         self.read_timeout = None;
         self
     }
+
     pub fn without_total_timeout(mut self) -> Self {
         self.timeout = None;
         self
     }
+
     pub fn no_proxy(mut self) -> Self {
         self.proxy = ProxyPolicy::Disabled;
         self
     }
+
     /// A trusted administrator's explicit proxy, never exposed to plugin input.
     pub fn proxy(mut self, proxy: reqwest::Proxy) -> Self {
         self.proxy = ProxyPolicy::Explicit(Box::new(proxy));
         self
     }
+
     /// Adds trust without disabling certificate or hostname verification.
     pub fn add_root_certificate(mut self, certificate: reqwest::Certificate) -> Self {
         self.roots.push(certificate);
         self
     }
+
     /// Pins a caller-validated destination. Disables proxies so DNS pinning is effective.
     pub fn resolve_to_addrs(mut self, host: &str, addrs: &[SocketAddr]) -> Self {
         self.pinned = Some((host.to_owned(), addrs.to_vec()));
         self.proxy = ProxyPolicy::Disabled;
         self
     }
+
     /// The sink sees only method/status/outcome/duration, never request secrets or URLs.
     pub fn observer(mut self, observer: Arc<dyn HttpObserver>) -> Self {
         self.observer = Some(observer);
@@ -201,6 +213,7 @@ struct Observer {
     profile: Profile,
     sink: Option<Arc<dyn HttpObserver>>,
 }
+
 impl HttpObserver for Observer {
     fn observe(&self, event: HttpObservation) {
         // Response-header duration is intentionally distinct from the file-transfer EOF metrics.

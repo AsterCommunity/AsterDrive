@@ -12,8 +12,10 @@ fn driver(base: &str) -> GoogleDriveDriver {
         Duration::from_secs(10),
     )
     .unwrap();
+
     driver.api = format!("{base}/drive/v3");
     driver.upload = format!("{base}/upload/drive/v3/files");
+
     driver.control_client =
         aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
             .timeout(Duration::from_millis(25))
@@ -34,6 +36,7 @@ fn driver(base: &str) -> GoogleDriveDriver {
     driver.upload_idle_timeout = Duration::from_millis(150);
     driver
 }
+
 async fn upload_peer(
     status: &'static str,
     body: &'static str,
@@ -42,6 +45,7 @@ async fn upload_peer(
 ) -> (String, tokio::task::JoinHandle<String>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
+
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut bytes = Vec::new();
@@ -65,6 +69,7 @@ async fn upload_peer(
                 }
             }
         }
+
         tokio::time::sleep(delay).await;
         let header = format!(
             "HTTP/1.1 {status}\r\nContent-Length: {}\r\nRange: bytes=0-262143\r\nLocation: http://127.0.0.1:1/never-follow\r\nConnection: close\r\n\r\n",
@@ -78,8 +83,10 @@ async fn upload_peer(
         }
         String::from_utf8(bytes).unwrap()
     });
+
     (base, server)
 }
+
 #[tokio::test]
 async fn resumable_upload_reuses_upload_pool_and_decodes_308_instead_of_following_it() {
     let (base, server) = upload_peer(
@@ -98,8 +105,10 @@ async fn resumable_upload_reuses_upload_pool_and_decodes_308_instead_of_followin
         .upload_bytes(&url, 0, (ALIGNMENT * 2) as u64, vec![b'x'; ALIGNMENT])
         .await
         .unwrap();
+
     assert!(!outcome.completed);
     assert_eq!(outcome.next_expected_ranges, vec![format!("{ALIGNMENT}-")]);
+
     let request = server.await.unwrap();
     let (headers, body) = request.split_once("\r\n\r\n").unwrap();
     let headers = headers.to_ascii_lowercase();
@@ -111,6 +120,7 @@ async fn resumable_upload_reuses_upload_pool_and_decodes_308_instead_of_followin
     assert!(headers.contains(&aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT.to_ascii_lowercase()));
     assert_eq!(body.len(), ALIGNMENT);
 }
+
 #[tokio::test]
 async fn upload_wait_and_error_body_use_shared_progress_and_acknowledgement_deadlines() {
     for (status, stall_body, delay, expected) in [
@@ -142,6 +152,7 @@ async fn upload_wait_and_error_body_use_shared_progress_and_acknowledgement_dead
         server.await.unwrap();
     }
 }
+
 #[tokio::test]
 async fn metadata_deadline_does_not_cap_downloads_that_keep_yielding_bytes() {
     async fn handler(req: HttpRequest) -> HttpResponse {
@@ -160,6 +171,16 @@ async fn metadata_deadline_does_not_cap_downloads_that_keep_yielding_bytes() {
         }
         HttpResponse::Ok().json(serde_json::json!({"files":[{"id":"owned","size":"12"}]}))
     }
+
+    #[derive(Default)]
+    struct Outcomes(Mutex<Vec<aster_forge_http::HttpOutcome>>);
+
+    impl aster_forge_http::HttpObserver for Outcomes {
+        fn observe(&self, event: aster_forge_http::HttpObservation) {
+            self.0.lock().unwrap().push(event.outcome);
+        }
+    }
+
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = HttpServer::new(|| App::new().default_service(web::to(handler)))
@@ -195,19 +216,13 @@ async fn metadata_deadline_does_not_cap_downloads_that_keep_yielding_bytes() {
     assert_eq!(bytes, b"xxxxxxxxxxxx");
     handle.stop(true).await;
     task.await.unwrap().unwrap();
+
     let gate = Arc::new(crate::storage::test_support::ResponseGate::default());
     let peer = crate::storage::test_support::HttpFixture::new([
         crate::storage::test_support::HttpReply::json(200, serde_json::json!({"files":[]}))
             .gated(gate.clone()),
     ])
     .await;
-    #[derive(Default)]
-    struct Outcomes(Mutex<Vec<aster_forge_http::HttpOutcome>>);
-    impl aster_forge_http::HttpObserver for Outcomes {
-        fn observe(&self, event: aster_forge_http::HttpObservation) {
-            self.0.lock().unwrap().push(event.outcome);
-        }
-    }
     let outcomes = Arc::new(Outcomes::default());
     let mut driver = driver(&peer.base);
     driver.control_client =
