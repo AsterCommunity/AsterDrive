@@ -50,6 +50,7 @@ pub(crate) struct UploadPlan {
 }
 
 impl UploadPlan {
+    /// Construct the upload plan from required persisted profile/revision bindings and the negotiated kind.
     pub(crate) fn from_session(
         session: &aster_drive_model::entities::upload_session::Model,
     ) -> Self {
@@ -132,6 +133,8 @@ async fn init_upload_for_scope(
     result
 }
 
+/// Authorize the current actor before admission, provider calls or session allocation.
+/// Freeze placement and transport selection, then materialize the negotiated upload resources.
 async fn init_upload_for_scope_impl(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -272,6 +275,7 @@ fn record_upload_session_if_created(
     }
 }
 
+/// Persist a staged upload session with its placement decision under the staging admission lock.
 async fn init_chunked_upload_session(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,

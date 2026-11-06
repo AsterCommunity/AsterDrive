@@ -139,6 +139,7 @@ async fn init_presigned_remote_upload(
     .await
 }
 
+/// Persist the remote target selection before issuing the single-object browser upload response.
 async fn init_remote_presigned_single_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,

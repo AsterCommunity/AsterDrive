@@ -6,6 +6,7 @@ use aster_drive_model::entities::{file, file_blob, folder, upload_session};
 use sea_orm::{EntityTrait, PaginatorTrait};
 use serde_json::{Value, json};
 
+/// Count files, blobs, folders and sessions to detect side effects from rejected team writes.
 async fn stored_resources(db: &sea_orm::DatabaseConnection) -> [u64; 4] {
     [
         file::Entity::find().count(db).await.unwrap(),
@@ -15,6 +16,7 @@ async fn stored_resources(db: &sea_orm::DatabaseConnection) -> [u64; 4] {
     ]
 }
 
+/// Verify team root writes reject nonmembers and removed members before side effects.
 #[actix_web::test]
 async fn team_root_writes_reject_nonmembers_and_removed_members_before_side_effects() {
     let state = common::setup().await;
@@ -120,4 +122,58 @@ async fn team_root_writes_reject_nonmembers_and_removed_members_before_side_effe
             );
         }
     }
+}
+
+/// A valid member with a missing routing assignment fails without writing any resources.
+#[actix_web::test]
+async fn team_write_missing_snapshot_assignment_fails_without_database_policy_fallback() {
+    let mut state = common::setup().await;
+    let owner = common::create_test_account(
+        &state,
+        "missingowner",
+        "missing-snapshot@example.test",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let target = team::create_team(
+        &state,
+        owner.id,
+        team::CreateTeamInput {
+            name: "Missing snapshot".into(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        state
+            .policy_snapshot
+            .resolve_team_policy_group_id(target.id)
+            .is_some()
+    );
+    state.policy_snapshot = std::sync::Arc::new(aster_drive::storage::PolicySnapshot::new());
+    let before = stored_resources(state.writer_db()).await;
+    let error = aster_drive::services::files::upload::init_upload_for_team(
+        &state,
+        target.id,
+        owner.id,
+        "blocked.bin",
+        1,
+        None,
+        None,
+    )
+    .await
+    .err()
+    .expect("missing snapshot assignment must reject initialization");
+    assert_eq!(
+        error.api_error_code(),
+        aster_drive::api::api_error_code::ApiErrorCode::StoragePolicyNotFound
+    );
+    assert!(
+        error
+            .message()
+            .contains("no storage placement profile in snapshot")
+    );
+    assert_eq!(stored_resources(state.writer_db()).await, before);
 }

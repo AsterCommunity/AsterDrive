@@ -22,6 +22,7 @@ const RULE_DESCRIPTION: &str = "Imported placement rule.";
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
+    /// Apply guarded physical cleanup while preserving current uploads and connector state.
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // Finish every data-dependent rejection before any backend starts DDL.
         preflight(manager).await?;
@@ -70,6 +71,7 @@ impl MigrationTrait for Migration {
         Ok(())
     }
 
+    /// Reject downgrade because removed compatibility data cannot be safely reconstructed.
     async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
         Err(DbErr::Migration(
             "expired storage compatibility cleanup is irreversible; restore a matching database backup to downgrade".into(),
@@ -77,6 +79,7 @@ impl MigrationTrait for Migration {
     }
 }
 
+/// Reject incomplete session bindings or unconverted remote credentials before any schema change.
 async fn preflight(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     let connection = manager.get_connection();
     for (sql, guidance) in [
@@ -120,6 +123,8 @@ async fn preflight(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 // SQLite cannot change nullability in place. Pin one physical connection so
 // foreign_keys OFF, transactional rebuild and restoration cannot hit different
 // pool members. Preserve dependent parts, all indexes/triggers, and FK mode.
+/// Rebuild session constraints and remove legacy schema on one connection or the caller transaction.
+/// Restore the original foreign-key mode; reject violations without committing partial changes.
 async fn cleanup_sqlite(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     use sea_orm_migration::sea_orm::sqlx::{self, AssertSqlSafe, Connection};
     let statements = sqlite_cleanup_statements(manager).await?;
@@ -208,6 +213,7 @@ async fn cleanup_sqlite(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     Ok(())
 }
 
+/// Build the SQLite rebuild plan while preserving existing upload indexes and triggers.
 async fn sqlite_cleanup_statements(manager: &SchemaManager<'_>) -> Result<Vec<String>, DbErr> {
     let connection = manager.get_connection();
     let schema = connection.query_all_raw(Statement::from_string(DbBackend::Sqlite,
@@ -275,6 +281,7 @@ struct SqliteCleanupConnection {
 }
 
 impl Drop for SqliteCleanupConnection {
+    /// Discard a SQLite connection whose foreign-key mode was not restored, including cancellation.
     fn drop(&mut self) {
         if !self.restored {
             self.connection.close_on_drop();
@@ -282,6 +289,7 @@ impl Drop for SqliteCleanupConnection {
     }
 }
 
+/// Attach storage-cleanup context to SQLite failures without discarding the database diagnostic.
 fn sqlite_error(error: sea_orm_migration::sea_orm::sqlx::Error) -> DbErr {
     DbErr::Migration(format!(
         "SQLite storage compatibility cleanup failed: {error}"
@@ -316,3 +324,45 @@ const SQLITE_UPLOAD_SESSIONS: &str = "CREATE TABLE upload_sessions__placement_re
     mime_type varchar(255) NOT NULL DEFAULT 'application/octet-stream',
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 )";
+
+#[cfg(test)]
+mod tests {
+    /// An interrupted cleanup must discard a connection with altered FK mode from the pool.
+    #[tokio::test]
+    async fn unrestored_connection_is_closed_instead_of_reused() {
+        use sea_orm_migration::sea_orm::sqlx;
+        use sea_orm_migration::sea_orm::{ConnectOptions, Database};
+        let db = Database::connect(
+            ConnectOptions::new("sqlite::memory:")
+                .max_connections(1)
+                .to_owned(),
+        )
+        .await
+        .unwrap();
+        let mut connection = db.get_sqlite_connection_pool().acquire().await.unwrap();
+        sqlx::query("CREATE TEMP TABLE cleanup_connection_marker (id INTEGER)")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        sqlx::query("PRAGMA foreign_keys = OFF")
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+        drop(super::SqliteCleanupConnection {
+            connection,
+            restored: false,
+        });
+        let mut replacement = db.get_sqlite_connection_pool().acquire().await.unwrap();
+        let enabled: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+            .fetch_one(&mut *replacement)
+            .await
+            .unwrap();
+        assert_eq!(enabled, 1);
+        assert!(
+            sqlx::query("SELECT id FROM cleanup_connection_marker")
+                .fetch_all(&mut *replacement)
+                .await
+                .is_err()
+        );
+    }
+}

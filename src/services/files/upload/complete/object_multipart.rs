@@ -881,6 +881,7 @@ mod tests {
         assert!(error.message().contains("uploaded object missing"));
     }
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn test_session(total_size: i64, total_chunks: i32) -> upload_session::Model {
         upload_session::Model {
             id: "session".to_string(),

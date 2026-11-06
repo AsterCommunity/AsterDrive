@@ -21,6 +21,7 @@ pub use chunk::{
     upload_chunk_payload, upload_chunk_payload_for_team,
 };
 
+/// Authorize and claim a live stream session before consuming bytes or publishing its file.
 pub(crate) async fn ingest_stream(
     state: &PrimaryAppState,
     upload_id: &str,

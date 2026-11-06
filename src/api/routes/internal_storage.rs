@@ -975,6 +975,7 @@ async fn list_storage_target_connectors(
     Ok(HttpResponse::Ok().json(crate::api::response::success(catalog)))
 }
 
+/// Create a target for the authenticated primary binding and record the follower audit event.
 async fn create_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -1011,6 +1012,7 @@ async fn create_storage_target(
     Ok(HttpResponse::Created().json(crate::api::response::success(target)))
 }
 
+/// Update the binding-owned target and audit the connector state returned by the follower.
 async fn update_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -1047,6 +1049,7 @@ async fn update_storage_target(
     Ok(HttpResponse::Ok().json(crate::api::response::success(target)))
 }
 
+/// Delete the binding-owned target and preserve its identity in the follower audit event.
 async fn delete_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,

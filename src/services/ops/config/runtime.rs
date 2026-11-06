@@ -172,6 +172,8 @@ async fn reconcile_user_policy_groups(
     Ok(())
 }
 
+/// Run notification reloads and periodic writer-backed snapshot reconciliation until shutdown.
+/// Recover missed publish hints off the upload hot path while preserving the owned audit writer and drivers.
 pub async fn run_config_reload_subscription<S>(
     state: Arc<S>,
     runtime: ConfigSyncRuntime,
@@ -448,8 +450,11 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn remote_notification_reloads_runtime_config_from_authoritative_database() {
+    /// Build a single-writer reload fixture with a valid policy, defaults and initial snapshots.
+    async fn reload_state() -> (
+        Arc<ReloadTestState>,
+        aster_drive_model::entities::storage_policy::Model,
+    ) {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
                 url: "sqlite::memory:".into(),
@@ -515,6 +520,16 @@ mod tests {
             metrics: aster_drive_metrics::NoopMetrics::arc(),
         });
 
+        (state, policy)
+    }
+
+    /// Verify notification reloads and periodic reconciliation preserve the owned audit writer.
+    #[tokio::test]
+    async fn remote_notification_reloads_runtime_config_from_authoritative_database() {
+        let (state, policy) = reload_state().await;
+        let db = state.db.clone();
+        let runtime_config = state.runtime_config.clone();
+        let policy_snapshot = state.policy_snapshot.clone();
         // Runtime reload must leave accepted audit records and their owner intact.
         let audit_writer = state.audit_writer().clone();
         crate::runtime::startup::record_server_start(state.as_ref()).await;
@@ -637,5 +652,260 @@ mod tests {
             .unwrap();
         assert_eq!(audit_writer.snapshot().persisted, 2);
         audit_writer.stop(tokio::time::Instant::now()).await;
+    }
+    /// Disabled synchronization waits for shutdown and performs no database reload.
+    #[tokio::test]
+    async fn disabled_subscription_cancels_without_database_access() {
+        let (state, _) = reload_state().await;
+        state.db.close_by_ref().await.unwrap();
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(super::run_config_reload_subscription(
+            state,
+            aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
+            shutdown.clone(),
+        ));
+        tokio::task::yield_now().await;
+        assert!(!worker.is_finished());
+        shutdown.cancel();
+        worker.await.unwrap().unwrap();
+    }
+
+    /// A periodic reload failure retains the accepted snapshot and recovers without a new notification.
+    #[tokio::test]
+    async fn periodic_snapshot_failure_keeps_old_state_then_recovers_next_interval() {
+        use sea_orm::ConnectionTrait;
+        let (state, policy) = reload_state().await;
+        let notifier: aster_forge_config::SharedConfigChangeNotifier =
+            Arc::new(aster_forge_config::InMemoryConfigNotifier::default());
+        let runtime = aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+            super::CONFIG_RELOAD_NAMESPACE,
+            "periodic-recovery",
+            notifier,
+        );
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        // Observe a DB-only marker to prove initial reconciliation has completed.
+        crate::db::repository::config_repo::upsert(
+            &state.db,
+            "gravatar_base_url",
+            "https://periodic-initial.example/avatar",
+            1,
+        )
+        .await
+        .unwrap();
+        let worker = tokio::spawn(super::run_config_reload_subscription(
+            state.clone(),
+            runtime,
+            shutdown.clone(),
+        ));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if state.runtime_config.get("gravatar_base_url").as_deref()
+                    == Some("https://periodic-initial.example/avatar")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("initial subscription must load the authoritative marker");
+        state
+            .db
+            .execute_unprepared(
+                "ALTER TABLE storage_policy_group_rules RENAME TO unavailable_rules",
+            )
+            .await
+            .unwrap();
+        let mut updated = policy.clone().into_active_model();
+        updated.max_file_size = Set(744);
+        updated.update(&state.db).await.unwrap();
+        tokio::time::sleep(super::POLICY_SNAPSHOT_RECONCILE_INTERVAL + Duration::from_millis(300))
+            .await;
+        assert!(!worker.is_finished());
+        assert_eq!(
+            state
+                .policy_snapshot
+                .get_policy(policy.id)
+                .unwrap()
+                .max_file_size,
+            0
+        );
+        state
+            .db
+            .execute_unprepared(
+                "ALTER TABLE unavailable_rules RENAME TO storage_policy_group_rules",
+            )
+            .await
+            .unwrap();
+        tokio::time::timeout(
+            super::POLICY_SNAPSHOT_RECONCILE_INTERVAL + Duration::from_secs(5),
+            async {
+                loop {
+                    if state
+                        .policy_snapshot
+                        .get_policy(policy.id)
+                        .unwrap()
+                        .max_file_size
+                        == 744
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            },
+        )
+        .await
+        .expect("periodic retry must recover after the database read becomes available");
+        shutdown.cancel();
+        worker.await.unwrap().unwrap();
+    }
+
+    /// Failed initial reconciliation is retried without requiring a transport reconnect or message.
+    #[tokio::test]
+    async fn initial_config_read_failure_recovers_from_authoritative_database() {
+        use sea_orm::ConnectionTrait;
+        let (state, _) = reload_state().await;
+        let notifier: aster_forge_config::SharedConfigChangeNotifier =
+            Arc::new(aster_forge_config::InMemoryConfigNotifier::default());
+        let runtime = aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+            super::CONFIG_RELOAD_NAMESPACE,
+            "initial-recovery",
+            notifier,
+        );
+        state
+            .db
+            .execute_unprepared("ALTER TABLE system_config RENAME TO unavailable_config")
+            .await
+            .unwrap();
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(super::run_config_reload_subscription(
+            state.clone(),
+            runtime,
+            shutdown.clone(),
+        ));
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(!worker.is_finished());
+        state
+            .db
+            .execute_unprepared("ALTER TABLE unavailable_config RENAME TO system_config")
+            .await
+            .unwrap();
+        crate::db::repository::config_repo::upsert(
+            &state.db,
+            "gravatar_base_url",
+            "https://initial-retry.example/avatar",
+            1,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if state.runtime_config.get("gravatar_base_url").as_deref()
+                    == Some("https://initial-retry.example/avatar")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("initial failed config read must retry without another publication");
+        shutdown.cancel();
+        worker.await.unwrap().unwrap();
+    }
+    /// Delivered notifications that fail DB reads schedule authoritative retries without another hint.
+    #[tokio::test]
+    async fn notification_read_failures_recover_without_republishing() {
+        use sea_orm::ConnectionTrait;
+        let (state, policy) = reload_state().await;
+        let notifier: aster_forge_config::SharedConfigChangeNotifier =
+            Arc::new(aster_forge_config::InMemoryConfigNotifier::default());
+        let receiver = aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+            super::CONFIG_RELOAD_NAMESPACE,
+            "failure-receiver",
+            notifier.clone(),
+        );
+        let publisher = aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+            super::CONFIG_RELOAD_NAMESPACE,
+            "failure-publisher",
+            notifier,
+        );
+        crate::db::repository::config_repo::upsert(
+            &state.db,
+            "gravatar_base_url",
+            "https://notify-ready.example/avatar",
+            1,
+        )
+        .await
+        .unwrap();
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let worker = tokio::spawn(super::run_config_reload_subscription(
+            state.clone(),
+            receiver,
+            shutdown.clone(),
+        ));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while state.runtime_config.get("gravatar_base_url").as_deref()
+                != Some("https://notify-ready.example/avatar")
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        for (table, hint) in [
+            (
+                "system_config",
+                super::STORAGE_TOPOLOGY_RELOAD_KEY.to_string(),
+            ),
+            (
+                "storage_policy_group_rules",
+                super::STORAGE_TOPOLOGY_RELOAD_KEY.to_string(),
+            ),
+        ] {
+            state
+                .db
+                .execute_unprepared(&format!(
+                    "ALTER TABLE {table} RENAME TO retry_unavailable_table"
+                ))
+                .await
+                .unwrap();
+            publisher
+                .publish_reload([hint], aster_forge_config::ConfigNotificationSource::Api)
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            assert!(!worker.is_finished());
+            assert_eq!(
+                state
+                    .policy_snapshot
+                    .get_policy(policy.id)
+                    .unwrap()
+                    .max_file_size,
+                0
+            );
+            state
+                .db
+                .execute_unprepared(&format!(
+                    "ALTER TABLE retry_unavailable_table RENAME TO {table}"
+                ))
+                .await
+                .unwrap();
+            let marker = format!("https://{table}-recovered.example/avatar");
+            crate::db::repository::config_repo::upsert(&state.db, "gravatar_base_url", &marker, 1)
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while state.runtime_config.get("gravatar_base_url").as_deref()
+                    != Some(marker.as_str())
+                {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("failed notification callback must recover before the periodic snapshot timer");
+        }
+        shutdown.cancel();
+        worker.await.unwrap().unwrap();
     }
 }

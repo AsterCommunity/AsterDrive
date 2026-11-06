@@ -454,6 +454,8 @@ async fn seed_real_webdav_account(state: &PrimaryAppState) -> (String, String) {
     (username, password)
 }
 
+/// Create team and personal WebDAV accounts through the product team-creation path.
+/// Publish the routing snapshot as a real deployment does before serving team writes.
 async fn seed_real_team_webdav_accounts(
     state: &PrimaryAppState,
 ) -> (String, String, String, String, i64) {

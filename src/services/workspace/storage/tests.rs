@@ -1802,6 +1802,7 @@ async fn exact_name_conflict_cleans_preuploaded_local_blob() {
     assert_eq!(upload_tree_after, upload_tree_before);
 }
 
+/// Verify stream publish rolls back file blob quota when session completion loses claim.
 #[tokio::test]
 async fn stream_publish_rolls_back_file_blob_quota_when_session_completion_loses_claim() {
     let (state, temp_root, policy, user) = build_test_state().await;

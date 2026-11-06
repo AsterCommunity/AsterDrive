@@ -3,6 +3,7 @@ use super::*;
 use aster_forge_test::process::{TestProcess, available_loopback_port};
 use std::time::Duration;
 
+/// Open the isolated fresh-deployment database with the production writer connection settings.
 async fn connect(database_url: &str) -> DatabaseConnection {
     db::connect_with_metrics(
         &DatabaseConfig {
@@ -16,6 +17,7 @@ async fn connect(database_url: &str) -> DatabaseConnection {
     .unwrap()
 }
 
+/// Build a real server launch with isolated configuration and no inherited ASTER overrides.
 fn server_command(database_url: &str, mode: &str, port: u16) -> Command {
     let mut command = Command::new(aster_drive_bin());
     for (key, _) in std::env::vars_os() {
@@ -35,6 +37,7 @@ fn server_command(database_url: &str, mode: &str, port: u16) -> Command {
     command
 }
 
+/// Wait for the child listener while failing with captured logs if startup exits or times out.
 async fn wait_for_server(process: &mut TestProcess, client: &reqwest::Client, base: &str) {
     tokio::time::timeout(Duration::from_secs(120), async {
         loop {
@@ -59,6 +62,7 @@ async fn wait_for_server(process: &mut TestProcess, client: &reqwest::Client, ba
     });
 }
 
+/// Verify complete migration history, removed legacy schema and canonical audit defaults on a fresh install.
 async fn assert_current_schema(database_url: &str) {
     let database = connect(database_url).await;
     let history = aster_drive_migration::inspect_migration_history(&database)
@@ -115,6 +119,7 @@ async fn assert_current_schema(database_url: &str) {
     database.close().await.unwrap();
 }
 
+/// Check that auth discovery and readiness agree on the primary setup state.
 async fn assert_primary_setup(client: &reqwest::Client, base: &str, expected: &str) {
     let response = client
         .post(format!("{base}/api/v1/auth/check"))
@@ -134,6 +139,8 @@ async fn assert_primary_setup(client: &reqwest::Client, base: &str, expected: &s
     assert_eq!(body["data"]["status"], expected);
 }
 
+/// Start the production binary on an empty schema, validate setup and restart the same database.
+/// Cover both node modes without cloning the integration-test schema template.
 async fn fresh_server_installs_and_restarts(backend: DbBackend, mode: &str) {
     let port = available_loopback_port();
     let external_url = match backend {
@@ -217,26 +224,32 @@ async fn fresh_server_installs_and_restarts(backend: DbBackend, mode: &str) {
     );
 }
 
+/// Verify fresh deployment sqlite primary.
 #[tokio::test]
 async fn fresh_deployment_sqlite_primary() {
     fresh_server_installs_and_restarts(DbBackend::Sqlite, "primary").await;
 }
+/// Verify fresh deployment sqlite follower.
 #[tokio::test]
 async fn fresh_deployment_sqlite_follower() {
     fresh_server_installs_and_restarts(DbBackend::Sqlite, "follower").await;
 }
+/// Verify fresh deployment postgres primary.
 #[tokio::test]
 async fn fresh_deployment_postgres_primary() {
     fresh_server_installs_and_restarts(DbBackend::Postgres, "primary").await;
 }
+/// Verify fresh deployment postgres follower.
 #[tokio::test]
 async fn fresh_deployment_postgres_follower() {
     fresh_server_installs_and_restarts(DbBackend::Postgres, "follower").await;
 }
+/// Verify fresh deployment mysql primary.
 #[tokio::test]
 async fn fresh_deployment_mysql_primary() {
     fresh_server_installs_and_restarts(DbBackend::MySql, "primary").await;
 }
+/// Verify fresh deployment mysql follower.
 #[tokio::test]
 async fn fresh_deployment_mysql_follower() {
     fresh_server_installs_and_restarts(DbBackend::MySql, "follower").await;

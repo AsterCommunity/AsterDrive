@@ -34,6 +34,7 @@ const ACTIONS: &[(&str, &str)] = &[
 const DETAILS: &str =
     r#"{ "target_key": "old-target", "driver_type": "s3", "note": "remote_ingress_profile" }"#;
 
+/// Seed old and current audit identifiers plus action selection before the terminology migration.
 async fn fixture(db: &DatabaseConnection, config: &str) {
     let position = CurrentMigrator::migrations()
         .iter()
@@ -98,6 +99,7 @@ async fn fixture(db: &DatabaseConnection, config: &str) {
     .unwrap();
 }
 
+/// Read the stored action selection after migration without applying runtime normalization.
 async fn read_config(db: &DatabaseConnection) -> String {
     db.query_one(
         &Query::select()
@@ -113,6 +115,7 @@ async fn read_config(db: &DatabaseConnection) -> String {
     .unwrap()
 }
 
+/// Read the complete historical audit snapshots for exact before/after preservation assertions.
 async fn logs(db: &DatabaseConnection) -> Vec<serde_json::Value> {
     db.query_all(
         &Query::select()
@@ -155,6 +158,7 @@ async fn logs(db: &DatabaseConnection) -> Vec<serde_json::Value> {
     .collect()
 }
 
+/// Verify exact identifier conversion, data preservation, idempotence and reverse migration.
 async fn assert_migration(db: &DatabaseConnection) {
     let selection = serde_json::to_string(
         &ACTIONS
@@ -207,6 +211,7 @@ async fn assert_migration(db: &DatabaseConnection) {
     assert_eq!(logs(db).await, after);
 }
 
+/// Verify malformed action selection blocks migration without rewriting logs or disclosing its value.
 async fn assert_invalid_config(db: &DatabaseConnection) {
     fixture(db, "invalid-array-do-not-log").await;
     let before = logs(db).await;
@@ -217,10 +222,12 @@ async fn assert_invalid_config(db: &DatabaseConnection) {
     assert_eq!(read_config(db).await, "invalid-array-do-not-log");
 }
 
+/// Verify audit names migrate sqlite.
 #[tokio::test]
 async fn audit_names_migrate_sqlite() {
     assert_migration(&Database::connect("sqlite::memory:").await.unwrap()).await;
 }
+/// Verify audit names migrate postgres.
 #[tokio::test]
 async fn audit_names_migrate_postgres() {
     assert_migration(
@@ -230,6 +237,7 @@ async fn audit_names_migrate_postgres() {
     )
     .await;
 }
+/// Verify audit names migrate mysql.
 #[tokio::test]
 async fn audit_names_migrate_mysql() {
     assert_migration(
@@ -239,10 +247,12 @@ async fn audit_names_migrate_mysql() {
     )
     .await;
 }
+/// Verify audit names invalid config sqlite.
 #[tokio::test]
 async fn audit_names_invalid_config_sqlite() {
     assert_invalid_config(&Database::connect("sqlite::memory:").await.unwrap()).await;
 }
+/// Verify audit names invalid config postgres.
 #[tokio::test]
 async fn audit_names_invalid_config_postgres() {
     assert_invalid_config(
@@ -252,6 +262,7 @@ async fn audit_names_invalid_config_postgres() {
     )
     .await;
 }
+/// Verify audit names invalid config mysql.
 #[tokio::test]
 async fn audit_names_invalid_config_mysql() {
     assert_invalid_config(
@@ -262,6 +273,7 @@ async fn audit_names_invalid_config_mysql() {
     .await;
 }
 
+/// Verify audit names preserve empty selection and merge duplicate names.
 #[tokio::test]
 async fn audit_names_preserve_empty_selection_and_merge_duplicate_names() {
     for (input, expected) in [
@@ -278,6 +290,7 @@ async fn audit_names_preserve_empty_selection_and_merge_duplicate_names() {
     }
 }
 
+/// Verify audit names update failure rolls back logs and action selection.
 #[tokio::test]
 async fn audit_names_update_failure_rolls_back_logs_and_action_selection() {
     let db = Database::connect("sqlite::memory:").await.unwrap();

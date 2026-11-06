@@ -735,6 +735,7 @@ mod tests {
         (team, membership)
     }
 
+    /// Verify team access cache hit rechecks membership and policy group.
     #[tokio::test]
     async fn team_access_cache_hit_rechecks_membership_and_policy_group() {
         let state = build_cached_state().await;

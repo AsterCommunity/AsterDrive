@@ -270,6 +270,7 @@ define_audit_entity_type! {
 // Build the API enum from the same wire values used by persistence.
 #[cfg(all(debug_assertions, feature = "openapi"))]
 impl utoipa::PartialSchema for AuditEntityType {
+    /// Generate entity-type schema values from the same identifiers accepted by persistence and filters.
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         utoipa::openapi::ObjectBuilder::new()
             .schema_type(utoipa::openapi::schema::Type::String)
@@ -375,6 +376,7 @@ mod tests {
         assert!(serde_json::from_value::<AuditEntityType>(serde_json::json!("unknown")).is_err());
     }
 
+    /// Verify remote target audit contract uses storage target wire values.
     #[test]
     fn remote_target_audit_contract_uses_storage_target_wire_values() {
         use sea_orm::ActiveEnum;
@@ -432,6 +434,7 @@ mod tests {
         );
     }
 
+    /// Verify retired ingress names are not runtime aliases.
     #[test]
     fn retired_ingress_names_are_not_runtime_aliases() {
         for old in [
@@ -834,6 +837,7 @@ impl AuditAction {
     pub const COUNT: usize = define_audit_action_list!(audit_action_count);
     pub const ALL: [Self; Self::COUNT] = define_audit_action_list!(audit_action_all);
 
+    /// Return the stable action bit index used by runtime audit-selection masks.
     pub const fn index(self) -> usize {
         match self {
             Self::AdminCreateUser => 0,
@@ -998,6 +1002,7 @@ impl AuditAction {
         }
     }
 
+    /// Return the canonical action identifier used by persistence, API responses and configuration.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AdminCreateUser => "admin_create_user",
@@ -1166,6 +1171,7 @@ impl AuditAction {
         }
     }
 
+    /// Parse current audit identifiers without accepting retired ingress aliases.
     pub fn from_str_name(value: &str) -> Option<Self> {
         match value {
             "admin_create_user" => Some(Self::AdminCreateUser),
@@ -1336,6 +1342,7 @@ impl AuditAction {
         }
     }
 
+    /// Group actions for the administrator configuration selector and its translated labels.
     pub const fn group(self) -> &'static str {
         match self {
             Self::AdminWorkspaceInspect

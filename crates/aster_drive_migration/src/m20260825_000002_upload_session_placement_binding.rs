@@ -50,6 +50,7 @@ impl MigrationTrait for Migration {
         .await
     }
 
+    /// Keep this historical additive migration rollback unchanged; later cleanup fences downgrade.
     async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
         // Historical additive migration; the cleanup migration prevents downgrade.
         Ok(())

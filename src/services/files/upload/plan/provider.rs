@@ -20,6 +20,7 @@ use super::context::{
     try_persist_upload_session,
 };
 
+/// Negotiate a provider resumable session and persist its encrypted state and placement snapshot.
 pub(super) async fn init_provider_resumable_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,

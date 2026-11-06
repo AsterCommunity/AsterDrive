@@ -786,6 +786,7 @@ async fn properties_record_only_real_changes_and_activity_failure_rolls_back() {
     assert_eq!(after.modified_at, before.modified_at);
 }
 
+/// Verify migration preserves existing resources and does not invent modifiers.
 #[actix_web::test]
 async fn migration_preserves_existing_resources_and_does_not_invent_modifiers() {
     use aster_drive_migration::{CurrentMigrator, MigratorTrait};

@@ -239,6 +239,7 @@ async fn external_auth_callback_mode_upgrades_mysql() {
     assert_external_auth_callback_mode_upgrade_on_backend(&db).await;
 }
 
+/// Verify storage placement migration preserves legacy rule semantics.
 #[tokio::test]
 async fn storage_placement_migration_preserves_legacy_rule_semantics() {
     let db = Database::connect("sqlite::memory:")
@@ -1162,6 +1163,7 @@ async fn resource_lock_migration_rejects_unresolved_legacy_target() {
     assert_eq!(count, 1, "failed migration must retain the legacy lock row");
 }
 
+/// Verify resource lock migration rejects unrepresentable downgrade.
 #[tokio::test]
 async fn resource_lock_migration_rejects_unrepresentable_downgrade() {
     let db = setup_historical_schema_before_compat_cleanup().await;
@@ -1202,6 +1204,7 @@ async fn resource_lock_migration_rejects_unrepresentable_downgrade() {
     assert_eq!(count, 1, "failed downgrade must retain the typed lock row");
 }
 
+/// Build the historical prefix used by rollback tests without crossing irreversible cleanup.
 async fn setup_historical_schema_before_compat_cleanup() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
         .await
@@ -1215,6 +1218,7 @@ async fn setup_historical_schema_before_compat_cleanup() -> sea_orm::DatabaseCon
     db
 }
 
+/// Verify external auth login flow browser binding migration is registered and reversible.
 #[tokio::test]
 async fn external_auth_login_flow_browser_binding_migration_is_registered_and_reversible() {
     assert!(
@@ -1242,6 +1246,7 @@ async fn external_auth_login_flow_browser_binding_migration_is_registered_and_re
     assert!(has_column(&reapplied_columns, "browser_binding_hash"));
 }
 
+/// Verify upload session kind column migrations are reversible.
 #[tokio::test]
 async fn upload_session_kind_column_migrations_are_reversible() {
     assert!(
@@ -1271,6 +1276,7 @@ async fn upload_session_kind_column_migrations_are_reversible() {
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
 }
 
+/// Verify required upload session kind migration rolls back and reapplies.
 #[tokio::test]
 async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
     assert!(
@@ -1403,6 +1409,7 @@ async fn required_upload_session_kind_migration_rejects_invalid_values_without_d
     );
 }
 
+/// Verify upload provider session migration is nullable and reversible.
 #[tokio::test]
 async fn upload_provider_session_migration_is_nullable_and_reversible() {
     assert!(
@@ -1436,6 +1443,7 @@ async fn upload_provider_session_migration_is_nullable_and_reversible() {
     ));
 }
 
+/// Verify remote tunnel owner directory migration is registered and reversible.
 #[tokio::test]
 async fn remote_tunnel_owner_directory_migration_is_registered_and_reversible() {
     assert!(
@@ -1474,6 +1482,7 @@ async fn remote_tunnel_owner_directory_migration_is_registered_and_reversible() 
     assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
 }
 
+/// Verify provider relay resumable ordering index is registered and reversible.
 #[tokio::test]
 async fn provider_relay_resumable_ordering_index_is_registered_and_reversible() {
     assert!(
@@ -2540,6 +2549,7 @@ async fn storage_policy_driver_type(db: &DatabaseConnection, name: &str) -> Stri
     .expect("storage policy driver type should decode")
 }
 
+/// Count historical rollback steps up to the explicit compatibility-cleanup boundary.
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
     let migrations = CurrentMigrator::migrations();
     let position = migrations
@@ -2608,6 +2618,7 @@ async fn storage_policy_legacy_cleanup_rejects_unmigrated_static_secrets_before_
     );
 }
 
+/// Verify storage policy legacy cleanup drops empty legacy surface.
 #[tokio::test]
 async fn storage_policy_legacy_cleanup_drops_empty_legacy_surface() {
     let db = Database::connect("sqlite::memory:")
@@ -2854,6 +2865,7 @@ async fn sqlite_column_is_not_null(
     .unwrap_or(false)
 }
 
+/// Verify forge task runtime schema uses shared tables indexes and dedupe column.
 #[tokio::test]
 async fn forge_task_runtime_schema_uses_shared_tables_indexes_and_dedupe_column() {
     let db = setup_historical_schema_before_compat_cleanup().await;
@@ -2885,6 +2897,7 @@ async fn forge_task_runtime_schema_uses_shared_tables_indexes_and_dedupe_column(
     }
 }
 
+/// Verify forge task runtime migrations roll back and reapply as one contract.
 #[tokio::test]
 async fn forge_task_runtime_migrations_roll_back_and_reapply_as_one_contract() {
     let db = setup_historical_schema_before_compat_cleanup().await;
@@ -2950,6 +2963,7 @@ fn has_column(columns: &[String], expected: &str) -> bool {
     columns.iter().any(|column| column == expected)
 }
 
+/// Verify json text columns are not null in current schema.
 #[tokio::test]
 async fn json_text_columns_are_not_null_in_current_schema() {
     assert!(
@@ -2971,6 +2985,7 @@ async fn json_text_columns_are_not_null_in_current_schema() {
     }
 }
 
+/// Verify forge audit query indexes are present in current schema.
 #[tokio::test]
 async fn forge_audit_query_indexes_are_present_in_current_schema() {
     assert!(
@@ -3186,6 +3201,7 @@ async fn forge_mail_outbox_contract_preserves_rows_and_named_indexes() {
     assert_eq!(preserved.try_get_by_index::<i32>(4).unwrap(), 2);
 }
 
+/// Verify upload session object field migration renames legacy columns.
 #[tokio::test]
 async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(
@@ -3203,6 +3219,7 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(!has_column(&current_columns, "s3_multipart_id"));
 }
 
+/// Verify mysql remote storage target rename migration round trips indexes.
 #[tokio::test]
 async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
     let should_run_mysql = std::env::var("ASTER_TEST_DATABASE_BACKEND")
@@ -3297,6 +3314,7 @@ async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
     );
 }
 
+/// Verify remote storage target max file size migration removes target level limit.
 #[tokio::test]
 async fn remote_storage_target_max_file_size_migration_removes_target_level_limit() {
     assert!(
@@ -3408,6 +3426,7 @@ async fn allow_shared_webdav_locks_down_reports_duplicate_entity_locks() {
 
 const EXPIRED_STORAGE_COMPAT_MIGRATION: &str = "m20261105_000001_remove_expired_storage_compat";
 
+/// Seed the pre-cleanup schema with a bound upload, a part receipt and a converted encrypted target.
 async fn expired_storage_compat_fixture(db: &DatabaseConnection) {
     CurrentMigrator::up(
         db,
@@ -3427,6 +3446,7 @@ async fn expired_storage_compat_fixture(db: &DatabaseConnection) {
     }
 }
 
+/// Verify physical cleanup preserves session parts, connector state and credentials across backends.
 async fn assert_expired_storage_compat_cleanup(db: &DatabaseConnection) {
     expired_storage_compat_fixture(db).await;
     let backend = db.get_database_backend();
@@ -3533,6 +3553,7 @@ async fn assert_expired_storage_compat_cleanup(db: &DatabaseConnection) {
     );
 }
 
+/// Verify incomplete bindings and plaintext credentials stop upgrade before destructive DDL.
 async fn assert_expired_storage_compat_preflight(db: &DatabaseConnection) {
     expired_storage_compat_fixture(db).await;
     let manager = aster_drive_migration::SchemaManager::new(db);
@@ -3579,11 +3600,13 @@ async fn assert_expired_storage_compat_preflight(db: &DatabaseConnection) {
     CurrentMigrator::up(db, None).await.unwrap();
 }
 
+/// Verify expired storage compat cleanup sqlite.
 #[tokio::test]
 async fn expired_storage_compat_cleanup_sqlite() {
     assert_expired_storage_compat_cleanup(&Database::connect("sqlite::memory:").await.unwrap())
         .await;
 }
+/// Verify expired storage compat cleanup postgres.
 #[tokio::test]
 async fn expired_storage_compat_cleanup_postgres() {
     let db = Database::connect(common::postgres_empty_test_database_url().await)
@@ -3591,6 +3614,7 @@ async fn expired_storage_compat_cleanup_postgres() {
         .unwrap();
     assert_expired_storage_compat_cleanup(&db).await;
 }
+/// Verify expired storage compat cleanup mysql.
 #[tokio::test]
 async fn expired_storage_compat_cleanup_mysql() {
     let db = Database::connect(common::mysql_empty_test_database_url().await)
@@ -3598,11 +3622,13 @@ async fn expired_storage_compat_cleanup_mysql() {
         .unwrap();
     assert_expired_storage_compat_cleanup(&db).await;
 }
+/// Verify expired storage compat preflight sqlite.
 #[tokio::test]
 async fn expired_storage_compat_preflight_sqlite() {
     assert_expired_storage_compat_preflight(&Database::connect("sqlite::memory:").await.unwrap())
         .await;
 }
+/// Verify expired storage compat preflight postgres.
 #[tokio::test]
 async fn expired_storage_compat_preflight_postgres() {
     let db = Database::connect(common::postgres_empty_test_database_url().await)
@@ -3610,6 +3636,7 @@ async fn expired_storage_compat_preflight_postgres() {
         .unwrap();
     assert_expired_storage_compat_preflight(&db).await;
 }
+/// Verify expired storage compat preflight mysql.
 #[tokio::test]
 async fn expired_storage_compat_preflight_mysql() {
     let db = Database::connect(common::mysql_empty_test_database_url().await)
@@ -3618,6 +3645,7 @@ async fn expired_storage_compat_preflight_mysql() {
     assert_expired_storage_compat_preflight(&db).await;
 }
 
+/// Verify expired storage compat sqlite ddl failure rolls back rebuild and restores foreign keys.
 #[tokio::test]
 async fn expired_storage_compat_sqlite_ddl_failure_rolls_back_rebuild_and_restores_foreign_keys() {
     let db = Database::connect("sqlite::memory:").await.unwrap();
@@ -3674,4 +3702,120 @@ async fn expired_storage_compat_sqlite_ddl_failure_rolls_back_rebuild_and_restor
         .await
         .unwrap();
     CurrentMigrator::up(&db, None).await.unwrap();
+}
+
+/// Caller-managed transactions must disable SQLite foreign keys before any rebuild begins.
+#[tokio::test]
+async fn expired_storage_compat_rejects_outer_transaction_with_foreign_keys_enabled() {
+    use sea_orm::TransactionTrait;
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    expired_storage_compat_fixture(&db).await;
+    let transaction = db.begin().await.unwrap();
+    let migration = CurrentMigrator::migrations()
+        .into_iter()
+        .find(|migration| migration.name() == EXPIRED_STORAGE_COMPAT_MIGRATION)
+        .unwrap();
+    let error = migration
+        .up(&aster_drive_migration::SchemaManager::new(&transaction))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("requires foreign keys disabled"));
+    transaction.rollback().await.unwrap();
+    assert!(
+        aster_drive_migration::SchemaManager::new(&db)
+            .has_table("storage_policy_group_items")
+            .await
+            .unwrap()
+    );
+    assert!(!sqlite_column_is_not_null(&db, "upload_sessions", "placement_profile_id").await);
+}
+
+/// Rebuilds preserve a caller's disabled FK mode instead of unconditionally enabling it.
+#[tokio::test]
+async fn expired_storage_compat_preserves_disabled_foreign_key_mode() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    expired_storage_compat_fixture(&db).await;
+    db.execute_unprepared("PRAGMA foreign_keys = OFF")
+        .await
+        .unwrap();
+    CurrentMigrator::up(&db, None).await.unwrap();
+    let mode = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "PRAGMA foreign_keys",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(mode.try_get_by_index::<i64>(0).unwrap(), 0);
+    assert!(sqlite_column_is_not_null(&db, "upload_sessions", "placement_profile_id").await);
+    assert!(
+        !aster_drive_migration::SchemaManager::new(&db)
+            .has_table("storage_policy_group_items")
+            .await
+            .unwrap()
+    );
+}
+
+/// Existing orphan rows reject cleanup in both standalone and outer-transaction entry paths.
+#[tokio::test]
+async fn expired_storage_compat_foreign_key_violation_keeps_original_schema_and_rows() {
+    use sea_orm::TransactionTrait;
+    for outer_transaction in [false, true] {
+        let db = Database::connect("sqlite::memory:").await.unwrap();
+        expired_storage_compat_fixture(&db).await;
+        db.execute_unprepared("PRAGMA foreign_keys = OFF")
+            .await
+            .unwrap();
+        db.execute_unprepared(
+            "UPDATE upload_sessions SET user_id = 999999 WHERE id = 'compat-upload'",
+        )
+        .await
+        .unwrap();
+        let migration = CurrentMigrator::migrations()
+            .into_iter()
+            .find(|migration| migration.name() == EXPIRED_STORAGE_COMPAT_MIGRATION)
+            .unwrap();
+        let error = if outer_transaction {
+            let transaction = db.begin().await.unwrap();
+            let error = migration
+                .up(&aster_drive_migration::SchemaManager::new(&transaction))
+                .await
+                .unwrap_err();
+            transaction.rollback().await.unwrap();
+            error
+        } else {
+            migration
+                .up(&aster_drive_migration::SchemaManager::new(&db))
+                .await
+                .unwrap_err()
+        };
+        assert!(
+            error.to_string().contains("would violate foreign keys"),
+            "{error}"
+        );
+        let manager = aster_drive_migration::SchemaManager::new(&db);
+        assert!(
+            manager
+                .has_table("storage_policy_group_items")
+                .await
+                .unwrap()
+        );
+        assert!(
+            manager
+                .has_column("remote_storage_targets", "secret_key")
+                .await
+                .unwrap()
+        );
+        assert!(!sqlite_column_is_not_null(&db, "upload_sessions", "placement_profile_id").await);
+        let row = db
+            .query_one_raw(Statement::from_string(
+                DbBackend::Sqlite,
+                "SELECT user_id FROM upload_sessions WHERE id = 'compat-upload'",
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.try_get_by_index::<i64>(0).unwrap(), 999999);
+    }
 }

@@ -94,6 +94,7 @@ impl<'a> UploadSessionSpec<'a> {
     }
 }
 
+/// Build an upload-session fixture with required placement bindings and the state under test.
 async fn create_upload_session(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,

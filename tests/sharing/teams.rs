@@ -35,6 +35,7 @@ macro_rules! login_user {
     }};
 }
 
+/// Verify team crud and member lifecycle.
 #[actix_web::test]
 async fn test_team_crud_and_member_lifecycle() {
     let state = common::setup().await;

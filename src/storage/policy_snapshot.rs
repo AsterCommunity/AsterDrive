@@ -1038,6 +1038,17 @@ mod tests {
         snapshot.reload(&db, &connectors).await.unwrap();
         assert!(!snapshot.replace_if_current(generation, old_read));
         assert_eq!(snapshot.get_policy(policy.id).unwrap().name, "After");
+        // Exercise actual overlapping reload calls as well as the controlled
+        // publication boundary: all callers must finish after contention.
+        let before = snapshot.snapshot.read().generation;
+        tokio::try_join!(
+            snapshot.reload(&db, &connectors),
+            snapshot.reload(&db, &connectors),
+            snapshot.reload(&db, &connectors),
+        )
+        .unwrap();
+        assert_eq!(snapshot.snapshot.read().generation, before + 3);
+        assert_eq!(snapshot.get_policy(policy.id).unwrap().name, "After");
     }
 
     #[tokio::test]

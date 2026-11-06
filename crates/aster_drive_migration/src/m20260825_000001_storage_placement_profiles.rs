@@ -27,6 +27,7 @@ impl MigrationTrait for Migration {
         materialize_legacy_items(manager).await
     }
 
+    /// Restore the historical topology schema for migration-prefix rollback tests.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .drop_table(

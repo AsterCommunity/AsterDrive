@@ -39,6 +39,7 @@ fn remote_node_audit_details(node: &remote_node::RemoteNodeInfo) -> Option<serde
     })
 }
 
+/// Capture the returned target identity and connector in the administrator audit snapshot.
 fn remote_storage_target_audit_details(
     target: &crate::storage::remote_protocol::RemoteStorageTargetInfo,
 ) -> Option<serde_json::Value> {
@@ -432,6 +433,7 @@ pub async fn list_remote_node_storage_target_connectors(
     ),
     security(("bearer" = [])),
 )]
+/// Create a target on its owning follower and record the successful administrator action.
 pub async fn create_remote_node_storage_target(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -473,6 +475,7 @@ pub async fn create_remote_node_storage_target(
     ),
     security(("bearer" = [])),
 )]
+/// Apply a follower-owned target update before recording the resulting audit snapshot.
 pub async fn update_remote_node_storage_target(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -515,6 +518,7 @@ pub async fn update_remote_node_storage_target(
     ),
     security(("bearer" = [])),
 )]
+/// Delete an unreferenced follower target and audit its stable target key.
 pub async fn delete_remote_node_storage_target(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,

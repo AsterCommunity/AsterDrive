@@ -467,6 +467,7 @@ pub(super) async fn resolve_required_policy_group_id(
     Ok(group_id)
 }
 
+/// Commit team ownership and membership, then publish its local assignment before notifying peers.
 pub(super) async fn create_team_record(
     state: &impl SharedRuntimeState,
     created_by_user_id: i64,

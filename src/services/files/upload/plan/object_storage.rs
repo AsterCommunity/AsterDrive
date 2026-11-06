@@ -94,6 +94,7 @@ async fn init_presigned_object_storage_upload(
     .await
 }
 
+/// Allocate a presigned single-object upload and persist the frozen placement binding.
 async fn init_presigned_object_storage_single_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,

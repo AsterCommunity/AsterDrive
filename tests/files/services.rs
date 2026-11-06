@@ -3809,6 +3809,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     assert!(!archived_team_ids.contains(&active_team.id));
 }
 
+/// Verify team archive cleanup deletes expired team data.
 #[actix_web::test]
 async fn test_team_archive_cleanup_deletes_expired_team_data() {
     use chrono::{Duration, Utc};
@@ -4065,6 +4066,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     );
 }
 
+/// Verify team archive cleanup keeps team when upload temp delete fails.
 #[cfg(unix)]
 #[actix_web::test]
 async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {

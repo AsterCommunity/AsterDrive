@@ -928,6 +928,7 @@ export interface paths {
         };
         get: operations["list_remote_node_storage_targets"];
         put?: never;
+        /** Create a target on its owning follower and record the successful administrator action. */
         post: operations["create_remote_node_storage_target"];
         delete?: never;
         options?: never;
@@ -945,9 +946,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** Delete an unreferenced follower target and audit its stable target key. */
         delete: operations["delete_remote_node_storage_target"];
         options?: never;
         head?: never;
+        /** Apply a follower-owned target update before recording the resulting audit snapshot. */
         patch: operations["update_remote_node_storage_target"];
         trace?: never;
     };

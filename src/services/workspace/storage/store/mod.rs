@@ -228,6 +228,7 @@ pub(crate) async fn create_empty_from_relative_path_with_idempotency(
     .await
 }
 
+/// Commit the empty file, virtual blob, quota and activity under workspace mutation coordination.
 async fn create_empty_transactional(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,

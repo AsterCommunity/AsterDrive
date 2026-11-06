@@ -108,6 +108,8 @@ async fn create_runtime_cache(
         })
 }
 
+/// Apply schema migrations and initialize product configuration before opening listeners.
+/// Fresh deployments remain in administrator/storage setup instead of creating an implicit storage policy.
 pub async fn initialize_database_state(
     database: &sea_orm::DatabaseConnection,
     cfg: &crate::config::Config,

@@ -2083,6 +2083,7 @@ struct PolicyUploadSessionSpec<'a> {
     expires_at: Option<chrono::DateTime<Utc>>,
 }
 
+/// Build an upload-session fixture with required placement bindings and the state under test.
 async fn create_policy_upload_session(
     state: &aster_drive::runtime::PrimaryAppState,
     spec: PolicyUploadSessionSpec<'_>,

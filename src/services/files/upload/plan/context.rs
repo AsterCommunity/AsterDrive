@@ -640,6 +640,7 @@ pub(super) async fn try_persist_upload_session(
     Ok(inserted)
 }
 
+/// Create a unique multipart session and undo provider allocations after persistence failures.
 pub(super) async fn init_multipart_session_with_retry(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
@@ -800,6 +801,7 @@ fn upload_session_active_model(
     }
 }
 
+/// Persist a stream session with required placement bindings before returning its upload instruction.
 pub(super) async fn init_stream_session(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,

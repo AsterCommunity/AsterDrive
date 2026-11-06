@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **过期存储兼容清理（破坏性变更）** — 删除旧 placement item 表、远端目标扁平配置列、启动转换器及团队策略绑定的数据库兜底。启用 config sync 的实例每 30 秒后台对账路由与绑定快照；快照发布保护已提交的本地绑定，避免并发 reload 覆盖新值。上传会话必须保存 placement profile 和 revision，文件夹策略覆盖仍允许 rule ID 为空。升级前须在旧版本完成远端目标转换，完成／取消并清理旧 placement 会话，再统一升级所有 writer。预检拒绝未完成转换的数据，不自动删除上传或凭据；降级需要恢复匹配版本的数据库备份。审计的数据库／API 标识、筛选和翻译统一使用 storage target 命名；事务迁移同步规范化历史 action、entity type 和录制白名单，保留日志内容与 action 数字 ID。自定义客户端、筛选及配置备份须更新，并部署配套前端。
+
 - **七牛 Kodo 原生重写** — 使用原生对象 API、固定小缓冲且不设整次传输硬超时的流式代理、不设浏览器整片硬超时的并发可续传分片及私有源站/CDN 下载。源站与 CDN 直连统一使用原生 MIME/缓存头，附件文件名参与签名，Range 不因响应头要求回退中继；内联隔离仍生效。启动升级使用已有加密凭据以有界并发探测验证原生空间和默认 HTTPS 源站，唯一匹配不受无关候选错误影响，再原子转换 V1 配置；保留策略 ID、对象 key 和前缀，验证失败保留原配置，成功后直接丢弃旧 S3 字段，不创建备份。升级前排空旧上传及 multipart 清理任务。下载签名有效期可配置为 1–3600 秒（默认 180），服务端流式读取、缩略图与私有直链共同遵守默认源站限制。浏览器编号分片统一使用 BrowserUploadRequest 和后端声明的回执规则，外部客户端需同步分片请求合同。 (#702)
 
 - **OneDrive Blob 直连交付** — 在严格文件名模式下，应用内下载和安全的 Blob 预览可以使用 Microsoft Graph 提供的直连 URL，支持已重命名文件以及历史遗留的 UUID 对象，同时确保使用 AsterDrive 当前的文件保存名称和 MIME 类型。原生下载、直连 URL 和外部查看器仍保留严格文件名回退机制；内联沙箱安全检查仍然强制执行。(#723)
@@ -42,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **服务与运维命令（构建 feature 改名）** — 默认 Cargo feature `cli` 改名为 `operations-cli`，显式 Cargo 与 Docker feature 列表须同步更新。服务启动、`serve all/api/worker`、实例选择、构建详情（`version`）与帮助不依赖该 feature。`version` / `version --json` 无需加载实例配置即可展示 revision、工作树状态、构建目标、profile、features 与时间。所有命令帮助以产品名及版本开头，并区分配置展示、备份、校验和恢复操作。
 
 ### Security
+
+- **团队根目录写入授权** — 阻止已登录的非成员及已移除成员跨团队初始化上传或创建空文件。上传初始化和空文件创建在分配会话、创建路径或文件前，使用 writer 数据库显式校验当前成员身份；策略快照命中不会跳过授权，正常成员保留写入权限。
 
 - **CLI 终端输出** — 人类可读配置值及交互式当前值提示统一转义 C0/C1 控制字符，避免已保存或导入的 ANSI／OSC 序列修改终端画面和写入确认；普通文本区分字面反斜杠与控制字符转义，展示的 JSON 数组及带引号当前值仍使用合法 JSON 转义。JSON 报告及备份保留原始内容。
 

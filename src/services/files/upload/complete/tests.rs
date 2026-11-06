@@ -5,6 +5,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
+/// Build an upload-session fixture with required placement bindings and the state under test.
 fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
     upload_session::Model {
         id: "test-upload".to_string(),

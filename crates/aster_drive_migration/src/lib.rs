@@ -170,6 +170,7 @@ impl MigratorTrait for Migrator {
 
 #[async_trait::async_trait]
 impl MigratorTrait for CurrentMigrator {
+    /// Register the ordered historical upgrades and current compatibility cleanup steps.
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
             Box::new(m20260512_000001_baseline_schema::Migration),

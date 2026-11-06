@@ -454,6 +454,7 @@ mod tests {
     use aster_drive_model::entities::upload_session;
     use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn session(
         object_temp_key: Option<&str>,
         object_multipart_id: Option<&str>,

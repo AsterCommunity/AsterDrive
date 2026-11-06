@@ -42,6 +42,7 @@ macro_rules! entity_schema {
 // Keep every SeaORM Entity here via entity_schema!(module::Entity), such as
 // user::Entity, file::Entity, folder::Entity, and any newly added entity module,
 // so the schema drift test continues to cover the full migration/entity surface.
+/// Enumerate current entities so drift checks cover the complete migrated schema.
 fn all_entity_schemas() -> Vec<EntitySchema> {
     vec![
         entity_schema!(audit_log::Entity),

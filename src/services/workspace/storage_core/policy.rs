@@ -106,6 +106,7 @@ pub(crate) async fn resolve_blob_write_size_limit(
     })
 }
 
+/// Resolve a write policy from the existing blob or the current routing snapshot.
 pub(crate) async fn resolve_blob_policy_for_write(
     state: &PrimaryAppState,
     request: BlobPolicyRequest<'_>,
@@ -113,6 +114,7 @@ pub(crate) async fn resolve_blob_policy_for_write(
     resolve_blob_policy_for_write_internal(state, request, &[], true).await
 }
 
+/// Resolve placement with dynamic target exclusions without emitting a premature routing observation.
 pub(crate) async fn resolve_blob_policy_for_write_with_exclusions(
     state: &PrimaryAppState,
     request: BlobPolicyRequest<'_>,
@@ -124,6 +126,7 @@ pub(crate) async fn resolve_blob_policy_for_write_with_exclusions(
     resolve_blob_policy_for_write_internal(state, request, dynamic_exclusions, false).await
 }
 
+/// Resolve authorized write placement while preserving existing-blob policy identity.
 async fn resolve_blob_policy_for_write_internal(
     state: &PrimaryAppState,
     request: BlobPolicyRequest<'_>,
@@ -262,6 +265,7 @@ fn resolve_new_blob_policy_from_snapshot(
     Ok((policy, decision))
 }
 
+/// Read a user/team assignment solely from the routing snapshot and fail explicitly when missing.
 fn placement_profile_id(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,

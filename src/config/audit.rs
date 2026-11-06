@@ -220,6 +220,7 @@ mod tests {
         );
     }
 
+    /// Verify remote target action selection uses current names.
     #[test]
     fn remote_target_action_selection_uses_current_names() {
         let settings = AuditLogRuntimeSettings::from_raw_values(

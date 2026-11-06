@@ -1001,6 +1001,7 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     )
 }
 
+/// Verify remote storage targets use reverse tunnel without base url.
 #[actix_web::test]
 async fn test_remote_storage_targets_use_reverse_tunnel_without_base_url() {
     let (
@@ -1085,6 +1086,7 @@ async fn test_remote_storage_targets_use_reverse_tunnel_without_base_url() {
     provider_server.stop().await;
 }
 
+/// Verify remote storage targets auto empty base url uses reverse tunnel.
 #[actix_web::test]
 async fn test_remote_storage_targets_auto_empty_base_url_uses_reverse_tunnel() {
     let (
@@ -1118,6 +1120,7 @@ async fn test_remote_storage_targets_auto_empty_base_url_uses_reverse_tunnel() {
     provider_server.stop().await;
 }
 
+/// Verify remote storage target create rejects driver missing from capabilities.
 #[tokio::test]
 async fn test_remote_storage_target_create_rejects_driver_missing_from_capabilities() {
     let consumer_state = common::setup().await;
@@ -1165,6 +1168,7 @@ async fn test_remote_storage_target_create_rejects_driver_missing_from_capabilit
     );
 }
 
+/// Verify remote storage target update rejects driver missing from capabilities.
 #[tokio::test]
 async fn test_remote_storage_target_update_rejects_driver_missing_from_capabilities() {
     let consumer_state = common::setup().await;
@@ -1222,6 +1226,7 @@ async fn test_remote_storage_target_update_rejects_driver_missing_from_capabilit
     );
 }
 
+/// Verify remote storage target update without driver change keeps remote authoritative.
 #[tokio::test]
 async fn test_remote_storage_target_update_without_driver_change_keeps_remote_authoritative() {
     let consumer_state = common::setup().await;
@@ -2524,6 +2529,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
     provider_server.stop().await;
 }
 
+/// Verify follower internal storage records binding and profile audit logs.
 #[tokio::test]
 async fn test_follower_internal_storage_records_binding_and_profile_audit_logs() {
     let provider_state = common::setup().await;
@@ -7270,6 +7276,7 @@ async fn test_pending_remote_node_connection_test_requires_completed_enrollment_
     provider_server.stop().await;
 }
 
+/// Verify remote storage targets require completed enrollment before network.
 #[actix_web::test]
 async fn test_remote_storage_targets_require_completed_enrollment_before_network() {
     let provider_state = common::setup().await;
@@ -9786,5 +9793,80 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         "remote multipart compose should cleanup follower temp parts"
     );
 
+    provider_server.stop().await;
+}
+
+/// Administrator target CRUD records the canonical action/entity names and connector snapshots.
+#[actix_web::test]
+async fn admin_remote_target_routes_record_create_update_delete_audit_snapshots() {
+    let (_provider_state, provider_server, consumer_state, node, _namespace, shutdown, worker) =
+        setup_reverse_tunnel_ingress_profile_target(RemoteNodeTransportMode::ReverseTunnel).await;
+    let app = create_test_app!(consumer_state.clone());
+    let (token, _) = register_and_login!(app);
+    let root = format!("/api/v1/admin/remote-nodes/{}/storage-targets", node.id);
+    let response = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri(&root)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(remote_local_target("Audited target", "audit-route-target"))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 201);
+    let body: serde_json::Value = test::read_body_json(response).await;
+    let target_key = body["data"]["target_key"].as_str().unwrap().to_string();
+    let uri = format!("{root}/{target_key}");
+    let response = test::call_service(
+        &app,
+        test::TestRequest::patch()
+            .uri(&uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(RemoteUpdateStorageTargetRequest {
+                name: Some("Renamed audited target".into()),
+                connection: None,
+            })
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let response = test::call_service(
+        &app,
+        test::TestRequest::delete()
+            .uri(&uri)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    aster_drive::services::ops::audit::flush(&consumer_state)
+        .await
+        .unwrap();
+    for action in [
+        aster_drive_model::types::AuditAction::AdminCreateRemoteStorageTarget,
+        aster_drive_model::types::AuditAction::AdminUpdateRemoteStorageTarget,
+        aster_drive_model::types::AuditAction::AdminDeleteRemoteStorageTarget,
+    ] {
+        use aster_drive_model::entities::audit_log;
+        let rows = audit_log::Entity::find()
+            .filter(audit_log::Column::Action.eq(action))
+            .all(consumer_state.writer_db())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        let entry = &rows[0];
+        assert_eq!(entry.entity_type, "remote_storage_target");
+        assert_eq!(entry.entity_id, Some(node.id));
+        assert_eq!(entry.entity_name.as_deref(), Some(target_key.as_str()));
+        let details = audit_details(entry);
+        assert_eq!(details["target_key"], target_key);
+        if action != aster_drive_model::types::AuditAction::AdminDeleteRemoteStorageTarget {
+            assert_eq!(details["driver_type"], "asterdrive.storage.local");
+        }
+    }
+    stop_test_reverse_tunnel_worker(shutdown, worker).await;
     provider_server.stop().await;
 }

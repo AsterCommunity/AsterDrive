@@ -555,6 +555,7 @@ mod tests {
         db
     }
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn session(id: &str, status: UploadSessionStatus) -> upload_session::Model {
         let now = Utc::now();
         upload_session::Model {

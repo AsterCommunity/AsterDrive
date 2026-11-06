@@ -1545,6 +1545,7 @@ async fn test_audit_ip_ignores_client_forwarded_headers_without_trusted_proxies(
     );
 }
 
+/// Verify migrated remote target audit supports filters presentation and csv.
 #[actix_web::test]
 async fn test_migrated_remote_target_audit_supports_filters_presentation_and_csv() {
     use aster_drive_migration::{MigratorTrait, SchemaManager};

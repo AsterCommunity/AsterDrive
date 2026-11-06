@@ -37,15 +37,18 @@ const ACTIONS_CONFIG_KEY: &str = "audit_log_recorded_actions";
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
+    /// Migrate historical audit identifiers and action selection in one transaction.
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         rewrite_names(manager, true).await
     }
 
+    /// Reverse the exact audit identifier mapping while preserving historical payloads.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         rewrite_names(manager, false).await
     }
 }
 
+/// Choose the exact historical-to-current identifier mapping for upgrade or rollback.
 fn directed_names(
     names: (&'static str, &'static str),
     upgrade: bool,
@@ -53,6 +56,8 @@ fn directed_names(
     if upgrade { names } else { (names.1, names.0) }
 }
 
+/// Atomically normalize audit identifiers and the configured action selection.
+/// Leave historical payloads and actor/target snapshots untouched; reject invalid selection JSON.
 async fn rewrite_names(manager: &SchemaManager<'_>, upgrade: bool) -> Result<(), DbErr> {
     // A nested transaction is a savepoint under the product migration lock;
     // MySQL also gets an explicit DML transaction, so config/log changes agree.
@@ -87,9 +92,12 @@ async fn rewrite_names(manager: &SchemaManager<'_>, upgrade: bool) -> Result<(),
             // retain exactly one selection for the same logical action.
             let mut seen = std::collections::HashSet::new();
             actions.retain(|action| seen.insert(action.clone()));
-            let value = serde_json::to_string(&actions).map_err(|_| {
-                DbErr::Migration("cannot serialize migrated audit action selection".into())
-            })?;
+            // String arrays have an infallible JSON representation; build that
+            // representation directly instead of inventing an unreachable failure.
+            let value = serde_json::Value::Array(
+                actions.into_iter().map(serde_json::Value::String).collect(),
+            )
+            .to_string();
             transaction
                 .execute(
                     &Query::update()

@@ -1385,6 +1385,7 @@ async fn test_postgres_migrations_keep_bounded_backfills_with_single_connection_
         .expect("single-connection PostgreSQL migration pool should close");
 }
 
+/// Verify telemetry values survive the historical rename and rollback on the selected backend.
 async fn assert_remote_node_telemetry_rename_round_trip(database_url: String, backend: DbBackend) {
     let config = aster_drive::config::DatabaseConfig {
         url: database_url.into(),

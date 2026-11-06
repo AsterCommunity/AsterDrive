@@ -83,6 +83,7 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
     }
 }
 
+/// Verify remote node telemetry rename preserves values on sqlite up and down.
 #[tokio::test]
 async fn test_remote_node_telemetry_rename_preserves_values_on_sqlite_up_and_down() {
     let database_url =

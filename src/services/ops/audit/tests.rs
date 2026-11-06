@@ -40,6 +40,7 @@ fn bounded_audit_value_truncates_without_splitting_utf8() {
     assert_eq!(bounded_audit_value("猫猫猫", 4), "猫");
 }
 
+/// Verify audit action strings match existing contract.
 #[test]
 fn audit_action_strings_match_existing_contract() {
     let cases = [

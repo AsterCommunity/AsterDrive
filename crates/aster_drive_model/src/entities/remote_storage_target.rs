@@ -68,6 +68,7 @@ impl ActiveModelBehavior for ActiveModel {}
 mod tests {
     use super::*;
 
+    /// Verify debug uses only connector owned storage fields.
     #[test]
     fn debug_uses_only_connector_owned_storage_fields() {
         let now = chrono::Utc::now();

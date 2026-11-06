@@ -1243,6 +1243,7 @@ mod tests {
     use actix_web::FromRequest;
     use std::time::Duration;
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn relay_session(
         object_temp_key: Option<&str>,
         object_multipart_id: Option<&str>,

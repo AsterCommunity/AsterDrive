@@ -579,6 +579,7 @@ mod tests {
         }
     }
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn mock_session(total_size: i64, chunk_size: i64, total_chunks: i32) -> upload_session::Model {
         upload_session::Model {
             id: "test-session".to_string(),
