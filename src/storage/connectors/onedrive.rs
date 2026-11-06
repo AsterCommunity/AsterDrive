@@ -1259,20 +1259,29 @@ impl StorageConnector for OneDriveConnector {
                 error,
             )
         })?;
-        let token = oauth::exchange_microsoft_graph_code(
-            &flow_context,
-            Some(&client_secret),
-            code,
-            &flow.redirect_uri,
-            pkce_verifier,
-        )
-        .await
-        .map_err(|error| {
-            StorageConnectorAuthorizationError::new(
-                StorageAuthorizationFailureReason::TokenExchangeFailed,
-                error,
+        let token_client =
+            oauth::MicrosoftGraphOAuthClient::new(flow_context.cloud, &flow_context.tenant)
+                .map_err(|error| {
+                    StorageConnectorAuthorizationError::new(
+                        StorageAuthorizationFailureReason::TokenExchangeFailed,
+                        error,
+                    )
+                })?;
+        let token = token_client
+            .exchange_code(
+                &flow_context.client_id,
+                Some(&client_secret),
+                code,
+                &flow.redirect_uri,
+                pkce_verifier,
             )
-        })?;
+            .await
+            .map_err(|error| {
+                StorageConnectorAuthorizationError::new(
+                    StorageAuthorizationFailureReason::TokenExchangeFailed,
+                    error,
+                )
+            })?;
         let graph_client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
             flow_context.cloud.graph_base_url(),
             token.access_token.clone(),

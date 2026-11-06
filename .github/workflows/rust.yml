@@ -12,6 +12,7 @@ on:
       - 'frontend-panel/package.json'
       - 'frontend-panel/generated/openapi.json'
       - 'frontend-panel/src/services/api.generated.ts'
+      - 'scripts/check-http-construction.py'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/rust.yml'
     branches: [master]
@@ -26,6 +27,7 @@ on:
       - 'frontend-panel/package.json'
       - 'frontend-panel/generated/openapi.json'
       - 'frontend-panel/src/services/api.generated.ts'
+      - 'scripts/check-http-construction.py'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/rust.yml'
     branches: [master, develop]
@@ -59,6 +61,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Outbound HTTP construction inventory
+        run: python3 scripts/check-http-construction.py --self-test
 
       - name: Format check
         run: cargo fmt -- --check

@@ -14,7 +14,6 @@ use reqwest::StatusCode;
 use url::Url;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error_with_code};
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 
@@ -45,7 +44,7 @@ struct CorsConfiguration {
 }
 
 pub(crate) struct OssCorsClient {
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
     url: Url,
     bucket: String,
     region: String,
@@ -91,14 +90,13 @@ impl OssCorsClient {
         }
         url.set_path("/");
         url.set_query(Some("cors"));
-        let client = reqwest::Client::builder()
-            .connect_timeout(config.connect_timeout)
-            .read_timeout(config.read_timeout)
-            .timeout(config.operation_timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
-            .build()
-            .map_aster_err_ctx("build OSS CORS client", AsterError::storage_driver_error)?;
+        let client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
+                .connect_timeout(config.connect_timeout)
+                .read_timeout(config.read_timeout)
+                .timeout(config.operation_timeout)
+                .build()
+                .map_aster_err_ctx("build OSS CORS client", AsterError::storage_driver_error)?;
         Ok(Self {
             client,
             url,
@@ -792,8 +790,8 @@ mod tests {
         let mut url = Url::parse(&endpoint).unwrap();
         url.set_query(Some("cors"));
         let client = OssCorsClient {
-            client: reqwest::Client::builder()
-                .user_agent(OUTBOUND_HTTP_USER_AGENT)
+            client: aster_forge_http::HttpClient::builder()
+                .user_agent(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
                 .build()
                 .unwrap(),
             url,
@@ -809,7 +807,7 @@ mod tests {
             assert!(request.lines().any(|line| {
                 line.split_once(':').is_some_and(|(name, value)| {
                     name.eq_ignore_ascii_case("user-agent")
-                        && value.trim() == OUTBOUND_HTTP_USER_AGENT
+                        && value.trim() == aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT
                 })
             }));
             assert!(
@@ -884,8 +882,8 @@ mod tests {
                 Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
             url.set_query(Some("cors"));
             let client = OssCorsClient {
-                client: reqwest::Client::builder()
-                    .user_agent(OUTBOUND_HTTP_USER_AGENT)
+                client: aster_forge_http::HttpClient::builder()
+                    .user_agent(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
                     .build()
                     .unwrap(),
                 url,
@@ -936,8 +934,8 @@ mod tests {
         let mut url = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
         url.set_query(Some("cors"));
         let client = OssCorsClient {
-            client: reqwest::Client::builder()
-                .user_agent(OUTBOUND_HTTP_USER_AGENT)
+            client: aster_forge_http::HttpClient::builder()
+                .user_agent(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT)
                 .build()
                 .unwrap(),
             url,

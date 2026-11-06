@@ -1,10 +1,11 @@
-use super::client::http_client;
+use super::client::control_http_client;
 use super::*;
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
 use std::{collections::BTreeMap, io::Cursor, sync::Mutex};
 
 mod boundaries;
 mod recovery;
+mod transport;
 
 #[derive(Debug)]
 struct Token;
@@ -443,7 +444,7 @@ async fn provider_errors_are_typed_and_do_not_echo_provider_secrets() {
         (503, StorageErrorKind::Transient),
         (400, StorageErrorKind::Misconfigured),
     ] {
-        let response = http_client()
+        let response = control_http_client()
             .unwrap()
             .get(format!("{}/error/{status}", server.base))
             .send()

@@ -45,16 +45,15 @@ impl OfflineDownloadEngine for BuiltinHttpOfflineDownloadEngine {
     ) -> Result<OfflineDownloadComplete> {
         let lease_guard = context.lease_guard();
         let resolved = resolve_source_host(&request.url).await?;
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(self.request_timeout)
-            .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
-            .resolve_to_addrs(&resolved.domain, &resolved.socket_addrs)
-            .build()
-            .map_aster_err_ctx(
-                "build offline download HTTP client",
-                AsterError::internal_error,
-            )?;
+        let client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::OfflineDownload)
+                .timeout(self.request_timeout)
+                .resolve_to_addrs(&resolved.domain, &resolved.socket_addrs)
+                .build()
+                .map_aster_err_ctx(
+                    "build offline download HTTP client",
+                    AsterError::internal_error,
+                )?;
         let response = tokio::select! {
             biased;
             shutdown = context.stop_requested() => {

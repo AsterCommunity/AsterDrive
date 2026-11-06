@@ -4,7 +4,6 @@ use std::time::Duration as StdDuration;
 use chrono::{Duration, Utc};
 use moka::future::Cache;
 
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::config::wopi;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
@@ -16,19 +15,12 @@ use super::types::{CachedWopiDiscovery, WopiDiscovery};
 static DISCOVERY_CACHE: LazyLock<Cache<String, CachedWopiDiscovery>> =
     LazyLock::new(|| Cache::builder().max_capacity(128).build());
 
-static DISCOVERY_CLIENT: LazyLock<std::result::Result<reqwest::Client, String>> =
+static DISCOVERY_CLIENT: LazyLock<std::result::Result<aster_forge_http::HttpClient, String>> =
     LazyLock::new(build_discovery_client);
 
-fn build_discovery_client() -> std::result::Result<reqwest::Client, String> {
-    build_discovery_client_with_user_agent(OUTBOUND_HTTP_USER_AGENT)
-}
-
-fn build_discovery_client_with_user_agent(
-    user_agent: &str,
-) -> std::result::Result<reqwest::Client, String> {
-    reqwest::Client::builder()
+fn build_discovery_client() -> std::result::Result<aster_forge_http::HttpClient, String> {
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::Discovery)
         .timeout(StdDuration::from_secs(5))
-        .user_agent(user_agent)
         .build()
         .map_err(|error| error.to_string())
 }
@@ -141,7 +133,6 @@ fn discovery_cache_ttl(runtime_config: &crate::config::RuntimeConfig) -> Duratio
 mod tests {
     use chrono::{Duration, Utc};
 
-    use crate::config::OUTBOUND_HTTP_USER_AGENT;
     use crate::services::preview::wopi::discovery::types::{
         CachedWopiDiscovery, WopiDiscovery, WopiDiscoveryAction,
     };
@@ -149,7 +140,7 @@ mod tests {
 
     use super::{
         DISCOVERY_CACHE, WOPI_DISCOVERY_XML_MAX_BYTES, build_discovery_client,
-        build_discovery_client_with_user_agent, load_discovery_with_runtime_config,
+        load_discovery_with_runtime_config,
     };
 
     async fn response_url(headers: String, body: Vec<u8>) -> String {
@@ -259,18 +250,7 @@ mod tests {
             })
             .expect("user-agent header should be present");
 
-        assert_eq!(user_agent, OUTBOUND_HTTP_USER_AGENT);
-    }
-
-    #[test]
-    fn discovery_client_reports_invalid_user_agent() {
-        let error = build_discovery_client_with_user_agent("bad\r\nuser-agent")
-            .expect_err("invalid user-agent should fail client construction");
-
-        assert!(
-            error.contains("header") || error.contains("builder"),
-            "unexpected client build error: {error}"
-        );
+        assert_eq!(user_agent, aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT);
     }
 
     #[tokio::test]

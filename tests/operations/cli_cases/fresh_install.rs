@@ -38,7 +38,11 @@ fn server_command(database_url: &str, mode: &str, port: u16) -> Command {
 }
 
 /// Wait for the child listener while failing with captured logs if startup exits or times out.
-async fn wait_for_server(process: &mut TestProcess, client: &reqwest::Client, base: &str) {
+async fn wait_for_server(
+    process: &mut TestProcess,
+    client: &aster_forge_http::HttpClient,
+    base: &str,
+) {
     tokio::time::timeout(Duration::from_secs(120), async {
         loop {
             process.assert_running();
@@ -120,7 +124,7 @@ async fn assert_current_schema(database_url: &str) {
 }
 
 /// Check that auth discovery and readiness agree on the primary setup state.
-async fn assert_primary_setup(client: &reqwest::Client, base: &str, expected: &str) {
+async fn assert_primary_setup(client: &aster_forge_http::HttpClient, base: &str, expected: &str) {
     let response = client
         .post(format!("{base}/api/v1/auth/check"))
         .send()
@@ -167,7 +171,7 @@ async fn fresh_server_installs_and_restarts(backend: DbBackend, mode: &str) {
         &mut command,
     );
     let base = format!("http://127.0.0.1:{port}");
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(5))
         .build()

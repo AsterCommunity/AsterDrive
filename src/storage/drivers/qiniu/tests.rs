@@ -1374,7 +1374,9 @@ async fn rejects_upload_limits_and_invalid_form_or_part_responses_before_publica
 #[tokio::test]
 async fn management_signatures_include_bodies_and_reject_non_utf8_input() {
     let driver = driver();
-    let mut request = reqwest::Client::new()
+    let mut request = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .post("https://rs.example.test/operation")
         .body("name=value")
         .build()
@@ -1388,7 +1390,9 @@ async fn management_signatures_include_bodies_and_reject_non_utf8_input() {
         request.headers()["authorization"].to_str().unwrap(),
         format!("Qiniu {}", driver.sign(canonical.as_bytes()).unwrap())
     );
-    let mut request = reqwest::Client::new()
+    let mut request = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .post("https://rs.example.test/operation")
         .body(vec![255])
         .build()
@@ -1415,7 +1419,9 @@ async fn provider_control_responses_are_bounded_and_request_ids_are_sanitized() 
         HttpReply::text(200, "ok").header("content-length", "2"),
     ])
     .await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let response = client.get(&peer.base).send().await.unwrap();
     assert!(
         http::decode::<serde_json::Value>(response)

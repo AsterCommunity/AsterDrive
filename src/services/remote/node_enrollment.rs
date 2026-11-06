@@ -4,7 +4,6 @@ use aster_forge_db::transaction;
 use std::time::Duration;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result};
 use crate::services::{remote::enrollment, remote::master_binding};
@@ -220,9 +219,8 @@ async fn ack_enrollment(master_url: &str, ack_token: &str) -> Result<()> {
     parse_empty_api_response(response, "master enrollment ack request").await
 }
 
-fn node_enrollment_http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .user_agent(OUTBOUND_HTTP_USER_AGENT)
+fn node_enrollment_http_client() -> Result<aster_forge_http::HttpClient> {
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| {

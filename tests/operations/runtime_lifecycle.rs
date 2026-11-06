@@ -28,7 +28,7 @@ async fn lifecycle(mode: &str, fail_shutdown_audit: bool, role: Option<&str>) {
         .env("ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES", "true")
         .env("ASTER__LOGGING__LEVEL", "info");
     let mut process = TestProcess::spawn(&format!("audit-{mode}"), &mut command);
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(2))
         .build()

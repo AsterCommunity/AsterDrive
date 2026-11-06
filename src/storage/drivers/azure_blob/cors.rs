@@ -16,7 +16,6 @@ use reqwest::{Method, StatusCode, Url};
 use serde::Serialize;
 
 use super::AzureBlobDriver;
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 
 #[cfg(test)]
 mod tests;
@@ -114,7 +113,7 @@ impl AzureBlobDriver {
 
     async fn request_blob_service_properties(
         &self,
-        client: &reqwest::Client,
+        client: &aster_forge_http::HttpClient,
         method: Method,
         body: Option<String>,
     ) -> Result<(String, Option<String>)> {
@@ -192,18 +191,17 @@ impl AzureBlobDriver {
         service_endpoint.set_query(None);
         // CORS management exists only for this explicit action. Ordinary driver
         // construction and object I/O never build or retain this client.
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(30))
-            .user_agent(OUTBOUND_HTTP_USER_AGENT)
-            .build()
-            .map_err(|_| {
-                storage_driver_error(
-                    StorageErrorKind::Misconfigured,
-                    "build Azure Blob CORS action client",
-                )
-            })?;
+        let client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(30))
+                .build()
+                .map_err(|_| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        "build Azure Blob CORS action client",
+                    )
+                })?;
         let (body, request_id) = self
             .request_blob_service_properties(&client, Method::GET, None)
             .await?;

@@ -2,7 +2,6 @@ use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, IntoActiveModel};
 
 use crate::api::pagination::load_offset_page;
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::{auth_policy_repo, external_auth_provider_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
@@ -238,8 +237,8 @@ fn admin_manual_endpoint(
 
 pub(super) fn external_auth_provider_config(
     provider: &external_auth_provider::Model,
-) -> ExternalAuthProviderConfig {
-    ExternalAuthProviderConfig {
+) -> Result<ExternalAuthProviderConfig> {
+    Ok(ExternalAuthProviderConfig {
         id: provider.id,
         key: provider.key.clone(),
         provider_kind: provider.provider_kind,
@@ -259,8 +258,13 @@ pub(super) fn external_auth_provider_config(
         email_verified_claim: provider.email_verified_claim.clone(),
         groups_claim: provider.groups_claim.clone(),
         avatar_url_claim: provider.avatar_url_claim.clone(),
-        outbound_http_user_agent: Some(OUTBOUND_HTTP_USER_AGENT.to_string()),
-    }
+        outbound_http_user_agent: Some(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT.to_string()),
+        outbound_http_client: Some(
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
+                .build()
+                .map_err(|_| AsterError::internal_error("build external auth transport"))?,
+        ),
+    })
 }
 
 fn external_auth_provider_config_from_test_params(
@@ -323,7 +327,12 @@ fn external_auth_provider_config_from_test_params(
         email_verified_claim: None,
         groups_claim: None,
         avatar_url_claim: None,
-        outbound_http_user_agent: Some(OUTBOUND_HTTP_USER_AGENT.to_string()),
+        outbound_http_user_agent: Some(aster_drive_outbound::OUTBOUND_HTTP_USER_AGENT.to_string()),
+        outbound_http_client: Some(
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
+                .build()
+                .map_err(|_| AsterError::internal_error("build external auth transport"))?,
+        ),
     })
 }
 
@@ -901,7 +910,7 @@ pub async fn test_provider(
     id: i64,
 ) -> Result<ExternalAuthProviderTestResult> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
-    let runtime_provider = external_auth_provider_config(&provider);
+    let runtime_provider = external_auth_provider_config(&provider)?;
     let result = registry
         .driver_for_provider(&runtime_provider)?
         .test_provider(&runtime_provider)

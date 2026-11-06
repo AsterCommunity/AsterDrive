@@ -20,7 +20,6 @@ use url::Url;
 use super::s3::{S3Driver, S3DriverConfig, S3DriverOptions, S3StaticCredentials};
 use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_storage::object_key;
 use aster_drive_storage::traits::driver::{DirectDownloadOptions, DirectDownloadRequest};
@@ -41,7 +40,7 @@ fn non_empty_xml_text(text: Option<&str>) -> Option<String> {
 
 pub struct TencentCosDriver {
     storage: S3CompatibleDriver,
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
     endpoint: String,
     bucket: String,
     access_key: String,
@@ -309,13 +308,11 @@ impl TencentCosDriver {
     }
 }
 
-fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<reqwest::Client> {
-    reqwest::Client::builder()
+fn cos_ci_http_client(config: &TencentCosDriverConfig) -> Result<aster_forge_http::HttpClient> {
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
         .connect_timeout(config.connect_timeout)
         .read_timeout(config.read_timeout)
         .timeout(config.operation_timeout)
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(OUTBOUND_HTTP_USER_AGENT)
         .build()
         .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build COS CI HTTP client")
 }

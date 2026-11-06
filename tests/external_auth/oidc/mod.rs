@@ -26,7 +26,7 @@ pub const TEST_CLIENT_ID: &str = "aster-test-client";
 const MOCK_AUTHORIZE_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
 pub async fn request_mock_authorize(auth_url: &str) {
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .timeout(MOCK_AUTHORIZE_TIMEOUT)
         .build()
         .expect("mock authorize reqwest client should build");

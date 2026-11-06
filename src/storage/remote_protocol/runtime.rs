@@ -62,14 +62,14 @@ impl RemoteProtocolRuntime {
         self.tunnel_owner_directory.read().clone()
     }
 
-    pub(crate) fn tunnel_broker(&self) -> Arc<dyn RemoteTunnelBroker> {
-        match self.tunnel_owner_directory() {
+    pub(crate) fn tunnel_broker(&self) -> Result<Arc<dyn RemoteTunnelBroker>> {
+        Ok(match self.tunnel_owner_directory() {
             Some(directory) => Arc::new(ClusterRemoteTunnelBroker::new(
                 self.tunnel_registry.clone(),
                 directory,
-            )),
+            )?),
             None => self.tunnel_registry.clone(),
-        }
+        })
     }
 
     pub fn client_for_node(&self, node: &managed_follower::Model) -> Result<RemoteStorageClient> {
@@ -78,11 +78,11 @@ impl RemoteProtocolRuntime {
                 RemoteStorageClient::new(&node.base_url, &node.access_key, &node.secret_key)
             }
             RemoteNodeTransportMode::ReverseTunnel => {
-                RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker())
+                RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker()?)
             }
             RemoteNodeTransportMode::Auto => {
                 if node.base_url.trim().is_empty() {
-                    RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker())
+                    RemoteStorageClient::new_reverse_tunnel(node, self.tunnel_broker()?)
                 } else {
                     RemoteStorageClient::new(&node.base_url, &node.access_key, &node.secret_key)
                 }
@@ -223,5 +223,32 @@ mod tests {
         assert!(parsed.query_pairs().any(|(key, value)| key
             == crate::storage::remote_protocol::PRESIGNED_AUTH_ACCESS_KEY_QUERY
             && value == "runtime-access"));
+    }
+
+    #[tokio::test]
+    async fn clustered_runtime_constructs_auto_client_without_database_io() {
+        let runtime = RemoteProtocolRuntime::new();
+        let mut deployment = crate::config::DeploymentConfig::default();
+        deployment.profile = crate::config::deployment::DeploymentProfile::Cluster;
+        deployment.internal_endpoint = "http://primary-a:3000".into();
+        deployment.internal_proxy_secret = "cluster-fixture-key-with-at-least-32-bytes".into();
+        // Construction must not claim a lease or perform database I/O.
+        let db = sea_orm::MockDatabase::new(sea_orm::DatabaseBackend::Sqlite).into_connection();
+        runtime
+            .configure_tunnel_owner_directory(db, &deployment, "runtime-a")
+            .unwrap();
+        assert_eq!(
+            runtime.tunnel_owner_directory().unwrap().runtime_id(),
+            "runtime-a"
+        );
+        let node = build_node(RemoteNodeTransportMode::Auto, "");
+        let client = runtime.client_for_node(&node).unwrap();
+        let error = client
+            .presigned_put_url("object.bin", Duration::from_secs(60))
+            .unwrap_err();
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Unsupported)
+        );
     }
 }

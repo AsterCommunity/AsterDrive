@@ -93,25 +93,31 @@ impl GoogleDriveConnector {
                 "Google OAuth code and PKCE verifier are required",
             ));
         }
-        let response = http_client()?
-            .post(token_endpoint)
-            .timeout(std::time::Duration::from_secs(30))
-            .form(&[
-                ("code", code),
-                ("client_id", app.client_id.as_str()),
-                ("client_secret", app.client_secret.as_str()),
-                ("redirect_uri", flow.redirect_uri.as_str()),
-                ("code_verifier", verifier),
-                ("grant_type", "authorization_code"),
-            ])
-            .send()
-            .await
-            .map_err(|_| {
-                storage_driver_error(
-                    StorageErrorKind::Transient,
-                    "Google OAuth token endpoint is unavailable",
-                )
-            })?;
+        let response =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ExternalAuth)
+                .connect_timeout(std::time::Duration::from_secs(15))
+                .read_timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .map_err(|_| AsterError::internal_error("build Google OAuth HTTP client"))?
+                .post(token_endpoint)
+                .timeout(std::time::Duration::from_secs(30))
+                .form(&[
+                    ("code", code),
+                    ("client_id", app.client_id.as_str()),
+                    ("client_secret", app.client_secret.as_str()),
+                    ("redirect_uri", flow.redirect_uri.as_str()),
+                    ("code_verifier", verifier),
+                    ("grant_type", "authorization_code"),
+                ])
+                .send()
+                .await
+                .map_err(|_| {
+                    storage_driver_error(
+                        StorageErrorKind::Transient,
+                        "Google OAuth token endpoint is unavailable",
+                    )
+                })?;
         if !response.status().is_success() {
             let failure = provider::classify_token_failure(response).await;
             return Err(storage_driver_error(failure.kind, failure.reason));

@@ -425,7 +425,7 @@ fn absolute_webdav_url(server: &RunningWebdavServer, href: &str) -> String {
 }
 
 async fn raw_deltav_report(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     url: &str,
     username: &str,
     password: &str,
@@ -465,7 +465,9 @@ async fn test_webdav_real_http_deltav_rfc3253_workflow() {
     let state = common::setup().await;
     let (username, password) = seed_real_webdav_account(&state).await;
     let server = start_real_webdav_server(state).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let file_name = format!("{}.txt", unique_name("raw-deltav"));
     let file_url = format!("{}/webdav/{file_name}", server.base_url);
     let initial_content = b"AsterDrive raw RFC 3253 initial representation\n";
@@ -1434,7 +1436,9 @@ async fn test_webdav_cadaver_client_roundtrip() {
         .expect("cadaver moved downloaded file should read");
     assert_eq!(moved_downloaded, content);
 
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let deleted = client
         .get(format!("{}/webdav/{dir_name}/moved.txt", server.base_url))
         .basic_auth(&username, Some(&password))
@@ -1510,7 +1514,9 @@ async fn test_webdav_cadaver_deltav_version_history_and_normal_io() {
         output.stderr
     );
 
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let file_url = format!("{}/webdav/{file_name}", server.base_url);
     let report = raw_deltav_report(&client, &file_url, &username, &password).await;
     let version_hrefs = common::deltav_version_hrefs(&report);

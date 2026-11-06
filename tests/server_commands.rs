@@ -115,7 +115,7 @@ async fn service_roles_start_and_worker_does_not_expose_product_routes() {
             .env("ASTER__DATABASE__POOL_SIZE", "2")
             .env("ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES", "true");
         let mut process = TestProcess::spawn(&format!("service-role-{role}"), &mut command);
-        let client = reqwest::Client::builder()
+        let client = aster_forge_http::HttpClient::builder()
             .no_proxy()
             .timeout(Duration::from_secs(2))
             .build()

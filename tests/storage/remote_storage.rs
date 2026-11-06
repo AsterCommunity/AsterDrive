@@ -358,7 +358,9 @@ async fn start_test_reverse_tunnel_worker(
     let shutdown = CancellationToken::new();
     let worker_shutdown = shutdown.clone();
     let handle = tokio::spawn(async move {
-        let client = reqwest::Client::new();
+        let client = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client");
         loop {
             let poll_result = tokio::select! {
                 biased;
@@ -388,7 +390,7 @@ async fn start_test_reverse_tunnel_worker(
 }
 
 async fn execute_test_reverse_tunnel_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     follower_base_url: &str,
     request: aster_drive::storage::remote_protocol::tunnel::server::RemoteTunnelRequest,
 ) -> RemoteTunnelResponse {
@@ -456,14 +458,16 @@ async fn stop_test_reverse_tunnel_http_worker(worker: TestReverseTunnelHttpWorke
 }
 
 async fn reconcile_and_ack_binding_control(state: &aster_drive::runtime::FollowerAppState) {
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     aster_drive::services::remote::binding_control::reconcile_all(state, &client).await;
     aster_drive::services::remote::binding_control::mark_all_applied(state).await;
     aster_drive::services::remote::binding_control::reconcile_all(state, &client).await;
 }
 
 async fn send_signed_tunnel_json_raw(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     remote_node: &aster_drive_model::entities::managed_follower::Model,
     master_url: &str,
     path: &str,
@@ -495,7 +499,7 @@ async fn send_signed_tunnel_json_raw(
 }
 
 async fn send_remote_node_control_get_raw(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     master_url: &str,
     path_and_query: &str,
     headers: reqwest::header::HeaderMap,
@@ -517,7 +521,7 @@ async fn send_remote_node_control_get_raw(
 }
 
 async fn send_signed_binding_state_raw(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     remote_node: &aster_drive_model::entities::managed_follower::Model,
     master_url: &str,
     applied_revision: i64,
@@ -1478,7 +1482,9 @@ async fn put_presigned_bytes(
     request: &aster_drive_storage::PresignedUploadRequest,
     data: Vec<u8>,
 ) -> reqwest::Response {
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     request
         .headers
         .iter()
@@ -4302,7 +4308,9 @@ async fn test_internal_storage_rejects_concurrent_replayed_hmac_nonce() {
         None,
     ));
     let access_key = Arc::new(access_key);
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
 
     let responses = join_all((0..8).map(|_| {
         let client = client.clone();
@@ -5388,7 +5396,9 @@ async fn test_reverse_tunnel_http_rejects_access_key_mismatch() {
         .await
         .expect("node b should be queryable");
 
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let (status, body) = send_signed_tunnel_json_raw(
         &client,
         &node_a_model,
@@ -5744,7 +5754,9 @@ async fn test_effective_direct_nodes_reject_tunnel_http_endpoints_without_touchi
             .await
             .expect("effective direct node should be queryable");
 
-        let client = reqwest::Client::new();
+        let client = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client");
         let (status, response) = send_signed_tunnel_json_raw(
             &client,
             &node_model,
@@ -5858,7 +5870,9 @@ async fn test_reverse_tunnel_route_accepts_payload_above_global_json_limit() {
         .await
         .expect("node should be queryable");
 
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let (status, response) = send_signed_tunnel_json_raw(
         &client,
         &node_model,
@@ -6231,7 +6245,7 @@ async fn test_binding_control_reconciliation_reports_per_binding_pull_failure() 
     )
     .await
     .expect("unreachable primary binding should be created");
-    let client = reqwest::Client::builder()
+    let client = aster_forge_http::HttpClient::builder()
         .no_proxy()
         .timeout(Duration::from_secs(1))
         .build()
@@ -6267,7 +6281,9 @@ async fn test_binding_state_endpoint_applies_revision_ack_boundaries() {
         .expect("binding ack boundary node should be queryable");
     assert_eq!(node_model.binding_applied_revision, 0);
     let revision = node_model.binding_revision;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
 
     let (status, response) =
         send_signed_binding_state_raw(&client, &node_model, &primary_server.base_url, -1).await;
@@ -6350,7 +6366,9 @@ async fn test_binding_state_endpoint_rejects_primary_auth_failures() {
     let node_model = managed_follower_repo::find_by_id(state.writer_db(), node.id)
         .await
         .expect("binding auth node should be queryable");
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let path_and_query = format!("{REMOTE_NODE_BINDING_STATE_PATH}?applied_revision=0");
 
     let (status, response) = send_remote_node_control_get_raw(
@@ -6872,7 +6890,9 @@ async fn test_remote_presigned_download_redirects_to_follower() {
         "presigned URL should preserve cache-control"
     );
 
-    let response = reqwest::Client::new()
+    let response = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .get(&location)
         .header(reqwest::header::ORIGIN, "http://master.example.com")
         .send()

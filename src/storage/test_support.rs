@@ -13,7 +13,9 @@ use tokio::sync::Notify;
 #[tokio::test]
 async fn exhausted_http_fixture_rejects_and_records_unexpected_requests() {
     let peer = HttpFixture::new([HttpReply::text(200, "expected")]).await;
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     assert_eq!(
         client
             .get(&peer.base)

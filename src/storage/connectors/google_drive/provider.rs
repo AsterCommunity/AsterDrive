@@ -13,7 +13,7 @@ use crate::{
     db::repository::storage_policy_connector_credential_repo as repo,
     errors::{AsterError, Result, storage_driver_error},
     services::storage_policy::credential::crypto,
-    storage::drivers::google_drive::{GoogleDriveTokenProvider, client::http_client},
+    storage::drivers::google_drive::GoogleDriveTokenProvider,
 };
 use aster_drive_model::types::StorageCredentialStatus;
 use aster_drive_storage::{ConnectorId, StorageErrorKind};
@@ -75,7 +75,7 @@ pub(super) struct GoogleTokenProvider {
     policy_id: i64,
     cache: Mutex<GoogleDriveCredentialV1>,
     token_url: String,
-    http: reqwest::Client,
+    http: aster_forge_http::HttpClient,
     usage: CredentialUse,
 }
 impl std::fmt::Debug for GoogleTokenProvider {
@@ -99,7 +99,14 @@ impl GoogleTokenProvider {
             policy_id,
             cache: Mutex::new(payload),
             token_url: super::GOOGLE_TOKEN.into(),
-            http: http_client()?,
+            http: aster_drive_outbound::ClientConfig::new(
+                aster_drive_outbound::Profile::ExternalAuth,
+            )
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .read_timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|_| AsterError::internal_error("build Google token refresh HTTP client"))?,
             usage,
         }))
     }

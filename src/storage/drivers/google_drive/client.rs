@@ -1,13 +1,12 @@
 //! Google Drive HTTP, pool validation and application-owned object lookup.
 use super::*;
 
-pub(crate) fn http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
+pub(super) fn control_http_client() -> Result<aster_forge_http::HttpClient> {
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderControl)
         // Drive uses 308 as a resumable acknowledgement, not a redirect.
-        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .read_timeout(Duration::from_secs(120))
-        .user_agent(crate::config::OUTBOUND_HTTP_USER_AGENT)
+        .timeout(Duration::from_secs(120))
         .build()
         .map_err(|_| {
             storage_driver_error(
@@ -61,7 +60,10 @@ pub(super) fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 impl GoogleDriveDriver {
-    pub(super) async fn auth(&self, request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+    pub(super) async fn auth(
+        &self,
+        request: aster_forge_http::HttpRequestBuilder,
+    ) -> Result<reqwest::Response> {
         request
             .bearer_auth(self.token_provider.access_token().await?)
             .send()
@@ -115,25 +117,28 @@ impl GoogleDriveDriver {
         // https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list
         // MAX_LOOKUP_PAGES is our request budget, not a Google pagination limit.
         for _ in 0..MAX_LOOKUP_PAGES {
-            let mut request = self.http.get(format!("{}/files", self.api)).query(&[
-                ("q", query.to_owned()),
-                (
-                    "fields",
-                    "nextPageToken,incompleteSearch,files(id,size,mimeType,name)".into(),
-                ),
-                ("pageSize", "2".into()),
-                (
-                    "spaces",
-                    if self.app_data_folder {
-                        "appDataFolder"
-                    } else {
-                        "drive"
-                    }
-                    .into(),
-                ),
-                ("supportsAllDrives", "true".into()),
-                ("includeItemsFromAllDrives", "true".into()),
-            ]);
+            let mut request = self
+                .control_client
+                .get(format!("{}/files", self.api))
+                .query(&[
+                    ("q", query.to_owned()),
+                    (
+                        "fields",
+                        "nextPageToken,incompleteSearch,files(id,size,mimeType,name)".into(),
+                    ),
+                    ("pageSize", "2".into()),
+                    (
+                        "spaces",
+                        if self.app_data_folder {
+                            "appDataFolder"
+                        } else {
+                            "drive"
+                        }
+                        .into(),
+                    ),
+                    ("supportsAllDrives", "true".into()),
+                    ("includeItemsFromAllDrives", "true".into()),
+                ]);
             if let Some(drive) = &self.shared_drive_id {
                 request = request.query(&[("driveId", drive.as_str()), ("corpora", "drive")]);
             }
@@ -183,11 +188,15 @@ impl GoogleDriveDriver {
             // test separately proves data-plane permissions.
             let _: FileList = self
                 .response(
-                    self.auth(self.http.get(format!("{}/files", self.api)).query(&[
-                        ("spaces", "appDataFolder"),
-                        ("pageSize", "1"),
-                        ("fields", "files(id)"),
-                    ]))
+                    self.auth(
+                        self.control_client
+                            .get(format!("{}/files", self.api))
+                            .query(&[
+                                ("spaces", "appDataFolder"),
+                                ("pageSize", "1"),
+                                ("fields", "files(id)"),
+                            ]),
+                    )
                     .await?,
                 )
                 .await?;
@@ -200,7 +209,7 @@ impl GoogleDriveDriver {
         }
         let info: FileInfo = self
             .response(
-                self.auth(self.http.get(self.file_url(self.root())).query(&[
+                self.auth(self.control_client.get(self.file_url(self.root())).query(&[
                     ("supportsAllDrives", "true"),
                     (
                         "fields",
@@ -248,7 +257,7 @@ impl GoogleDriveDriver {
             storage_driver_error(StorageErrorKind::NotFound, "Google Drive object not found")
         })?;
         let mut request = self
-            .http
+            .download_client
             .get(self.file_url(&info.id))
             .query(&[("alt", "media"), ("supportsAllDrives", "true")]);
         if let Some(range) = &range {

@@ -27,9 +27,9 @@ const AZURITE_ACCOUNT_KEY: &str =
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
 
 fn presigned_put_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     request: &aster_drive_storage::PresignedUploadRequest,
-) -> reqwest::RequestBuilder {
+) -> aster_forge_http::HttpRequestBuilder {
     request
         .headers
         .iter()
@@ -79,7 +79,9 @@ async fn create_container_if_needed(endpoint: &str, container: &str) -> Result<(
         endpoint.trim_end_matches('/')
     );
 
-    let response = reqwest::Client::new()
+    let response = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .put(url)
         .header(
             "Authorization",
@@ -231,7 +233,9 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         .await
         .unwrap()
         .expect("azure presigned put");
-    let missing_header_resp = reqwest::Client::new()
+    let missing_header_resp = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client")
         .put(&missing_header_put.url)
         .body("missing blob type".as_bytes().to_vec())
         .send()
@@ -258,7 +262,9 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         presigned_put_query.get("spr").map(String::as_str),
         Some("https,http")
     );
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let put_resp = presigned_put_request(&client, &presigned_put)
         .body("presigned body".as_bytes().to_vec())
         .send()
@@ -311,7 +317,14 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         presigned_get_query.get("rsct").map(String::as_str),
         Some("text/plain")
     );
-    let get_resp = reqwest::get(&presigned_get.url).await.unwrap();
+    let get_resp = aster_forge_http::HttpClient::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .get(&presigned_get.url)
+        .send()
+        .await
+        .unwrap();
     assert!(get_resp.status().is_success());
     assert_eq!(
         get_resp
@@ -419,7 +432,9 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         )
         .await
         .unwrap();
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let part1_resp = presigned_put_request(&client, &part1_request)
         .body(b"hello ".to_vec())
         .send()

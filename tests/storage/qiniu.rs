@@ -83,7 +83,9 @@ async fn native_kodo_cloud_acceptance_and_read_only_existing_object_takeover() {
         .await
         .unwrap()
         .unwrap();
-    let client = reqwest::Client::new();
+    let client = aster_forge_http::HttpClient::builder()
+        .build()
+        .expect("test HTTP client");
     let attachment_name = "中文 +%.txt";
     let attachment = driver
         .resolve_download_url(

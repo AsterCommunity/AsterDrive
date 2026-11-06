@@ -11,7 +11,6 @@ use super::{
     },
 };
 use crate::api::api_error_code::ApiErrorCode;
-use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::FollowerAppState;
@@ -172,7 +171,7 @@ pub async fn run_follower_tunnel_worker(
 
 async fn reconcile_binding_workers(
     state: &FollowerAppState,
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     local_base_url: &str,
     parent_shutdown: &CancellationToken,
     workers: &mut HashMap<i64, BindingTunnelWorker>,
@@ -217,7 +216,7 @@ async fn reconcile_binding_workers(
 }
 
 async fn ensure_binding_worker(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     local_base_url: &str,
     parent_shutdown: &CancellationToken,
     workers: &mut HashMap<i64, BindingTunnelWorker>,
@@ -285,7 +284,7 @@ async fn stop_binding_worker(mut worker: BindingTunnelWorker) {
 }
 
 async fn run_binding_poll_loop(
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
     binding: master_binding::Model,
     local_base_url: String,
     shutdown_token: CancellationToken,
@@ -359,7 +358,7 @@ async fn run_binding_poll_loop(
 }
 
 async fn run_binding_tunnel_loop(
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
     binding: master_binding::Model,
     local_base_url: String,
     shutdown_token: CancellationToken,
@@ -450,7 +449,7 @@ async fn stop_binding_tunnel_tasks(tasks: &mut JoinSet<()>, timeout: Duration) {
 }
 
 async fn run_binding_stream_lane_loop(
-    client: reqwest::Client,
+    client: aster_forge_http::HttpClient,
     binding: master_binding::Model,
     local_base_url: String,
     lane_index: usize,
@@ -539,7 +538,7 @@ async fn run_binding_stream_lane_loop(
 }
 
 async fn poll_once(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     binding: &master_binding::Model,
     local_base_url: &str,
 ) -> Result<()> {
@@ -558,7 +557,7 @@ async fn poll_once(
 }
 
 async fn connect_stream_lane_once(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     binding: &master_binding::Model,
     local_base_url: &str,
     lane_index: usize,
@@ -664,7 +663,7 @@ async fn connect_stream_lane_once(
 }
 
 async fn execute_stream_tunnel_request_or_close<R, W>(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     local_base_url: &str,
     start: RemoteTunnelStreamFrame,
     read: &mut R,
@@ -771,7 +770,7 @@ where
 }
 
 async fn execute_stream_tunnel_request<R, W>(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     local_base_url: &str,
     start: RemoteTunnelStreamFrame,
     read: &mut R,
@@ -811,7 +810,7 @@ where
 }
 
 async fn execute_stream_tunnel_request_inner<R, W>(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     local_base_url: &str,
     start: RemoteTunnelStreamFrame,
     read: &mut R,
@@ -1277,7 +1276,7 @@ where
 }
 
 async fn execute_tunnel_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     local_base_url: &str,
     request: &RemoteTunnelRequest,
 ) -> Result<RemoteTunnelResponse> {
@@ -1336,7 +1335,7 @@ fn response_headers_for_reqwest(headers: &reqwest::header::HeaderMap) -> Vec<(St
 }
 
 async fn complete_request(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     binding: &master_binding::Model,
     response: RemoteTunnelResponse,
 ) -> Result<()> {
@@ -1351,7 +1350,7 @@ async fn complete_request(
 }
 
 async fn mark_tunnel_error(
-    client: &reqwest::Client,
+    client: &aster_forge_http::HttpClient,
     binding: &master_binding::Model,
     error: &str,
 ) -> Result<()> {
@@ -1511,12 +1510,11 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
     Ok(())
 }
 
-fn tunnel_http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
+fn tunnel_http_client() -> Result<aster_forge_http::HttpClient> {
+    aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::InternalControl)
         .connect_timeout(FOLLOWER_TUNNEL_CONNECT_TIMEOUT)
         .read_timeout(FOLLOWER_TUNNEL_READ_TIMEOUT)
         .timeout(FOLLOWER_TUNNEL_OPERATION_TIMEOUT)
-        .user_agent(OUTBOUND_HTTP_USER_AGENT)
         .build()
         .map_err(|error| {
             AsterError::internal_error(format!("tunnel_http_client build tunnel client: {error}"))
@@ -1754,7 +1752,9 @@ mod tests {
         let (mut write, mut written_rx) = channel_sink();
 
         let outcome = execute_stream_tunnel_request(
-            &reqwest::Client::new(),
+            &aster_forge_http::HttpClient::builder()
+                .build()
+                .expect("test HTTP client"),
             &server.base_url,
             request_start_frame(
                 request_id,
@@ -1801,7 +1801,7 @@ mod tests {
                 .map_err(|_| tokio_tungstenite::tungstenite::Error::ConnectionClosed)
         }));
         let (mut write, mut written_rx) = channel_sink();
-        let client = reqwest::Client::builder()
+        let client = aster_forge_http::HttpClient::builder()
             .no_proxy()
             .build()
             .expect("test client should build without proxy");
@@ -2027,7 +2027,9 @@ mod tests {
         let parent_shutdown = CancellationToken::new();
 
         ensure_binding_worker(
-            &reqwest::Client::new(),
+            &aster_forge_http::HttpClient::builder()
+                .build()
+                .expect("test HTTP client"),
             "http://127.0.0.1:9",
             &parent_shutdown,
             &mut workers,
@@ -2086,7 +2088,7 @@ mod tests {
 
     #[tokio::test]
     async fn peer_close_during_request_is_a_clean_lane_shutdown() {
-        let client = reqwest::Client::builder()
+        let client = aster_forge_http::HttpClient::builder()
             .no_proxy()
             .build()
             .expect("test client should build without proxy");
@@ -2121,7 +2123,7 @@ mod tests {
         let shutdown = CancellationToken::new();
         let (read_tx, mut read) = websocket_channel_stream();
         let (mut write, mut written_rx) = channel_sink();
-        let client = reqwest::Client::builder()
+        let client = aster_forge_http::HttpClient::builder()
             .no_proxy()
             .build()
             .expect("test client should build without proxy");
@@ -2168,7 +2170,9 @@ mod tests {
             )
             .expect("request end frame should be delivered");
         let (mut write, mut written_rx) = channel_sink();
-        let client = reqwest::Client::new();
+        let client = aster_forge_http::HttpClient::builder()
+            .build()
+            .expect("test HTTP client");
 
         let run = execute_stream_tunnel_request_or_close(
             &client,

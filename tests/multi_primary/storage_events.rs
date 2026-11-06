@@ -7,6 +7,7 @@
 use std::process::Command;
 use std::time::Duration;
 
+use aster_forge_http::HttpClient;
 use aster_forge_test::{
     postgres::PostgresTestContainer,
     process::{TestProcess, available_loopback_port},
@@ -14,7 +15,7 @@ use aster_forge_test::{
     suite::TestContainerSuite,
 };
 use futures::StreamExt;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
 
 const USERNAME: &str = "cross-owner";
@@ -46,7 +47,7 @@ async fn storage_events_cross_primary_and_reconnect_after_redis_outage() {
 
     let mut primary_a = spawn_primary("primary-a", &binary, port_a, database.url(), redis.url());
 
-    let client = Client::builder()
+    let client = HttpClient::builder()
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(10))
         .build()
@@ -74,7 +75,9 @@ async fn storage_events_cross_primary_and_reconnect_after_redis_outage() {
     let mut primary_b = spawn_primary("primary-b", &binary, port_b, database.url(), redis.url());
     wait_until_ready(&client, &base_b, &mut primary_b).await;
     sleep(Duration::from_secs(1)).await;
-    let sse_client = Client::builder()
+    let sse_client = HttpClient::builder()
+        .without_total_timeout()
+        .without_read_timeout()
         .connect_timeout(Duration::from_secs(2))
         .build()
         .expect("SSE client should build without a total timeout");
@@ -142,7 +145,7 @@ async fn storage_events_cross_primary_and_reconnect_after_redis_outage() {
 }
 
 async fn create_folders_until_sse_event<S>(
-    client: &Client,
+    client: &HttpClient,
     base_url: &str,
     token: &str,
     stream: &mut S,
@@ -230,7 +233,7 @@ fn spawn_primary(
     TestProcess::spawn(name, &mut command)
 }
 
-async fn wait_until_ready(client: &Client, base_url: &str, process: &mut TestProcess) {
+async fn wait_until_ready(client: &HttpClient, base_url: &str, process: &mut TestProcess) {
     let result = timeout(Duration::from_secs(90), async {
         loop {
             process.assert_running();
@@ -253,7 +256,11 @@ async fn wait_until_ready(client: &Client, base_url: &str, process: &mut TestPro
     }
 }
 
-async fn wait_until_dependencies_ready(client: &Client, base_url: &str, process: &mut TestProcess) {
+async fn wait_until_dependencies_ready(
+    client: &HttpClient,
+    base_url: &str,
+    process: &mut TestProcess,
+) {
     let result = timeout(Duration::from_secs(90), async {
         loop {
             process.assert_running();
@@ -272,7 +279,7 @@ async fn wait_until_dependencies_ready(client: &Client, base_url: &str, process:
     }
 }
 
-async fn login_access_token(client: &Client, base_url: &str) -> String {
+async fn login_access_token(client: &HttpClient, base_url: &str) -> String {
     let response = client
         .post(format!("{base_url}/api/v1/auth/login"))
         .json(&serde_json::json!({
@@ -292,7 +299,7 @@ async fn login_access_token(client: &Client, base_url: &str) -> String {
     panic!("login response did not contain an aster_access cookie");
 }
 
-async fn create_folder(client: &Client, base_url: &str, token: &str, name: &str) {
+async fn create_folder(client: &HttpClient, base_url: &str, token: &str, name: &str) {
     let response = client
         .post(format!("{base_url}/api/v1/folders"))
         .bearer_auth(token)
