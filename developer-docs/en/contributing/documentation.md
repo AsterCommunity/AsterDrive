@@ -222,3 +222,8 @@ Then click through:
 - Dark / light logos
 
 Successful build is only the baseline. You still need to preview it yourself and confirm readers can follow the entry points and sidebar to find the content.
+
+
+## External provider references
+
+Before changing external storage/protocol contracts or adding connectors/plugins, update the [provider evidence index](../reference/storage-provider-evidence.md) using the [review and upgrade policy](./provider-evidence.md). `make storage-docs-check` covers SDK/field/critical protocol/reference drift; `make storage-provider-links` reports reachability separately from content review and cloud acceptance.

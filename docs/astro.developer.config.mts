@@ -73,6 +73,8 @@ const sidebar = assertUniqueSidebarLinks([
 		collapsed: true,
 		items: [
 			{ label: '设计文档索引', translations: { en: 'Design Index' }, link: '/design/' },
+			{ label: 'Provider 协议证据', translations: { en: 'Provider Protocol Evidence' }, link: '/reference/storage-provider-evidence/' },
+			{ label: 'Provider 证据维护', translations: { en: 'Maintaining Provider Evidence' }, link: '/contributing/provider-evidence/' },
 			{ label: '外部认证模块', translations: { en: 'External Authentication' }, link: '/design/external-auth/' },
 			{
 				label: '远端存储目标归属',

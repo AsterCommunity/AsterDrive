@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#alibaba_oss
 //! 阿里云 OSS 存储驱动。
 //!
 //! 对象读写、Range、流式上传和 multipart 编排复用 AWS S3 SDK；请求在 Smithy

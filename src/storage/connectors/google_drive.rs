@@ -1,3 +1,4 @@
+//! Provider evidence: developer-docs/zh-CN/reference/storage-provider-evidence.md#google_drive
 //! Google Drive management-plane adapter.
 //!
 //! This connector owns policy fields, delegated OAuth flows, encrypted

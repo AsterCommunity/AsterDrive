@@ -3,6 +3,8 @@ title: "Qiniu Kodo"
 description: "Native Kodo resumable uploads, private origin reads and Qiniu CDN delivery."
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#qiniu) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 The Qiniu connector uses native Kodo APIs and replaces the old S3 wrapper. AsterDrive owns file records, permissions, quota, Blob/version publication and cleanup. The generic S3 connector remains available for S3-compatible storage.
 
 ## Configuration

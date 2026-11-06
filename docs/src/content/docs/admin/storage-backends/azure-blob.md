@@ -3,6 +3,8 @@ description: Azure Blob Storage 存储策略教程，覆盖 Azure Storage accoun
 title: "Azure Blob Storage 存储策略教程"
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#azure_blob)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 :::tip[这一篇覆盖什么]
 这一篇按完整流程讲怎么把 AsterDrive 文件写到 Azure Blob Storage：准备 storage account 和 container、创建 `azure_blob` 存储策略、配置策略组规则、绑定用户或团队、验收上传下载，并说明怎么选择服务端中继或浏览器直传。
 :::

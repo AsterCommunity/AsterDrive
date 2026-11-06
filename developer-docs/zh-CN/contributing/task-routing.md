@@ -34,7 +34,7 @@
 | 任务 | 先读 | 代码入口 | 最低验证 |
 | --- | --- | --- | --- |
 | Storage connector / descriptor / 表单字段 | [Descriptor 规范化](../design/storage-descriptor-normalization-contract.md)、[后端服务所有权](../architecture/backend-service-ownership.md) | `crates/aster_drive_storage/`、`src/storage/connectors/`、admin storage policy frontend | validation、descriptor、payload、连接测试、`make storage-docs-check`、OpenAPI 和前端 focused tests |
-| Storage driver / SDK 行为 | [项目契约](../architecture/project-contract.md) | `src/storage/drivers/`、connector runtime construction | 普通请求、错误映射、range、upload/download/delete；presigned 与普通请求分别证明 |
+| Storage driver / SDK 行为 | [Provider 证据索引](../reference/storage-provider-evidence.md)、[复核与升级规则](./provider-evidence.md)、[项目契约](../architecture/project-contract.md) | `src/storage/drivers/`、connector runtime construction | 普通请求、错误映射、range、upload/download/delete；presigned 与普通请求分别证明 |
 | OBS CORS 管理动作 | [OBS CORS 契约与证据](../design/huawei-obs-cors-contract.md) | `src/storage/connectors/huawei_obs.rs`、`src/storage/drivers/huawei_obs/cors.rs`、`signing.rs` | 原生签名／CNAME／User-Agent、保留配置与拒写、draft/saved/凭据保留与管理权限；云端／CDN 另验 |
 | 七牛 Kodo 原生协议与升级 | [Kodo 原生契约](../design/qiniu-connector-contract.md) | `src/storage/drivers/qiniu/`、`src/storage/connectors/qiniu.rs`、native config migration | 原生签名/请求、流式边界、编号恢复/完成/取消、迁移与既有对象读取；真实 Kodo/CDN 另行验收 |
 | 对象命名和 OneDrive | [对象命名与 OneDrive](../design/storage-object-naming-and-onedrive-direct-download.md) | storage object key、OneDrive driver/connector | 编码、特殊字符、直链、缓存和回退边界 |

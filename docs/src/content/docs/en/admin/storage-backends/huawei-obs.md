@@ -3,6 +3,8 @@ description: Huawei Cloud OBS storage policy tutorial covering native signing, C
 title: "Huawei Cloud OBS Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#huawei_obs) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page explains how to write AsterDrive files to Huawei Cloud OBS: prepare a bucket and OBS credentials, create the `asterdrive.storage.huawei_obs` connector policy, choose regional or custom-domain addressing, configure policy groups, and validate relay or presigned transfers.
 

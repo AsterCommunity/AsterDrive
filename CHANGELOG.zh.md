@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **存储 provider 协议证据** — 为全部内置 connector 增加中英文官方协议索引、内容复核日期与 SDK/transport 精确版本；`make storage-docs-check` 检查字段/关键协议与引用漂移，独立周检保留链接报告。本地 fixture 与真实云验收分开记录。
+
 ## [v0.7.1] - 2026-11-06
 
 ### Added
@@ -6424,7 +6428,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.1...HEAD
+[v0.7.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.7.0...v0.7.1
 [v0.7.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.3...v0.7.0
 [v0.6.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.2...v0.6.3
 [v0.6.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.6.1...v0.6.2

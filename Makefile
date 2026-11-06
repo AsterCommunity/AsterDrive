@@ -29,7 +29,7 @@ TEST_ENV = $(if $(strip $(BACKEND)),ASTER_TEST_DATABASE_BACKEND=$(BACKEND),)
 	test-multi-primary \
 	coverage coverage-backend coverage-frontend \
 	openapi openapi-check \
-	storage-docs storage-docs-check docs-dev docs-build docs-preview \
+	storage-docs storage-docs-check storage-provider-check storage-provider-links docs-dev docs-build docs-preview \
 	docker-build docker-up docker-down docker-logs \
 	ci
 
@@ -145,8 +145,15 @@ openapi-check: openapi ## Verify generated OpenAPI and SDK files have no drift
 storage-docs: ## Regenerate the built-in storage connector manifest and documentation blocks
 	ASTER_UPDATE_STORAGE_CONNECTOR_DOCS=1 $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
 
-storage-docs-check: ## Verify storage connector documentation has no descriptor drift
+storage-docs-check: storage-provider-check ## Verify connector projections and external provider evidence
 	env -u ASTER_UPDATE_STORAGE_CONNECTOR_DOCS $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --test storage_connector_docs generated_storage_connector_docs_are_current -- --exact
+
+storage-provider-check: ## Check external provider references, freshness, SDK versions and field/wire contracts
+	node docs/scripts/storage-provider-evidence.mjs
+	node --test docs/scripts/storage-provider-evidence.test.mjs
+
+storage-provider-links: ## Check official external links; inaccessible sources remain unverified
+	node docs/scripts/storage-provider-evidence.mjs --links --report storage-provider-links.json
 
 docs-dev: ## Run the documentation development server
 	cd $(DOCS_DIR) && $(BUN) run docs:dev

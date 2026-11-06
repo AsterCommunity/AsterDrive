@@ -8,6 +8,10 @@ on:
       - 'docs/**'
       - 'developer-docs/**'
       - '.config/nextest.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/storage/drivers/**'
+      - 'docs/scripts/storage-provider-evidence*'
       - 'crates/aster_drive_storage/src/connector_descriptor.rs'
       - 'src/storage/connectors/**'
       - 'tests/storage_connector_docs.rs'
@@ -20,6 +24,10 @@ on:
       - 'docs/**'
       - 'developer-docs/**'
       - '.config/nextest.toml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/storage/drivers/**'
+      - 'docs/scripts/storage-provider-evidence*'
       - 'crates/aster_drive_storage/src/connector_descriptor.rs'
       - 'src/storage/connectors/**'
       - 'tests/storage_connector_docs.rs'
@@ -38,6 +46,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

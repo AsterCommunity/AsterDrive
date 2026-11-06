@@ -3,6 +3,8 @@ description: AsterDrive SFTP 存储策略教程，覆盖 endpoint、SSH 凭据�
 title: "SFTP 存储策略教程"
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#sftp)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 :::tip[这一篇覆盖什么]
 这一篇讲怎么把 AsterDrive 的文件写到 SFTP 服务器：准备 SSH 账号、创建 `sftp` 存储策略、确认 SSH 主机密钥指纹、配置策略组规则，并验收上传和下载。
 :::

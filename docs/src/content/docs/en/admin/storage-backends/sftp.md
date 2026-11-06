@@ -3,6 +3,8 @@ description: AsterDrive SFTP storage policy tutorial covering endpoints, SSH cre
 title: "SFTP Storage Policy Tutorial"
 ---
 
+See the [provider evidence index](https://drive.docs.astercosm.com/developer/en/reference/storage-provider-evidence/#sftp) for protocol sources, versions, review status and cloud acceptance boundaries. Validate origin APIs, upload endpoints, CDN and custom domains separately.
+
 :::tip[What this page covers]
 This page explains how to write AsterDrive files to an SFTP server: prepare an SSH account, create an `sftp` storage policy, confirm the SSH host key fingerprint, configure policy group rules, and verify uploads and downloads.
 :::

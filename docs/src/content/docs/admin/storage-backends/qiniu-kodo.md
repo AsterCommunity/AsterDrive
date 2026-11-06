@@ -3,6 +3,8 @@ title: "七牛云 Kodo"
 description: "配置 Kodo 原生可续传上传、私有源站读取和七牛 CDN 交付。"
 ---
 
+协议依据、版本、复核状态与真实验收边界见[provider 证据索引](https://drive.docs.astercosm.com/developer/reference/storage-provider-evidence/#qiniu)。源站 API、上传域、CDN 和自定义域的能力分别验收。
+
 Qiniu Kodo connector 使用七牛原生协议，替换早期的 S3 wrapper。AsterDrive 继续拥有文件、版本、权限、配额、Blob 和上传完成事务；Kodo 保存对象内容。通用 S3 connector 仍用于 S3-compatible 接入。
 
 ## 配置前准备
