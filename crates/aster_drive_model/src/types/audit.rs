@@ -39,12 +39,10 @@ macro_rules! define_audit_action_list {
             AdminDeleteRemoteNode,
             AdminTestRemoteNode,
             AdminCreateRemoteNodeEnrollmentToken,
-            // TODO(remote-storage-target): keep these enum variant names and
-            // stored string values stable for audit log compatibility. New UI
-            // copy should present them as remote storage target events.
-            AdminCreateRemoteIngressProfile,
-            AdminUpdateRemoteIngressProfile,
-            AdminDeleteRemoteIngressProfile,
+            // Action names use storage-target terminology; numeric bitmask IDs remain stable.
+            AdminCreateRemoteStorageTarget,
+            AdminUpdateRemoteStorageTarget,
+            AdminDeleteRemoteStorageTarget,
             AdminCreateExternalAuthProvider,
             AdminUpdateExternalAuthProvider,
             AdminDeleteExternalAuthProvider,
@@ -154,12 +152,10 @@ macro_rules! define_audit_action_list {
             FollowerObjectWrite,
             FollowerObjectDelete,
             FollowerObjectCompose,
-            // TODO(remote-storage-target): keep follower ingress action names
-            // stable for existing audit rows; presentation maps them to target
-            // terminology.
-            FollowerIngressProfileCreate,
-            FollowerIngressProfileUpdate,
-            FollowerIngressProfileDelete,
+            // Action names use storage-target terminology; numeric bitmask IDs remain stable.
+            FollowerStorageTargetCreate,
+            FollowerStorageTargetUpdate,
+            FollowerStorageTargetDelete,
             MailSend,
             MailDeliveryFailed,
             AdminCreateInvitation,
@@ -202,8 +198,6 @@ macro_rules! define_audit_entity_type {
     ($($variant:ident => $name:literal),+ $(,)?) => {
         /// 审计日志实体类型
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-        #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-        #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(rename_all = "snake_case"))]
         pub enum AuditEntityType {
             $(
                 #[serde(rename = $name)]
@@ -255,9 +249,8 @@ define_audit_entity_type! {
     MfaFactor => "mfa_factor",
     Passkey => "passkey",
     PolicyGroup => "policy_group",
-    // TODO(remote-storage-target): stored entity type remains
-    // remote_ingress_profile for historical audit rows.
-    RemoteIngressProfile => "remote_ingress_profile",
+    // Historical storage/API values are normalized by the audit terminology migration.
+    RemoteStorageTarget => "remote_storage_target",
     RemoteNode => "remote_node",
     ResourceLock => "resource_lock",
     Share => "share",
@@ -272,6 +265,23 @@ define_audit_entity_type! {
     User => "user",
     WebdavAccount => "webdav_account",
 }
+
+// Derive cannot resolve serde rename literals inside the entity-list macro.
+// Build the API enum from the same wire values used by persistence.
+#[cfg(all(debug_assertions, feature = "openapi"))]
+impl utoipa::PartialSchema for AuditEntityType {
+    /// Generate entity-type schema values from the same identifiers accepted by persistence and filters.
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::Type::String)
+            .description(Some("审计日志实体类型"))
+            .enum_values(Some(AUDIT_ENTITY_TYPE_NAMES.iter().copied()))
+            .into()
+    }
+}
+
+#[cfg(all(debug_assertions, feature = "openapi"))]
+impl ToSchema for AuditEntityType {}
 
 impl AsRef<str> for AuditEntityType {
     fn as_ref(&self) -> &str {
@@ -364,6 +374,81 @@ mod tests {
 
         assert_eq!(AuditEntityType::from_str_name("unknown"), None);
         assert!(serde_json::from_value::<AuditEntityType>(serde_json::json!("unknown")).is_err());
+    }
+
+    /// Verify remote target audit contract uses storage target wire values.
+    #[test]
+    fn remote_target_audit_contract_uses_storage_target_wire_values() {
+        use sea_orm::ActiveEnum;
+        for (action, index, name) in [
+            (
+                AuditAction::AdminCreateRemoteStorageTarget,
+                29,
+                "admin_create_remote_storage_target",
+            ),
+            (
+                AuditAction::AdminUpdateRemoteStorageTarget,
+                30,
+                "admin_update_remote_storage_target",
+            ),
+            (
+                AuditAction::AdminDeleteRemoteStorageTarget,
+                31,
+                "admin_delete_remote_storage_target",
+            ),
+            (
+                AuditAction::FollowerStorageTargetCreate,
+                137,
+                "follower_storage_target_create",
+            ),
+            (
+                AuditAction::FollowerStorageTargetUpdate,
+                138,
+                "follower_storage_target_update",
+            ),
+            (
+                AuditAction::FollowerStorageTargetDelete,
+                139,
+                "follower_storage_target_delete",
+            ),
+        ] {
+            assert_eq!(action.index(), index);
+            assert_eq!(action.as_str(), name);
+            assert_eq!(action.to_value(), name);
+            assert_eq!(
+                serde_json::to_value(action).unwrap(),
+                serde_json::json!(name)
+            );
+            assert_eq!(
+                serde_json::from_str::<AuditAction>(&format!("\"{name}\"")).unwrap(),
+                action
+            );
+        }
+        assert_eq!(
+            AuditEntityType::RemoteStorageTarget.as_str(),
+            "remote_storage_target"
+        );
+        assert_eq!(
+            serde_json::to_value(AuditEntityType::RemoteStorageTarget).unwrap(),
+            serde_json::json!("remote_storage_target")
+        );
+    }
+
+    /// Verify retired ingress names are not runtime aliases.
+    #[test]
+    fn retired_ingress_names_are_not_runtime_aliases() {
+        for old in [
+            "admin_create_remote_ingress_profile",
+            "admin_update_remote_ingress_profile",
+            "admin_delete_remote_ingress_profile",
+            "follower_ingress_profile_create",
+            "follower_ingress_profile_update",
+            "follower_ingress_profile_delete",
+        ] {
+            assert!(AuditAction::from_str_name(old).is_none());
+            assert!(serde_json::from_value::<AuditAction>(serde_json::json!(old)).is_err());
+        }
+        assert!(AuditEntityType::from_str_name("remote_ingress_profile").is_none());
     }
 
     #[test]
@@ -459,12 +544,12 @@ pub enum AuditAction {
     AdminTestRemoteNode,
     #[sea_orm(string_value = "admin_create_remote_node_enrollment_token")]
     AdminCreateRemoteNodeEnrollmentToken,
-    #[sea_orm(string_value = "admin_create_remote_ingress_profile")]
-    AdminCreateRemoteIngressProfile,
-    #[sea_orm(string_value = "admin_update_remote_ingress_profile")]
-    AdminUpdateRemoteIngressProfile,
-    #[sea_orm(string_value = "admin_delete_remote_ingress_profile")]
-    AdminDeleteRemoteIngressProfile,
+    #[sea_orm(string_value = "admin_create_remote_storage_target")]
+    AdminCreateRemoteStorageTarget,
+    #[sea_orm(string_value = "admin_update_remote_storage_target")]
+    AdminUpdateRemoteStorageTarget,
+    #[sea_orm(string_value = "admin_delete_remote_storage_target")]
+    AdminDeleteRemoteStorageTarget,
     #[sea_orm(string_value = "admin_create_external_auth_provider")]
     AdminCreateExternalAuthProvider,
     #[sea_orm(string_value = "admin_update_external_auth_provider")]
@@ -677,12 +762,12 @@ pub enum AuditAction {
     FollowerObjectDelete,
     #[sea_orm(string_value = "follower_object_compose")]
     FollowerObjectCompose,
-    #[sea_orm(string_value = "follower_ingress_profile_create")]
-    FollowerIngressProfileCreate,
-    #[sea_orm(string_value = "follower_ingress_profile_update")]
-    FollowerIngressProfileUpdate,
-    #[sea_orm(string_value = "follower_ingress_profile_delete")]
-    FollowerIngressProfileDelete,
+    #[sea_orm(string_value = "follower_storage_target_create")]
+    FollowerStorageTargetCreate,
+    #[sea_orm(string_value = "follower_storage_target_update")]
+    FollowerStorageTargetUpdate,
+    #[sea_orm(string_value = "follower_storage_target_delete")]
+    FollowerStorageTargetDelete,
     #[sea_orm(string_value = "mail_send")]
     MailSend,
     #[sea_orm(string_value = "mail_delivery_failed")]
@@ -752,6 +837,7 @@ impl AuditAction {
     pub const COUNT: usize = define_audit_action_list!(audit_action_count);
     pub const ALL: [Self; Self::COUNT] = define_audit_action_list!(audit_action_all);
 
+    /// Return the stable action bit index used by runtime audit-selection masks.
     pub const fn index(self) -> usize {
         match self {
             Self::AdminCreateUser => 0,
@@ -783,9 +869,9 @@ impl AuditAction {
             Self::AdminDeleteRemoteNode => 26,
             Self::AdminTestRemoteNode => 27,
             Self::AdminCreateRemoteNodeEnrollmentToken => 28,
-            Self::AdminCreateRemoteIngressProfile => 29,
-            Self::AdminUpdateRemoteIngressProfile => 30,
-            Self::AdminDeleteRemoteIngressProfile => 31,
+            Self::AdminCreateRemoteStorageTarget => 29,
+            Self::AdminUpdateRemoteStorageTarget => 30,
+            Self::AdminDeleteRemoteStorageTarget => 31,
             Self::AdminCreateExternalAuthProvider => 32,
             Self::AdminUpdateExternalAuthProvider => 33,
             Self::AdminDeleteExternalAuthProvider => 34,
@@ -892,9 +978,9 @@ impl AuditAction {
             Self::FollowerObjectWrite => 134,
             Self::FollowerObjectDelete => 135,
             Self::FollowerObjectCompose => 136,
-            Self::FollowerIngressProfileCreate => 137,
-            Self::FollowerIngressProfileUpdate => 138,
-            Self::FollowerIngressProfileDelete => 139,
+            Self::FollowerStorageTargetCreate => 137,
+            Self::FollowerStorageTargetUpdate => 138,
+            Self::FollowerStorageTargetDelete => 139,
             Self::MailSend => 140,
             Self::MailDeliveryFailed => 141,
             Self::AdminCreateInvitation => 142,
@@ -916,6 +1002,7 @@ impl AuditAction {
         }
     }
 
+    /// Return the canonical action identifier used by persistence, API responses and configuration.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AdminCreateUser => "admin_create_user",
@@ -949,9 +1036,9 @@ impl AuditAction {
             Self::AdminCreateRemoteNodeEnrollmentToken => {
                 "admin_create_remote_node_enrollment_token"
             }
-            Self::AdminCreateRemoteIngressProfile => "admin_create_remote_ingress_profile",
-            Self::AdminUpdateRemoteIngressProfile => "admin_update_remote_ingress_profile",
-            Self::AdminDeleteRemoteIngressProfile => "admin_delete_remote_ingress_profile",
+            Self::AdminCreateRemoteStorageTarget => "admin_create_remote_storage_target",
+            Self::AdminUpdateRemoteStorageTarget => "admin_update_remote_storage_target",
+            Self::AdminDeleteRemoteStorageTarget => "admin_delete_remote_storage_target",
             Self::AdminCreateExternalAuthProvider => "admin_create_external_auth_provider",
             Self::AdminUpdateExternalAuthProvider => "admin_update_external_auth_provider",
             Self::AdminDeleteExternalAuthProvider => "admin_delete_external_auth_provider",
@@ -1058,9 +1145,9 @@ impl AuditAction {
             Self::FollowerObjectWrite => "follower_object_write",
             Self::FollowerObjectDelete => "follower_object_delete",
             Self::FollowerObjectCompose => "follower_object_compose",
-            Self::FollowerIngressProfileCreate => "follower_ingress_profile_create",
-            Self::FollowerIngressProfileUpdate => "follower_ingress_profile_update",
-            Self::FollowerIngressProfileDelete => "follower_ingress_profile_delete",
+            Self::FollowerStorageTargetCreate => "follower_storage_target_create",
+            Self::FollowerStorageTargetUpdate => "follower_storage_target_update",
+            Self::FollowerStorageTargetDelete => "follower_storage_target_delete",
             Self::MailSend => "mail_send",
             Self::MailDeliveryFailed => "mail_delivery_failed",
             Self::AdminCreateInvitation => "admin_create_invitation",
@@ -1084,6 +1171,7 @@ impl AuditAction {
         }
     }
 
+    /// Parse current audit identifiers without accepting retired ingress aliases.
     pub fn from_str_name(value: &str) -> Option<Self> {
         match value {
             "admin_create_user" => Some(Self::AdminCreateUser),
@@ -1117,9 +1205,9 @@ impl AuditAction {
             "admin_create_remote_node_enrollment_token" => {
                 Some(Self::AdminCreateRemoteNodeEnrollmentToken)
             }
-            "admin_create_remote_ingress_profile" => Some(Self::AdminCreateRemoteIngressProfile),
-            "admin_update_remote_ingress_profile" => Some(Self::AdminUpdateRemoteIngressProfile),
-            "admin_delete_remote_ingress_profile" => Some(Self::AdminDeleteRemoteIngressProfile),
+            "admin_create_remote_storage_target" => Some(Self::AdminCreateRemoteStorageTarget),
+            "admin_update_remote_storage_target" => Some(Self::AdminUpdateRemoteStorageTarget),
+            "admin_delete_remote_storage_target" => Some(Self::AdminDeleteRemoteStorageTarget),
             "admin_create_external_auth_provider" => Some(Self::AdminCreateExternalAuthProvider),
             "admin_update_external_auth_provider" => Some(Self::AdminUpdateExternalAuthProvider),
             "admin_delete_external_auth_provider" => Some(Self::AdminDeleteExternalAuthProvider),
@@ -1226,9 +1314,9 @@ impl AuditAction {
             "follower_object_write" => Some(Self::FollowerObjectWrite),
             "follower_object_delete" => Some(Self::FollowerObjectDelete),
             "follower_object_compose" => Some(Self::FollowerObjectCompose),
-            "follower_ingress_profile_create" => Some(Self::FollowerIngressProfileCreate),
-            "follower_ingress_profile_update" => Some(Self::FollowerIngressProfileUpdate),
-            "follower_ingress_profile_delete" => Some(Self::FollowerIngressProfileDelete),
+            "follower_storage_target_create" => Some(Self::FollowerStorageTargetCreate),
+            "follower_storage_target_update" => Some(Self::FollowerStorageTargetUpdate),
+            "follower_storage_target_delete" => Some(Self::FollowerStorageTargetDelete),
             "mail_send" => Some(Self::MailSend),
             "mail_delivery_failed" => Some(Self::MailDeliveryFailed),
             "admin_create_invitation" => Some(Self::AdminCreateInvitation),
@@ -1254,6 +1342,7 @@ impl AuditAction {
         }
     }
 
+    /// Group actions for the administrator configuration selector and its translated labels.
     pub const fn group(self) -> &'static str {
         match self {
             Self::AdminWorkspaceInspect
@@ -1293,9 +1382,9 @@ impl AuditAction {
             | Self::AdminCreateRemoteNodeEnrollmentToken
             | Self::RemoteEnrollmentRedeem
             | Self::RemoteEnrollmentAck => "remote",
-            Self::AdminCreateRemoteIngressProfile
-            | Self::AdminUpdateRemoteIngressProfile
-            | Self::AdminDeleteRemoteIngressProfile => "remote_ingress",
+            Self::AdminCreateRemoteStorageTarget
+            | Self::AdminUpdateRemoteStorageTarget
+            | Self::AdminDeleteRemoteStorageTarget => "remote_storage_target",
             Self::AdminCreateExternalAuthProvider
             | Self::AdminUpdateExternalAuthProvider
             | Self::AdminDeleteExternalAuthProvider
@@ -1391,9 +1480,9 @@ impl AuditAction {
             | Self::FollowerObjectWrite
             | Self::FollowerObjectDelete
             | Self::FollowerObjectCompose => "remote_storage",
-            Self::FollowerIngressProfileCreate
-            | Self::FollowerIngressProfileUpdate
-            | Self::FollowerIngressProfileDelete => "remote_ingress",
+            Self::FollowerStorageTargetCreate
+            | Self::FollowerStorageTargetUpdate
+            | Self::FollowerStorageTargetDelete => "remote_storage_target",
             Self::MailSend | Self::MailDeliveryFailed => "mail",
             Self::TagCreate
             | Self::TagUpdate

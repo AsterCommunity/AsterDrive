@@ -2083,6 +2083,7 @@ struct PolicyUploadSessionSpec<'a> {
     expires_at: Option<chrono::DateTime<Utc>>,
 }
 
+/// Build an upload-session fixture with required placement bindings and the state under test.
 async fn create_policy_upload_session(
     state: &aster_drive::runtime::PrimaryAppState,
     spec: PolicyUploadSessionSpec<'_>,
@@ -2106,9 +2107,9 @@ async fn create_policy_upload_session(
             received_count: Set(1),
             folder_id: Set(None),
             policy_id: Set(spec.policy_id),
-            placement_profile_id: Set(None),
+            placement_profile_id: Set(1),
             placement_rule_id: Set(None),
-            placement_revision: Set(None),
+            placement_revision: Set(1),
             placement_execution_preference: Set("automatic".to_string()),
             status: Set(spec
                 .status

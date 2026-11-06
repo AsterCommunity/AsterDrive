@@ -555,6 +555,7 @@ mod tests {
         db
     }
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn session(id: &str, status: UploadSessionStatus) -> upload_session::Model {
         let now = Utc::now();
         upload_session::Model {
@@ -570,9 +571,9 @@ mod tests {
             received_count: 0,
             folder_id: None,
             policy_id: 1,
-            placement_profile_id: None,
+            placement_profile_id: 1,
             placement_rule_id: None,
-            placement_revision: None,
+            placement_revision: 1,
             placement_execution_preference: "automatic".to_string(),
             status,
             session_kind: UploadSessionKind::OffsetStaging,

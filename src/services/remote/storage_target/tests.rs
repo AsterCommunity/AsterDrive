@@ -262,6 +262,7 @@ fn s3_create(
     }
 }
 
+/// Build a connector-owned S3 target fixture without retired flat configuration fields.
 fn s3_model() -> remote_storage_target::Model {
     let now = Utc::now();
     remote_storage_target::Model {
@@ -282,12 +283,6 @@ fn s3_model() -> remote_storage_target::Model {
             )
             .unwrap(),
         ),
-        driver_type: String::new(),
-        endpoint: String::new(),
-        bucket: String::new(),
-        access_key: String::new(),
-        secret_key: String::new(),
-        base_path: String::new(),
         desired_revision: 1,
         applied_revision: 1,
         last_error: String::new(),

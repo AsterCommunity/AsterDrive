@@ -928,6 +928,7 @@ export interface paths {
         };
         get: operations["list_remote_node_storage_targets"];
         put?: never;
+        /** Create a target on its owning follower and record the successful administrator action. */
         post: operations["create_remote_node_storage_target"];
         delete?: never;
         options?: never;
@@ -945,9 +946,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** Delete an unreferenced follower target and audit its stable target key. */
         delete: operations["delete_remote_node_storage_target"];
         options?: never;
         head?: never;
+        /** Apply a follower-owned target update before recording the resulting audit snapshot. */
         patch: operations["update_remote_node_storage_target"];
         trace?: never;
     };
@@ -5458,12 +5461,12 @@ export interface components {
          * @description 审计日志动作
          * @enum {string}
          */
-        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_trigger_storage_action" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_ingress_profile" | "admin_update_remote_ingress_profile" | "admin_delete_remote_ingress_profile" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "task_cancel_requested" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_ingress_profile_create" | "follower_ingress_profile_update" | "follower_ingress_profile_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach" | "remote_node_connected" | "remote_node_graceful_disconnect" | "remote_node_unexpected_disconnect" | "remote_node_heartbeat_timeout" | "admin_create_storage_policy_forced_purge_task" | "folder_icon_change" | "admin_workspace_inspect" | "admin_file_download" | "admin_revision_download";
+        AuditAction: "admin_create_user" | "admin_force_delete_user" | "admin_create_team" | "admin_create_policy_group" | "admin_archive_team" | "admin_restore_team" | "admin_revoke_user_sessions" | "admin_reset_user_password" | "admin_reset_user_mfa" | "admin_update_team" | "admin_update_user" | "admin_delete_policy_group" | "admin_migrate_policy_group_users" | "admin_update_policy_group" | "admin_create_policy" | "admin_update_policy" | "admin_delete_policy" | "admin_trigger_storage_action" | "admin_delete_config" | "admin_delete_share" | "admin_force_unlock" | "admin_cleanup_expired_locks" | "admin_cleanup_tasks" | "admin_create_blob_maintenance_task" | "admin_create_remote_node" | "admin_update_remote_node" | "admin_delete_remote_node" | "admin_test_remote_node" | "admin_create_remote_node_enrollment_token" | "admin_create_remote_storage_target" | "admin_update_remote_storage_target" | "admin_delete_remote_storage_target" | "admin_create_external_auth_provider" | "admin_update_external_auth_provider" | "admin_delete_external_auth_provider" | "admin_test_external_auth_provider" | "batch_copy" | "batch_delete" | "batch_move" | "config_action_execute" | "config_update" | "file_copy" | "file_create" | "file_delete" | "file_download" | "file_direct_link_create" | "file_edit" | "file_move" | "file_rename" | "file_upload" | "file_preview_link_create" | "file_wopi_open" | "file_upload_cancel" | "file_restore" | "file_purge" | "file_lock" | "file_unlock" | "file_version_restore" | "file_version_delete" | "folder_copy" | "folder_create" | "folder_delete" | "folder_move" | "folder_policy_change" | "folder_rename" | "folder_restore" | "folder_purge" | "folder_lock" | "folder_unlock" | "property_set" | "property_delete" | "share_batch_delete" | "share_create" | "share_delete" | "share_update" | "system_setup" | "server_start" | "server_shutdown" | "team_archive" | "team_cleanup_expired" | "team_create" | "team_member_add" | "team_member_remove" | "team_member_update" | "team_restore" | "team_update" | "task_retry" | "task_cancel_requested" | "archive_compress" | "archive_extract" | "archive_download" | "offline_download" | "trash_purge_all" | "remote_enrollment_redeem" | "remote_enrollment_ack" | "user_revoke_other_sessions" | "user_revoke_session" | "user_update_preferences" | "user_update_profile" | "user_upload_avatar" | "user_set_avatar_source" | "user_update_wopi_info" | "webdav_account_create" | "webdav_account_delete" | "webdav_account_toggle" | "team_webdav_account_create" | "team_webdav_account_delete" | "team_webdav_account_toggle" | "user_change_password" | "user_confirm_password_reset" | "user_confirm_email_change" | "user_confirm_registration" | "user_login" | "user_logout" | "user_mfa_enable" | "user_mfa_disable" | "user_mfa_recovery_codes_regenerate" | "user_mfa_email_code_send" | "user_mfa_challenge_success" | "user_mfa_challenge_failed" | "user_passkey_delete" | "user_passkey_login" | "user_passkey_register" | "user_passkey_rename" | "user_external_auth_login" | "user_external_auth_link" | "user_external_auth_unlink" | "user_refresh_token_reuse_detected" | "user_request_email_change" | "user_request_password_reset" | "user_register" | "user_resend_email_change" | "user_resend_registration" | "follower_binding_sync" | "follower_object_read" | "follower_object_write" | "follower_object_delete" | "follower_object_compose" | "follower_storage_target_create" | "follower_storage_target_update" | "follower_storage_target_delete" | "mail_send" | "mail_delivery_failed" | "admin_create_invitation" | "admin_revoke_invitation" | "tag_create" | "tag_update" | "tag_delete" | "tag_attach" | "tag_detach" | "remote_node_connected" | "remote_node_graceful_disconnect" | "remote_node_unexpected_disconnect" | "remote_node_heartbeat_timeout" | "admin_create_storage_policy_forced_purge_task" | "folder_icon_change" | "admin_workspace_inspect" | "admin_file_download" | "admin_revision_download";
         /**
          * @description 审计日志实体类型
          * @enum {string}
          */
-        AuditEntityType: "auth_session" | "batch" | "external_auth_identity" | "external_auth_provider" | "file" | "folder" | "mail" | "invitation" | "mfa_factor" | "passkey" | "policy_group" | "remote_ingress_profile" | "remote_node" | "resource_lock" | "share" | "storage_policy" | "stream_ticket" | "system_config" | "tag" | "task" | "team" | "trash" | "upload_session" | "user" | "webdav_account";
+        AuditEntityType: "auth_session" | "batch" | "external_auth_identity" | "external_auth_provider" | "file" | "folder" | "mail" | "invitation" | "mfa_factor" | "passkey" | "policy_group" | "remote_storage_target" | "remote_node" | "resource_lock" | "share" | "storage_policy" | "stream_ticket" | "system_config" | "tag" | "task" | "team" | "trash" | "upload_session" | "user" | "webdav_account";
         AuditLogEntry: {
             action: components["schemas"]["AuditAction"];
             created_at: string;
@@ -10149,12 +10152,14 @@ export interface components {
             /**
              * Format: int64
              * @description Placement profile/rule revision selected during upload initialization.
-             *     Nullable for sessions created before the placement migration.
              */
-            placement_profile_id?: number | null;
+            placement_profile_id: number;
             /** Format: int64 */
-            placement_revision?: number | null;
-            /** Format: int64 */
+            placement_revision: number;
+            /**
+             * Format: int64
+             * @description Folder-policy overrides select a policy without a placement rule.
+             */
             placement_rule_id?: number | null;
             /** Format: int64 */
             policy_id: number;

@@ -7,6 +7,7 @@ import {
 	formatAuditTarget,
 	formatAuditTargetType,
 	getAuditActionBadgeClass,
+	isAuditEntityType,
 } from "@/lib/audit";
 import { createMockTWithInterpolation } from "@/test/i18n";
 import type { AuditLogEntry } from "@/types/api";
@@ -363,4 +364,38 @@ it("renders missing inspection reason/result and partial target identity without
 			},
 		}),
 	).toBe("用户");
+});
+
+describe("remote storage target audit names", () => {
+	it("uses current filter, translation, and badge keys", () => {
+		const t = createMockTWithInterpolation({
+			"admin:audit_action_admin_delete_remote_storage_target":
+				"Deleted remote target",
+			"admin:audit_entity_type_remote_storage_target": "Remote storage target",
+			"admin:audit_presentation_remote_storage_target_snapshot":
+				"{{target_key}} uses {{driver_type}}",
+		});
+		expect(isAuditEntityType("remote_storage_target")).toBe(true);
+		expect(isAuditEntityType("remote_ingress_profile")).toBe(false);
+		expect(formatAuditAction(t, "admin_delete_remote_storage_target")).toBe(
+			"Deleted remote target",
+		);
+		expect(formatAuditEntityType(t, "remote_storage_target")).toBe(
+			"Remote storage target",
+		);
+		expect(
+			getAuditActionBadgeClass("admin_delete_remote_storage_target"),
+		).toContain("border-red-200");
+		const entry = {
+			action: "admin_create_remote_storage_target",
+			entity_type: "remote_storage_target",
+			presentation: {
+				detail: {
+					code: "remote_storage_target_snapshot",
+					params: { target_key: "rst_history", driver_type: "s3" },
+				},
+			},
+		} as AuditLogEntry;
+		expect(formatAuditDetail(t, entry)).toBe("rst_history uses s3");
+	});
 });

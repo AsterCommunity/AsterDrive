@@ -21,6 +21,7 @@ pub use chunk::{
     upload_chunk_payload, upload_chunk_payload_for_team,
 };
 
+/// Authorize and claim a live stream session before consuming bytes or publishing its file.
 pub(crate) async fn ingest_stream(
     state: &PrimaryAppState,
     upload_id: &str,
@@ -47,7 +48,7 @@ pub(crate) async fn ingest_stream(
         );
     }
 
-    let plan = super::plan::UploadPlan::try_from_session(&session)?;
+    let plan = super::plan::UploadPlan::from_session(&session);
     let policy = state.policy_snapshot().get_policy_or_err(plan.policy_id)?;
     let actor_username = storage::load_scope_actor_username_cached(state, scope).await?;
     let claimed = crate::db::repository::upload_session_repo::try_transition_status_before_expiry(

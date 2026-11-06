@@ -39,7 +39,6 @@ pub mod storage_policy;
 pub mod storage_policy_authorization_flow;
 pub mod storage_policy_connector_credential;
 pub mod storage_policy_group;
-pub mod storage_policy_group_item;
 pub mod storage_policy_group_rule;
 pub mod storage_policy_group_rule_target;
 pub mod tag;

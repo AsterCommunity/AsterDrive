@@ -371,30 +371,6 @@ pub(crate) async fn require_team_access_with_db<C: ConnectionTrait>(
         .map(|_| ())
 }
 
-#[cfg(test)]
-pub(crate) async fn require_team_policy_group_id(
-    state: &impl SharedRuntimeState,
-    team_id: i64,
-    user_id: i64,
-) -> Result<i64> {
-    require_team_policy_group_id_with_db(state, state.reader_db(), team_id, user_id).await
-}
-
-pub(crate) async fn require_team_policy_group_id_with_db<C: ConnectionTrait>(
-    state: &impl SharedRuntimeState,
-    db: &C,
-    team_id: i64,
-    user_id: i64,
-) -> Result<i64> {
-    let access = load_team_access(state, db, team_id, user_id).await?;
-    access.policy_group_id.ok_or_else(|| {
-        AsterError::storage_policy_not_found(format!(
-            "no storage policy group assigned to team #{}",
-            access.team_id
-        ))
-    })
-}
-
 pub(crate) async fn require_team_management_access(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -513,8 +489,7 @@ pub(crate) async fn list_files_in_folder(
 #[cfg(test)]
 mod tests {
     use super::{
-        WorkspaceStorageScope, map_folder_lookup_error, require_team_access,
-        require_team_policy_group_id,
+        WorkspaceStorageScope, load_team_access, map_folder_lookup_error, require_team_access,
     };
     use crate::config::{Config, RuntimeConfig};
     use crate::db::repository::{
@@ -760,6 +735,7 @@ mod tests {
         (team, membership)
     }
 
+    /// Verify team access cache hit rechecks membership and policy group.
     #[tokio::test]
     async fn team_access_cache_hit_rechecks_membership_and_policy_group() {
         let state = build_cached_state().await;
@@ -779,10 +755,10 @@ mod tests {
         team_repo::update(state.writer_db(), active)
             .await
             .expect("team policy group should update");
-        let policy_group_id = require_team_policy_group_id(&state, team.id, member.id)
+        let access = load_team_access(&state, state.reader_db(), team.id, member.id)
             .await
             .expect("cached access should refresh policy group from database");
-        assert_eq!(policy_group_id, second_group.id);
+        assert_eq!(access.policy_group_id, Some(second_group.id));
 
         team_member_repo::delete(state.writer_db(), membership.id)
             .await

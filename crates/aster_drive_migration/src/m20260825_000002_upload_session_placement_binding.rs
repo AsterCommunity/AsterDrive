@@ -1,8 +1,7 @@
 //! Persist the placement decision selected during upload initialization.
 //!
-//! TODO(0.6.0): make placement_profile_id, placement_rule_id and
-//! placement_revision non-null after all pre-placement sessions have expired
-//! or have been explicitly finalized/cancelled.
+//! Profile/revision nullability is tightened by the later expired-compatibility
+//! cleanup migration. Rule IDs remain nullable for folder-policy overrides.
 
 use sea_orm_migration::prelude::*;
 
@@ -51,9 +50,9 @@ impl MigrationTrait for Migration {
         .await
     }
 
+    /// Keep this historical additive migration rollback unchanged; later cleanup fences downgrade.
     async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
-        // TODO(0.6.0): remove the compatibility down path with the old
-        // policy-only upload session contract.
+        // Historical additive migration; the cleanup migration prevents downgrade.
         Ok(())
     }
 }

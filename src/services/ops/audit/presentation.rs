@@ -169,6 +169,8 @@ fn server_target() -> AuditPresentationMessage {
     }
 }
 
+/// Build a translated detail message from the current action and sanitized historical payload.
+/// Missing or malformed details degrade safely instead of making an audit record unreadable.
 fn detail_message(
     action: AuditAction,
     details: Option<&Value>,
@@ -545,11 +547,11 @@ fn detail_message(
             copy_param(details, &mut params, "expires_at");
             Some(message("remote_node_enrollment_token_created", params))
         }
-        AuditAction::AdminCreateRemoteIngressProfile
-        | AuditAction::AdminUpdateRemoteIngressProfile
-        | AuditAction::AdminDeleteRemoteIngressProfile => {
+        AuditAction::AdminCreateRemoteStorageTarget
+        | AuditAction::AdminUpdateRemoteStorageTarget
+        | AuditAction::AdminDeleteRemoteStorageTarget => {
             copy_params(details, &mut params, &["target_key", "driver_type"]);
-            Some(message("remote_ingress_profile_snapshot", params))
+            Some(message("remote_storage_target_snapshot", params))
         }
         AuditAction::AdminCreateExternalAuthProvider
         | AuditAction::AdminUpdateExternalAuthProvider
@@ -918,15 +920,15 @@ fn detail_message(
             );
             Some(message("follower_object_changed", params))
         }
-        AuditAction::FollowerIngressProfileCreate
-        | AuditAction::FollowerIngressProfileUpdate
-        | AuditAction::FollowerIngressProfileDelete => {
+        AuditAction::FollowerStorageTargetCreate
+        | AuditAction::FollowerStorageTargetUpdate
+        | AuditAction::FollowerStorageTargetDelete => {
             copy_params(
                 details,
                 &mut params,
                 &["binding_id", "target_key", "driver_type"],
             );
-            Some(message("follower_ingress_profile_changed", params))
+            Some(message("follower_storage_target_changed", params))
         }
         AuditAction::AdminRevokeUserSessions
         | AuditAction::AdminResetUserPassword
@@ -1711,12 +1713,13 @@ mod tests {
         assert_eq!(detail.params.get("blob_count"), Some(&3.into()));
     }
 
+    /// Verify remote storage target details use storage target translation code.
     #[test]
-    fn remote_ingress_details_preserve_the_existing_translation_code() {
+    fn remote_storage_target_details_use_storage_target_translation_code() {
         for action in [
-            AuditAction::AdminCreateRemoteIngressProfile,
-            AuditAction::AdminUpdateRemoteIngressProfile,
-            AuditAction::AdminDeleteRemoteIngressProfile,
+            AuditAction::AdminCreateRemoteStorageTarget,
+            AuditAction::AdminUpdateRemoteStorageTarget,
+            AuditAction::AdminDeleteRemoteStorageTarget,
         ] {
             let presentation = build_audit_presentation(
                 action,
@@ -1727,9 +1730,26 @@ mod tests {
             )
             .unwrap();
             let detail = presentation.detail.unwrap();
-            assert_eq!(detail.code, "remote_ingress_profile_snapshot");
+            assert_eq!(detail.code, "remote_storage_target_snapshot");
             assert_eq!(detail.params["target_key"], "primary");
             assert_eq!(detail.params["driver_type"], "s3");
+        }
+    }
+
+    /// Follower target audit details preserve binding and connector identity under current translation keys.
+    #[test]
+    fn follower_target_details_use_current_translation_and_preserve_snapshot_fields() {
+        for action in [
+            AuditAction::FollowerStorageTargetCreate,
+            AuditAction::FollowerStorageTargetUpdate,
+            AuditAction::FollowerStorageTargetDelete,
+        ] {
+            let result=build_audit_presentation(action,AuditEntityType::RemoteStorageTarget,Some(1),Some("Stored target"),Some(r#"{"binding_id":7,"target_key":"rst_historical","driver_type":"asterdrive.storage.local"}"#)).unwrap();
+            let detail = result.detail.unwrap();
+            assert_eq!(detail.code, "follower_storage_target_changed");
+            assert_eq!(detail.params["binding_id"], 7);
+            assert_eq!(detail.params["target_key"], "rst_historical");
+            assert_eq!(detail.params["driver_type"], "asterdrive.storage.local");
         }
     }
 

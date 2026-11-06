@@ -881,6 +881,7 @@ mod tests {
         assert!(error.message().contains("uploaded object missing"));
     }
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn test_session(total_size: i64, total_chunks: i32) -> upload_session::Model {
         upload_session::Model {
             id: "session".to_string(),
@@ -895,9 +896,9 @@ mod tests {
             received_count: 0,
             folder_id: None,
             policy_id: 1,
-            placement_profile_id: None,
+            placement_profile_id: 1,
             placement_rule_id: None,
-            placement_revision: None,
+            placement_revision: 1,
             placement_execution_preference: "automatic".to_string(),
             status: aster_drive_model::types::UploadSessionStatus::Assembling,
             session_kind: aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart,

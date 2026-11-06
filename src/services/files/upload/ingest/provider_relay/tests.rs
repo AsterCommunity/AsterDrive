@@ -361,6 +361,7 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// Build a provider-relay test driver and session with persisted placement bindings.
     async fn new(behaviors: impl IntoIterator<Item = FragmentBehavior>) -> Self {
         let state = crate::runtime::tasks::test_support::setup_primary_state().await;
         let state = Arc::new(state.get_ref().clone());
@@ -428,9 +429,9 @@ impl Fixture {
                 received_count: Set(0),
                 folder_id: Set(None),
                 policy_id: Set(policy.id),
-                placement_profile_id: Set(None),
+                placement_profile_id: Set(1),
                 placement_rule_id: Set(None),
-                placement_revision: Set(None),
+                placement_revision: Set(1),
                 placement_execution_preference: Set("automatic".to_string()),
                 status: Set(UploadSessionStatus::Uploading),
                 session_kind: Set(UploadSessionKind::ProviderRelayResumable),

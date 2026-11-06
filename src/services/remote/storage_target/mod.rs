@@ -2,7 +2,6 @@
 
 mod driver;
 mod local_profiles;
-mod migration;
 mod models;
 mod normalization;
 mod paths;
@@ -17,7 +16,6 @@ pub(crate) use driver::{
     runtime_capabilities,
 };
 pub use local_profiles::{create, delete, list, update};
-pub(crate) use migration::convert_legacy_rows;
 pub use models::ResolvedRemoteStorageTarget;
 pub use remote::{
     create_remote, delete_remote, list_remote, list_remote_connector_catalog, update_remote,

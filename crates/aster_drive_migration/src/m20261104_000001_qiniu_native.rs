@@ -1,5 +1,5 @@
 //! One-time Kodo S3 -> native configuration gate. Never guesses a bucket mapping.
-//! TODO: remove this upgrade bridge only when the released V1 upgrade window closes.
+//! TODO(qiniu-native-0.8.0): remove this upgrade bridge when the released V1 upgrade window closes.
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, TransactionTrait};
 use serde_json::Value;

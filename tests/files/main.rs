@@ -16,6 +16,7 @@ mod properties;
 mod search;
 mod services;
 mod tags;
+mod team_write_authorization;
 mod thumbnail;
 mod trash;
 mod trash_coordination;

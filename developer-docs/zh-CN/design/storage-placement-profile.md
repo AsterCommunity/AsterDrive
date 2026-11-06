@@ -2,7 +2,7 @@
 
 ## 状态
 
-Issue #444 的实现基线。当前版本保留旧的 `storage_policy_group_items` 兼容投影；该路径标记为 deprecated，计划在 `0.6.0` 正式移除。
+Issue #444 的实现基线。placement profile/rule/target 是唯一运行时事实源。`m20261105_000001_remove_expired_storage_compat` 删除已过期的 `storage_policy_group_items` 兼容投影。
 
 ## 运行模型
 
@@ -24,13 +24,17 @@ workspace scope
 
 管理端 simulator 与真实 resolver 共用同一执行路径。合法 dry-run 即使被准入或路由规则拒绝也返回 `200` 诊断结果，包含后端规范化分类、admission 状态、最终 decision 或 rejection code、已评估规则和排除目标；`400` 只表示文件名、大小等模拟输入本身非法。
 
-## 兼容路径
+## 升级与历史边界
 
-- 旧 `storage_policy_group_items` 只在 migration 中读取一次，转换为单 target、weight=100、`first_available` 的 rule。
-- runtime snapshot、service、repository 业务路径和上传链路不读取旧 item 表；新 mutation 只写 placement rule/target。
-- 旧 admin `items` 输入仅作为 0.6.0 前的请求转换器，不会写回旧表；输出与运行时事实来自新 rule/target。
-- 所有兼容代码必须带 `TODO(0.6.0)` 删除计划；不得继续扩展旧 item 模型。
-- 新功能应优先写 placement rule/target，不能建立新的旧 item 专用行为。
+- 历史 migration 保留一次性 item → rule/target 导入，保证新建数据库和历史升级可重放；当前 entity、CLI 数据库复制计划和运行时不再包含旧 item 表。
+- 新清理 migration 删除旧 item 表，以及规则描述中的原始待删除提示；已经导入的 rule/target 和自定义描述会保留。
+- 上传会话的 `placement_profile_id` 和 `placement_revision` 必须非空。缺少绑定的旧会话阻止升级，须在旧版本完成、取消并清理；不会自动删除会话、上传分片或云端对象。
+- `placement_rule_id` 继续允许空值：文件夹显式策略覆盖不经过 placement rule，这属于当前产品语义。
+- 团队绑定由 immutable snapshot 读取，缺失时明确报错，不再回数据库兜底。团队创建及绑定变更返回前更新本地 snapshot，并发布跨实例 topology reload。启用 config sync 的每个实例另以 30 秒间隔从 writer 对账 routing/assignment snapshot；通知丢失无需等待订阅重连即可恢复，对账失败保留原快照并在下个周期重试，不周期性销毁 driver 或解密凭据。
+- 快照 publication 使用同一写锁保护 generation 检查与整体替换。用户/团队绑定的本地增删改和成功 reload 都推进 generation；锁外读取期间若 generation 已变化，reload 丢弃旧结果并重新读取，避免旧查询覆盖已提交绑定。数据库读取与规则编译保持锁外执行，多个 reload 可以并发。
+- 新清理 migration 不支持向旧兼容 schema 回滚；降级需要恢复匹配版本的数据库备份。所有 writer 必须同步升级。
+
+上传初始化和空文件创建在 service 边界使用 writer 数据库校验 scope 访问权，保持团队成员校验与 placement 匹配、资源锁各自独立。
 
 ## 验收
 

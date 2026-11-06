@@ -15,5 +15,6 @@ mod middleware;
 mod migrations;
 mod observability;
 mod refactor_contracts;
+mod remote_target_audit_migration;
 mod schema_drift;
 mod security_fixes;

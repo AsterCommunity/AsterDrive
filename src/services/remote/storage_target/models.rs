@@ -12,16 +12,17 @@ pub struct ResolvedRemoteStorageTarget {
 impl TryFrom<remote_storage_target::Model> for RemoteStorageTargetInfo {
     type Error = crate::errors::AsterError;
 
+    /// Decode persisted connector-owned target configuration for the remote protocol response.
     fn try_from(model: remote_storage_target::Model) -> Result<Self, Self::Error> {
         let connector_id = model.connector_id.ok_or_else(|| {
             crate::errors::AsterError::database_operation(format!(
-                "remote storage target #{} has no connector id after startup conversion",
+                "remote storage target #{} has no connector id in the persisted connector configuration",
                 model.id
             ))
         })?;
         let connector_config = model.connector_config.ok_or_else(|| {
             crate::errors::AsterError::database_operation(format!(
-                "remote storage target #{} has no connector config after startup conversion",
+                "remote storage target #{} has no connector config in the persisted connector configuration",
                 model.id
             ))
         })?;

@@ -1062,6 +1062,8 @@ Remote policy 的 `remote_node_id`、`remote_storage_target_key` 和 `base_path`
 - `presentation.target`：目标对象摘要，优先描述实际展示对象；服务启动/关闭这类系统事件会使用 `server`
 - `presentation.detail`：按动作类型补充的结构化详情；旧记录或无法解析的详情会安全降级为空
 
+远端存储目标审计统一使用 `admin_create_remote_storage_target`、`admin_update_remote_storage_target`、`admin_delete_remote_storage_target`、`follower_storage_target_create/update/delete` 和 entity type `remote_storage_target`。升级 migration 同步规范化历史记录与录制白名单；列表筛选和 CSV 使用新值。自定义客户端、旧书签筛选和配置备份中的 ingress 名称必须更新，服务端不再接受旧 entity type 别名。
+
 审计记录范围由运行时配置 `audit_log_recorded_actions` 控制，值是审计 action 字符串数组。空数组表示审计日志开关开启但不写入任何 action；非法值会在配置写入时被拒绝，运行时读取异常时会回退为记录全部 action。
 
 主节点启动和关闭会分别写入 `server_start`、`server_shutdown`，归在 `system` action 分组。当前 follower 的审计和运行日志补全仍是后续工作。

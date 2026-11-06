@@ -24,6 +24,7 @@ pub async fn list<S: FollowerRuntimeState>(
         .collect()
 }
 
+/// Create a follower-owned connector target and encrypted credential record in one transaction.
 pub async fn create<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
@@ -45,12 +46,6 @@ pub async fn create<S: FollowerRuntimeState>(
                 name: Set(normalized.name),
                 connector_id: Set(Some(connector_id.to_string())),
                 connector_config: Set(Some(connector_config)),
-                driver_type: Set(String::new()),
-                endpoint: Set(String::new()),
-                bucket: Set(String::new()),
-                access_key: Set(String::new()),
-                secret_key: Set(String::new()),
-                base_path: Set(String::new()),
                 desired_revision: Set(1),
                 applied_revision: Set(0),
                 last_error: Set(String::new()),

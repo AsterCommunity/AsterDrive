@@ -40,6 +40,7 @@ fn bounded_audit_value_truncates_without_splitting_utf8() {
     assert_eq!(bounded_audit_value("猫猫猫", 4), "猫");
 }
 
+/// Verify audit action strings match existing contract.
 #[test]
 fn audit_action_strings_match_existing_contract() {
     let cases = [
@@ -111,16 +112,16 @@ fn audit_action_strings_match_existing_contract() {
             "admin_create_remote_node_enrollment_token",
         ),
         (
-            AuditAction::AdminCreateRemoteIngressProfile,
-            "admin_create_remote_ingress_profile",
+            AuditAction::AdminCreateRemoteStorageTarget,
+            "admin_create_remote_storage_target",
         ),
         (
-            AuditAction::AdminUpdateRemoteIngressProfile,
-            "admin_update_remote_ingress_profile",
+            AuditAction::AdminUpdateRemoteStorageTarget,
+            "admin_update_remote_storage_target",
         ),
         (
-            AuditAction::AdminDeleteRemoteIngressProfile,
-            "admin_delete_remote_ingress_profile",
+            AuditAction::AdminDeleteRemoteStorageTarget,
+            "admin_delete_remote_storage_target",
         ),
         (
             AuditAction::AdminCreateExternalAuthProvider,
@@ -298,16 +299,16 @@ fn audit_action_strings_match_existing_contract() {
             "follower_object_compose",
         ),
         (
-            AuditAction::FollowerIngressProfileCreate,
-            "follower_ingress_profile_create",
+            AuditAction::FollowerStorageTargetCreate,
+            "follower_storage_target_create",
         ),
         (
-            AuditAction::FollowerIngressProfileUpdate,
-            "follower_ingress_profile_update",
+            AuditAction::FollowerStorageTargetUpdate,
+            "follower_storage_target_update",
         ),
         (
-            AuditAction::FollowerIngressProfileDelete,
-            "follower_ingress_profile_delete",
+            AuditAction::FollowerStorageTargetDelete,
+            "follower_storage_target_delete",
         ),
         (AuditAction::MailSend, "mail_send"),
         (AuditAction::MailDeliveryFailed, "mail_delivery_failed"),

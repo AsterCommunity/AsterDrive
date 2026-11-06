@@ -628,6 +628,8 @@ The export endpoint ignores `limit` and `offset`, reads keyset cursor batches, a
 
 `created_at` uses UTC RFC3339. `detail` contains stored JSON after recursive removal of password, token, secret, credential, authorization, cookie, recovery-code, key, and API-key fields. Empty values remain empty.
 
+Remote storage target audits use `admin_create_remote_storage_target`, `admin_update_remote_storage_target`, `admin_delete_remote_storage_target`, `follower_storage_target_create/update/delete`, and entity type `remote_storage_target`. The upgrade migration normalizes existing records and the `audit_log_recorded_actions` selection in one transaction, preserving IDs, actor/target snapshots, details and timestamps. Filters and CSV exports use the new identifiers. Update custom clients, bookmarked filters and configuration backups; the old entity type is no longer an accepted alias. Upgrade all writers and the matching frontend together.
+
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
 
 Authentication controls include `auth_password_login_enabled`, which defaults to

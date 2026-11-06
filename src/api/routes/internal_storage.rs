@@ -975,6 +975,7 @@ async fn list_storage_target_connectors(
     Ok(HttpResponse::Ok().json(crate::api::response::success(catalog)))
 }
 
+/// Create a target for the authenticated primary binding and record the follower audit event.
 async fn create_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -995,12 +996,12 @@ async fn create_storage_target(
     audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit::AuditAction::FollowerIngressProfileCreate,
-        audit::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerStorageTargetCreate,
+        audit::AuditEntityType::RemoteStorageTarget,
         None,
         Some(&target.target_key),
         || {
-            audit::details(audit::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerStorageTargetAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: &target.connector_id,
@@ -1011,6 +1012,7 @@ async fn create_storage_target(
     Ok(HttpResponse::Created().json(crate::api::response::success(target)))
 }
 
+/// Update the binding-owned target and audit the connector state returned by the follower.
 async fn update_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -1031,12 +1033,12 @@ async fn update_storage_target(
     audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit::AuditAction::FollowerIngressProfileUpdate,
-        audit::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerStorageTargetUpdate,
+        audit::AuditEntityType::RemoteStorageTarget,
         None,
         Some(&target.target_key),
         || {
-            audit::details(audit::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerStorageTargetAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: &target.connector_id,
@@ -1047,6 +1049,7 @@ async fn update_storage_target(
     Ok(HttpResponse::Ok().json(crate::api::response::success(target)))
 }
 
+/// Delete the binding-owned target and preserve its identity in the follower audit event.
 async fn delete_storage_target(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -1064,12 +1067,12 @@ async fn delete_storage_target(
     audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit::AuditAction::FollowerIngressProfileDelete,
-        audit::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerStorageTargetDelete,
+        audit::AuditEntityType::RemoteStorageTarget,
         None,
         Some(&target_key),
         || {
-            audit::details(audit::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerStorageTargetAuditDetails {
                 binding_id: binding.id,
                 target_key: &deleted_target.target_key,
                 driver_type: &deleted_target.connector_id,

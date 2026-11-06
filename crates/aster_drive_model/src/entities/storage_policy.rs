@@ -53,8 +53,6 @@ pub enum Relation {
     StoragePolicyAuthorizationFlows,
     #[sea_orm(has_one = "super::storage_policy_connector_credential::Entity")]
     StoragePolicyConnectorCredential,
-    #[sea_orm(has_many = "super::storage_policy_group_item::Entity")]
-    StoragePolicyGroupItems,
     #[sea_orm(has_many = "super::file_blob::Entity")]
     FileBlobs,
     #[sea_orm(has_many = "super::folder::Entity")]
@@ -70,12 +68,6 @@ impl Related<super::storage_policy_authorization_flow::Entity> for Entity {
 impl Related<super::storage_policy_connector_credential::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::StoragePolicyConnectorCredential.def()
-    }
-}
-
-impl Related<super::storage_policy_group_item::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::StoragePolicyGroupItems.def()
     }
 }
 

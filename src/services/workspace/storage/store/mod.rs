@@ -228,6 +228,7 @@ pub(crate) async fn create_empty_from_relative_path_with_idempotency(
     .await
 }
 
+/// Commit the empty file, virtual blob, quota and activity under workspace mutation coordination.
 async fn create_empty_transactional(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -380,9 +381,8 @@ async fn create_empty_transactional(
                 } else {
                     (folder_id, base_folder)
                 };
-            let policy = crate::services::workspace::storage::resolve_blob_policy_for_write_on(
+            let policy = crate::services::workspace::storage::resolve_blob_policy_for_write(
                 &state,
-                txn,
                 BlobPolicyRequest {
                     scope,
                     folder_id: resolved_folder_id,

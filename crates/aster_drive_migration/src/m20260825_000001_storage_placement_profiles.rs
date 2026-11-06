@@ -1,14 +1,9 @@
 //! Storage placement profile topology.
 //!
-//! The legacy storage_policy_group_items table remains as a compatibility
-//! projection until 0.6.0. This migration materializes each legacy item as a
-//! single rule with one target and preserves first-match size routing.
-//! The same unreleased topology migration also removes binding-wide remote
-//! target defaults now that remote policies persist an explicit target key.
-//!
-//! TODO(0.6.0): remove the legacy item projection, compatibility readers and
-//! the old policy-group-only migration path after all supported databases have
-//! applied this migration and the placement API is authoritative.
+//! Historical import from policy-group items to authoritative placement rules.
+//! The expired compatibility projection is removed by the later
+//! m20261105_000001_remove_expired_storage_compat migration. Keep this import
+//! and its historical rollback for reproducible migration history.
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{
@@ -32,6 +27,7 @@ impl MigrationTrait for Migration {
         materialize_legacy_items(manager).await
     }
 
+    /// Restore the historical topology schema for migration-prefix rollback tests.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
             .drop_table(
@@ -50,8 +46,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
         restore_remote_storage_target_default(manager).await?;
-        // TODO(0.6.0): remove this down migration once the legacy group
-        // columns become part of the permanent placement schema.
         Ok(())
     }
 }

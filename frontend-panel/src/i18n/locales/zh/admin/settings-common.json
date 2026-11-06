@@ -97,7 +97,7 @@
 	"settings_enum_group_folder": "文件夹",
 	"settings_enum_group_property": "属性",
 	"settings_enum_group_remote": "远程节点",
-	"settings_enum_group_remote_ingress": "远程存储目标",
+	"settings_enum_group_remote_storage_target": "远程存储目标",
 	"settings_enum_group_share": "分享",
 	"settings_enum_group_system": "系统",
 	"settings_enum_group_task": "任务",

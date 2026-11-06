@@ -71,6 +71,8 @@ pub(crate) use transfer::{
 };
 pub use transfer::{batch_duplicate_file_records, copy_file, duplicate_file_record};
 
+/// Authorize the actor against the writer before creating a metadata-only file.
+/// Preserve idempotency, workspace activity and audit ordering across root and relative-path creation.
 pub(crate) async fn create_empty_in_scope_with_audit(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -80,6 +82,7 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     idempotency_key: Option<&str>,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let (parsed_path, name, name_mode, actor_username, canonical_relative_path) =
         match relative_path {
             Some(path) => {

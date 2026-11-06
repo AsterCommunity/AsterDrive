@@ -50,32 +50,23 @@ pub(crate) struct UploadPlan {
 }
 
 impl UploadPlan {
-    pub(crate) fn try_from_session(
+    /// Construct the upload plan from required persisted profile/revision bindings and the negotiated kind.
+    pub(crate) fn from_session(
         session: &aster_drive_model::entities::upload_session::Model,
-    ) -> Result<Self> {
-        let placement_profile_id = session.placement_profile_id.ok_or_else(|| {
-            crate::errors::AsterError::validation_error(
-                "upload session is missing its placement profile binding",
-            )
-        })?;
-        let placement_revision = session.placement_revision.ok_or_else(|| {
-            crate::errors::AsterError::validation_error(
-                "upload session is missing its placement revision binding",
-            )
-        })?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             upload_id: session.id.clone(),
             filename: session.filename.clone(),
             mime_type: session.mime_type.clone(),
             total_size: session.total_size,
             policy_id: session.policy_id,
-            placement_profile_id,
+            placement_profile_id: session.placement_profile_id,
             placement_rule_id: session.placement_rule_id,
-            placement_revision,
+            placement_revision: session.placement_revision,
             transport: crate::services::files::upload::session::kind::mode_for_kind(
                 session.session_kind,
             ),
-        })
+        }
     }
 }
 
@@ -142,11 +133,19 @@ async fn init_upload_for_scope(
     result
 }
 
+/// Authorize the current actor before admission, provider calls or session allocation.
+/// Freeze placement and transport selection, then materialize the negotiated upload resources.
 async fn init_upload_for_scope_impl(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     params: InitUploadParams<'_>,
 ) -> Result<InitUploadResponse> {
+    crate::services::workspace::storage::require_scope_access_with_db(
+        state,
+        state.writer_db(),
+        scope,
+    )
+    .await?;
     tracing::debug!(
         scope = ?scope,
         folder_id = params.folder_id,
@@ -276,6 +275,7 @@ fn record_upload_session_if_created(
     }
 }
 
+/// Persist a staged upload session with its placement decision under the staging admission lock.
 async fn init_chunked_upload_session(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
@@ -312,9 +312,9 @@ async fn init_chunked_upload_session(
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
-                placement_profile_id: Some(ctx.routing_decision.profile_id),
+                placement_profile_id: ctx.routing_decision.profile_id,
                 placement_rule_id: ctx.routing_decision.rule_id,
-                placement_revision: Some(ctx.routing_decision.revision),
+                placement_revision: ctx.routing_decision.revision,
                 placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,

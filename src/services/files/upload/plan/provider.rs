@@ -20,6 +20,7 @@ use super::context::{
     try_persist_upload_session,
 };
 
+/// Negotiate a provider resumable session and persist its encrypted state and placement snapshot.
 pub(super) async fn init_provider_resumable_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
@@ -185,9 +186,9 @@ pub(super) async fn init_provider_resumable_upload(
                 total_chunks,
                 folder_id: ctx.target.folder_id,
                 policy_id: ctx.policy.id,
-                placement_profile_id: Some(ctx.routing_decision.profile_id),
+                placement_profile_id: ctx.routing_decision.profile_id,
                 placement_rule_id: ctx.routing_decision.rule_id,
-                placement_revision: Some(ctx.routing_decision.revision),
+                placement_revision: ctx.routing_decision.revision,
                 placement_execution_preference: ctx.routing_decision.execution_preference.as_str(),
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,

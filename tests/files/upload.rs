@@ -1102,6 +1102,7 @@ impl<'a> UploadSessionSpec<'a> {
     }
 }
 
+/// Build an upload-session fixture with required placement bindings and the state under test.
 async fn create_upload_session(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,
@@ -1131,9 +1132,9 @@ async fn create_upload_session(
             received_count: Set(spec.received_count),
             folder_id: Set(None),
             policy_id: Set(policy_id),
-            placement_profile_id: Set(None),
+            placement_profile_id: Set(1),
             placement_rule_id: Set(None),
-            placement_revision: Set(None),
+            placement_revision: Set(1),
             placement_execution_preference: Set("automatic".to_string()),
             status: Set(spec.status),
             session_kind: Set(spec.session_kind),
@@ -1169,6 +1170,7 @@ async fn create_sparse_staging_file(
     path
 }
 
+/// Verify upload session try create reports id conflict.
 #[actix_web::test]
 async fn test_upload_session_try_create_reports_id_conflict() {
     use aster_drive::db::repository::{policy_repo, upload_session_repo};
@@ -1199,9 +1201,9 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         received_count: Set(0),
         folder_id: Set(None),
         policy_id: Set(policy.id),
-        placement_profile_id: Set(None),
+        placement_profile_id: Set(1),
         placement_rule_id: Set(None),
-        placement_revision: Set(None),
+        placement_revision: Set(1),
         placement_execution_preference: Set("automatic".to_string()),
         status: Set(aster_drive_model::types::UploadSessionStatus::Uploading),
         session_kind: Set(aster_drive_model::types::UploadSessionKind::OffsetStaging),
@@ -1226,6 +1228,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
     );
 }
 
+/// Verify upload session try create preserves non id unique conflict.
 #[actix_web::test]
 async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
     use aster_drive::db::repository::{policy_repo, upload_session_repo};
@@ -1268,9 +1271,9 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
             received_count: Set(0),
             folder_id: Set(None),
             policy_id: Set(policy.id),
-            placement_profile_id: Set(None),
+            placement_profile_id: Set(1),
             placement_rule_id: Set(None),
-            placement_revision: Set(None),
+            placement_revision: Set(1),
             placement_execution_preference: Set("automatic".to_string()),
             status: Set(aster_drive_model::types::UploadSessionStatus::Uploading),
             session_kind: Set(aster_drive_model::types::UploadSessionKind::OffsetStaging),
@@ -6922,6 +6925,7 @@ async fn test_file_upload_get_progress_lists_and_sorts_staging_receipts() {
     assert_eq!(progress.chunks_on_disk, vec![0, 1]);
 }
 
+/// Verify file upload get progress uses db parts for terminal relay multipart sessions.
 #[actix_web::test]
 async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipart_sessions() {
     use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
@@ -6972,9 +6976,9 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
                 received_count: Set(2),
                 folder_id: Set(None),
                 policy_id: Set(relay_policy.id),
-                placement_profile_id: Set(None),
+                placement_profile_id: Set(1),
                 placement_rule_id: Set(None),
-                placement_revision: Set(None),
+                placement_revision: Set(1),
                 placement_execution_preference: Set("automatic".to_string()),
                 status: Set(status),
                 session_kind: Set(

@@ -17,7 +17,6 @@ pub(super) const COPY_TABLE_ORDER: &[&str] = &[
     "storage_policy_groups",
     "storage_policy_group_rules",
     "storage_policy_group_rule_targets",
-    "storage_policy_group_items",
     "follower_enrollment_sessions",
     "users",
     "storage_policy_authorization_flows",

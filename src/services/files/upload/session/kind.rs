@@ -126,6 +126,7 @@ mod tests {
     use aster_drive_model::entities::upload_session;
     use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus, UploadTransport};
 
+    /// Build an upload-session fixture with required placement bindings and the state under test.
     fn session(
         kind: UploadSessionKind,
         object_temp_key: Option<&str>,
@@ -145,9 +146,9 @@ mod tests {
             received_count: 0,
             folder_id: None,
             policy_id: 1,
-            placement_profile_id: None,
+            placement_profile_id: 1,
             placement_rule_id: None,
-            placement_revision: None,
+            placement_revision: 1,
             placement_execution_preference: "automatic".to_string(),
             status: UploadSessionStatus::Uploading,
             session_kind: kind,

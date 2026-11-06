@@ -273,3 +273,17 @@ fn provider_resumable_responses_expose_only_coordinated_browser_state() {
     assert!(!properties.contains_key("upload_url"));
     assert!(!properties.contains_key("next_expected_ranges"));
 }
+
+/// Verify audit entity schema uses permanent wire names.
+#[test]
+fn audit_entity_schema_uses_permanent_wire_names() {
+    let value = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    let expected: Vec<_> = aster_drive_model::types::AuditEntityType::ALL
+        .iter()
+        .map(|entity| serde_json::json!(entity.as_str()))
+        .collect();
+    assert_eq!(
+        value["components"]["schemas"]["AuditEntityType"]["enum"],
+        serde_json::json!(expected)
+    );
+}

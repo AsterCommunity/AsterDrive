@@ -467,6 +467,7 @@ pub(super) async fn resolve_required_policy_group_id(
     Ok(group_id)
 }
 
+/// Commit team ownership and membership, then publish its local assignment before notifying peers.
 pub(super) async fn create_team_record(
     state: &impl SharedRuntimeState,
     created_by_user_id: i64,
@@ -514,6 +515,9 @@ pub(super) async fn create_team_record(
     )
     .await?;
     transaction::commit(txn).await?;
+    state
+        .policy_snapshot()
+        .set_team_policy_group(created_team.id, policy_group_id);
     crate::services::workspace::storage::invalidate_team_access_cache_for_member(
         state,
         created_team.id,

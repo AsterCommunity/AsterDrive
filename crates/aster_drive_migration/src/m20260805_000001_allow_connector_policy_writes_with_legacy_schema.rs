@@ -9,8 +9,8 @@
 //! column nullable instead of reintroducing legacy fields into the application
 //! model.
 //!
-//! Issue #463 owns the 0.6.0 migration that physically removes all retained
-//! columns, indexes, foreign keys, and deprecated credential tables.
+//! Physical removal is implemented by m20260820_000001_remove_storage_policy_legacy,
+//! including retained columns, indexes, foreign keys and deprecated credential tables.
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};

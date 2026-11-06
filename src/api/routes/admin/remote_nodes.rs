@@ -39,12 +39,11 @@ fn remote_node_audit_details(node: &remote_node::RemoteNodeInfo) -> Option<serde
     })
 }
 
+/// Capture the returned target identity and connector in the administrator audit snapshot.
 fn remote_storage_target_audit_details(
     target: &crate::storage::remote_protocol::RemoteStorageTargetInfo,
 ) -> Option<serde_json::Value> {
-    // TODO(remote-storage-target): audit action/detail names keep the old
-    // remote ingress profile strings for stored audit compatibility.
-    audit::details(audit::RemoteIngressProfileAuditDetails {
+    audit::details(audit::RemoteStorageTargetAuditDetails {
         target_key: &target.target_key,
         driver_type: &target.connector_id,
     })
@@ -434,6 +433,7 @@ pub async fn list_remote_node_storage_target_connectors(
     ),
     security(("bearer" = [])),
 )]
+/// Create a target on its owning follower and record the successful administrator action.
 pub async fn create_remote_node_storage_target(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -446,8 +446,8 @@ pub async fn create_remote_node_storage_target(
     audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit::AuditAction::AdminCreateRemoteIngressProfile,
-        crate::services::ops::audit::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::AdminCreateRemoteStorageTarget,
+        crate::services::ops::audit::AuditEntityType::RemoteStorageTarget,
         Some(*path),
         Some(&target.target_key),
         || remote_storage_target_audit_details(&target),
@@ -475,6 +475,7 @@ pub async fn create_remote_node_storage_target(
     ),
     security(("bearer" = [])),
 )]
+/// Apply a follower-owned target update before recording the resulting audit snapshot.
 pub async fn update_remote_node_storage_target(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -489,8 +490,8 @@ pub async fn update_remote_node_storage_target(
     audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit::AuditAction::AdminUpdateRemoteIngressProfile,
-        crate::services::ops::audit::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::AdminUpdateRemoteStorageTarget,
+        crate::services::ops::audit::AuditEntityType::RemoteStorageTarget,
         Some(id),
         Some(&target.target_key),
         || remote_storage_target_audit_details(&target),
@@ -517,6 +518,7 @@ pub async fn update_remote_node_storage_target(
     ),
     security(("bearer" = [])),
 )]
+/// Delete an unreferenced follower target and audit its stable target key.
 pub async fn delete_remote_node_storage_target(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
@@ -529,12 +531,12 @@ pub async fn delete_remote_node_storage_target(
     audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit::AuditAction::AdminDeleteRemoteIngressProfile,
-        crate::services::ops::audit::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::AdminDeleteRemoteStorageTarget,
+        crate::services::ops::audit::AuditEntityType::RemoteStorageTarget,
         Some(id),
         Some(&target_key),
         || {
-            audit::details(audit::RemoteIngressProfileDeleteAuditDetails {
+            audit::details(audit::RemoteStorageTargetDeleteAuditDetails {
                 target_key: &target_key,
             })
         },

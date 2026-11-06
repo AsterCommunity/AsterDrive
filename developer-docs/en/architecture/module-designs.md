@@ -654,19 +654,22 @@ So the repository implements it as an offline CLI: the command handles user inte
 Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence so foundational tables are copied before the tables that depend on them, for example:
 
 - `managed_followers`
+- `remote_tunnel_owners`
 - `storage_policies`
-- `storage_connector_application_configs`
-- `storage_policy_credentials`
+- `storage_policy_connector_credentials`
 - `storage_policy_groups`
-- `storage_policy_group_items`
+- `storage_policy_group_rules`
+- `storage_policy_group_rule_targets`
 - `follower_enrollment_sessions`
 - `users`
 - `storage_policy_authorization_flows`
 - `user_profiles`
 - `user_invitations`
 - `auth_sessions`
+- `admin_content_accesses`
 - `passkeys`
 - `mfa_factors`
+- `mfa_totp_used_steps`
 - `mfa_recovery_codes`
 - `mfa_login_flows`
 - `mfa_email_codes`
@@ -679,6 +682,7 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 - `file_blobs`
 - `blob_media_metadata`
 - `files`
+- `file_create_idempotencies`
 - `file_revision_histories`
 - `file_revisions`
 - `file_revision_properties`
@@ -692,14 +696,19 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 - `external_auth_email_verification_flows`
 - `master_bindings`
 - `remote_storage_targets`
+- `remote_storage_target_credentials`
 - `system_config`
 - `audit_logs`
+- `workspace_activities`
 - `mail_outbox`
 - `background_tasks`
+- `task_resource_publications`
+- `folder_tree_operation_members`
 - `runtime_leases`
 - `scheduled_tasks`
 - `storage_migration_checkpoints`
 - `entity_properties`
+- `resource_lock_namespaces`
 - `resource_locks`
 - `wopi_sessions`
 
@@ -707,9 +716,9 @@ This order must stay aligned with foreign-key dependencies. When adding a new ta
 
 ### Intermediate 0.5 storage-upgrade state
 
-The 0.5 upgrade imports plaintext static credentials from legacy policy columns after runtime configuration and the encryption key are available. A successful import clears the old `access_key` / `secret_key` values and deletes converted rows from the two deprecated credential stores, but the 0.5.x schema retains the legacy columns, tables, and indexes. To keep that compatibility schema writable by the current entity after legacy fields leave the model, a 0.5 migration only adds an empty default to retained `driver_type` and makes the retained MySQL `options` column nullable because its historical TEXT definition has no default; this is not physical cleanup. Issue #463 assigns physical removal to a new 0.6.0 migration while keeping historical migrations immutable.
+The 0.5 upgrade imports plaintext static credentials from legacy policy columns after runtime configuration and the encryption key are available. A successful import clears the old `access_key` / `secret_key` values and deletes converted rows from the two deprecated credential stores, but the 0.5.x schema retains the legacy columns, tables, and indexes. To keep that compatibility schema writable by the current entity after legacy fields leave the model, a 0.5 migration only adds an empty default to retained `driver_type` and makes the retained MySQL `options` column nullable because its historical TEXT definition has no default; this is not physical cleanup. Physical cleanup is implemented by `m20260820_000001_remove_storage_policy_legacy`, which rejects unconverted credentials before removing legacy columns, indexes, foreign keys and credential tables. Historical import steps remain available for upgrades.
 
-After copy and verification, `database-migrate` loads runtime configuration and runs the same idempotent importer under the migration lock. A source database that has not started on 0.5.x can therefore finish credential encryption on the target, while an already imported source produces an empty migration report. When copying the MySQL compatibility schema, the CLI normalizes nullable legacy `storage_policies.options` values to the historical empty object `{}` before inserting into SQLite or PostgreSQL targets that still keep the column `NOT NULL`. The CLI retains compatibility columns and tables instead of taking over the 0.6.0 schema-removal responsibility tracked by issue #463.
+After copy and verification, `database-migrate` loads runtime configuration and runs the same idempotent importer under the migration lock. A source database that has not started on 0.5.x can therefore finish credential encryption on the target, while an already imported source produces an empty migration report. When copying the MySQL compatibility schema, the CLI normalizes nullable legacy `storage_policies.options` values to the historical empty object `{}` before inserting into SQLite or PostgreSQL targets that still keep the column `NOT NULL`. The current CLI copies an already upgraded schema. `m20261105_000001_remove_expired_storage_compat` also removes the legacy placement-item projection and flattened remote-target columns and requires upload profile/revision bindings. Old databases must first complete imports, drain old sessions and upgrade using the applicable previous release.
 
 ### Resumable model
 
