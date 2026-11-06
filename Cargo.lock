@@ -893,7 +893,9 @@ name = "aster_drive_outbound"
 version = "0.7.1"
 dependencies = [
  "aster_forge_http",
+ "bytes",
  "futures",
+ "http-body",
  "rcgen",
  "reqwest",
  "thiserror 2.0.21",

@@ -127,14 +127,16 @@ async fn profile_controls_total_and_idle_deadlines_and_streaming_opt_out() {
                 .await
                 .unwrap();
         });
-        let client = ClientConfig::new(profile)
-            .read_timeout(Duration::from_millis(10))
-            .timeout(Duration::from_millis(10))
-            .without_read_timeout()
-            .without_total_timeout()
-            .no_proxy()
-            .build()
-            .unwrap();
+        let config = ClientConfig::new(profile);
+        assert!(
+            config.read_timeout.is_none(),
+            "{profile:?} must leave upload/header timing to the protocol"
+        );
+        assert!(
+            config.timeout.is_none(),
+            "{profile:?} must not impose a whole-transfer deadline"
+        );
+        let client = config.no_proxy().build().unwrap();
         assert_eq!(client.get(url).send().await.unwrap().status(), 204);
         server.await.unwrap();
     }
@@ -240,4 +242,15 @@ async fn extra_trust_root_does_not_disable_hostname_verification() {
         assert_eq!(response.is_ok(), host == "provider.test");
         server.await.unwrap();
     }
+}
+
+#[test]
+fn explicit_streaming_opt_out_clears_both_previously_configured_deadlines() {
+    let config = ClientConfig::new(Profile::ProviderControl)
+        .read_timeout(Duration::from_millis(10))
+        .timeout(Duration::from_millis(10))
+        .without_read_timeout()
+        .without_total_timeout();
+    assert!(config.read_timeout.is_none());
+    assert!(config.timeout.is_none());
 }

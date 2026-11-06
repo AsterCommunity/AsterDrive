@@ -817,6 +817,7 @@ async fn fragment_timeout_precedes_claim_staleness_and_drops_pending_upload() {
         }
     }
 
+    assert_eq!(FRAGMENT_UPLOAD_TIMEOUT, std::time::Duration::from_secs(90));
     assert!(FRAGMENT_UPLOAD_TIMEOUT < CLAIM_STALE_AFTER);
     let fixture = Fixture::new([]).await;
     let dropped = Arc::new(AtomicBool::new(false));

@@ -13,11 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Outbound HTTP policy** — Route built-in HTTP clients through `aster_drive_outbound` and the shared Forge factory. Preserve streaming upload/download timeouts, default to the shared product User-Agent with an explicit per-client override, centralize redirect rejection while preserving conditional 304 responses, and establish an origin-scoped, bounded and cancellable plugin transport with public-address validation and DNS pinning.
+- **Outbound HTTP policy** — Route built-in HTTP clients through `aster_drive_outbound` and the shared Forge factory. Preserve streaming upload/download timeouts, default to the shared product User-Agent with an explicit per-client override, centralize redirect rejection while preserving conditional 304 responses, share progress/acknowledgement upload handling across providers with separate Google Drive control/download/upload pools, and establish an origin-scoped, bounded and cancellable plugin transport with public-address validation and DNS pinning.
 
 ### Fixed
 
-- **OneDrive streaming downloads** — Separate download idle-progress limits from the 60-second control deadline so large direct and redirected content reads can finish without weakening metadata limits.
+- **OneDrive streaming transfers** — Separate download idle-read and upload progress/acknowledgement limits from the 60-second control deadline so large direct/redirected reads and progressing fragment uploads can finish without weakening metadata limits. Relayed fragments retain their caller-owned 90-second deadline.
 
 ## [v0.7.1] - 2026-11-06
 

@@ -11,6 +11,8 @@ publish.workspace = true
 
 [dependencies]
 aster_forge_http.workspace = true
+bytes.workspace = true
+http-body.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 tracing.workspace = true
 url.workspace = true

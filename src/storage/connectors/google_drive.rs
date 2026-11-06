@@ -16,7 +16,6 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use crate::errors::{AsterError, Result, storage_driver_error};
-use crate::storage::drivers::google_drive::client::http_client;
 use crate::storage::drivers::google_drive::{GoogleDriveDriver, GoogleDriveTokenProvider};
 use aster_drive_model::entities::{storage_policy, storage_policy_connector_credential};
 use aster_drive_model::types::{

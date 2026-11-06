@@ -3114,6 +3114,33 @@ async fn reverse_tunnel_request_hitting_non_owner_primary_streams_through_owner(
     );
     assert_eq!(probe["data"]["tunnel"]["status"], "online");
 
+    // Auto + empty base URL must select the same cross-primary owner broker, not B's local
+    // registry (which has no follower connection). A capability request proves actual I/O.
+    assert!(remote_node.base_url.is_empty());
+    let mut auto_node: aster_drive_model::entities::managed_follower::ActiveModel =
+        remote_node.clone().into();
+    auto_node.transport_mode = Set(aster_drive_model::types::RemoteNodeTransportMode::Auto);
+    auto_node.update(&database).await.unwrap();
+    let auto_probe =
+        test_remote_node_through(&client, &primary_b, &access_token, remote_node.id).await;
+    assert_eq!(
+        auto_probe["data"]["capabilities"]["protocol_version"],
+        RemoteStorageCapabilities::current().protocol_version
+    );
+    assert_eq!(auto_probe["data"]["tunnel"]["status"], "online");
+    let owner_after_auto = wait_for_tunnel_owner(
+        &database,
+        remote_node.id,
+        &primary_a.base_url(),
+        &mut primary_a,
+        Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(
+        owner_after_auto.fencing_token, owner.fencing_token,
+        "Auto probe must reach A's existing follower; B must not claim the tunnel"
+    );
+
     follower.stop().await;
     let follower_b = spawn_synthetic_tunnel_follower(primary_b.base_url(), remote_node.clone());
     let owner_b = wait_for_tunnel_owner(

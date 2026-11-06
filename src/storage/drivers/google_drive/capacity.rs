@@ -48,7 +48,7 @@ impl GoogleDriveDriver {
         let about: About = self
             .response(
                 self.auth(
-                    self.http
+                    self.control_client
                         .get(format!("{}/about", self.api))
                         .query(&[("fields", "storageQuota(limit,usage)")]),
                 )

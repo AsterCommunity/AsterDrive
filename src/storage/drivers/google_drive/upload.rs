@@ -19,11 +19,11 @@ impl GoogleDriveDriver {
         let mut metadata = serde_json::json!({"name": path.rsplit('/').next().unwrap_or("blob"),
             "mimeType": "application/octet-stream", "appProperties": { (APP_KEY): path }});
         let mut request = if let Some(info) = existing {
-            self.http
+            self.control_client
                 .patch(format!("{}/{}", self.upload, urlencoding::encode(&info.id)))
         } else {
             metadata["parents"] = serde_json::json!([parent]);
-            self.http.post(&self.upload)
+            self.control_client.post(&self.upload)
         };
         request = request
             .query(&[("uploadType", "resumable"), ("supportsAllDrives", "true")])
@@ -107,41 +107,59 @@ impl GoogleDriveDriver {
         } else {
             format!("bytes {start}-{}/{total}", end - 1)
         };
-        let response = self
-            .auth(
-                self.http
-                    .put(url)
-                    .header(CONTENT_LENGTH, data.len())
-                    .header(CONTENT_RANGE, range)
-                    .body(data),
-            )
-            .await?;
-        if response.status().is_success() {
-            if end != total {
-                return Err(transient(
-                    "Google Drive completed before the final fragment",
-                ));
+        let request = self
+            .upload_client
+            .put(url)
+            .header(CONTENT_LENGTH, data.len())
+            .header(CONTENT_RANGE, range)
+            .bearer_auth(self.token_provider.access_token().await?)
+            .body(data);
+        aster_drive_outbound::send_upload(
+            &self.upload_client,
+            request,
+            self.upload_idle_timeout,
+            async |response| {
+                if response.status().is_success() {
+                    if end != total {
+                        return Err(transient(
+                            "Google Drive completed before the final fragment",
+                        ));
+                    }
+                    return Ok(ProviderResumableUploadFragmentOutcome {
+                        completed: true,
+                        next_expected_ranges: Vec::new(),
+                    });
+                }
+                // Drive's 308 is Resume Incomplete. Never follow its Location or infer
+                // acknowledgement from bytes sent; use Range (absent means offset zero).
+                if response.status() == reqwest::StatusCode::PERMANENT_REDIRECT {
+                    let next = next_offset(response.headers())?;
+                    if next > end || next >= total {
+                        return Err(transient(
+                            "Google Drive acknowledged bytes outside the sent fragment",
+                        ));
+                    }
+                    return Ok(ProviderResumableUploadFragmentOutcome {
+                        completed: false,
+                        next_expected_ranges: vec![format!("{next}-")],
+                    });
+                }
+                Err(map_http(response).await)
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            aster_drive_outbound::UploadError::Transport(error) => {
+                map_transport("Google Drive upload", error)
             }
-            return Ok(ProviderResumableUploadFragmentOutcome {
-                completed: true,
-                next_expected_ranges: Vec::new(),
-            });
-        }
-        // Drive's 308 is Resume Incomplete. Never follow its Location or infer
-        // acknowledgement from bytes sent; use Range (absent means offset zero).
-        if response.status() == reqwest::StatusCode::PERMANENT_REDIRECT {
-            let next = next_offset(response.headers())?;
-            if next > end || next >= total {
-                return Err(transient(
-                    "Google Drive acknowledged bytes outside the sent fragment",
-                ));
+            aster_drive_outbound::UploadError::IdleTimeout => {
+                transient("Google Drive upload stalled or response headers timed out")
             }
-            return Ok(ProviderResumableUploadFragmentOutcome {
-                completed: false,
-                next_expected_ranges: vec![format!("{next}-")],
-            });
-        }
-        Err(map_http(response).await)
+            aster_drive_outbound::UploadError::AcknowledgementTimeout => {
+                transient("Google Drive upload response timed out")
+            }
+            aster_drive_outbound::UploadError::Response(error) => error,
+        })
     }
     pub(super) async fn upload_reader(
         &self,
@@ -277,7 +295,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
         self.validate_session_url(url)?;
         let response = self
             .auth(
-                self.http
+                self.control_client
                     .put(url)
                     .header(CONTENT_LENGTH, 0)
                     .header(CONTENT_RANGE, "bytes */*"),
@@ -297,7 +315,7 @@ impl ProviderResumableUploadDriver for GoogleDriveDriver {
     }
     async fn abort_upload_session(&self, url: &str) -> Result<()> {
         self.validate_session_url(url)?;
-        let response = self.auth(self.http.delete(url)).await?;
+        let response = self.auth(self.control_client.delete(url)).await?;
         // Accept the Google upload cancellation code only on a session DELETE;
         // normal object requests still classify 499 as an error. Real Drive
         // cancellation is verified separately from the local protocol mock.

@@ -1,9 +1,11 @@
 //! Drive-owned transport policy. Provider protocols and credentials stay with callers.
 mod plugin;
+mod upload;
 pub use plugin::{
     NetworkGrant, PluginHttpRequest, PluginHttpResponse, PluginLimits, PluginTransport,
     PluginTransportError,
 };
+pub use upload::{UploadError, send_upload};
 
 use aster_forge_http::{HttpClient, HttpObservation, HttpObserver};
 use std::net::SocketAddr;

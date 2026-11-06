@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clustered_runtime_builds_the_proxy_broker_for_auto_nodes_without_direct_urls() {
+    async fn clustered_runtime_constructs_auto_client_without_database_io() {
         let runtime = RemoteProtocolRuntime::new();
         let mut deployment = crate::config::DeploymentConfig::default();
         deployment.profile = crate::config::deployment::DeploymentProfile::Cluster;

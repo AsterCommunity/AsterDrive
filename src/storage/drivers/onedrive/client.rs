@@ -25,6 +25,9 @@ pub struct MicrosoftGraphClient {
     control_client: aster_forge_http::HttpClient,
     /// Content reads need idle-progress bounds, never a deadline on the entire object.
     download_client: aster_forge_http::HttpClient,
+    /// Fragment uploads use progress/acknowledgement limits, independent of metadata deadlines.
+    upload_client: aster_forge_http::HttpClient,
+    upload_idle_timeout: std::time::Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -247,10 +250,19 @@ impl MicrosoftGraphClient {
             StorageErrorKind::Misconfigured,
             "failed to build Microsoft Graph download HTTP client",
         )?;
+        let upload_client =
+            aster_drive_outbound::ClientConfig::new(aster_drive_outbound::Profile::ProviderUpload)
+                .build()
+                .map_storage_err_ctx(
+                    StorageErrorKind::Misconfigured,
+                    "failed to build Microsoft Graph upload HTTP client",
+                )?;
         Ok(Self {
             config,
             control_client,
             download_client,
+            upload_client,
+            upload_idle_timeout: std::time::Duration::from_secs(30),
         })
     }
 
@@ -481,37 +493,54 @@ impl MicrosoftGraphClient {
         let content_range = format!("bytes {start}-{end}/{total_size}");
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
         let stream = ReaderStream::new(reader.take(len));
-        let response = self
-            .control_client
+        let request = self
+            .upload_client
             .put(url)
             .header(CONTENT_LENGTH, len.to_string())
             .header(CONTENT_TYPE, "application/octet-stream")
             .header("Content-Range", content_range)
-            .body(reqwest::Body::wrap_stream(stream))
-            .send()
-            .await
-            .map_err(|err| {
-                map_reqwest_error("upload OneDrive session fragment", err.without_url())
-            })?;
-        let response = self
-            .ensure_success(response, "upload OneDrive session fragment")
-            .await?;
-        if response.status() == StatusCode::ACCEPTED {
-            let session = response
-                .json::<MicrosoftGraphUploadSession>()
-                .await
-                .map_storage_err_ctx(
-                    StorageErrorKind::Unknown,
-                    "upload OneDrive session fragment: invalid Microsoft Graph JSON",
-                )?;
-            return Ok(MicrosoftGraphUploadFragmentOutcome {
-                completed: false,
-                next_expected_ranges: session.next_expected_ranges,
-            });
-        }
-        Ok(MicrosoftGraphUploadFragmentOutcome {
-            completed: true,
-            next_expected_ranges: Vec::new(),
+            .body(reqwest::Body::wrap_stream(stream));
+        aster_drive_outbound::send_upload(
+            &self.upload_client,
+            request,
+            self.upload_idle_timeout,
+            async |response| {
+                let response = self
+                    .ensure_success(response, "upload OneDrive session fragment")
+                    .await?;
+                if response.status() == StatusCode::ACCEPTED {
+                    let session = response
+                        .json::<MicrosoftGraphUploadSession>()
+                        .await
+                        .map_storage_err_ctx(
+                            StorageErrorKind::Unknown,
+                            "upload OneDrive session fragment: invalid Microsoft Graph JSON",
+                        )?;
+                    return Ok(MicrosoftGraphUploadFragmentOutcome {
+                        completed: false,
+                        next_expected_ranges: session.next_expected_ranges,
+                    });
+                }
+                Ok(MicrosoftGraphUploadFragmentOutcome {
+                    completed: true,
+                    next_expected_ranges: Vec::new(),
+                })
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            aster_drive_outbound::UploadError::Transport(error) => {
+                map_reqwest_error("upload OneDrive session fragment", error)
+            }
+            aster_drive_outbound::UploadError::IdleTimeout => storage_driver_error(
+                StorageErrorKind::Transient,
+                "OneDrive fragment upload stalled or response headers timed out",
+            ),
+            aster_drive_outbound::UploadError::AcknowledgementTimeout => storage_driver_error(
+                StorageErrorKind::Transient,
+                "OneDrive fragment upload response timed out",
+            ),
+            aster_drive_outbound::UploadError::Response(error) => error,
         })
     }
 
@@ -1774,3 +1803,7 @@ mod tests {
 #[cfg(test)]
 #[path = "download_tests.rs"]
 mod download_tests;
+
+#[cfg(test)]
+#[path = "upload_tests.rs"]
+mod upload_tests;

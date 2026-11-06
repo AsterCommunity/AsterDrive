@@ -40,7 +40,10 @@ pub trait GoogleDriveTokenProvider: Send + Sync + std::fmt::Debug {
 #[derive(Clone)]
 /// An app-owned blob pool scoped to a folder, a shared drive or appDataFolder.
 pub struct GoogleDriveDriver {
-    http: aster_forge_http::HttpClient,
+    control_client: aster_forge_http::HttpClient,
+    download_client: aster_forge_http::HttpClient,
+    upload_client: aster_forge_http::HttpClient,
+    upload_idle_timeout: Duration,
     token_provider: Arc<dyn GoogleDriveTokenProvider>,
     root_folder_id: Option<String>,
     shared_drive_id: Option<String>,
@@ -79,7 +82,31 @@ impl GoogleDriveDriver {
             ));
         }
         Ok(Self {
-            http: http_client()?,
+            control_client: control_http_client()?,
+            download_client: aster_drive_outbound::ClientConfig::new(
+                aster_drive_outbound::Profile::ProviderDownload,
+            )
+            .connect_timeout(Duration::from_secs(15))
+            .read_timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "cannot build Google Drive download HTTP client",
+                )
+            })?,
+            upload_client: aster_drive_outbound::ClientConfig::new(
+                aster_drive_outbound::Profile::ProviderUpload,
+            )
+            .connect_timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|_| {
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "cannot build Google Drive upload HTTP client",
+                )
+            })?,
+            upload_idle_timeout: Duration::from_secs(120),
             token_provider,
             root_folder_id,
             shared_drive_id,
@@ -172,7 +199,7 @@ impl StorageDriver for GoogleDriveDriver {
         };
         let response = self
             .auth(
-                self.http
+                self.control_client
                     .delete(self.file_url(&info.id))
                     .query(&[("supportsAllDrives", "true")]),
             )
@@ -223,7 +250,7 @@ mod capacity;
 pub(crate) mod client;
 pub(crate) mod paths;
 mod upload;
-use client::{http_client, invalid, map_http, map_transport, transient};
+use client::{control_http_client, invalid, map_http, map_transport, transient};
 
 pub use upload::google_drive_upload_capabilities;
 

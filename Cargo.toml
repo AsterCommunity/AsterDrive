@@ -63,6 +63,7 @@ emojis = "0.9"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 futures = "0.3"
 hex = "0.4"
+http-body = "1"
 ipnet = "2.12"
 language-tags = { version = "0.3.2", features = ["serde"] }
 rand = { version = "0.10.3", default-features = false, features = ["std", "std_rng", "thread_rng"] }
@@ -263,7 +264,7 @@ emojis = { workspace = true }
 hex = { workspace = true }
 hmac = "0.13"
 http = "1"
-http-body = "1"
+http-body.workspace = true
 image = { version = "0.25", default-features = false, features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 governor = "0.10"
 mime_guess = "2"

@@ -65,7 +65,7 @@ impl GoogleDriveDriver {
                 Some(folder) => folder,
                 None if !create => return Ok(None),
                 None => {
-                    let created: FileInfo = self.response(self.auth(self.http.post(format!("{}/files", self.api))
+                    let created: FileInfo = self.response(self.auth(self.control_client.post(format!("{}/files", self.api))
                         .query(&[("supportsAllDrives", "true"), ("fields", "id,name,mimeType")])
                         .json(&serde_json::json!({"name":name,"mimeType":FOLDER_MIME,"parents":[parent]}))).await?).await?;
                     if created.id.is_empty() || created.mime_type.as_deref() != Some(FOLDER_MIME) {

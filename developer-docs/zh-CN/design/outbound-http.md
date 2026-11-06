@@ -25,6 +25,16 @@ WOPI 和 direct remote 的既有缓存池保留；本次不创建新全局 regis
 控制请求使用 bounded total deadline；下载限制 idle read，不强加整文件总期限；
 OneDrive 分别持有控制 client（60 秒总期限）与下载 client（30 秒读取空闲期限、无总期限），
 直接 200 内容与显式重定向目标都使用下载策略；只有 Graph 请求携带凭据，Range 只发给下载目标。
+OneDrive 分片另用 ProviderUpload：以 HTTP transport 实际消费 body 的进度刷新 30 秒空闲期限，
+发送完成后限制等待响应头的空闲时间，确认 JSON／错误 body 解码也最多 30 秒。
+小体积 PUT 和 metadata 仍走控制 client；relay 分片调用方保留 90 秒总期限与 claim heartbeat，
+取消调用会丢弃 HTTP exchange 和输入 reader。
+Google Drive 同样复用独立 control/download/upload 连接池：control 总期限 120 秒，
+download 保留 120 秒读取空闲期限且无总期限，上传用 120 秒进度／确认期限。
+Google OAuth／refresh 明确使用 ExternalAuth，不再借用 storage download pool。
+OneDrive、Google Drive 和 Kodo 共用 `aster_drive_outbound::send_upload` 的 transport
+进度与确认响应生命周期；provider 保留 token、签名、256/320 KiB 对齐、308/Range 收据、
+响应解析及错误分类。共用的是传输机制，不把三家协议做成一个状态判断。
 上传不安装 reqwest 的读取时钟，以免上传尚未结束就误判等待响应头超时。
 七牛原有 progress watchdog 与 acknowledgement decode 期限继续归上传协议。
 remote transfer 保留现有 1 小时总期限，tunnel long-poll 保留现有专用期限。
