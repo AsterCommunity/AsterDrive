@@ -16,47 +16,12 @@ impl PromoteLocalFileOutcome {
     }
 }
 
+/// Publish one private candidate without consuming the retry source.
 pub async fn promote_local_file_if_absent(
     driver: &dyn StorageDriver,
     storage_path: &str,
     local_path: &str,
     expected_size: i64,
-) -> Result<PromoteLocalFileOutcome> {
-    promote_local_file_if_absent_inner(
-        driver,
-        storage_path,
-        local_path,
-        expected_size,
-        false,
-        || Ok(()),
-    )
-    .await
-}
-
-pub async fn promote_local_file_if_absent_with_check(
-    driver: &dyn StorageDriver,
-    storage_path: &str,
-    local_path: &str,
-    expected_size: i64,
-    checkpoint: impl Fn() -> Result<()>,
-) -> Result<PromoteLocalFileOutcome> {
-    promote_local_file_if_absent_inner(
-        driver,
-        storage_path,
-        local_path,
-        expected_size,
-        true,
-        checkpoint,
-    )
-    .await
-}
-
-async fn promote_local_file_if_absent_inner(
-    driver: &dyn StorageDriver,
-    storage_path: &str,
-    local_path: &str,
-    expected_size: i64,
-    preserve_source: bool,
     checkpoint: impl Fn() -> Result<()>,
 ) -> Result<PromoteLocalFileOutcome> {
     checkpoint()?;
@@ -75,10 +40,7 @@ async fn promote_local_file_if_absent_inner(
     let expected_size = numbers::i64_to_u64(expected_size, "local dedup blob size")?;
     match tokio::fs::hard_link(local_path, &target).await {
         Ok(()) => match validate_existing_local_blob_size(&target, expected_size).await {
-            Ok(()) => {
-                cleanup_promoted_source(local_path, preserve_source).await;
-                Ok(PromoteLocalFileOutcome::Created)
-            }
+            Ok(()) => Ok(PromoteLocalFileOutcome::Created),
             Err(error) => {
                 if let Err(cleanup_error) = tokio::fs::remove_file(&target).await
                     && cleanup_error.kind() != std::io::ErrorKind::NotFound
@@ -93,7 +55,6 @@ async fn promote_local_file_if_absent_inner(
         },
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             validate_existing_local_blob_size(&target, expected_size).await?;
-            cleanup_promoted_source(local_path, preserve_source).await;
             Ok(PromoteLocalFileOutcome::AlreadyExists)
         }
         Err(link_error) => {
@@ -102,7 +63,6 @@ async fn promote_local_file_if_absent_inner(
                 &target,
                 expected_size,
                 link_error,
-                preserve_source,
                 checkpoint,
             )
             .await
@@ -115,7 +75,6 @@ async fn promote_local_file_via_temp_copy(
     target: &Path,
     expected_size: u64,
     link_error: std::io::Error,
-    preserve_source: bool,
     checkpoint: impl Fn() -> Result<()>,
 ) -> Result<PromoteLocalFileOutcome> {
     let Some(parent) = target.parent() else {
@@ -124,55 +83,24 @@ async fn promote_local_file_via_temp_copy(
             target.display()
         )));
     };
-    let temp_name = format!(".aster-promote-{}.tmp", aster_forge_utils::id::new_uuid());
-    let temp_path = parent.join(temp_name);
-
-    match copy_file_to_temp(local_path, &temp_path, expected_size, &checkpoint).await {
-        Ok(()) => {}
-        Err(error) => {
-            if let Err(cleanup_error) = tokio::fs::remove_file(&temp_path).await
-                && cleanup_error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(
-                    temp_path = %temp_path.display(),
-                    "failed to cleanup local dedup temp copy after copy error: {cleanup_error}"
-                );
-            }
-            return Err(error);
-        }
-    }
+    let temp_name = aster_drive_storage::object_path::new_promotion_staging_name();
+    let temp_path = aster_forge_utils::raii::TempFileGuard::new(
+        parent.join(temp_name),
+        "private local candidate copy",
+    );
+    copy_file_to_temp(local_path, temp_path.path(), expected_size, &checkpoint).await?;
     checkpoint()?;
 
-    let result = match tokio::fs::hard_link(&temp_path, target).await {
-        Ok(()) => {
-            cleanup_promoted_source(local_path, preserve_source).await;
-            Ok(PromoteLocalFileOutcome::Created)
-        }
+    match tokio::fs::hard_link(temp_path.path(), target).await {
+        Ok(()) => Ok(PromoteLocalFileOutcome::Created),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             validate_existing_local_blob_size(target, expected_size).await?;
             checkpoint()?;
-            cleanup_promoted_source(local_path, preserve_source).await;
             Ok(PromoteLocalFileOutcome::AlreadyExists)
         }
         Err(error) => Err(AsterError::storage_driver_error(format!(
-            "promote local dedup blob with no-clobber link failed after initial link error ({link_error}): {error}"
+            "promote local candidate with no-clobber link failed after initial link error ({link_error}): {error}"
         ))),
-    };
-
-    if let Err(cleanup_error) = tokio::fs::remove_file(&temp_path).await
-        && cleanup_error.kind() != std::io::ErrorKind::NotFound
-    {
-        tracing::warn!(
-            temp_path = %temp_path.display(),
-            "failed to cleanup local dedup temp copy: {cleanup_error}"
-        );
-    }
-    result
-}
-
-async fn cleanup_promoted_source(local_path: &str, preserve_source: bool) {
-    if !preserve_source {
-        aster_forge_utils::fs::cleanup_temp_file(local_path).await;
     }
 }
 

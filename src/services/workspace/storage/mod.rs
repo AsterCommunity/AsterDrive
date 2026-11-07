@@ -63,8 +63,9 @@ pub(crate) fn resolve_policy_upload_transport_for_execution(
 
 pub(crate) use blob_upload::{
     PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload, nondedup_storage_path_for_policy,
-    persist_preuploaded_blob, prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,
-    upload_temp_file_to_prepared_blob, upload_temp_file_to_prepared_blob_cancellable,
+    persist_preuploaded_blob, prepare_non_dedup_blob_upload, try_adopt_existing_dedup_blob_on,
+    upload_reader_to_prepared_blob, upload_temp_file_to_prepared_blob,
+    upload_temp_file_to_prepared_blob_cancellable,
 };
 pub(crate) use follower_stream::{
     FollowerObjectWriteRequest, FollowerUploadBody, compose_follower_objects, write_follower_object,

@@ -186,6 +186,22 @@ pub async fn complete_if_assembling<C: ConnectionTrait>(
             Expr::value(UploadSessionStatus::Completed.to_value()),
         )
         .col_expr(upload_session::Column::FileId, Expr::value(Some(file_id)))
+        // Provider resumable completion adopts the uploaded object itself.
+        // Transfer its cleanup authority in the same transaction as the file,
+        // quota and Completed state; no later session cleanup owns that key.
+        .col_expr(
+            upload_session::Column::ObjectTempKey,
+            sea_orm::sea_query::CaseStatement::new()
+                .case(
+                    Expr::col(upload_session::Column::SessionKind).is_in([
+                        UploadSessionKind::ProviderDirectResumable,
+                        UploadSessionKind::ProviderRelayResumable,
+                    ]),
+                    Expr::value(Option::<String>::None),
+                )
+                .finally(Expr::col(upload_session::Column::ObjectTempKey))
+                .into(),
+        )
         .col_expr(
             upload_session::Column::UpdatedAt,
             Expr::value(chrono::Utc::now()),
@@ -776,6 +792,46 @@ mod tests {
         let unchanged = find_by_id(&db, &model.id).await.unwrap();
         assert_eq!(unchanged.status, UploadSessionStatus::Assembling);
         assert_eq!(unchanged.expires_at, original_expiry);
+    }
+
+    #[tokio::test]
+    async fn provider_completion_transfers_object_cleanup_authority_atomically() {
+        use sea_orm::TransactionTrait;
+        let db = build_test_db().await;
+        for kind in [
+            UploadSessionKind::ProviderDirectResumable,
+            UploadSessionKind::ProviderRelayResumable,
+        ] {
+            let id = format!("transfer-{}", kind.as_str());
+            let mut row = session(&id, UploadSessionStatus::Assembling);
+            row.session_kind = kind;
+            row.object_temp_key = Some("files/permanent-provider-object".into());
+            row.provider_session_ciphertext = Some("encrypted-protocol-state".into());
+            row.into_active_model().insert(&db).await.unwrap();
+            let txn = db.begin().await.unwrap();
+            assert!(complete_if_assembling(&txn, &id, 123).await.unwrap());
+            assert!(
+                find_by_id(&txn, &id)
+                    .await
+                    .unwrap()
+                    .object_temp_key
+                    .is_none()
+            );
+            txn.rollback().await.unwrap();
+            let rolled_back = find_by_id(&db, &id).await.unwrap();
+            assert_eq!(rolled_back.status, UploadSessionStatus::Assembling);
+            assert!(rolled_back.object_temp_key.is_some());
+            assert!(complete_if_assembling(&db, &id, 123).await.unwrap());
+            let completed = find_by_id(&db, &id).await.unwrap();
+            assert_eq!(completed.status, UploadSessionStatus::Completed);
+            assert_eq!(completed.file_id, Some(123));
+            assert!(completed.object_temp_key.is_none());
+            assert!(
+                !try_fail_with_expiration(&db, &id, UploadSessionStatus::Assembling, Utc::now())
+                    .await
+                    .unwrap()
+            );
+        }
     }
 
     #[tokio::test]

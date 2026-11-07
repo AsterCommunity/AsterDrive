@@ -570,7 +570,8 @@ impl StorageDriver for SftpDriver {
     ) -> aster_drive_storage::Result<String> {
         let src_remote_path = self.full_path(src_path)?;
         let dest_remote_path = self.full_path(dest_path)?;
-        let temporary_path = format!("{dest_remote_path}.aster-copy-{}.tmp", uuid::Uuid::now_v7());
+        let temporary_path =
+            aster_drive_storage::object_path::new_copy_staging_path(&dest_remote_path);
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &dest_remote_path).await?;
         let mut src = connection

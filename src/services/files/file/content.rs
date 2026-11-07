@@ -61,7 +61,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
         .transpose()?
         .flatten();
     let (temp_path, should_hash) = if let Some(local) = local_projection {
-        let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
+        let staging_token = aster_drive_storage::object_path::new_upload_staging_name();
         let staging_path =
             crate::storage::drivers::local::upload_staging_path(&local.base_path, &staging_token)
                 .map_aster_err_ctx(
@@ -300,7 +300,7 @@ pub(crate) async fn update_content_in_scope(
     )?;
     let result = if let Some(local) = local_projection {
         let should_dedup = local.content_dedup;
-        let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
+        let staging_token = aster_drive_storage::object_path::new_upload_staging_name();
         let staging_path =
             crate::storage::drivers::local::upload_staging_path(&local.base_path, &staging_token)
                 .map_aster_err_ctx(

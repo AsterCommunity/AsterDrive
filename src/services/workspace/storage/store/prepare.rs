@@ -18,6 +18,7 @@ use crate::services::workspace::storage::{
 use aster_drive_model::entities::{file, storage_policy};
 use aster_drive_storage::StorageDriver;
 
+#[derive(Clone)]
 pub(super) struct PreparedStoreFromTemp {
     pub scope: WorkspaceStorageScope,
     pub access_constraints: crate::services::workspace::scope::WorkspaceAccessConstraints,
@@ -271,7 +272,9 @@ async fn compute_dedup_target(
     };
 
     Ok(DedupTarget {
-        storage_path: aster_forge_validation::filename::storage_path_from_blob_key(&file_hash)?,
+        // Logical hash deduplication is resolved by the metadata transaction.
+        // Every publisher owns distinct physical bytes until that transaction selects a winner.
+        storage_path: aster_drive_storage::object_path::new_local_blob().1,
         file_hash,
     })
 }

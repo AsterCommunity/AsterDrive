@@ -13,7 +13,7 @@ use aster_drive_storage::StorageDriver;
 use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_forge_utils::numbers::u64_to_i64;
 
-use super::contract::{VerifiedUploadedBlob, cleanup_verified_upload_after_db_failure};
+use super::contract::{VerifiedUploadedBlob, cleanup_unpublished_upload_candidate};
 
 pub(super) async fn complete_presigned_upload(
     state: &PrimaryAppState,
@@ -238,12 +238,8 @@ pub(super) async fn finalize_verified_opaque_upload_session(
         .err()
         .is_some_and(|error| !error.database_commit_outcome_uncertain())
     {
-        cleanup_verified_upload_after_db_failure(
-            driver,
-            verified,
-            "opaque upload DB finalize error",
-        )
-        .await;
+        cleanup_unpublished_upload_candidate(driver, verified, "opaque upload DB finalize error")
+            .await;
     }
     result
 }
@@ -277,10 +273,6 @@ fn opaque_blob_hash_prefix(
         })
 }
 
-fn presigned_final_storage_path() -> String {
-    format!("files/{}", uuid::Uuid::new_v4())
-}
-
 async fn copy_presigned_object_to_final_key(
     driver: &dyn StorageDriver,
     temp_key: &str,
@@ -288,7 +280,7 @@ async fn copy_presigned_object_to_final_key(
     verified_temp_size: i64,
     temp_root: Option<String>,
 ) -> Result<(String, i64)> {
-    let requested_final_key = presigned_final_storage_path();
+    let requested_final_key = aster_drive_storage::object_path::new_blob_path();
     let final_key = driver
         .copy_object(
             temp_key,

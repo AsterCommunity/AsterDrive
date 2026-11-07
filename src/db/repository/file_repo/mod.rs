@@ -5,6 +5,8 @@ mod common;
 mod mutation;
 mod query;
 mod trash;
+pub(crate) use blob::find_other_blobs_at_storage_path;
+pub(crate) use blob::renew_blob_cleanup_attempt;
 
 pub use blob::{
     AdminFileBlobFilters, BLOB_CLEANUP_CLAIMED_REF_COUNT, FindOrCreateBlobResult,
@@ -14,16 +16,15 @@ pub use blob::{
     count_blob_refs_from_files_for_blobs, count_blobs_by_policy,
     count_matching_hashes_between_policies, count_opaque_hash_conflicts_between_policies,
     create_blob, decrement_blob_ref_count, decrement_blob_ref_count_by,
-    decrement_blob_ref_counts_by, delete_blob, delete_blob_by_id, delete_blob_if_cleanup_claimed,
-    delete_blobs, find_active_blob_by_hash, find_admin_blobs_paginated, find_blob_by_hash,
-    find_blob_by_id, find_blob_storage_paths_by_storage_paths, find_blobs_by_ids,
-    find_blobs_by_policy_paginated, find_blobs_paginated, find_or_create_blob,
+    decrement_blob_ref_counts_by, delete_blob, delete_blob_by_id, delete_blobs,
+    delete_claimed_blob_generation, find_active_blob_by_hash, find_admin_blobs_paginated,
+    find_blob_by_hash, find_blob_by_id, find_blob_storage_paths_by_storage_paths,
+    find_blobs_by_ids, find_blobs_by_policy_paginated, find_blobs_paginated, find_or_create_blob,
     find_or_create_virtual_empty_blob, find_stored_blob_probe_sample_by_policy,
     find_stored_blobs_by_policy_paginated, find_virtual_empty_blob_by_policy,
     increment_blob_ref_count, increment_blob_ref_count_by, increment_blob_ref_counts_by,
     lock_blob_by_id, move_blob_policy_if_current, move_virtual_empty_blob_policy_if_current,
-    reset_blob_ref_count_to_zero, restore_blob_cleanup_claim, set_blob_ref_count,
-    set_thumbnail_metadata, sum_blob_bytes, sum_blob_bytes_by_policy,
+    set_blob_ref_count, set_thumbnail_metadata, sum_blob_bytes, sum_blob_bytes_by_policy,
     summarize_blob_hash_kinds_by_policy, summarize_blobs_by_policy,
     summarize_blobs_by_policy_and_backing, summarize_missing_blobs_between_policies,
 };

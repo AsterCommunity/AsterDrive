@@ -1,4 +1,5 @@
 use super::*;
+use crate::errors::AsterError;
 use crate::storage::remote_protocol::{
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY, PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY,
@@ -586,8 +587,8 @@ async fn v7_remote_driver_rejects_v2_node_without_capacity_support() {
 
 #[test]
 fn multipart_part_key_rejects_non_positive_part_numbers() {
-    let err =
-        RemoteDriver::multipart_part_key("upload-1", 0).expect_err("zero part number should fail");
+    let err = aster_drive_storage::object_path::multipart_part_path("upload-1", 0)
+        .expect_err("zero part number should fail");
 
     assert!(err.message().contains("part_number must be positive"));
 }

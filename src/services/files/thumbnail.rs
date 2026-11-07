@@ -18,8 +18,6 @@ use aster_drive_storage::StorageDriver;
 use aster_forge_utils::raii::TempFileGuard;
 use tokio::io::AsyncWriteExt;
 
-const THUMB_PREFIX: &str = "_thumb";
-const PREVIEW_PREFIX: &str = "_preview";
 pub(crate) const CURRENT_THUMBNAIL_VERSION: &str = "1";
 pub(crate) const CURRENT_IMAGE_PREVIEW_VERSION: &str = "1";
 pub(crate) const IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE: &str = "images";
@@ -51,22 +49,6 @@ fn thumbnail_task_panicked(message: String) -> AsterError {
     thumbnail_generation_error_with_code(ApiErrorCode::ThumbnailTaskPanicked, message)
 }
 
-pub(crate) fn thumb_path_for(
-    blob_hash: &str,
-    thumbnail_processor: &str,
-    thumbnail_version: &str,
-) -> String {
-    format!(
-        "{}/{}/{}/{}/{}/{}.webp",
-        THUMB_PREFIX,
-        thumbnail_processor,
-        thumbnail_version,
-        &blob_hash[..2],
-        &blob_hash[2..4],
-        blob_hash
-    )
-}
-
 pub(crate) fn thumbnail_etag_value_for(
     blob_hash: &str,
     thumbnail_processor: Option<&str>,
@@ -76,22 +58,6 @@ pub(crate) fn thumbnail_etag_value_for(
         "thumb-{}-{}-{blob_hash}",
         thumbnail_processor.unwrap_or(IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE),
         thumbnail_version.unwrap_or(CURRENT_THUMBNAIL_VERSION)
-    )
-}
-
-pub(crate) fn image_preview_path_for(
-    blob_hash: &str,
-    image_preview_processor: &str,
-    image_preview_version: &str,
-) -> String {
-    format!(
-        "{}/{}/{}/{}/{}/{}.webp",
-        PREVIEW_PREFIX,
-        image_preview_processor,
-        image_preview_version,
-        &blob_hash[..2],
-        &blob_hash[2..4],
-        blob_hash
     )
 }
 
@@ -125,16 +91,6 @@ fn derivative_version_for_dimension(base_version: &str, max_dim: u32, default_di
     } else {
         format!("{base_version}-d{max_dim}")
     }
-}
-
-pub fn is_thumbnail_path(path: &str) -> bool {
-    path.trim_start_matches('/')
-        .starts_with(&format!("{THUMB_PREFIX}/"))
-}
-
-pub fn is_image_preview_path(path: &str) -> bool {
-    path.trim_start_matches('/')
-        .starts_with(&format!("{PREVIEW_PREFIX}/"))
 }
 
 /// 解码图片 → 缩放 → 编码为 WebP（CPU 密集，应在 spawn_blocking 中调用）
@@ -351,14 +307,14 @@ mod tests {
     use super::{
         CURRENT_IMAGE_PREVIEW_VERSION, CURRENT_THUMBNAIL_VERSION,
         IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE, ensure_source_size_supported,
-        image_preview_etag_value_for, image_preview_path_for, image_preview_version_for_dimension,
-        render_thumbnail_bytes, render_webp_derivative_bytes,
-        render_webp_derivative_from_image_bytes, thumb_path_for, thumbnail_etag_value_for,
-        thumbnail_version_for_dimension,
+        image_preview_etag_value_for, image_preview_version_for_dimension, render_thumbnail_bytes,
+        render_webp_derivative_bytes, render_webp_derivative_from_image_bytes,
+        thumbnail_etag_value_for, thumbnail_version_for_dimension,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::operations::DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES;
     use aster_drive_model::entities::file_blob;
+    use aster_drive_storage::object_path::{image_preview_path, thumbnail_path};
     use aster_drive_storage::{BlobMetadata, LocalPathStorageDriver, StorageDriver};
     use async_trait::async_trait;
     use chrono::Utc;
@@ -688,7 +644,7 @@ mod tests {
     fn thumbnail_paths_are_versioned() {
         let hash = "abc".repeat(21) + "a";
         assert_eq!(
-            thumb_path_for(
+            thumbnail_path(
                 &hash,
                 IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                 CURRENT_THUMBNAIL_VERSION
@@ -749,7 +705,7 @@ mod tests {
     fn image_preview_paths_are_versioned() {
         let hash = "abc".repeat(21) + "a";
         assert_eq!(
-            image_preview_path_for(&hash, "images", CURRENT_IMAGE_PREVIEW_VERSION),
+            image_preview_path(&hash, "images", CURRENT_IMAGE_PREVIEW_VERSION),
             format!("_preview/images/1/ab/ca/{hash}.webp")
         );
     }

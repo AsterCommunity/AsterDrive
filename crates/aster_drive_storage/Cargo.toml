@@ -17,6 +17,7 @@ openapi = ["dep:utoipa", "aster_drive_model/openapi"]
 aster_drive_model = { workspace = true }
 aster_forge_utils = { workspace = true }
 aster_forge_runtime = { workspace = true }
+aster_forge_validation = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
@@ -27,6 +28,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util"] }
 utoipa = { workspace = true, optional = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

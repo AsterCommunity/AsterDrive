@@ -229,13 +229,22 @@ async fn promote_local_file_if_absent_does_not_overwrite_existing_target() {
 
     let source = base.join("source.bin");
     tokio::fs::write(&source, b"new").await.unwrap();
-    let outcome = super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 3)
-        .await
-        .unwrap();
+    let outcome = super::promote_local_file_if_absent(
+        &driver,
+        target,
+        source.to_str().unwrap(),
+        3,
+        || Ok(()),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(outcome, PromoteLocalFileOutcome::AlreadyExists);
     assert_eq!(tokio::fs::read(&target_full).await.unwrap(), b"old");
-    assert!(!source.exists());
+    assert!(
+        source.exists(),
+        "private publication retains retry source bytes"
+    );
 
     let _ = tokio::fs::remove_dir_all(&base).await;
 }
@@ -252,13 +261,22 @@ async fn promote_local_file_if_absent_reports_created_target() {
 
     let source = base.join("source.bin");
     tokio::fs::write(&source, b"new").await.unwrap();
-    let outcome = super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 3)
-        .await
-        .unwrap();
+    let outcome = super::promote_local_file_if_absent(
+        &driver,
+        target,
+        source.to_str().unwrap(),
+        3,
+        || Ok(()),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(outcome, PromoteLocalFileOutcome::Created);
     assert_eq!(tokio::fs::read(&target_full).await.unwrap(), b"new");
-    assert!(!source.exists());
+    assert!(
+        source.exists(),
+        "private publication retains retry source bytes"
+    );
 
     let _ = tokio::fs::remove_dir_all(&base).await;
 }
@@ -279,9 +297,15 @@ async fn promote_local_file_if_absent_rejects_existing_size_mismatch() {
 
     let source = base.join("source.bin");
     tokio::fs::write(&source, b"new-data").await.unwrap();
-    let error = super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 8)
-        .await
-        .expect_err("existing blob with different size must be rejected");
+    let error = super::promote_local_file_if_absent(
+        &driver,
+        target,
+        source.to_str().unwrap(),
+        8,
+        || Ok(()),
+    )
+    .await
+    .expect_err("existing blob with different size must be rejected");
 
     assert!(error.message().contains("size mismatch"));
     assert_eq!(tokio::fs::read(&target_full).await.unwrap(), b"old");
@@ -302,9 +326,15 @@ async fn promote_local_file_if_absent_rolls_back_linked_size_mismatch() {
 
     let source = base.join("source.bin");
     tokio::fs::write(&source, b"short").await.unwrap();
-    let error = super::promote_local_file_if_absent(&driver, target, source.to_str().unwrap(), 8)
-        .await
-        .expect_err("newly linked blob with different size must be rejected");
+    let error = super::promote_local_file_if_absent(
+        &driver,
+        target,
+        source.to_str().unwrap(),
+        8,
+        || Ok(()),
+    )
+    .await
+    .expect_err("newly linked blob with different size must be rejected");
 
     assert!(error.message().contains("size mismatch"));
     assert!(source.exists());

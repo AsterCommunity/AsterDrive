@@ -887,7 +887,7 @@ impl LocalPathStorageDriver for CancelAfterLocalPathDriver {
     }
 }
 
-struct StorageTestState {
+pub(super) struct StorageTestState {
     // Field order drops runtime/database handles before directory cleanup.
     app_state: PrimaryAppState,
     _temp_dir_guard: aster_forge_utils::raii::TempDirGuard,
@@ -901,7 +901,7 @@ impl std::ops::Deref for StorageTestState {
     }
 }
 
-async fn build_test_state() -> (
+pub(super) async fn build_test_state() -> (
     StorageTestState,
     PathBuf,
     storage_policy::Model,
@@ -1013,7 +1013,7 @@ async fn build_test_state() -> (
     )
 }
 
-async fn replace_test_policy(
+pub(super) async fn replace_test_policy(
     state: &PrimaryAppState,
     current: &storage_policy::Model,
     replacement: storage_policy::Model,
@@ -2742,6 +2742,101 @@ async fn missing_precondition_rejects_overwrite_context() {
         before,
         "failed contradictory write must clean its staged object"
     );
+}
+
+#[tokio::test]
+async fn dedup_hits_publish_without_connector_io_and_keep_query_work_constant() {
+    let mut previous_hit_queries = None;
+    for size in [1024, 1024 * 1024] {
+        let (mut state, root, original_policy, user) = build_test_state().await;
+        let replacement = enable_content_dedup(&original_policy);
+        let policy = replace_test_policy(&state, &original_policy, replacement).await;
+        let original_driver = state.driver_registry.get_driver(&policy).unwrap();
+        let queries = Arc::new(Mutex::new(Vec::new()));
+        let observed = queries.clone();
+        let mut connection = state.writer_db().clone();
+        connection.set_metric_callback(move |info| {
+            observed.lock().unwrap().push(info.statement.sql.clone());
+        });
+        state.app_state.db_handles = aster_forge_db::DbHandles::single(connection);
+        let payload = vec![b'M'; size];
+        let cold_source = root.join("cold.bin");
+        tokio::fs::write(&cold_source, &payload).await.unwrap();
+        let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+        let cold = store_from_temp_with_hints(
+            &state,
+            StoreFromTempParams::new(
+                scope,
+                None,
+                "cold.bin",
+                cold_source.to_str().unwrap(),
+                size as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let cold_queries = queries.lock().unwrap().len();
+        assert!(
+            cold_queries > 0,
+            "SQL metrics must observe the publication transaction"
+        );
+        queries.lock().unwrap().clear();
+
+        // This driver has no local-path/upload support. A hit must adopt the
+        // locked blob in the metadata Tx and never attempt a cross-device copy.
+        let no_io = Arc::new(RecordingEmptyDriver::default());
+        state
+            .driver_registry
+            .insert_for_test(policy.id, no_io.clone());
+        let hit_source = root.join("hit.bin");
+        tokio::fs::write(&hit_source, &payload).await.unwrap();
+        let hit = store_from_temp_with_hints(
+            &state,
+            StoreFromTempParams::new(
+                scope,
+                None,
+                "hit.bin",
+                hit_source.to_str().unwrap(),
+                size as i64,
+            ),
+            StoreFromTempHints {
+                resolved_policy: Some(policy),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let hit_queries = queries.lock().unwrap().len();
+        no_io.assert_no_object_api_calls();
+        assert_eq!(hit.blob_id, cold.blob_id);
+        assert!(hit_source.exists());
+        let blob = file_repo::find_blob_by_id(state.writer_db(), hit.blob_id)
+            .await
+            .unwrap();
+        assert_eq!(blob.ref_count, 2);
+        assert_eq!(
+            original_driver
+                .get(blob.storage_path_for_connector().unwrap())
+                .await
+                .unwrap(),
+            payload
+        );
+        assert!(hit_queries <= cold_queries);
+        if let Some(previous) = previous_hit_queries {
+            assert_eq!(
+                hit_queries, previous,
+                "metadata work must not grow with source bytes"
+            );
+        }
+        previous_hit_queries = Some(hit_queries);
+        println!(
+            "source_bytes={size} cold_queries={cold_queries} dedup_hit_queries={hit_queries} dedup_connector_calls=0 copied_bytes=0"
+        );
+    }
 }
 
 #[tokio::test]

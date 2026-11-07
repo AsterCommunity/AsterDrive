@@ -914,6 +914,7 @@ dependencies = [
  "aster_drive_model",
  "aster_forge_runtime",
  "aster_forge_utils",
+ "aster_forge_validation",
  "async-trait",
  "bytes",
  "chrono",
@@ -924,6 +925,7 @@ dependencies = [
  "sha2 0.11.1",
  "tokio",
  "utoipa",
+ "uuid",
 ]
 
 [[package]]

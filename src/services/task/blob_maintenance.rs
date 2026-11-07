@@ -13,7 +13,6 @@ use crate::services::ops::integrity;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::{background_task, file_blob};
 use aster_drive_storage::StorageDriver;
-use aster_forge_db::transaction;
 use aster_forge_tasks::{
     TaskStepInfo, set_task_step_active, set_task_step_skipped, set_task_step_succeeded,
 };
@@ -314,13 +313,14 @@ async fn run_ref_count_reconcile(
             break;
         }
         let batch_blob_ids: Vec<i64> = blobs.iter().map(|blob| blob.id).collect();
-        let actual_ref_counts = current_blob_ref_counts(state, &batch_blob_ids).await?;
+        let actual_ref_counts =
+            integrity::actual_blob_ref_counts_for_blobs(state.writer_db(), &batch_blob_ids).await?;
 
         for blob in blobs {
             context.ensure_active()?;
             progress += 1;
             let actual_refs = actual_ref_counts.get(&blob.id).copied().unwrap_or(0);
-            if blob.ref_count == actual_refs
+            if i64::from(blob.ref_count) == actual_refs
                 || blob.ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
             {
                 if should_mark_blob_maintenance_progress(progress, total) {
@@ -337,7 +337,13 @@ async fn run_ref_count_reconcile(
                 continue;
             }
 
-            let Some(reconciled) = reconcile_single_blob_ref_count(state, blob.id).await? else {
+            let Some(reconciled) = integrity::reconcile_blob_reference_count(
+                state.writer_db(),
+                blob.id,
+                integrity::BlobReconcileIntent::Repair,
+            )
+            .await?
+            else {
                 result.skipped_blobs += 1;
                 if should_mark_blob_maintenance_progress(progress, total) {
                     mark_task_progress(
@@ -414,7 +420,8 @@ async fn run_orphan_cleanup(
             break;
         }
         let batch_blob_ids: Vec<i64> = blobs.iter().map(|blob| blob.id).collect();
-        let actual_ref_counts = current_blob_ref_counts(state, &batch_blob_ids).await?;
+        let actual_ref_counts =
+            integrity::actual_blob_ref_counts_for_blobs(state.writer_db(), &batch_blob_ids).await?;
 
         for blob in blobs {
             context.ensure_active()?;
@@ -436,7 +443,13 @@ async fn run_orphan_cleanup(
                 continue;
             }
 
-            match reconcile_single_blob_ref_count(state, blob.id).await? {
+            match integrity::reconcile_blob_reference_count(
+                state.writer_db(),
+                blob.id,
+                integrity::BlobReconcileIntent::Repair,
+            )
+            .await?
+            {
                 Some(reconciled)
                     if reconciled.actual_refs == 0
                         && reconciled.blob.ref_count == 0
@@ -553,70 +566,6 @@ async fn check_blob_object(
     } else {
         Ok(BlobObjectCheck::SizeMismatch)
     }
-}
-
-struct ReconciledBlob {
-    blob: file_blob::Model,
-    actual_refs: i32,
-    ref_count_fixed: bool,
-}
-
-async fn reconcile_single_blob_ref_count(
-    state: &PrimaryAppState,
-    blob_id: i64,
-) -> Result<Option<ReconciledBlob>> {
-    transaction::with_transaction(state.writer_db(), async |txn| {
-        let mut blob = match file_repo::lock_blob_by_id(txn, blob_id).await {
-            Ok(blob) => blob,
-            Err(AsterError::RecordNotFound(_)) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        if blob.ref_count == file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT {
-            return Ok(None);
-        }
-
-        let actual_refs = current_blob_ref_count(txn, blob_id).await?;
-        let ref_count_fixed = blob.ref_count != actual_refs;
-        if ref_count_fixed {
-            file_repo::set_blob_ref_count(txn, blob_id, actual_refs).await?;
-            blob = file_repo::find_blob_by_id(txn, blob_id).await?;
-        }
-
-        Ok(Some(ReconciledBlob {
-            blob,
-            actual_refs,
-            ref_count_fixed,
-        }))
-    })
-    .await
-}
-
-async fn current_blob_ref_count<C: sea_orm::ConnectionTrait>(db: &C, blob_id: i64) -> Result<i32> {
-    let total_refs = integrity::actual_blob_ref_counts_for_blobs(db, &[blob_id])
-        .await?
-        .get(&blob_id)
-        .copied()
-        .unwrap_or(0);
-    Ok(aster_forge_utils::numbers::i64_to_i32(
-        total_refs,
-        "blob actual reference count",
-    )?)
-}
-
-async fn current_blob_ref_counts(
-    state: &PrimaryAppState,
-    blob_ids: &[i64],
-) -> Result<HashMap<i64, i32>> {
-    let actual = integrity::actual_blob_ref_counts_for_blobs(state.writer_db(), blob_ids).await?;
-    actual
-        .into_iter()
-        .map(|(blob_id, refs)| {
-            Ok((
-                blob_id,
-                aster_forge_utils::numbers::i64_to_i32(refs, "blob actual reference count")?,
-            ))
-        })
-        .collect()
 }
 
 struct BlobTargetScope<'a> {

@@ -106,10 +106,7 @@ pub(crate) async fn write_follower_object(
     // Default provider staging may write its `storage_path` immediately. Give
     // every attempt a unique unpublished key so a bad digest can never replace
     // the existing object; only copy it to the final key after verification.
-    let attempt_path = format!(
-        "{storage_path}.aster-attempt-{}",
-        aster_forge_utils::id::new_uuid()
-    );
+    let attempt_path = aster_drive_storage::object_path::new_relay_attempt_path(storage_path);
     let attempt = StreamUploadAttempt::new(&attempt_path, content_length)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, content_length);
     let (writer, reader) = tokio::io::duplex(RELAY_BUFFER_SIZE);
@@ -230,10 +227,8 @@ pub(crate) async fn compose_follower_objects(
     })?;
     let expected_size_u64 =
         aster_forge_utils::numbers::i64_to_u64(expected_size, "compose expected_size")?;
-    let attempt_path = format!(
-        "{target_storage_path}.aster-attempt-{}",
-        aster_forge_utils::id::new_uuid()
-    );
+    let attempt_path =
+        aster_drive_storage::object_path::new_relay_attempt_path(target_storage_path);
     let attempt = StreamUploadAttempt::new(&attempt_path, expected_size)?;
     let _attempt_metrics = StreamUploadMetricsGuard::new(metrics, expected_size);
     let read_driver = Arc::clone(&driver);

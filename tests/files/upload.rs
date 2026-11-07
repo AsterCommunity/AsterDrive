@@ -4325,6 +4325,22 @@ async fn test_direct_and_chunked_upload_share_blob_when_local_dedup_enabled() {
     assert_eq!(direct_blob.hash, chunked_blob.hash);
     assert_eq!(direct_blob.size, chunked_blob.size);
     assert_eq!(direct_blob.ref_count, 2);
+    let policy = policy_repo::find_by_id(state.writer_db(), direct_blob.policy_id)
+        .await
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let objects = driver
+        .extensions()
+        .list
+        .unwrap()
+        .list_paths(None)
+        .await
+        .unwrap();
+    assert_eq!(
+        objects,
+        vec![direct_blob.storage_path.unwrap()],
+        "dedup losers must not leave their private physical candidates behind"
+    );
 }
 
 #[actix_web::test]
@@ -4399,6 +4415,18 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
 
     assert_eq!(first_blob.id, second_blob.id);
     assert_eq!(first_blob.ref_count, 2);
+    let objects = driver
+        .extensions()
+        .list
+        .unwrap()
+        .list_paths(None)
+        .await
+        .unwrap();
+    assert_eq!(
+        objects,
+        vec![first_blob.storage_path.clone().unwrap()],
+        "concurrent dedup must retain only the winning physical candidate"
+    );
     assert_eq!(
         driver
             .get(
@@ -4409,6 +4437,67 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
             .await
             .unwrap(),
         content
+    );
+}
+
+#[actix_web::test]
+async fn test_concurrent_chunked_dedup_complete_across_accounts_reuses_one_live_object() {
+    use aster_drive::db::repository::file_repo;
+    use aster_drive::services::files::upload;
+
+    let state = common::setup_with_pool_size(4).await;
+    set_default_local_content_dedup(&state, true).await;
+    let first =
+        common::create_test_account(&state, "dedupfirst", "dedupfirst@test.com", "password123")
+            .await
+            .unwrap();
+    let second =
+        common::create_test_account(&state, "dedupsecond", "dedupsecond@test.com", "password123")
+            .await
+            .unwrap();
+    let mut attempts = Vec::new();
+    for user_id in [first.id, second.id] {
+        let upload_id =
+            prepare_chunked_upload_for_personal_scope(&state, user_id, "same-content.bin", b'L')
+                .await;
+        attempts.push((user_id, upload_id));
+    }
+    let start = Arc::new(tokio::sync::Barrier::new(2));
+    let mut tasks = JoinSet::new();
+    for (user_id, upload_id) in attempts {
+        let state = state.clone();
+        let start = start.clone();
+        tasks.spawn(async move {
+            start.wait().await;
+            upload::complete_upload(&state, &upload_id, user_id, None)
+                .await
+                .unwrap()
+        });
+    }
+    let first_file = tasks.join_next().await.unwrap().unwrap();
+    let second_file = tasks.join_next().await.unwrap().unwrap();
+    assert_eq!(first_file.blob_id, second_file.blob_id);
+    let blob = file_repo::find_blob_by_id(state.writer_db(), first_file.blob_id)
+        .await
+        .unwrap();
+    assert_eq!(blob.ref_count, 2);
+    let policy = policy_repo::find_by_id(state.writer_db(), blob.policy_id)
+        .await
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let path = blob.storage_path_for_connector().unwrap();
+    let content = driver.get(path).await.unwrap();
+    assert_eq!(content.len(), TEST_CHUNK_SIZE * 2);
+    assert!(content.iter().all(|byte| *byte == b'L'));
+    assert_eq!(
+        driver
+            .extensions()
+            .list
+            .unwrap()
+            .list_paths(None)
+            .await
+            .unwrap(),
+        [path]
     );
 }
 

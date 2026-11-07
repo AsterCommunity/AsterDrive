@@ -17,6 +17,7 @@ pub mod connector_localization;
 pub mod error;
 pub mod field_contract;
 pub mod object_key;
+pub mod object_path;
 pub mod policy_behavior;
 pub mod storage_policy_config;
 pub mod traits;

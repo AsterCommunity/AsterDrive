@@ -61,54 +61,49 @@ pub async fn claim_blob_cleanup<C: ConnectionTrait>(db: &C, id: i64) -> Result<b
     Ok(result.rows_affected == 1)
 }
 
-pub async fn restore_blob_cleanup_claim<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
-    let result = FileBlob::update_many()
-        .col_expr(
-            file_blob::Column::RefCount,
-            sea_orm::sea_query::Expr::value(0i32),
-        )
+/// Retire only the immutable physical generation whose deletion was claimed.
+pub async fn delete_claimed_blob_generation<C: ConnectionTrait>(
+    db: &C,
+    blob: &file_blob::Model,
+) -> Result<bool> {
+    let query = FileBlob::delete_many()
+        .filter(file_blob::Column::Id.eq(blob.id))
+        .filter(file_blob::Column::RefCount.eq(BLOB_CLEANUP_CLAIMED_REF_COUNT));
+    let query = match blob.storage_path.as_deref() {
+        Some(path) => query.filter(file_blob::Column::StoragePath.eq(path)),
+        None => query.filter(file_blob::Column::StoragePath.is_null()),
+    };
+    Ok(query
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?
+        .rows_affected
+        == 1)
+}
+
+/// Renew a retry on the same claimed generation without reopening it for adoption.
+pub(crate) async fn renew_blob_cleanup_attempt<C: ConnectionTrait>(
+    db: &C,
+    blob: &file_blob::Model,
+) -> Result<bool> {
+    let query = FileBlob::update_many()
         .col_expr(
             file_blob::Column::UpdatedAt,
             sea_orm::sea_query::Expr::value(Utc::now()),
         )
-        .filter(file_blob::Column::Id.eq(id))
+        .filter(file_blob::Column::Id.eq(blob.id))
         .filter(file_blob::Column::RefCount.eq(BLOB_CLEANUP_CLAIMED_REF_COUNT))
+        .filter(file_blob::Column::UpdatedAt.eq(blob.updated_at));
+    let query = match blob.storage_path.as_deref() {
+        Some(path) => query.filter(file_blob::Column::StoragePath.eq(path)),
+        None => query.filter(file_blob::Column::StoragePath.is_null()),
+    };
+    Ok(query
         .exec(db)
         .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected == 1)
-}
-
-pub async fn delete_blob_if_cleanup_claimed<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
-    let result = FileBlob::delete_many()
-        .filter(file_blob::Column::Id.eq(id))
-        .filter(file_blob::Column::RefCount.eq(BLOB_CLEANUP_CLAIMED_REF_COUNT))
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected == 1)
-}
-
-/// 将 blob 的 ref_count 强制重置为 0（用于 reconcile 修正负值）
-pub async fn reset_blob_ref_count_to_zero<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
-    FileBlob::update_many()
-        .col_expr(
-            file_blob::Column::CleanupPendingSince,
-            cleanup_pending_since_expr(sea_orm::sea_query::Expr::value(0i32)),
-        )
-        .col_expr(
-            file_blob::Column::RefCount,
-            sea_orm::sea_query::Expr::value(0i32),
-        )
-        .col_expr(
-            file_blob::Column::UpdatedAt,
-            sea_orm::sea_query::Expr::value(Utc::now()),
-        )
-        .filter(file_blob::Column::Id.eq(id))
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(())
+        .map_err(AsterError::from)?
+        .rows_affected
+        == 1)
 }
 
 /// 将 blob 的 ref_count 设置为指定值（用于 reconcile 修正偏差）

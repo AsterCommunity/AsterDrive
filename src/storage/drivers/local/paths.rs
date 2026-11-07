@@ -137,6 +137,6 @@ pub(super) fn sanitize_relative_path(path: &str) -> Result<PathBuf> {
 
 pub fn upload_staging_path(base_path: &str, name: &str) -> Result<PathBuf> {
     let root = resolved_base_path(base_path)?;
-    let safe = sanitize_relative_path(name).unwrap_or_else(|_| PathBuf::from("_invalid"));
-    resolve_path_within_root(&root, &Path::new(".staging").join(safe), name)
+    let relative = aster_drive_storage::object_path::local_upload_staging_path(name)?;
+    resolve_path_within_root(&root, Path::new(&relative), name)
 }

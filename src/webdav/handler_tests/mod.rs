@@ -269,7 +269,7 @@ async fn create_file_in_folder(
         policy_id,
         filename,
         1,
-        &format!("files/{}", uuid::Uuid::new_v4()),
+        &aster_drive_storage::object_path::new_blob_path(),
     )
     .await;
     file::ActiveModel {

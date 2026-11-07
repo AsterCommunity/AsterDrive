@@ -4475,3 +4475,162 @@ async fn test_team_archive_cleanup_respects_configured_retention() {
             .unwrap();
     assert_eq!(archived.id, team.id);
 }
+
+#[actix_web::test]
+async fn test_team_archive_cleanup_keeps_permanent_provider_object_shared_with_personal_workspace()
+{
+    use aster_drive::db::repository::{file_repo, policy_repo, team_repo, upload_session_repo};
+    use aster_drive_model::entities::{file, file_blob, upload_session};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+    use chrono::{Duration, Utc};
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let owner = common::create_test_account(
+        &state,
+        "providerowner",
+        "provider-owner@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let personal_owner = common::create_test_account(
+        &state,
+        "providerreader",
+        "provider-reader@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let team = aster_drive::services::workspace::team::create_team(
+        &state,
+        owner.id,
+        aster_drive::services::workspace::team::CreateTeamInput {
+            name: "Provider Cleanup".into(),
+            description: None,
+        },
+    )
+    .await
+    .unwrap();
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let driver = state.driver_registry.get_driver(&policy).unwrap();
+    let bytes = b"permanent-provider-bytes";
+    let key = format!("files/{}", uuid::Uuid::new_v4());
+    driver.put(&key, bytes).await.unwrap();
+    let now = Utc::now();
+    let blob = file_repo::create_blob(
+        state.writer_db(),
+        file_blob::ActiveModel {
+            hash: Set(format!("provider-{}", uuid::Uuid::new_v4())),
+            size: Set(bytes.len() as i64),
+            policy_id: Set(policy.id),
+            storage_path: Set(Some(key.clone())),
+            ref_count: Set(2),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let mut files = Vec::new();
+    for is_team in [true, false] {
+        let actor = if is_team { &owner } else { &personal_owner };
+        let file = file_repo::create(
+            state.writer_db(),
+            file::ActiveModel {
+                name: Set("provider.txt".into()),
+                team_id: Set(is_team.then_some(team.id)),
+                owner_user_id: Set((!is_team).then_some(personal_owner.id)),
+                blob_id: Set(blob.id),
+                size: Set(bytes.len() as i64),
+                created_by_user_id: Set(Some(actor.id)),
+                created_by_username: Set(actor.username.clone()),
+                mime_type: Set("text/plain".into()),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        aster_drive::db::repository::revision_repo::create_initial(
+            state.writer_db(),
+            &file,
+            aster_drive::db::repository::revision_repo::RevisionReason::Create,
+        )
+        .await
+        .unwrap();
+        files.push(file);
+    }
+    // Upgrade regression: historical Completed provider sessions still contain
+    // the physical object key now owned by a permanent, cross-workspace blob.
+    let session_id = uuid::Uuid::new_v4().to_string();
+    upload_session_repo::create(
+        state.writer_db(),
+        upload_session::ActiveModel {
+            id: Set(session_id.clone()),
+            user_id: Set(owner.id),
+            team_id: Set(Some(team.id)),
+            filename: Set("provider.txt".into()),
+            mime_type: Set("text/plain".into()),
+            total_size: Set(bytes.len() as i64),
+            chunk_size: Set(bytes.len() as i64),
+            total_chunks: Set(1),
+            received_count: Set(1),
+            policy_id: Set(policy.id),
+            placement_profile_id: Set(1),
+            placement_revision: Set(1),
+            placement_execution_preference: Set("automatic".into()),
+            status: Set(UploadSessionStatus::Completed),
+            session_kind: Set(UploadSessionKind::ProviderDirectResumable),
+            object_temp_key: Set(Some(key.clone())),
+            provider_session_ciphertext: Set(Some("legacy-session".into())),
+            file_id: Set(Some(files[0].id)),
+            created_at: Set(now),
+            updated_at: Set(now),
+            expires_at: Set(now + Duration::days(1)),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    aster_drive::services::workspace::team::archive_team(&state, team.id, owner.id)
+        .await
+        .unwrap();
+    let mut archived = team_repo::find_by_id(state.writer_db(), team.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    archived.archived_at = Set(Some(now - Duration::days(8)));
+    archived.update(state.writer_db()).await.unwrap();
+    assert_eq!(
+        aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(driver.get(&key).await.unwrap(), bytes);
+    assert_eq!(
+        file_repo::find_by_id(state.writer_db(), files[1].id)
+            .await
+            .unwrap()
+            .blob_id,
+        blob.id
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), blob.id)
+            .await
+            .unwrap()
+            .ref_count,
+        1
+    );
+    assert!(
+        upload_session_repo::find_by_id(state.writer_db(), &session_id)
+            .await
+            .is_err()
+    );
+}

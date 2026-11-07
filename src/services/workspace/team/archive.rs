@@ -12,7 +12,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_drive_model::entities::{team, upload_session};
-use aster_drive_model::types::{EntityType, LockWorkspaceType};
+use aster_drive_model::types::{EntityType, LockWorkspaceType, UploadSessionStatus};
 
 const DEFAULT_TEAM_ARCHIVE_RETENTION_DAYS: i64 = 7;
 const TEAM_ARCHIVE_BATCH_SIZE: u64 = 1_000;
@@ -42,6 +42,30 @@ async fn cleanup_team_upload_sessions(
     let mut aborted_multipart_uploads = 0u64;
     let mut incomplete_cleanups = 0u64;
     for session in sessions {
+        // Older provider-resumable completions kept the permanent object key
+        // in this historical field. Completed sessions own no deletion right.
+        if session.status == UploadSessionStatus::Completed {
+            let temp_dir = aster_forge_utils::paths::upload_temp_dir(
+                &state.config().server.upload_temp_dir,
+                &session.id,
+            );
+            aster_forge_utils::fs::cleanup_temp_dir(&temp_dir).await;
+            continue;
+        }
+        // This CAS races the final publication's Assembling -> Completed CAS.
+        // Once Failed wins, no file publication may claim this session's key.
+        if session.status != UploadSessionStatus::Failed
+            && !upload_session_repo::try_fail_with_expiration(
+                state.writer_db(),
+                &session.id,
+                session.status,
+                Utc::now(),
+            )
+            .await?
+        {
+            incomplete_cleanups += 1;
+            continue;
+        }
         let Some(temp_key) = session.object_temp_key.as_deref() else {
             continue;
         };
@@ -78,17 +102,20 @@ async fn cleanup_team_upload_sessions(
                             "failed to abort team multipart upload during cleanup: {err}"
                         );
                         incomplete_cleanups += 1;
-                    } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
+                    } else if cleanup_team_temp_object(state, driver.as_ref(), session, temp_key)
+                        .await
+                    {
                         aborted_multipart_uploads += 1;
                     } else {
                         incomplete_cleanups += 1;
                     }
-                } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
+                } else if cleanup_team_temp_object(state, driver.as_ref(), session, temp_key).await
+                {
                     cleaned_temp_objects += 1;
                 } else {
                     incomplete_cleanups += 1;
                 }
-            } else if cleanup_team_temp_object(driver.as_ref(), session, temp_key).await {
+            } else if cleanup_team_temp_object(state, driver.as_ref(), session, temp_key).await {
                 cleaned_temp_objects += 1;
             } else {
                 incomplete_cleanups += 1;
@@ -115,10 +142,26 @@ async fn cleanup_team_upload_sessions(
 }
 
 async fn cleanup_team_temp_object(
+    state: &PrimaryAppState,
     driver: &dyn aster_drive_storage::StorageDriver,
     session: &upload_session::Model,
     temp_key: &str,
 ) -> bool {
+    match file_repo::blob_storage_path_exists_for_policy(
+        state.writer_db(),
+        session.policy_id,
+        temp_key,
+    )
+    .await
+    {
+        Ok(true) => return true,
+        Ok(false) => {}
+        Err(error) => {
+            tracing::warn!(upload_id = %session.id, temp_key,
+                "failed to establish temporary object cleanup ownership: {error}");
+            return false;
+        }
+    }
     match driver.delete(temp_key).await {
         Ok(()) => true,
         Err(err) => match driver.exists(temp_key).await {

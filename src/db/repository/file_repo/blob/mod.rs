@@ -4,13 +4,14 @@ mod cleanup;
 mod lookup;
 mod maintenance;
 mod ref_count;
+pub(crate) use cleanup::renew_blob_cleanup_attempt;
+pub(crate) use maintenance::find_other_blobs_at_storage_path;
 #[cfg(test)]
 mod tests;
 
 pub use cleanup::{
     BLOB_CLEANUP_CLAIMED_REF_COUNT, claim_blob_cleanup, count_blobs_by_policy, delete_blob,
-    delete_blob_if_cleanup_claimed, delete_blobs, reset_blob_ref_count_to_zero,
-    restore_blob_cleanup_claim, set_blob_ref_count,
+    delete_blobs, delete_claimed_blob_generation, set_blob_ref_count,
 };
 pub use lookup::{
     AdminFileBlobFilters, FindOrCreateBlobResult, StoragePolicyBlobHashKindSummary,

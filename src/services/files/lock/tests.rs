@@ -299,7 +299,7 @@ async fn build_lock_test_fixture_with_pool_size(pool_size: u32) -> LockTestFixtu
         hash: Set(format!("lock-blob-{}", uuid::Uuid::new_v4())),
         size: Set(1),
         policy_id: Set(policy.id),
-        storage_path: Set(Some(format!("files/{}", uuid::Uuid::new_v4()))),
+        storage_path: Set(Some(aster_drive_storage::object_path::new_blob_path())),
         thumbnail_path: Set(None),
         thumbnail_processor: Set(None),
         thumbnail_version: Set(None),

@@ -47,6 +47,24 @@ async fn get_progress_impl(
     );
 
     let kind = resolve_upload_session_kind(&session)?;
+    if session.status == UploadSessionStatus::Completed
+        && matches!(
+            kind,
+            UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+        )
+    {
+        return Ok(UploadProgressResponse {
+            upload_id: session.id,
+            status: session.status,
+            received_count: session.total_chunks,
+            chunks_on_disk: Vec::new(),
+            chunk_size: session.chunk_size,
+            total_chunks: session.total_chunks,
+            filename: session.filename,
+            provider_resumable: None,
+            upload_scheduling: scheduling_for_kind(kind),
+        });
+    }
     let (chunks_on_disk, provider_resumable) = match kind {
         UploadSessionKind::Stream => (Vec::new(), None),
         UploadSessionKind::ProviderPresignedMultipart

@@ -9,7 +9,7 @@ mod stream_upload;
 #[cfg(test)]
 mod tests;
 
-use crate::errors::{AsterError, Result};
+use crate::errors::Result;
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::remote_protocol::RemoteStorageCapabilities;
 use crate::storage::remote_protocol::RemoteStorageClient;
@@ -40,8 +40,6 @@ pub struct RemoteDriver {
 }
 
 impl RemoteDriver {
-    const MULTIPART_UPLOADS_PREFIX: &str = "uploads";
-
     pub fn new(config: &RemoteDriverConfig, follower: &managed_follower::Model) -> Result<Self> {
         Self::from_client(
             config,
@@ -114,22 +112,5 @@ impl RemoteDriver {
 
     fn strip_base_path<'a>(&self, object_key: &'a str) -> Option<&'a str> {
         object_key::strip_key_prefix(&self.base_path, object_key)
-    }
-
-    fn multipart_parts_prefix(upload_id: &str) -> String {
-        format!("{}/{upload_id}/parts", Self::MULTIPART_UPLOADS_PREFIX)
-    }
-
-    fn multipart_part_key(upload_id: &str, part_number: i32) -> Result<String> {
-        if part_number <= 0 {
-            return Err(AsterError::validation_error(format!(
-                "multipart part_number must be positive, got {part_number}"
-            )));
-        }
-        Ok(format!(
-            "{}/{}",
-            Self::multipart_parts_prefix(upload_id),
-            part_number
-        ))
     }
 }

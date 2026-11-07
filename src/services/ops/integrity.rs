@@ -6,16 +6,17 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
+use chrono::Utc;
 use futures::{StreamExt as _, stream};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, JoinType, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, RelationTrait, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ExprTrait, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait, sea_query::Expr,
 };
 use serde::Serialize;
 
 use crate::db::repository::{file_repo, revision_repo, team_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::{files::thumbnail, media::processing};
+use crate::services::media::processing;
 use crate::storage::DriverRegistry;
 use aster_drive_model::entities::{
     file::{self, Entity as File},
@@ -268,7 +269,7 @@ impl<'db, 'report, 'sink, C: ConnectionTrait + Sync> StorageAuditVisitor<'db, 'r
                 .rsplit('/')
                 .next()
                 .and_then(|name| name.strip_suffix(".webp"));
-            if thumbnail::is_thumbnail_path(&path) {
+            if aster_drive_storage::object_path::is_thumbnail_path(&path) {
                 let tracked = hash.is_some_and(|hash| {
                     derivative_blobs.iter().any(|blob| {
                         !blob.is_virtual_empty()
@@ -298,7 +299,7 @@ impl<'db, 'report, 'sink, C: ConnectionTrait + Sync> StorageAuditVisitor<'db, 'r
                 );
                 continue;
             }
-            if thumbnail::is_image_preview_path(&path) {
+            if aster_drive_storage::object_path::is_image_preview_path(&path) {
                 let tracked = hash.is_some_and(|hash| {
                     derivative_blobs.iter().any(|blob| {
                         !blob.is_virtual_empty()
@@ -1039,32 +1040,88 @@ pub async fn audit_blob_ref_counts_with_limit<C: ConnectionTrait>(
     Ok(drifts)
 }
 
-pub async fn fix_blob_ref_count_drifts<C: ConnectionTrait>(
-    db: &C,
-    drifts: &[BlobRefCountDrift],
-) -> Result<()> {
-    for drift in drifts {
-        let actual_ref_count = i32::try_from(drift.actual_ref_count).map_err(|_| {
-            AsterError::internal_error(format!(
-                "actual ref count overflow for blob {}",
-                drift.blob_id
-            ))
-        })?;
-
-        let updated = file_repo::set_blob_ref_count(db, drift.blob_id, actual_ref_count).await?;
-        if !updated {
-            return Err(AsterError::record_not_found(format!(
-                "file_blob #{}",
-                drift.blob_id
-            )));
-        }
-    }
-
-    Ok(())
+/// Reconciles one blob against reference truth while excluding concurrent adoption and cleanup.
+#[derive(Clone, Copy)]
+pub(crate) enum BlobReconcileIntent {
+    Repair,
+    Cleanup,
 }
 
-pub async fn fix_blob_ref_counts_all<C: ConnectionTrait>(
-    db: &C,
+const BLOB_CLEANUP_RETRY_AFTER_SECS: i64 = 10 * 60;
+
+pub(crate) struct ReconciledBlob {
+    pub blob: file_blob::Model,
+    pub actual_refs: i32,
+    pub ref_count_fixed: bool,
+}
+
+pub(crate) async fn reconcile_blob_reference_count(
+    db: &DatabaseConnection,
+    blob_id: i64,
+    intent: BlobReconcileIntent,
+) -> Result<Option<ReconciledBlob>> {
+    aster_forge_db::transaction::with_transaction(db, async |txn| {
+        // Lock before the first consistent read, including MySQL REPEATABLE READ.
+        let mut blob = match file_repo::lock_blob_by_id(txn, blob_id).await {
+            Ok(blob) => blob,
+            Err(AsterError::RecordNotFound(_)) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let retry_claimed = match (blob.ref_count, intent) {
+            (file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT, BlobReconcileIntent::Repair) => {
+                return Ok(None);
+            }
+            (file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT, BlobReconcileIntent::Cleanup) => {
+                if Utc::now()
+                    .signed_duration_since(blob.updated_at)
+                    .num_seconds()
+                    < BLOB_CLEANUP_RETRY_AFTER_SECS
+                {
+                    return Ok(None);
+                }
+                true
+            }
+            _ => false,
+        };
+        let count = actual_blob_ref_counts_for_blobs(txn, &[blob_id])
+            .await?
+            .get(&blob_id)
+            .copied()
+            .unwrap_or(0);
+        let actual_refs = i32::try_from(count).map_err(|_| {
+            AsterError::internal_error(format!("actual ref count overflow for blob {blob_id}"))
+        })?;
+        // A stale cleanup may be retried, but never released for adoption of
+        // its old physical generation while an earlier delete can still finish.
+        if retry_claimed {
+            return match actual_refs {
+                0 if file_repo::renew_blob_cleanup_attempt(txn, &blob).await? => {
+                    blob = file_repo::find_blob_by_id(txn, blob.id).await?;
+                    Ok(Some(ReconciledBlob {
+                        blob,
+                        actual_refs,
+                        ref_count_fixed: false,
+                    }))
+                }
+                _ => Ok(None),
+            };
+        }
+        let ref_count_fixed = blob.ref_count != actual_refs;
+        if ref_count_fixed {
+            file_repo::set_blob_ref_count(txn, blob_id, actual_refs).await?;
+            blob = file_repo::find_blob_by_id(txn, blob_id).await?;
+        }
+        Ok(Some(ReconciledBlob {
+            blob,
+            actual_refs,
+            ref_count_fixed,
+        }))
+    })
+    .await
+}
+
+pub async fn repair_blob_ref_counts(
+    db: &DatabaseConnection,
     policy_id: Option<i64>,
 ) -> Result<usize> {
     let mut fixed = 0;
@@ -1088,26 +1145,24 @@ pub async fn fix_blob_ref_counts_all<C: ConnectionTrait>(
         }
         last_blob_id = blobs.last().map(|blob| blob.id);
         let ids = blobs.iter().map(|blob| blob.id).collect::<Vec<_>>();
-        let actual = actual_blob_ref_counts_for_blobs(db, &ids).await?;
+        let observed = actual_blob_ref_counts_for_blobs(db, &ids).await?;
         for blob in blobs {
-            let actual_refs = actual.get(&blob.id).copied().unwrap_or(0);
-            if i64::from(blob.ref_count) == actual_refs {
-                continue;
+            // Healthy pages remain batched. Only suspected drifts enter a short
+            // writer transaction and re-count before making an authoritative write.
+            match blob.ref_count {
+                file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT => continue,
+                count if i64::from(count) == observed.get(&blob.id).copied().unwrap_or(0) => {
+                    continue;
+                }
+                _ => {}
             }
-            let value = i32::try_from(actual_refs).map_err(|_| {
-                AsterError::internal_error(format!(
-                    "actual ref count overflow for blob {}",
-                    blob.id
-                ))
-            })?;
-            let updated = file_repo::set_blob_ref_count(db, blob.id, value).await?;
-            if !updated {
-                return Err(AsterError::record_not_found(format!(
-                    "file_blob #{}",
-                    blob.id
-                )));
+
+            if reconcile_blob_reference_count(db, blob.id, BlobReconcileIntent::Repair)
+                .await?
+                .is_some_and(|result| result.ref_count_fixed)
+            {
+                fixed += 1;
             }
-            fixed += 1;
         }
     }
     Ok(fixed)

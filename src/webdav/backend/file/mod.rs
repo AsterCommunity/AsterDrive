@@ -219,7 +219,7 @@ impl AsterDavWriteHandle {
             )
             .map_err(|_| FsError::GeneralFailure)?
             {
-                let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
+                let staging_token = aster_drive_storage::object_path::new_upload_staging_name();
                 let staging_path = crate::storage::drivers::local::upload_staging_path(
                     &local.base_path,
                     &staging_token,

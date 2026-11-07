@@ -905,7 +905,10 @@ async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
 
     let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
-    assert_eq!(stats.ref_count_fixed, 1);
+    assert_eq!(
+        stats.ref_count_fixed, 0,
+        "cleanup retries never reopen a claimed generation for adoption"
+    );
     assert_eq!(stats.orphan_blobs_deleted, 1);
     assert!(
         file_repo::find_blob_by_id(state.writer_db(), blob.id)
@@ -950,7 +953,10 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
     let blob_after_purge = file_repo::find_blob_by_id(state.writer_db(), blob.id)
         .await
         .unwrap();
-    assert_eq!(blob_after_purge.ref_count, 0);
+    assert_eq!(
+        blob_after_purge.ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
+    );
     assert!(
         driver
             .exists(blob.storage_path_for_connector().expect("stored blob path"))
@@ -959,6 +965,9 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
     );
 
     drop(_guard);
+    let mut retry: aster_drive_model::entities::file_blob::ActiveModel = blob_after_purge.into();
+    retry.updated_at = Set(Utc::now() - Duration::minutes(11));
+    retry.update(state.writer_db()).await.unwrap();
 
     let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
@@ -1527,7 +1536,7 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
         .await
         .unwrap();
     assert_eq!(blob_drifts.len(), 1);
-    integrity::fix_blob_ref_count_drifts(state.writer_db(), &blob_drifts)
+    integrity::repair_blob_ref_counts(state.writer_db(), None)
         .await
         .unwrap();
     assert!(
@@ -1535,6 +1544,108 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
             .await
             .unwrap()
             .is_empty()
+    );
+}
+
+#[actix_web::test]
+async fn test_integrity_ref_count_repair_recounts_after_audited_snapshot() {
+    use aster_drive::db::repository::file_repo;
+    use aster_drive::services::ops::integrity;
+    let state = common::setup().await;
+    let policy = default_policy(&state).await;
+    let mut policy_update: aster_drive_model::entities::storage_policy::ActiveModel =
+        policy.clone().into();
+    policy_update.storage_config = Set(common::with_local_content_dedup(&policy, true));
+    policy_update.update(state.writer_db()).await.unwrap();
+    state
+        .driver_registry()
+        .reload_policy_snapshot(&state.policy_snapshot, state.writer_db())
+        .await
+        .unwrap();
+    let user =
+        common::create_test_account(&state, "freshrepair", "freshrepair@test.com", "password123")
+            .await
+            .unwrap();
+    let first = store_test_file(&state, user.id, "first.txt", b"fresh reference truth").await;
+    file_repo::set_blob_ref_count(state.writer_db(), first.blob_id, 0)
+        .await
+        .unwrap();
+    let snapshot = integrity::audit_blob_ref_counts(state.writer_db(), None)
+        .await
+        .unwrap();
+    assert_eq!(snapshot[0].actual_ref_count, 1);
+
+    // A later successful publication changes the truth after doctor produced its report.
+    let second = store_test_file(&state, user.id, "second.txt", b"fresh reference truth").await;
+    assert_eq!(first.blob_id, second.blob_id);
+    integrity::repair_blob_ref_counts(state.writer_db(), None)
+        .await
+        .unwrap();
+    let current = file_repo::find_blob_by_id(state.writer_db(), first.blob_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        current.ref_count, 2,
+        "repair must recount under the blob lock instead of writing the old audit count"
+    );
+    assert!(
+        integrity::audit_blob_ref_counts(state.writer_db(), None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[actix_web::test]
+async fn test_integrity_ref_count_repair_preserves_cleanup_claims() {
+    use aster_drive::db::repository::file_repo;
+    use aster_drive::services::ops::integrity;
+    let state = common::setup().await;
+    let policy = default_policy(&state).await;
+    let now = Utc::now();
+    let blob = aster_drive_model::entities::file_blob::ActiveModel {
+        hash: Set("repair-cleanup-claim".to_string()),
+        size: Set(1),
+        policy_id: Set(policy.id),
+        storage_path: Set(Some("files/claim".to_string())),
+        ref_count: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .unwrap();
+    file_repo::set_blob_ref_count(state.writer_db(), blob.id, 0)
+        .await
+        .unwrap();
+    assert!(
+        file_repo::claim_blob_cleanup(state.writer_db(), blob.id)
+            .await
+            .unwrap()
+    );
+    integrity::repair_blob_ref_counts(state.writer_db(), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), blob.id)
+            .await
+            .unwrap()
+            .ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
+    );
+    assert_eq!(
+        integrity::repair_blob_ref_counts(state.writer_db(), None)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        file_repo::find_blob_by_id(state.writer_db(), blob.id)
+            .await
+            .unwrap()
+            .ref_count,
+        file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT
     );
 }
 

@@ -16,7 +16,7 @@ labels!(TransferSource { File => "file", Share => "share", Webdav => "webdav", W
 labels!(TransferMode { Stream => "stream", Chunked => "chunked", Multipart => "multipart", Range => "range", Resumable => "resumable", Presigned => "presigned" });
 labels!(TransferOutcome { Success => "success", Failure => "failure", Cancelled => "cancelled" });
 labels!(UploadPhase { Assemble => "assemble", Finalize => "finalize", Complete => "complete", Ingest => "ingest" });
-labels!(CleanupOutcome { Deleted => "deleted", Missing => "missing", Virtual => "virtual", Failure => "failure", Cancelled => "cancelled" });
+labels!(CleanupOutcome { RetainedShared => "retained_shared", Deleted => "deleted", Missing => "missing", Virtual => "virtual", Failure => "failure", Cancelled => "cancelled" });
 labels!(RemoteTransport { Direct => "direct", Reverse => "reverse" });
 labels!(RemoteOperation { Read => "read", Write => "write", Delete => "delete", Metadata => "metadata", Capacity => "capacity", Control => "control" });
 labels!(RemoteReason { Ok => "ok", Timeout => "timeout", Disconnected => "disconnected", Rejected => "rejected", Error => "error", Cancelled => "cancelled" });

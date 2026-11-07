@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Blob publication and cleanup ownership** — Keep content hashes as logical deduplication identities while uploads and migrations publish verified private object generations through database CAS/transactions. Warm deduplication hits reuse locked metadata without copying content; local cold candidates retain directory fanout. Failed and losing attempts clean only their own objects, legacy cross-policy aliases retain shared bytes, and delayed cleanup cannot retire another physical generation. Provider completion atomically transfers temporary cleanup authority; team archive preserves permanent objects. Doctor and maintenance recount under the blob lock and preserve cleanup claims. Upgrade all writers together. (#745)
+
 - **Resource processing budgets** — Bound tunnel response collection, WOPI discovery expansion, persisted preferences, image/TIFF processing, archive metadata and range reads, WebDAV lock discovery, and concurrent storage-event streams before expensive work. JSON/CSV previews simplify oversized content. Generic object copies stage and verify the declared length in Forge runtime scratch directories before streaming to the destination; native copies remain available. (#745)
 
 - **External account association** — Preserve the initiating browser through password and email recovery; defer existing-account identity links until required MFA completes, then commit the association, flow consumption, audit and session together. Existing identities obey current provider email/domain policies. Upgrade all authentication writers; pre-upgrade unbound recovery flows must restart.
@@ -26,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workspace and resource authorization** — Unify current actor, delegated scope and operation checks across file services, upload publication, WebDAV, WOPI, shares, tasks and governed administrator reads. Reject missing team membership, stale credential approvals, cross-mount lock operations, collection-lock bypasses and privileged task retries after demotion; bind queued uploads and recovery to their original account and workspace. Clear private listings, playback and downloads on logout and reject responses from earlier accounts. Preserve protocol token/precondition behavior and existing capability lifetimes. (#745)
 
 ### Changed
+
+- **Storage object naming** — Centralize object and staging names, multipart parts and image derivative paths in `aster_drive_storage::object_path`, migrating callers and removing superseded factories. Existing persisted object paths remain readable without relocating content.
 
 - **Folder hierarchy limits** — Support directory depth up to 4096, counting the workspace root as zero, with consistent checks for creation, relative-path uploads, moves, copies and restores. Keep synchronous operation budgets separate from background processing, preserve cleanup of older deeper trees, and load deep shared navigation lazily. Directory downloads reuse parent handles and support cancellation. Trash cleanup, folder-task staging, revision purge and integrity scans avoid repeated growing scans. (#745)
 

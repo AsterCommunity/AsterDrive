@@ -202,10 +202,7 @@ impl StreamUploadAttempt {
         }
         let storage_path = storage_path.into();
         let id = aster_forge_utils::id::new_uuid();
-        let staging_path = storage_path
-            .rsplit_once('/')
-            .map(|(parent, _)| format!("{parent}/.aster-attempt-{id}.tmp"))
-            .unwrap_or_else(|| format!(".aster-attempt-{id}.tmp"));
+        let staging_path = crate::object_path::stream_staging_path(&storage_path, &id);
         Ok(Self {
             id,
             storage_path,

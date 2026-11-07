@@ -74,7 +74,8 @@ impl MultipartStorageDriver for RemoteDriver {
                 "reverse tunnel remote nodes do not support presigned multipart upload URLs",
             ));
         }
-        let part_key = Self::multipart_part_key(upload_id, part_number)?;
+        let part_key =
+            aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
         self.client
             .presigned_put_url(&self.object_key(&part_key), expires)
             .map(aster_drive_storage::PresignedUploadRequest::without_headers)
@@ -98,7 +99,8 @@ impl MultipartStorageDriver for RemoteDriver {
         let mut expected_size = 0i64;
         let mut part_keys = Vec::with_capacity(parts.len());
         for (part_number, _) in parts {
-            let part_key = Self::multipart_part_key(upload_id, part_number)?;
+            let part_key =
+                aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
             let remote_key = self.object_key(&part_key);
             let metadata = self.client.metadata(&remote_key).await?;
             let part_size = i64::try_from(metadata.size).map_err(|_| {
@@ -129,7 +131,8 @@ impl MultipartStorageDriver for RemoteDriver {
         part_number: i32,
         data: &[u8],
     ) -> aster_drive_storage::Result<String> {
-        let part_key = Self::multipart_part_key(upload_id, part_number)?;
+        let part_key =
+            aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
         self.client
             .put_bytes(&self.object_key(&part_key), data)
             .await?;
@@ -147,7 +150,8 @@ impl MultipartStorageDriver for RemoteDriver {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> aster_drive_storage::Result<String> {
-        let part_key = Self::multipart_part_key(upload_id, part_number)?;
+        let part_key =
+            aster_drive_storage::object_path::multipart_part_path(upload_id, part_number)?;
         let size = u64::try_from(size).map_err(|_| {
             storage_driver_error(
                 StorageErrorKind::Precondition,
@@ -198,7 +202,7 @@ impl MultipartStorageDriver for RemoteDriver {
         _path: &str,
         upload_id: &str,
     ) -> aster_drive_storage::Result<()> {
-        let prefix = Self::multipart_parts_prefix(upload_id);
+        let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
         let parts = self.list_paths(Some(&prefix)).await?;
         for part_path in parts {
             self.client.delete(&self.object_key(&part_path)).await?;
@@ -211,7 +215,7 @@ impl MultipartStorageDriver for RemoteDriver {
         _path: &str,
         upload_id: &str,
     ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
-        let prefix = Self::multipart_parts_prefix(upload_id);
+        let prefix = aster_drive_storage::object_path::multipart_parts_prefix(upload_id)?;
         let mut parts = self
             .list_paths(Some(&prefix))
             .await?

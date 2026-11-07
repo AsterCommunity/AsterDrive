@@ -22,6 +22,12 @@ The cluster profile permits the same staging protocol when operators make every 
 
 The reservation coordinator serializes capacity checks and allocation through the shared staging filesystem without introducing a duplicate database ledger. `upload_sessions.session_kind + total_size + status` remains the durable recovery source. The first staged Init, Chunk PUT, or Complete after process start reloads active staged sessions and allocates only the physical bytes missing according to each file's `allocated_size`. Successful completion, cancellation, expiry cleanup, and forced policy cleanup release the reservation by deleting the session temporary directory; in cluster deployments, any Primary may perform these operations against the same shared session directory.
 
+## Immutable object ownership
+
+Blob hashes deduplicate metadata; physical candidates are private generations from `aster_drive_storage::object_path`. Warm hits acquire a locked row/reference in the file transaction without copying. Cold uploads stage outside the transaction, retain retry sources, and delete only unused owned candidates. Unknown commit outcomes retain candidates. See [object lifecycle](object-lifecycle.md).
+
+Provider-resumable completion atomically commits Completed/file_id and clears `object_temp_key`. Completed progress replays committed state; historical Completed sessions do not authorize team archive deletion of permanent content.
+
 ## Provider Resumable Upload
 
 OneDrive and similar providers expose a stateful upload session whose progress can be queried. The connector selects one of two data paths:
