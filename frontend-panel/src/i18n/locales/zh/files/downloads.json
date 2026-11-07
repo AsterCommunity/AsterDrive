@@ -21,7 +21,7 @@
 	"download_cancel": "取消下载",
 	"download_retry_failed": "重试失败项",
 	"download_items_failed": "部分文件下载失败，可以重试失败项",
-	"download_directory_limit": "目录准备超出支持的深度或准备工作量，请选择较小的子目录。",
+	"download_directory_limit": "目录准备超出支持的深度或准备工作量，请选择较小的子目录",
 	"download_directory_unsupported": "当前浏览器不支持选择本地文件夹",
 	"download_items_progress": "已完成 {{completed}} / {{total}}，失败 {{failed}}",
 	"download_estimated_remaining": "预计剩余 {{seconds}} 秒",
