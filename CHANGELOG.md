@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **HTTP dependency fixes** — Require Actix Web 4.18.2 and Actix HTTP 3.20.3 to fix compressed-body resource exhaustion and malformed chunked-trailer request smuggling. Refresh compatible Rust dependencies; remove the resolved crypto-bigint exception and document the remaining precise upstream exceptions, including test-only tar maintenance.
+
 - **Media input confinement** — FFmpeg thumbnails and ffprobe metadata read only the selected object, with standalone demuxers and external-reference rejection. Local inputs use seekable descriptors; efficient remote backends retain on-demand Range reads through a temporary loopback reader bound to one driver/key/size, with bounded block caching and no full-file staging. Stream-only backends retain exact-size scratch staging. Child processes receive no provider credentials or URLs; inherited proxy bypasses are cleared. Host builds need `fd` protocol support for local inputs; official images provide it.
 
 - **Local inputs and diagnostics** — Remove source/capability URLs before formatting offline-download and OneDrive transport errors, escape untrusted text-log fields, and reject control characters in account email and queued recipients. Create generated configuration with private Unix permissions and tighten permissions before backfilling keys, rejecting link aliases; benchmark runs use fresh private output directories. Existing configuration files without a backfill are not rewritten.

@@ -1,5 +1,5 @@
 # cargo-audit 配置
-# 忽略经当前调用路径复核、未形成可利用攻击面的上游 advisory
+# 仅列精确上游例外；包含无兼容修复的残留风险，不表示漏洞已经修复
 
 [advisories]
 ignore = [
@@ -12,20 +12,21 @@ ignore = [
     "RUSTSEC-2023-0071",
 
     # paste 1.0.x unmaintained — dtolnay 不再维护
-    # 纯编译期宏，零运行时代码，无安全风险
+    # 本项目及 Lofty/image/allocator 传递使用的 token 拼接宏，非运行时解析器；
+    # 这是维护状态例外，不声称上游已恢复维护。待调用方迁移后移除。
     "RUSTSEC-2024-0436",
 
     # h2 0.3.27 unbounded empty DATA frames (RUSTSEC-2026-0258)
-    # actix-http 3.19.0 仍依赖 h2 ^0.3；AsterDrive
+    # actix-http 3.20.3 仍依赖 h2 ^0.3；AsterDrive
     # 没有可直接替换的 h2 版本，因为 h2 0.4 不满足该依赖的 semver 约束。
     # 保留审计阻塞并不能修复上游协议栈；待 actix-http 发布切换到 h2 >= 0.4.16
     # 的版本后立即删除本项并刷新 Cargo.lock。当前 PR 不扩大为替换 Actix HTTP 栈。
     "RUSTSEC-2026-0258",
 
-    # crypto-bigint 0.5.5 constant-time timing variability (RUSTSEC-2026-0387)
-    # 修复版本为 >=0.7.6，但当前依赖图仍由 aws-sigv4 1.6.3 和
-    # elliptic-curve 0.13.8（OIDC/WebAuthn）要求 0.5.x；Cargo.lock 同时含有
-    # 0.7.8 也不能替代这些 semver 不兼容的调用方。待上游升级到兼容依赖后
-    # 删除本项并刷新 Cargo.lock；该例外记录风险，不代表 timing 侧信道已修复。
-    "RUSTSEC-2026-0387",
+    # astral-tokio-tar 0.6.4 unmaintained (RUSTSEC-2026-0440)
+    # 2026-11-07 复核：由 testcontainers 0.28.0 引入，只在开发/容器 fixture 中使用，
+    # 不在产品正常依赖树；crate 全版本停维，testcontainers 最新发布版及官方 main
+    # 仍依赖它，没有可升级的替代版本。本例外只接受维护告警，不忽略其他 tar 漏洞。
+    # 待 testcontainers 发布迁移 tar-codec 等受维护实现的版本后，升级并删除本项。
+    "RUSTSEC-2026-0440",
 ]

@@ -30,33 +30,33 @@ aster_drive_migration = { path = "crates/aster_drive_migration" }
 aster_drive_model = { path = "crates/aster_drive_model" }
 aster_drive_storage = { path = "crates/aster_drive_storage" }
 # Pin all Forge mechanisms together; members add only their required features.
-aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_events = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_http = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_middleware = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_observability = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_test = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
-aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", rev = "28a6c14a0446264dec5ed55779f4222d5619eb5a" }
+aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_events = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_http = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_middleware = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_observability = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_test = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
+aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", rev = "f413e5102a0bab6591ac7938f660054a6454c5ba" }
 async-trait = "0.1"
 bytes = "1"
 emojis = "0.9"
@@ -201,9 +201,9 @@ multi-primary-e2e = []
 [dependencies]
 aster_forge_auth = { workspace = true, features = ["password"] }
 actix-governor = "0.10"
-actix-http = "3"
+actix-http = "3.20.3"
 actix-multipart = "0.8"
-actix-web = { version = "4.18.1", features = ["compress-brotli", "compress-gzip"] }
+actix-web = { version = "4.18.2", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
 aster_forge_api = { workspace = true }
 aster_forge_api_docs_macros = { workspace = true }

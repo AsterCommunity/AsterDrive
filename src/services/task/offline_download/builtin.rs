@@ -195,7 +195,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
-        let error = reqwest::Client::builder()
+        let error = aster_forge_http::HttpClient::builder()
             .no_proxy()
             .build()
             .unwrap()

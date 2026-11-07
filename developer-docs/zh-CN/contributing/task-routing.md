@@ -52,7 +52,7 @@
 | WebDAV | [WebDAV API](../api/webdav.md)、[合规测试](../testing/webdav-compliance-testing.md) | `src/webdav/`、相关 files/workspace service | focused unit/integration、协议边界、锁、Range/ETag；需要时 Litmus/真实客户端 |
 | WOPI | [WOPI API](../api/wopi.md)、[项目契约](../architecture/project-contract.md) | WOPI route、`src/services/preview/wopi/`、files/workspace service | token、proof、lock、PUT_RELATIVE、rename、版本和错误响应 |
 | 认证、MFA、外部认证和 session | [认证预算与信任边界](../design/authentication-boundaries.md)、[外部认证模块](../design/external-auth.md)、认证 API | auth routes/services、auth_once_state_repo、MFA budget、session repository | 正常/失败、token rotation、browser binding、跨flow预算、一次消费、防重放、限流与到期 |
-| 出站 HTTP / plugin network | [出站 HTTP 契约](../design/outbound-http.md) | `crates/aster_drive_outbound/`、Forge HTTP、各 transport 调用点 | construction inventory、UA/redirect/profile、取消/大小/DNS 边界、相关协议测试 |
+| 出站 HTTP / plugin network | [出站 HTTP 契约](../design/outbound-http.md) | `crates/aster_drive_outbound/`、Forge HTTP、各 transport 调用点 | `python3 scripts/check-http-construction.py --self-test`（测试 fixture 也必须使用 factory）、UA/redirect/profile、取消/大小/DNS 边界、相关协议测试 |
 | 后台任务、runtime 和 shutdown | [架构概览](../architecture/index.md) | `src/runtime/`、task services、Forge adapters | claim/lease、retry、cancellation、shutdown、幂等和多实例边界 |
 | 缓存和多实例行为 | [项目契约](../architecture/project-contract.md) | `src/cache/`、对应 authority repository、runtime health | cache miss/fallback/invalidation、权威数据重读、并发和 readiness |
 

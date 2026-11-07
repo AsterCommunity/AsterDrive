@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **HTTP 依赖修复** — 将 Actix Web／HTTP 最低版本提高至 4.18.2／3.20.3，修复压缩请求体资源耗尽与畸形 chunked trailer 请求走私。刷新兼容 Rust 依赖，剔除已解决的 crypto-bigint 例外，逐项说明剩余上游例外及仅测试使用的 tar 停维告警。
+
 - **媒体输入范围** — FFmpeg 缩略图和 ffprobe 元数据仅处理选定对象，限制独立媒体解析器并拒绝外部引用。本地输入使用可寻址句柄；支持高效 Range 的远端后端经过绑定唯一 driver／key／大小的临时本机读取入口按需读取，保留有界块缓存，不完整暂存；仅支持流读取的后端保留严格长度校验暂存。子进程不持有 provider 凭据／URL，清除继承的代理绕过规则。本地输入需宿主 FFmpeg 支持 `fd` 协议，官方镜像满足要求。
 
 - **本地输入与诊断** — 离线下载与 OneDrive 在格式化传输错误前移除源／能力 URL，文本日志转义不可信字段，账号邮箱及队列收件人拒绝控制字符。生成配置使用 Unix 私有权限，补写密钥前收紧权限并拒绝链接别名；基准运行使用独立私有输出目录。无需补写的已有配置不重写。

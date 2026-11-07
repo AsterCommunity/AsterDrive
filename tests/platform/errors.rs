@@ -423,7 +423,53 @@ async fn json_payload_stream_overflow_uses_aster_error_envelope() {
         resp,
         StatusCode::PAYLOAD_TOO_LARGE,
         "file.too_large",
-        "configured size limit",
+        &format!(
+            "{} byte limit",
+            aster_drive::api::extractors::DEFAULT_JSON_LIMIT
+        ),
     )
     .await;
+}
+
+#[actix_web::test]
+async fn compressed_json_preserves_success_and_limit_error_contract() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(1024))
+            .route(
+                "/json",
+                web::post().to(json_extractor_required_field_handler),
+            ),
+    )
+    .await;
+    // Fixed gzip fixtures: valid small JSON and a 4KiB JSON value whose wire
+    // representation is much smaller than the configured extractor limit.
+    let small: &[u8] = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\xab\x56\x4a\xce\xc9\x4c\xcd\x2b\x89\xcf\x4c\x51\xb2\x52\x2a\x4b\xcc\x01\xd2\xb5\x00\x82\xc3\xf6\x79\x15\x00\x00\x00";
+    let oversized: &[u8] = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\xed\xc1\xb1\x0d\x00\x10\x10\x00\xc0\x5d\x7e\x0c\xcb\x28\x50\x48\x44\xa5\x90\x88\xdd\xed\x21\x77\x77\xa2\x8c\xde\xe6\xca\xbd\x46\x8a\x0d\x00\x00\x00\x7c\x2f\xee\x03\x51\xc8\x81\x32\x10\x10\x00\x00";
+    for (bytes, accepted) in [(small, true), (oversized, false)] {
+        assert!(bytes.len() < 1024);
+        let request = actix_web::test::TestRequest::post()
+            .uri("/json")
+            .insert_header(("Content-Type", "application/json"))
+            .insert_header(("Content-Encoding", "gzip"))
+            .set_payload(bytes)
+            .to_request();
+        let response = actix_web::test::call_service(&app, request).await;
+        match accepted {
+            true => {
+                assert_eq!(response.status(), StatusCode::OK);
+                let body: Value = actix_web::test::read_body_json(response).await;
+                assert_eq!(body["client_id"], "valid");
+            }
+            false => {
+                assert_json_extractor_error(
+                    response,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "file.too_large",
+                    "1024 byte limit",
+                )
+                .await
+            }
+        }
+    }
 }
